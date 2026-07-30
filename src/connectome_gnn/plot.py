@@ -23,6 +23,7 @@ from connectome_gnn.fitting_models import linear_model
 # Re-export all metrics functions for backward compatibility.
 # Callers can import from either connectome_gnn.metrics or connectome_gnn.plot.
 from connectome_gnn.metrics import (  # noqa: F401
+    r2_scatter_text,
     ANATOMICAL_ORDER,
     INDEX_TO_NAME,
     _batched_mlp_eval,
@@ -43,7 +44,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     extract_g_phi_slopes,
     get_model_W,
 )
-from connectome_gnn.utils import to_numpy
+from connectome_gnn.utils import to_numpy, qualitative_colors
 
 # ------------------------------------------------------------------ #
 #  Helpers
@@ -179,13 +180,19 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
     if n_neurons < 100:
         _dot_s = max(60, _dot_s)
 
+    # LUT good for >32 categories — tab10/tab20 (and CustomColorMap mapped
+    # over n_neurons) collapse the 34 fish2 cell types into a few hues; use a
+    # 60-colour qualitative palette so every type is distinguishable.
+    from connectome_gnn.utils import qualitative_colors
+    _type_cols = qualitative_colors(int(n_types))
+
     if embedding.shape[1] < 2:
         # 1D embedding: plot as histogram-like strip
         for n in range(n_types):
             mask = (type_np == n)
             if np.any(mask):
                 ax.scatter(embedding[mask, 0], np.zeros(mask.sum()),
-                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+                           c=[_type_cols[n]], s=_dot_s, edgecolors='none')
         ax.set_xlabel('$a_0$', fontsize=32)
         ax.set_ylabel('')
     else:
@@ -193,7 +200,7 @@ def plot_embedding(ax, model, type_list, n_types, cmap):
             mask = (type_np == n)
             if np.any(mask):
                 ax.scatter(embedding[mask, 0], embedding[mask, 1],
-                           c=cmap.color(n), s=_dot_s, edgecolors='none')
+                           c=[_type_cols[n]], s=_dot_s, edgecolors='none')
         ax.set_xlabel('$a_0$', fontsize=32)
         ax.set_ylabel('$a_1$', fontsize=32)
     ax.tick_params(axis='both', which='major', labelsize=24)
@@ -229,13 +236,19 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
     mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
+    # Per-type qualitative LUT keyed by type id (good for >32 types); avoids the
+    # CustomColorMap.color(t)=t/nmap bunching that maps all high types to ~cyan.
+    _type_cols = qualitative_colors(int(unique_types.max()) + 1)
+
+    def _type_color(t, idx):
+        return _type_cols[int(t)] if 0 <= int(t) < len(_type_cols) else mpl_cmap(idx)
 
     for idx, t in enumerate(unique_types):
         mask = type_np == t
         curves = func_np[mask]
         mean = curves.mean(axis=0)
         std = curves.std(axis=0)
-        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        color = _type_color(t, idx)
         label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
         ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
         if std.max() > 1e-6:
@@ -249,7 +262,7 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
             if not np.any(mask):
                 continue
             gt_mean = gt_curves[mask].mean(axis=0)
-            color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+            color = _type_color(t, idx)
             ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
 
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
@@ -293,13 +306,19 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     func_np = to_numpy(func)
     unique_types = np.unique(type_np)
     mpl_cmap = plt.cm.get_cmap('tab10', max(len(unique_types), 1))
+    # Per-type qualitative LUT keyed by type id (good for >32 types); avoids the
+    # CustomColorMap.color(t)=t/nmap bunching that maps all high types to ~cyan.
+    _type_cols = qualitative_colors(int(unique_types.max()) + 1)
+
+    def _type_color(t, idx):
+        return _type_cols[int(t)] if 0 <= int(t) < len(_type_cols) else mpl_cmap(idx)
 
     for idx, t in enumerate(unique_types):
         mask = type_np == t
         curves = func_np[mask]
         mean = curves.mean(axis=0)
         std = curves.std(axis=0)
-        color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+        color = _type_color(t, idx)
         label = type_names[idx] if type_names and idx < len(type_names) else f"type {t}"
         ax.plot(x_np, mean, linewidth=1.5, color=color, label=label)
         if std.max() > 1e-6:
@@ -317,7 +336,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
                 if not np.any(mask):
                     continue
                 gt_mean = gt_curves[mask].mean(axis=0)
-                color = cmap.color(t) if hasattr(cmap, 'color') else mpl_cmap(idx)
+                color = _type_color(t, idx)
                 ax.plot(gt_v_range, gt_mean, linewidth=1.5, color=color, linestyle='--', alpha=0.7)
 
     ax.axhline(0, color='#aaa', linewidth=0.5, linestyle='--')
@@ -325,7 +344,10 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     ax.set_xlim(config.plotting.xlim)
     ax.set_ylim([-config.plotting.xlim[1] / 10, config.plotting.xlim[1] * 1.2])
     ax.set_xlabel('$v_j$', fontsize=24)
-    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=24)
+    # g_phi_positive squares g_phi in the message, so the curve here (post_fn=x^2)
+    # is the effective nonlinearity matched against the GT (e.g. softplus for cx).
+    ax.set_ylabel(r'$g_\phi(\mathbf{a}_j, v_j)^2$' if model_config.g_phi_positive
+                  else r'$g_\phi(\mathbf{a}_j, v_j)$', fontsize=24)
     if len(unique_types) <= 10:
         ax.legend(fontsize=16, frameon=False, loc='upper left')
     ax.tick_params(axis='both', which='major', labelsize=18)
@@ -423,7 +445,7 @@ def plot_tau(ax, slopes_f_theta, gt_taus, n_neurons, mc=None):
 
     ax.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,
-            f'$R^2$: {r_squared:.3f}\nslope: {slope:.2f}\nN: {len(gt_taus_np)}',
+            r2_scatter_text(gt_taus_np, learned_tau, label='$R^2$', n=len(gt_taus_np)),
             transform=ax.transAxes, verticalalignment='top', fontsize=24)
     ax.set_xlabel(r'true $\tau$', fontsize=32)
     ax.set_ylabel(r'learned $\tau$', fontsize=32)
@@ -452,7 +474,7 @@ def plot_vrest(ax, slopes_f_theta, offsets_f_theta, gt_V_rest, n_neurons, mc=Non
 
     ax.scatter(gt_vr_np, learned_V_rest, c=mc, s=1, alpha=0.25)
     ax.text(0.05, 0.95,
-            f'$R^2$: {r_squared:.3f}\nslope: {slope:.2f}\nN: {len(gt_vr_np)}',
+            r2_scatter_text(gt_vr_np, learned_V_rest, label='$R^2$', n=len(gt_vr_np)),
             transform=ax.transAxes, verticalalignment='top', fontsize=24)
     ax.set_xlabel(r'true $V_{rest}$', fontsize=32)
     ax.set_ylabel(r'learned $V_{rest}$', fontsize=32)
@@ -467,7 +489,7 @@ def plot_vrest(ax, slopes_f_theta, offsets_f_theta, gt_V_rest, n_neurons, mc=Non
 #  CONSOLIDATED FROM generators/plots.py
 # ================================================================== #
 
-from typing import Optional
+from typing import Dict, List, Optional
 
 from connectome_gnn.figure_style import FigureStyle, default_style
 
@@ -718,6 +740,961 @@ def plot_kinograph(
 
     plt.tight_layout()
     style.savefig(fig, output_path)
+
+
+# ---------------------------------------------------------------------------
+# Task-data plots (PR1: path_integration). Single per-split figure:
+#   task_traces.png — line plot of one example trial
+# OF and twenty_tasks panels land in PR2/PR3.
+# ---------------------------------------------------------------------------
+
+
+def plot_task_pi_traces(
+    u: np.ndarray,
+    y: np.ndarray,
+    theta_hd: np.ndarray,
+    is_stop: np.ndarray,
+    dt: float,
+    out_path: str,
+    n_show: int = 5,
+    style: FigureStyle = default_style,
+    *,
+    y_pred: Optional[np.ndarray] = None,
+    metrics: Optional[List[Dict[str, float]]] = None,
+) -> None:
+    """Stimulus/target preview, one column per trial.
+
+    The initial-heading impulse channels (in1=cos(θ₀)·δ_{t=0}, in2=sin(θ₀)·δ_{t=0})
+    are dropped from the rendering — they contribute one non-zero sample at
+    t=0 and add no visual information at trial timescales.
+
+    Without predictions (default — used by data generation):
+      Row 0 [in 0]   ω(t) — angular velocity (deg/s)
+      Row 1 [out 0]  cos(θ_hd(t))
+      Row 2 [out 1]  sin(θ_hd(t))
+
+    With predictions (y_pred is not None — used by data_test):
+      Row 0 [in 0]   ω(t)
+      Row 1 [out 0]  cos(θ_hd) — gt (black) + decoded (red dashed)
+      Row 2 [out 1]  sin(θ_hd) — gt (black) + decoded (red dashed)
+      Row 3 [HD]     wrapped HD — true (black) + decoded (red)
+    Per-column titles include metrics (e.g. "rmse=12° r=0.98") when supplied.
+
+    Standing-pause regions (is_stop=1) shaded in gray on every row.
+    """
+    n_trials, T, _ = u.shape
+    n = min(n_show, n_trials)
+    t = np.arange(T) * dt
+    has_pred = y_pred is not None
+
+    n_rows = 4 if has_pred else 3
+    fig, axes = plt.subplots(n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
+                             sharex=True, sharey='row')
+    if n == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    # Per-row y-limits so trials are visually comparable.
+    omega_lim = max(1e-6, float(np.abs(u[:n, :, 0]).max())) * 1.05
+    out_lim   = 1.1
+    row_ylims = [(-omega_lim, omega_lim),
+                 (-out_lim, out_lim), (-out_lim, out_lim)]
+    if has_pred:
+        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))  # wrapped HD row (bottom)
+
+    # Per-row metadata: (kind, label, color, background-tint).
+    # Uniform color scheme: ground truth = green, prediction = black.
+    INP, HD, OUT = "0.92", "0.94", "0.97"
+    # Lighter green (colorblind-friendly); see memory:feedback_plot_color_scheme.
+    GT_COLOR = "#4daf4a"
+    GT_LW = 2.8         # GT line traces: clearly thicker than pred
+    GT_MS = 3.0         # GT marker scatter (wrapped HD)
+    PRED_COLOR = "black"
+    PRED_LW = 0.5       # thin so the GT envelope reads cleanly
+    PRED_MS = 0.4
+    rows = [
+        ("input",  "in 0\nω (deg/s)", GT_COLOR, INP),
+        ("output", "out 0\ncos(θ)",   GT_COLOR, OUT),
+        ("output", "out 1\nsin(θ)",   GT_COLOR, OUT),
+    ]
+    if has_pred:
+        rows.append(("hd", "HD (rad,\nwrapped)", GT_COLOR, HD))
+
+    def _shade_stops(ax, stop):
+        in_block = False
+        start = 0
+        for i, s in enumerate(stop):
+            if s and not in_block:
+                start = i; in_block = True
+            elif not s and in_block:
+                ax.axvspan(start * dt, i * dt, color="0.6", lw=0, alpha=0.25)
+                in_block = False
+        if in_block:
+            ax.axvspan(start * dt, T * dt, color="0.6", lw=0, alpha=0.25)
+
+    axis_fs = max(7, style.tick_font_size - 2)
+
+    for col in range(n):
+        stop = (is_stop[col].astype(bool) if is_stop is not None
+                else np.zeros(T, dtype=bool))
+
+        # Traces, in row order. Each entry is (trace_gt, optional trace_pred).
+        # The HD row (last when has_pred) carries (true_hd_wrapped,
+        # decoded_hd_wrapped); on output rows the second item is the
+        # predicted cos/sin trace.
+        traces: list = [(u[col, :, 0], None)]   # ω
+        if has_pred:
+            traces.append((y[col, :, 0], y_pred[col, :, 0]))
+            traces.append((y[col, :, 1], y_pred[col, :, 1]))
+            true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
+            dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
+            traces.append((true_hd_wrap, dec_theta))
+        else:
+            traces.append((y[col, :, 0], None))
+            traces.append((y[col, :, 1], None))
+
+        for r, ((kind, label, color, bg), (trace_gt, trace_pred)) in enumerate(
+            zip(rows, traces)
+        ):
+            ax = axes[r, col]
+            ax.set_facecolor(bg)
+            if kind == "hd":
+                ax.plot(t, trace_gt, color=GT_COLOR, lw=0.0, marker=".", ms=GT_MS)
+                ax.plot(t, trace_pred, color=PRED_COLOR, lw=0.0, marker=".", ms=PRED_MS)
+                ax.set_yticks([-np.pi, 0, np.pi])
+                ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+            else:
+                # GT: thicker lighter-green; pred: black lw=1, solid.
+                # Input ω row uses a thinner line — there's no prediction
+                # overlay so a thick GT trace is visually unbalanced.
+                gt_lw = 0.8 if kind == "input" else GT_LW
+                ax.plot(t, trace_gt, color=color, lw=gt_lw)
+                if trace_pred is not None:
+                    ax.plot(t, trace_pred, color=PRED_COLOR, lw=PRED_LW)
+            ax.axhline(0, color="0.5", lw=0.5)
+            ax.set_ylim(*row_ylims[r])
+            ax.tick_params(axis='both', labelsize=axis_fs)
+            _shade_stops(ax, stop)
+            if r == 0:
+                ttl = f"trial {col}"
+                if metrics is not None and col < len(metrics):
+                    m = metrics[col]
+                    rmse_s = (f"rmse={m['rmse_deg']:.1f}°"
+                              if not np.isnan(m.get('rmse_deg', float('nan')))
+                              else "rmse=n/a")
+                    r_s = (f"r={m['pearson']:.3f}"
+                           if not np.isnan(m.get('pearson', float('nan')))
+                           else "r=n/a")
+                    if 'omega_deg' in m:
+                        ttl = (f"ω={m['omega_deg']:+.0f}°/s\n"
+                               f"{rmse_s}  {r_s}")
+                    else:
+                        ttl = f"trial {col}\n{rmse_s}  {r_s}"
+                ax.set_title(ttl, fontsize=style.label_font_size - 1)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=axis_fs)
+            if col == 0:
+                ax.set_ylabel(label, fontsize=axis_fs)
+
+    # Bracket-style group labels in the left margin. Positions are computed
+    # from the row count so the 5-row and 6-row layouts both look right.
+    def _row_y(r: int) -> float:
+        # Approximate y-center of axes row `r` in figure coordinates.
+        return 0.97 - 0.05 - (r + 0.5) * (0.90 / n_rows)
+
+    fig.text(0.005, _row_y(0.0), "INPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
+             ha='left', fontsize=axis_fs + 1, fontweight='bold',
+             color='0.25')
+    if has_pred:
+        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
+                 fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+
+    title = (
+        f"path-integration task — {n} of {n_trials} trials, "
+        f"{T} frames (dt={dt:.3g}s, total {T*dt:.2g}s)"
+    )
+    if is_stop is not None and is_stop.any():
+        title += "   [gray = standing pause]"
+    if has_pred:
+        title += "   [green = ground truth, black = model]"
+    fig.suptitle(title, fontsize=style.label_font_size)
+    plt.tight_layout(rect=[0.02, 0, 1, 0.97])
+    style.savefig(fig, out_path)
+
+
+def plot_task_swim_traces(
+    u: np.ndarray,
+    y: np.ndarray,
+    theta_hd: np.ndarray,
+    is_stop: np.ndarray,
+    swim_label: np.ndarray,
+    dt: float,
+    out_path: str,
+    n_show: int = 5,
+    style: FigureStyle = default_style,
+    *,
+    y_pred: Optional[np.ndarray] = None,
+    metrics: Optional[List[Dict[str, float]]] = None,
+) -> None:
+    """Stimulus/target preview for the zebrafish swim-integration task.
+
+    Companion of ``plot_task_pi_traces``: identical 3-row (or 4-row when
+    predictions are supplied) layout, identical line styling and metric
+    overlay; differs in the input ω panel, which is annotated with the
+    four swim categories (left / right / forward / backward) as colored
+    vertical bands at swim-onset frames, mirroring Petrucco et al.\\ 2023
+    Fig.\\ 3a.
+
+    Rows (without predictions):
+      Row 0 [in 0]   ω(t) — angular velocity (deg/s), swim-onset markers below
+      Row 1 [out 0]  cos(θ_hd(t))
+      Row 2 [out 1]  sin(θ_hd(t))
+
+    With predictions: row 3 adds the wrapped HD comparison (gt vs decoded).
+
+    ``swim_label`` is the (B, T) int8 array written alongside the TaskTrials
+    zarrs (0 = no swim, 1 = left, 2 = right, 3 = forward, 4 = backward).
+    """
+    n_trials, T, _ = u.shape
+    n = min(n_show, n_trials)
+    t = np.arange(T) * dt
+    has_pred = y_pred is not None
+
+    n_rows = 4 if has_pred else 3
+    fig, axes = plt.subplots(n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
+                             sharex=True, sharey='row')
+    if n == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    omega_lim = max(1e-6, float(np.abs(u[:n, :, 0]).max())) * 1.05
+    out_lim   = 1.1
+    row_ylims = [(-omega_lim, omega_lim),
+                 (-out_lim, out_lim), (-out_lim, out_lim)]
+    if has_pred:
+        row_ylims.append((-np.pi - 0.15, np.pi + 0.15))
+
+    # Match plot_task_pi_traces style.
+    INP, HD, OUT = "0.92", "0.94", "0.97"
+    GT_COLOR = "#4daf4a"
+    GT_LW = 2.8
+    GT_MS = 3.0
+    PRED_COLOR = "black"
+    PRED_LW = 0.5
+    PRED_MS = 0.4
+
+    # Petrucco-style category palette: blue=left (CCW), red=right (CW),
+    # gray=forward (no rotation), orange=backward (large turn-around).
+    LABEL_COLOR = {1: "#1f77b4", 2: "#d62728",
+                   3: "#7f7f7f", 4: "#ff7f0e"}
+    LABEL_NAME  = {1: "left", 2: "right", 3: "forward", 4: "backward"}
+
+    rows = [
+        ("input",  "in 0\nω (deg/s)", GT_COLOR, INP),
+        ("output", "out 0\ncos(θ)",   GT_COLOR, OUT),
+        ("output", "out 1\nsin(θ)",   GT_COLOR, OUT),
+    ]
+    if has_pred:
+        rows.append(("hd", "HD (rad,\nwrapped)", GT_COLOR, HD))
+
+    # NB: unlike plot_task_pi_traces we do NOT shade `is_stop` here. In the
+    # swim task, ω=0 is the *baseline* (the fish is not swimming most of
+    # the time), so a stop overlay would cover the majority of every panel
+    # and bury the colored swim bands. The colored bands themselves
+    # already mark the active intervals; the green trace clearly reads 0
+    # everywhere else.
+
+    def _mark_swim_onsets(ax, labels):
+        """Shade each swim event over its full boxcar duration with a
+        category-coloured band. Detects runs of constant non-zero label
+        and emits one axvspan per run (so the ω-active interval shown by
+        the green trace is exactly what the colour bar covers)."""
+        if labels is None:
+            return
+        i = 0
+        T_ = len(labels)
+        while i < T_:
+            lab = int(labels[i])
+            if lab == 0:
+                i += 1
+                continue
+            # Find end of this contiguous run of the same label.
+            j = i + 1
+            while j < T_ and int(labels[j]) == lab:
+                j += 1
+            ax.axvspan(i * dt, j * dt, color=LABEL_COLOR[lab],
+                        alpha=0.28, lw=0, zorder=0)
+            i = j
+
+    axis_fs = max(7, style.tick_font_size - 2)
+
+    for col in range(n):
+        stop = (is_stop[col].astype(bool) if is_stop is not None
+                else np.zeros(T, dtype=bool))
+        labs = (swim_label[col].astype(int) if swim_label is not None
+                else None)
+
+        traces: list = [(u[col, :, 0], None)]
+        if has_pred:
+            traces.append((y[col, :, 0], y_pred[col, :, 0]))
+            traces.append((y[col, :, 1], y_pred[col, :, 1]))
+            true_hd_wrap = np.angle(np.exp(1j * theta_hd[col]))
+            dec_theta = np.arctan2(y_pred[col, :, 1], y_pred[col, :, 0])
+            traces.append((true_hd_wrap, dec_theta))
+        else:
+            traces.append((y[col, :, 0], None))
+            traces.append((y[col, :, 1], None))
+
+        for r, ((kind, label, color, bg), (trace_gt, trace_pred)) in enumerate(
+            zip(rows, traces)
+        ):
+            ax = axes[r, col]
+            ax.set_facecolor(bg)
+            # Swim-onset markers: only the ω row carries the colored bars
+            # to keep heading panels uncluttered. (Use _shade_stops for the
+            # non-swim baseline — barely-visible on the ω panel because
+            # ω = 0 there too.)
+            if kind == "input":
+                _mark_swim_onsets(ax, labs)
+            if kind == "hd":
+                ax.plot(t, trace_gt, color=GT_COLOR, lw=0.0, marker=".", ms=GT_MS)
+                ax.plot(t, trace_pred, color=PRED_COLOR, lw=0.0, marker=".", ms=PRED_MS)
+                ax.set_yticks([-np.pi, 0, np.pi])
+                ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"])
+            else:
+                gt_lw = 0.8 if kind == "input" else GT_LW
+                ax.plot(t, trace_gt, color=color, lw=gt_lw)
+                if trace_pred is not None:
+                    ax.plot(t, trace_pred, color=PRED_COLOR, lw=PRED_LW)
+            ax.axhline(0, color="0.5", lw=0.5)
+            ax.set_ylim(*row_ylims[r])
+            ax.tick_params(axis='both', labelsize=axis_fs)
+            if r == 0:
+                # Per-trial swim count breakdown in title.
+                if labs is not None:
+                    onsets = (labs[1:] != labs[:-1]) & (labs[1:] != 0)
+                    onset_idx = np.where(onsets)[0] + 1
+                    by_type = np.bincount(labs[onset_idx],
+                                           minlength=5)[1:]  # [L, R, F, B]
+                    counts = (f"L{by_type[0]} R{by_type[1]} "
+                              f"F{by_type[2]} B{by_type[3]}")
+                    ttl = f"trial {col}\n{counts}"
+                else:
+                    ttl = f"trial {col}"
+                if metrics is not None and col < len(metrics):
+                    m = metrics[col]
+                    rmse_s = (f"rmse={m['rmse_deg']:.1f}°"
+                              if not np.isnan(m.get('rmse_deg', float('nan')))
+                              else "rmse=n/a")
+                    r_s = (f"r={m['pearson']:.3f}"
+                           if not np.isnan(m.get('pearson', float('nan')))
+                           else "r=n/a")
+                    ttl = f"{ttl}\n{rmse_s}  {r_s}"
+                ax.set_title(ttl, fontsize=style.label_font_size - 1)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=axis_fs)
+            if col == 0:
+                ax.set_ylabel(label, fontsize=axis_fs)
+
+    # Bracket-style group labels in the left margin.
+    def _row_y(r: int) -> float:
+        return 0.97 - 0.05 - (r + 0.5) * (0.90 / n_rows)
+
+    fig.text(0.005, _row_y(0.0), "INPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, _row_y(1.5), "OUTPUT", rotation=90, va='center',
+             ha='left', fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    if has_pred:
+        fig.text(0.005, _row_y(3.0), "HD", rotation=90, va='center', ha='left',
+                 fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+
+    # Legend strip just below the suptitle — one chip per swim category.
+    from matplotlib.lines import Line2D
+    legend_handles = [
+        Line2D([0], [0], color=LABEL_COLOR[k], lw=2.4, label=LABEL_NAME[k])
+        for k in (1, 2, 3, 4)
+    ]
+    fig.legend(handles=legend_handles, loc="upper center",
+                bbox_to_anchor=(0.5, 0.965), ncol=4, frameon=False,
+                fontsize=style.label_font_size - 1)
+
+    title = (
+        f"swim-integration task — {n} of {n_trials} trials, "
+        f"{T} frames (dt={dt:.3g}s, total {T*dt:.2g}s)"
+    )
+    if has_pred:
+        title += "   [green = ground truth, black = model]"
+    fig.suptitle(title, fontsize=style.label_font_size, y=0.998)
+    plt.tight_layout(rect=[0.02, 0, 1, 0.94])
+    style.savefig(fig, out_path)
+
+
+def plot_integration_gain(
+    theta_hd: np.ndarray,        # (n_omega, T) ground-truth HD trajectories
+    y_pred: np.ndarray,          # (n_omega, T, 2) predicted (cos, sin)
+    omega_deg_per_s: List[float],
+    dt: float,
+    out_path: str,
+    *,
+    warmup: int = 10,
+    style: FigureStyle = default_style,
+) -> List[Dict[str, float]]:
+    """Integration-gain analysis on constant-ω deterministic sweeps.
+
+    For each ω in `omega_deg_per_s`, fit `decoded_unwrap[t] = α·t + β` on
+    the post-warmup window and compare α against the expected slope
+    `ω_rad_per_s`. Gain `g = α / ω_rad_per_s`; perfect integration → g=1.
+
+    Renders a two-panel figure:
+      Left  — unwrapped decoded HD (black) and GT linear ramp (green) per ω;
+              one curve per ω, all overlaid.
+      Right — measured slope (deg/s) vs true ω (deg/s) with y=x reference.
+              Each ω is one dot with its gain annotated.
+
+    Returns a list of per-ω metric dicts (omega, slope_deg_per_s, gain, r2).
+    """
+    n_omega, T = theta_hd.shape
+    t_full = np.arange(T) * dt
+    decoded = np.arctan2(y_pred[..., 1], y_pred[..., 0])    # (n_omega, T)
+
+    metrics: List[Dict[str, float]] = []
+    decoded_unwrap_all = np.zeros_like(decoded)
+    fits = np.zeros((n_omega, 2))                            # (α, β) per ω
+    for k in range(n_omega):
+        post = decoded[k, warmup:]
+        decoded_unwrap_all[k, warmup:] = np.unwrap(post)
+        decoded_unwrap_all[k, :warmup] = decoded_unwrap_all[k, warmup]
+        t_post = t_full[warmup:]
+        d_post = decoded_unwrap_all[k, warmup:]
+        if d_post.std() < 1e-8 or t_post.size < 2:
+            slope_rad = 0.0
+            intercept = float(d_post.mean()) if d_post.size else 0.0
+            r2 = float('nan')
+        else:
+            slope_rad, intercept = np.polyfit(t_post, d_post, 1)
+            pred = slope_rad * t_post + intercept
+            ss_res = float(((d_post - pred) ** 2).sum())
+            ss_tot = float(((d_post - d_post.mean()) ** 2).sum())
+            r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else float('nan')
+        fits[k] = (slope_rad, intercept)
+        slope_deg = float(np.degrees(slope_rad))
+        omega = float(omega_deg_per_s[k])
+        gain = (slope_deg / omega) if abs(omega) > 1e-8 else float('nan')
+        metrics.append({
+            'omega_deg': omega,
+            'slope_deg_per_s': slope_deg,
+            'gain': gain,
+            'r2': r2,
+        })
+
+    fig, (ax_t, ax_g) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+    # --- Left panel: unwrapped decoded HD + GT linear ramp ----------------
+    # No legend; each curve is labelled in-plot at its right edge at the
+    # height of the final GT value.
+    for k in range(n_omega):
+        omega = float(omega_deg_per_s[k])
+        true_unwrap = theta_hd[k] - theta_hd[k, 0]
+        ax_t.plot(t_full, np.degrees(true_unwrap),
+                  color="#4daf4a", lw=2.6, alpha=0.8)
+        d_centred = decoded_unwrap_all[k] - decoded_unwrap_all[k, warmup]
+        ax_t.plot(t_full, np.degrees(d_centred),
+                  color="black", lw=0.7)
+    ax_t.axhline(0, color='0.6', lw=0.4)
+    ax_t.set_xlabel("time (s)", fontsize=style.tick_font_size)
+    ax_t.set_ylabel("unwrapped HD", fontsize=style.tick_font_size)
+    ax_t.set_title("decoded HD trajectories  (green = GT)",
+                   fontsize=style.label_font_size - 1)
+    # Per-curve in-plot labels at the right edge, aligned with the GT
+    # endpoint so the label tracks the green trace.
+    x_label = t_full[-1] * 1.005
+    for k in range(n_omega):
+        omega = float(omega_deg_per_s[k])
+        y_gt_end = float(np.degrees(theta_hd[k, -1] - theta_hd[k, 0]))
+        gain = metrics[k]['gain']
+        ax_t.annotate(f"ω={omega:+.0f}°/s  g={gain:+.2f}",
+                      xy=(x_label, y_gt_end),
+                      xytext=(0, 0), textcoords="offset points",
+                      fontsize=6, va="center", ha="left",
+                      color="#4daf4a")
+    # Pad the right margin so the labels stay inside the axes box.
+    xlim = ax_t.get_xlim()
+    ax_t.set_xlim(xlim[0], xlim[1] + (xlim[1] - xlim[0]) * 0.10)
+    ax_t.tick_params(labelsize=max(7, style.tick_font_size - 2))
+
+    # --- Right panel: measured slope vs true ω ----------------------------
+    omegas = np.array([m['omega_deg'] for m in metrics])
+    slopes = np.array([m['slope_deg_per_s'] for m in metrics])
+    lim = float(max(np.abs(omegas).max(), np.abs(slopes).max())) * 1.15
+    lim = max(lim, 1.0)
+    ax_g.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, ls="--")
+    ax_g.axhline(0, color="0.7", lw=0.4)
+    ax_g.axvline(0, color="0.7", lw=0.4)
+    ax_g.scatter(omegas, slopes, s=60, c="black", zorder=3)
+    ax_g.set_xlim(-lim, lim)
+    ax_g.set_ylim(-lim, lim)
+    ax_g.set_xlabel("true ω (deg/s)", fontsize=style.tick_font_size)
+    ax_g.set_ylabel("measured slope (deg/s)", fontsize=style.tick_font_size)
+    ax_g.set_title("integration gain  (target: y = x)",
+                   fontsize=style.label_font_size - 1)
+    ax_g.tick_params(labelsize=max(7, style.tick_font_size - 2))
+    ax_g.set_aspect('equal', adjustable='box')
+
+    plt.tight_layout()
+    style.savefig(fig, out_path)
+    return metrics
+
+
+def plot_function_dynamics(
+    net,
+    h_traj: np.ndarray,             # (T, N) rollout subthreshold state per neuron
+    out_path: str,
+    *,
+    neuron_types: np.ndarray = None,
+    type_names: list = None,
+    v_range: float = 3.0,
+    n_static: int = 400,
+    device: str = "cpu",
+    style: FigureStyle = default_style,
+) -> None:
+    """Hexbin density of f_theta and g_phi^2 *along* a rollout, with the
+    static curves overlaid.
+
+    Sibling of fig 4 (k)/(l): those panels show the static functions
+    over v ∈ [-v_range, v_range]; this plot shows which (v, f) pairs
+    the model actually traverses during the deterministic-ω rollout,
+    so the operating range is visible against the full function.
+
+    Args:
+        net: trained DrosophilaCxTaskGNN (must expose .f_theta, .g_phi, .a,
+             ._g_phi_positive)
+        h_traj: per-neuron subthreshold state along the rollout (T, N).
+        out_path: PNG output path.
+        neuron_types / type_names: used only for the static-curve overlay
+             colouring (mean across cell types if both provided).
+        v_range: x-axis half-width for both panels.
+        n_static: number of v-grid points for the static curve.
+        device: torch device for forward passes.
+    """
+    h_t = torch.from_numpy(h_traj.astype(np.float32)).to(device)   # (T, N)
+    T, N = h_t.shape
+    emb_dim = int(net.a.shape[1])
+    g_phi_squared = bool(getattr(net, "_g_phi_positive", True))
+
+    # --- Dynamic samples (one point per (i, t)) -----------------------
+    a_full = net.a.unsqueeze(0).expand(T, -1, -1)                  # (T, N, emb)
+    zero_msg = torch.zeros(T, N, 1, device=device)
+    with torch.no_grad():
+        f_in = torch.cat([h_t.unsqueeze(-1), a_full, zero_msg], dim=-1)
+        f_dyn = net.f_theta(f_in).squeeze(-1).cpu().numpy()         # (T, N)
+        g_in = torch.cat([h_t.unsqueeze(-1), a_full], dim=-1)
+        g_dyn_raw = net.g_phi(g_in).squeeze(-1).cpu().numpy()       # (T, N)
+        g_dyn = g_dyn_raw ** 2 if g_phi_squared else g_dyn_raw
+
+    v_samples = h_traj.reshape(-1)
+    f_samples = f_dyn.reshape(-1)
+    g_samples = g_dyn.reshape(-1)
+
+    # --- Static reference curve (mean across cell types) ----------------
+    v_grid = torch.linspace(-v_range, v_range, n_static, device=device)
+    rr = v_grid.unsqueeze(0).expand(N, -1).unsqueeze(-1)            # (N, P, 1)
+    a_exp = net.a.unsqueeze(1).expand(-1, n_static, -1)             # (N, P, emb)
+    z_msg = torch.zeros_like(rr)
+    with torch.no_grad():
+        f_static = net.f_theta(
+            torch.cat([rr, a_exp, z_msg], dim=-1)
+        ).squeeze(-1).cpu().numpy()                                  # (N, P)
+        g_static_raw = net.g_phi(
+            torch.cat([rr, a_exp], dim=-1)
+        ).squeeze(-1).cpu().numpy()
+        g_static = g_static_raw ** 2 if g_phi_squared else g_static_raw
+
+    x_static = v_grid.cpu().numpy()
+    f_static_mean = f_static.mean(axis=0)                            # (P,)
+    f_static_std  = f_static.std(axis=0)
+    g_static_mean = g_static.mean(axis=0)
+    g_static_std  = g_static.std(axis=0)
+
+    # --- Render --------------------------------------------------------
+    fig, (ax_f, ax_g) = plt.subplots(1, 2, figsize=(13, 5.5))
+
+    # Hexbin needs a y-range; clip extreme outliers so the density doesn't
+    # smear into empty bins.
+    def _ylim_from(samples: np.ndarray) -> tuple:
+        lo = float(np.quantile(samples, 0.005))
+        hi = float(np.quantile(samples, 0.995))
+        pad = 0.05 * (hi - lo + 1e-6)
+        return lo - pad, hi + pad
+
+    f_ylo, f_yhi = _ylim_from(f_samples)
+    g_ylo, g_yhi = _ylim_from(g_samples)
+
+    # bins='log' on the hexbin so the rare bump-cell samples in the
+    # negative tail of the activity distribution stay visible against the
+    # high-density bulk at v ≈ 0.5.
+    hb_f = ax_f.hexbin(v_samples, f_samples,
+                       gridsize=60, cmap="Blues", mincnt=1, bins="log",
+                       extent=(-v_range, v_range, f_ylo, f_yhi))
+    ax_f.plot(x_static, f_static_mean, color="#cc4444", lw=1.6)
+    ax_f.fill_between(x_static,
+                      f_static_mean - f_static_std,
+                      f_static_mean + f_static_std,
+                      color="#cc4444", alpha=0.15)
+    ax_f.axhline(0, color="0.6", lw=0.5, ls="--")
+    ax_f.axvline(0, color="0.6", lw=0.5, ls="--")
+    ax_f.set_xlim(-v_range, v_range)
+    ax_f.set_ylim(f_ylo, f_yhi)
+    ax_f.set_xlabel(r"$\hat h_i(t)$", fontsize=style.tick_font_size)
+    ax_f.set_ylabel(r"$f_\theta(\hat h_i, \mathbf{a}_i, m{=}0)$",
+                    fontsize=style.tick_font_size)
+    ax_f.set_title("$f_\\theta$ — operating range along rollout",
+                   fontsize=style.label_font_size - 1)
+    cb_f = fig.colorbar(hb_f, ax=ax_f, fraction=0.04, pad=0.02)
+    cb_f.set_label("log10(count)", fontsize=8)
+    cb_f.ax.tick_params(labelsize=7)
+
+    hb_g = ax_g.hexbin(v_samples, g_samples,
+                       gridsize=60, cmap="Blues", mincnt=1, bins="log",
+                       extent=(-v_range, v_range, g_ylo, g_yhi))
+    ax_g.plot(x_static, g_static_mean, color="#cc4444", lw=1.6)
+    ax_g.fill_between(x_static,
+                      g_static_mean - g_static_std,
+                      g_static_mean + g_static_std,
+                      color="#cc4444", alpha=0.15)
+    ax_g.axhline(0, color="0.6", lw=0.5, ls="--")
+    ax_g.axvline(0, color="0.6", lw=0.5, ls="--")
+    ax_g.set_xlim(-v_range, v_range)
+    ax_g.set_ylim(g_ylo, g_yhi)
+    ax_g.set_xlabel(r"$\hat h_j(t)$", fontsize=style.tick_font_size)
+    ax_g.set_ylabel(r"$g_\phi^2$" if g_phi_squared else r"$g_\phi$",
+                    fontsize=style.tick_font_size)
+    ax_g.set_title(
+        ("$g_\\phi^2$ — operating range along rollout"
+         if g_phi_squared else "$g_\\phi$ — operating range along rollout"),
+        fontsize=style.label_font_size - 1)
+    cb_g = fig.colorbar(hb_g, ax=ax_g, fraction=0.04, pad=0.02)
+    cb_g.set_label("log10(count)", fontsize=8)
+    cb_g.ax.tick_params(labelsize=7)
+
+    plt.tight_layout()
+    style.savefig(fig, out_path)
+
+
+def plot_task_cortex_example(
+    stimulus: np.ndarray,                   # (N, T, N_i) trials grid
+    target: np.ndarray,                     # (N, T, N_o)
+    length: np.ndarray,                     # (N, T) binary real-step mask
+    dt: float,
+    rule: str,
+    n_rule: int,
+    out_path: str,
+    n_eachring: int = 32,
+    epochs: Optional[List[Optional[Dict[str, tuple]]]] = None,
+    n_show: int = 5,
+    style: FigureStyle = default_style,
+) -> None:
+    """Multi-trial heatmap grid — drosophila-style 5-column kinograph.
+
+    Two rows of heatmaps per trial, n_show columns:
+        Input  (N_i ch): fixation | stim mod1 | stim mod2 | rule one-hot
+        Target (N_o ch): fixation | motor ring
+
+    Cyan horizontal lines mark the fix/mod1/mod2/rule boundaries on every
+    panel; vertical lime lines mark Yang epoch boundaries (fix1, stim1,
+    delay1, go1, ...) for each trial individually when `epochs` is provided
+    as a list (one dict per column, matching `stimulus` axis 0).
+    """
+    # Handle legacy (T, N_i) single-trial calls for backward compat.
+    if stimulus.ndim == 2:
+        stimulus = stimulus[None]
+        target   = target[None]
+        length   = length[None]
+    N, T, N_i = stimulus.shape
+    N_o = target.shape[-1]
+    n = min(n_show, N)
+    axis_fs = max(7, style.tick_font_size - 2)
+
+    fig, axes = plt.subplots(
+        2, n, figsize=(2.6 * n, 6.0),
+        gridspec_kw={"height_ratios": [1.6, 1.0],
+                     "hspace": 0.45, "wspace": 0.12},
+        sharex='col',
+    )
+    if n == 1:
+        axes = axes.reshape(2, 1)
+
+    # Channel block boundaries: 0=fix, 1..n_eachring=mod1, n_eachring+1..2*n_eachring=mod2,
+    # 2*n_eachring+1..2*n_eachring+n_rule=rule.
+    b1 = 0.5
+    b2 = n_eachring + 0.5
+    b3 = 2 * n_eachring + 0.5
+
+    for col in range(n):
+        real_T = int(length[col].sum())
+        ax_in  = axes[0, col]
+        ax_tgt = axes[1, col]
+
+        ax_in.imshow(stimulus[col].T, aspect="auto", cmap="hot",
+                      vmin=0.0, vmax=1.0, interpolation="nearest")
+        for boundary in [b1, b2, b3]:
+            if boundary < N_i:
+                ax_in.axhline(boundary, color="cyan", lw=0.6, alpha=0.7)
+
+        ax_tgt.imshow(target[col].T, aspect="auto", cmap="hot",
+                       vmin=0.0, vmax=0.9, interpolation="nearest")
+        ax_tgt.axhline(0.5, color="cyan", lw=0.6, alpha=0.7)
+
+        # Per-trial epoch boundary overlay (lime vertical lines, no labels).
+        if epochs and col < len(epochs) and epochs[col]:
+            for name, (s, e) in epochs[col].items():
+                if s is None: s = 0
+                for ax in (ax_in, ax_tgt):
+                    ax.axvline(s, color="lime", lw=0.6, alpha=0.5)
+
+        # Pad region overlay.
+        if real_T < T:
+            for ax in (ax_in, ax_tgt):
+                ax.axvspan(real_T, T, color="0.92", alpha=0.4, lw=0)
+
+        # Column-only title with trial length info.
+        ax_in.set_title(f"trial {col} (T={real_T})", fontsize=axis_fs)
+
+        # X-label drawn once on the figure (below); per-axes label off.
+        ax_in.tick_params(axis='x', labelsize=axis_fs)
+        ax_tgt.tick_params(axis='x', labelsize=axis_fs)
+
+        # Y-axis labels / ticks only on the first column.
+        if col == 0:
+            ax_in.set_ylabel(f"input ch ({N_i})", fontsize=axis_fs)
+            ax_in.set_yticks([0, n_eachring // 2, n_eachring,
+                              3 * n_eachring // 2, 2 * n_eachring,
+                              2 * n_eachring + max(0, n_rule // 2)])
+            ax_in.set_yticklabels(
+                ["fix", "mod1 mid", "mod1|2", "mod2 mid", "mod2 end", "rule"],
+                fontsize=axis_fs,
+            )
+            ax_tgt.set_ylabel(f"out ch ({N_o})", fontsize=axis_fs)
+            ax_tgt.set_yticks([0, n_eachring // 2, n_eachring])
+            ax_tgt.set_yticklabels(
+                ["fix", f"motor {n_eachring // 2}", f"motor {n_eachring}"],
+                fontsize=axis_fs,
+            )
+        else:
+            ax_in.tick_params(axis='y', labelleft=False)
+            ax_tgt.tick_params(axis='y', labelleft=False)
+
+    fig.suptitle(
+        f"cortex/{rule} — {n} trials, padded to {T} frames "
+        f"(dt={dt:.3g}s, max {T*dt:.2g}s)",
+        fontsize=axis_fs + 1,
+    )
+    # Single shared x-axis label, centered under the bottom row.
+    fig.supxlabel("time (frames)", fontsize=axis_fs)
+    fig.tight_layout(rect=[0, 0.02, 1, 0.96])
+    style.savefig(fig, out_path)
+
+
+def plot_task_cortex_overview(
+    stimulus: np.ndarray,                   # (N_rules, T, N_i)
+    target: np.ndarray,                     # (N_rules, T, N_o)
+    rules: List[str],
+    n_rule: int,
+    out_path: str,
+    n_eachring: int = 32,
+    n_cols: int = 4,
+    style: FigureStyle = default_style,
+) -> None:
+    """Multi-rule overview grid — mirrors `show_all_tasks.ipynb` cell 3.
+
+    Layout: ceil(N_rules / n_cols) row-pairs of n_cols columns. Each pair shows
+    (input heatmap on top, target heatmap below) for one rule. Cyan horizontal
+    lines mark the fix / mod1 / mod2 / rule boundaries on the input panels and
+    the fix / motor boundary on the target panels.
+    """
+    N = len(rules)
+    n_pairs = (N + n_cols - 1) // n_cols
+    n_rows = n_pairs * 2
+
+    fig, axes = plt.subplots(
+        n_rows, n_cols, figsize=(16, 2.0 * n_rows),
+        gridspec_kw={"hspace": 0.5, "wspace": 0.2},
+    )
+    if n_rows == 1:
+        axes = np.array([axes])
+
+    b1 = 0.5
+    b2 = n_eachring + 0.5
+    b3 = 2 * n_eachring + 0.5
+
+    for ti, rule in enumerate(rules):
+        pair = ti // n_cols
+        col = ti % n_cols
+        ax_in  = axes[2 * pair,     col]
+        ax_tgt = axes[2 * pair + 1, col]
+
+        x = stimulus[ti]
+        y = target[ti]
+
+        ax_in.imshow(x.T, aspect="auto", cmap="hot",
+                     vmin=0.0, vmax=1.0, interpolation="nearest")
+        ax_in.set_title(rule, fontsize=style.tick_font_size, fontweight="bold")
+        ax_in.set_xlabel("t", fontsize=style.tick_font_size * 0.8)
+        ax_in.set_ylabel("input ch", fontsize=style.tick_font_size * 0.8)
+        for boundary in [b1, b2, b3]:
+            if boundary < x.shape[1]:
+                ax_in.axhline(boundary, color="cyan", lw=0.4, alpha=0.6)
+
+        ax_tgt.imshow(y.T, aspect="auto", cmap="hot",
+                      vmin=0.0, vmax=0.9, interpolation="nearest")
+        ax_tgt.set_xlabel("t", fontsize=style.tick_font_size * 0.8)
+        ax_tgt.set_ylabel("target ch", fontsize=style.tick_font_size * 0.8)
+        ax_tgt.axhline(0.5, color="cyan", lw=0.4, alpha=0.6)
+
+    # Hide unused axes when N < n_pairs * n_cols.
+    for k in range(N, n_pairs * n_cols):
+        pair = k // n_cols
+        col = k % n_cols
+        axes[2 * pair,     col].axis("off")
+        axes[2 * pair + 1, col].axis("off")
+
+    fig.suptitle(
+        "Yang 2019 multitask: one trial per rule (input on top, target below)",
+        fontsize=style.label_font_size, y=0.995,
+    )
+    style.savefig(fig, out_path)
+
+
+def plot_task_cortex_samples(
+    stimulus: np.ndarray,                   # (N, T, N_i)
+    target: np.ndarray,                     # (N, T, N_o)
+    length: np.ndarray,                     # (N, T) binary real-step mask
+    dt: float,
+    rule: str,
+    out_path: str,
+    n_eachring: int = 32,
+    n_show: int = 5,
+    style: FigureStyle = default_style,
+) -> None:
+    """N-trial preview grid — mirrors the drosophila path-integration layout.
+
+    One column per trial, rows split into INPUT / OUTPUT blocks. Ring channels
+    plot all 32 lines in faint grey with the per-trial peak channel highlighted
+    in red. Padding shaded gray.
+
+    Rows for Yang's ruleset='all':
+        Row 0 [in fix]   fixation input
+        Row 1 [in mod1]  stim modality 1 ring (32 ch + peak)
+        Row 2 [in mod2]  stim modality 2 ring (32 ch + peak)
+        Row 3 [in rule]  rule one-hot (active channel highlighted)
+        Row 4 [out fix]  fixation target
+        Row 5 [out mot]  motor ring (32 ch + peak)
+    """
+    N, T, N_i = stimulus.shape
+    N_o = target.shape[-1]
+    n = min(n_show, N)
+    t = np.arange(T) * dt
+
+    # Channel slices for Yang's ruleset='all' layout.
+    fix_in_ch = 0
+    mod1_ch = list(range(1, 1 + n_eachring))
+    mod2_ch = list(range(1 + n_eachring, 1 + 2 * n_eachring))
+    rule_ch = list(range(1 + 2 * n_eachring, N_i))
+    motor_ch = list(range(1, N_o))   # output ch 0 is fix, rest are motor ring
+
+    n_rows = 6
+    INP, OUT = "0.92", "0.97"
+    rows = [
+        ("input",  "in fix\n(ch 0)",                       "C0", INP, "single"),
+        ("input",  f"in mod1\n(ring {n_eachring} ch)",     "C0", INP, "ring"),
+        ("input",  f"in mod2\n(ring {n_eachring} ch)",     "C1", INP, "ring"),
+        ("input",  f"in rule\n({len(rule_ch)} ch)",        "C2", INP, "onehot"),
+        ("output", "out fix\n(ch 0)",                      "C0", OUT, "single"),
+        ("output", f"out motor\n(ring {len(motor_ch)} ch)", "C3", OUT, "ring"),
+    ]
+
+    fig, axes = plt.subplots(
+        n_rows, n, figsize=(2.6 * n, 1.5 * n_rows + 1.0),
+        sharex=True, sharey='row',
+    )
+    if n == 1:
+        axes = axes.reshape(n_rows, 1)
+
+    axis_fs = max(7, style.tick_font_size - 2)
+
+    for col in range(n):
+        real_T = int(length[col].sum())
+        u_col = stimulus[col]   # (T, N_i)
+        y_col = target[col]     # (T, N_o)
+
+        for r, (kind, label, color, bg, mode) in enumerate(rows):
+            ax = axes[r, col]
+            ax.set_facecolor(bg)
+
+            if r == 0:
+                ax.plot(t, u_col[:, fix_in_ch], color=color, lw=1.2)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 1:
+                ring = u_col[:, mod1_ch]
+                for c in range(ring.shape[-1]):
+                    ax.plot(t, ring[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(ring.max(axis=0).argmax())
+                ax.plot(t, ring[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 2:
+                ring = u_col[:, mod2_ch]
+                for c in range(ring.shape[-1]):
+                    ax.plot(t, ring[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(ring.max(axis=0).argmax())
+                ax.plot(t, ring[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 3:
+                rule_arr = u_col[:, rule_ch]
+                for c in range(rule_arr.shape[-1]):
+                    ax.plot(t, rule_arr[:, c], lw=0.3, color="0.55", alpha=0.5)
+                # Active rule = the channel with the highest mean over real_T.
+                if real_T > 0:
+                    peak = int(rule_arr[:real_T].mean(axis=0).argmax())
+                    ax.plot(t, rule_arr[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.2)
+            elif r == 4:
+                ax.plot(t, y_col[:, 0], color=color, lw=1.2)
+                ax.set_ylim(-0.1, 1.0)
+            elif r == 5:
+                motor = y_col[:, motor_ch]
+                for c in range(motor.shape[-1]):
+                    ax.plot(t, motor[:, c], lw=0.3, color="0.55", alpha=0.5)
+                peak = int(motor.max(axis=0).argmax())
+                ax.plot(t, motor[:, peak], lw=1.3, color=color)
+                ax.set_ylim(-0.1, 1.0)
+
+            ax.axhline(0, color="0.5", lw=0.5)
+            ax.tick_params(axis='x', labelsize=axis_fs)
+            if real_T < T:
+                ax.axvspan(real_T * dt, T * dt, color="0.6", lw=0, alpha=0.25)
+            if r == 0:
+                ax.set_title(f"trial {col} (T={real_T})", fontsize=axis_fs)
+            if r == n_rows - 1:
+                ax.set_xlabel("time (s)", fontsize=axis_fs)
+            # Y-axis: only show label + tick labels on the first column.
+            if col == 0:
+                ax.set_ylabel(label, fontsize=axis_fs)
+                ax.tick_params(axis='y', labelsize=axis_fs)
+            else:
+                ax.tick_params(axis='y', labelleft=False)
+
+    # Bracket-style INPUT/OUTPUT labels in the left margin.
+    fig.text(0.005, 0.65, "INPUT",  rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+    fig.text(0.005, 0.20, "OUTPUT", rotation=90, va='center', ha='left',
+             fontsize=axis_fs + 1, fontweight='bold', color='0.25')
+
+    fig.suptitle(
+        f"cortex/{rule} — {n} of {N} trials, padded to {T} frames "
+        f"(dt={dt:.3g}s, max {T*dt:.2g}s)   [gray = pad]",
+        fontsize=axis_fs + 1,
+    )
+    plt.tight_layout(rect=[0.02, 0, 1, 0.97])
+    style.savefig(fig, out_path)
 
 
 def plot_activity_traces(
@@ -1704,9 +2681,9 @@ def plot_loss_from_file(log_dir):
 #  CONSOLIDATED FROM models/utils.py
 # ================================================================== #
 
-def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list,
-                         gt_weights, edges, n_neurons=None, n_neuron_types=None,
-                         ode_params=None, hidden_ids=None, anchor_ids=None):
+def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
+                      gt_weights, edges, n_neurons=None, n_neuron_types=None,
+                      ode_params=None, hidden_ids=None, anchor_ids=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -1762,13 +2739,22 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
 
-    # Compute corrected weights
+    # Compute corrected weights. Forward ode_params so each model uses its own
+    # g_phi fit (cx softplus/sigmoid vs flyvis ReLU) instead of the generic
+    # linear slope; without it the per-neuron g_phi correction is mis-scaled.
     corrected_W, _, _, _, _ = compute_all_corrected_weights(
-        model, config, edges, x_ts, device)
+        model, config, edges, x_ts, device, ode_params=ode_params)
 
     # Plot 3: Corrected weight comparison scatter plot — all edges.
+    # GT side: apply the model's effective-true-weight adjustment (g_phi gain for
+    # gain-entangled models; identity for flyvis / cx-voltage) so this matches
+    # plot_synaptic's corrected comparison exactly.
     fig, ax = plt.subplots(figsize=(8, 8))
-    _gt_w_full = to_numpy(gt_weights)
+    if ode_params is not None:
+        _gt_w_full = np.asarray(
+            ode_params.effective_true_weights(to_numpy(gt_weights), to_numpy(edges), n_neurons))
+    else:
+        _gt_w_full = to_numpy(gt_weights)
     _corr_w_full = to_numpy(corrected_W.squeeze())
     r_squared, _ = plot_weight_scatter(
         ax,
@@ -1887,6 +2873,11 @@ def plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_li
     plt.close()
 
     return r_squared, r_squared_visible, hidden_pearson, anchor_pearson
+
+
+# Backwards-compatible alias: this generic GNN training plotter was named for
+# its first use case (flyvis), but it also drives the drosophila_cx voltage GNN.
+plot_training_flyvis = plot_training_gnn
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,

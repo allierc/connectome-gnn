@@ -1,5 +1,7 @@
+import math
 import os
 import subprocess
+from dataclasses import dataclass
 from time import sleep
 
 import numpy as np
@@ -742,3 +744,180 @@ _FLYVIS_HYBRID_MODELS = {
 def is_flyvis_hybrid_model(signal_model_name: str) -> bool:
     """Check if signal_model_name is a flyrewire hybrid model."""
     return signal_model_name in _FLYVIS_HYBRID_MODELS
+
+
+# ---------------------------------------------------------------------------
+# Path-integration data generation (Hulse Methods Eqs. 5-7).
+# ---------------------------------------------------------------------------
+
+
+def generate_path_integration_batch(
+    batch_size: int,
+    n_steps: int,
+    *,
+    dt: float = 0.01,
+    tau_corr: float = 0.12,
+    sigma_omega_deg: float = 40.0,
+    stop_fraction: float = 0.20,
+    stop_mean_s: float = 2.0,
+    stop_max_s: float = 8.0,
+    device: torch.device | str = "cpu",
+    rng: np.random.Generator | None = None,
+):
+    """Generate a path-integration training batch (Hulse Methods Eqs. 5-7).
+
+    Args:
+        batch_size: number of trials B.
+        n_steps:    number of timesteps T (Hulse default 100).
+        dt:         step size in seconds (Hulse: 0.01).
+        tau_corr:   OU autocorrelation time (Hulse: 0.12 s).
+        sigma_omega_deg: stationary stddev of omega (Hulse: 40 deg/s).
+        stop_fraction:   approximate fraction of trial time spent stationary.
+        stop_mean_s:     mean stop duration (Hulse: 2 s, exponential).
+        stop_max_s:      cap on stop duration (Hulse: 8 s).
+        device, rng:     where to allocate / what RNG to use.
+
+    Returns:
+        ``TaskTrials`` on ``device`` with populated stimulus / target /
+        theta_hd / is_stop / omega fields (task_family='path_integration',
+        n_input=3, n_output=2, dt as supplied).
+    """
+    from connectome_gnn.task_state import TaskTrials
+    if rng is None:
+        rng = np.random.default_rng()
+
+    B = int(batch_size)
+    T = int(n_steps)
+    alpha = 1.0 / tau_corr
+    sigma = sigma_omega_deg * math.sqrt(2.0 * alpha)
+    sqrt_dt = math.sqrt(dt)
+    sigma_step = sigma * sqrt_dt
+
+    omega = np.zeros((B, T), dtype=np.float32)
+    eta = rng.standard_normal(size=(B, T)).astype(np.float32)
+
+    # OU integration (Eq. 5). Use multiplicative form for stability.
+    decay = 1.0 - alpha * dt
+    for t in range(1, T):
+        omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
+
+    # Standing pauses: insert exponential-duration stops in each trial.
+    is_stop = np.zeros((B, T), dtype=np.float32)
+    if stop_fraction > 0.0:
+        mean_steps = stop_mean_s / dt
+        max_steps = int(stop_max_s / dt)
+        for b in range(B):
+            covered = 0
+            target = int(stop_fraction * T)
+            attempts = 0
+            while covered < target and attempts < 100:
+                attempts += 1
+                start = rng.integers(0, T)
+                length = min(
+                    max_steps,
+                    int(rng.exponential(mean_steps)),
+                    T - start,
+                )
+                if length <= 0:
+                    continue
+                end = start + length
+                already = int(is_stop[b, start:end].sum())
+                is_stop[b, start:end] = 1.0
+                covered += length - already
+        omega = omega * (1.0 - is_stop)  # zero velocity during stops
+
+    # Integrate to heading (Eq. 6).
+    theta0 = rng.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+    omega_rad = np.deg2rad(omega)
+    theta_hd = theta0[:, None] + np.cumsum(omega_rad, axis=1) * dt
+    theta_hd[:, 0] = theta0  # ensure t=0 has the initial heading
+
+    cos_t = np.cos(theta_hd).astype(np.float32)
+    sin_t = np.sin(theta_hd).astype(np.float32)
+
+    # Input vector (Eq. 7): [omega, cos(theta0)*1_{t=0}, sin(theta0)*1_{t=0}].
+    u = np.zeros((B, T, 3), dtype=np.float32)
+    u[:, :, 0] = omega  # in deg/s, matching Hulse
+    u[:, 0, 1] = np.cos(theta0)
+    u[:, 0, 2] = np.sin(theta0)
+
+    y = np.stack([cos_t, sin_t], axis=-1).astype(np.float32)
+
+    return TaskTrials(
+        task_family='path_integration',
+        n_input=3, n_output=2, dt=float(dt),
+        stimulus=torch.from_numpy(u).to(device),
+        target  =torch.from_numpy(y).to(device),
+        theta_hd=torch.from_numpy(theta_hd).to(device),
+        is_stop =torch.from_numpy(is_stop).to(device),
+        omega   =torch.from_numpy(omega).to(device),
+    )
+
+
+def _resolve_opto_data_root(opto_cfg) -> None:
+    """Switch the data root to whichever fallback contains the opto source.
+
+    Opto re-simulation requires the source dataset to already exist on disk.
+    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
+    'generate' tasks (it expects fresh local data). For opto we override that:
+    if the source can't be found at the current data root, scan the
+    data_paths.json fallback roots and switch to the first one that has it.
+    """
+    from connectome_gnn.utils import (
+        get_data_root, load_data_fallback_roots, set_data_root,
+    )
+
+    src = opto_cfg.source_dataset
+    if not src:
+        return
+
+    def _has_source(root: str) -> bool:
+        for sub in (src, os.path.join("fly", src)):
+            voltage = os.path.join(root, "graphs_data", sub,
+                                  "x_list_train", "voltage.zarr")
+            if os.path.isdir(voltage):
+                return True
+        return False
+
+    if _has_source(get_data_root()):
+        return
+
+    Y, R = "\033[93m", "\033[0m"
+    for root in load_data_fallback_roots():
+        if _has_source(root):
+            print(f"{Y}[opto] source not found at current data root; "
+                  f"switching to {root}{R}", flush=True)
+            set_data_root(root)
+            return
+    # No fallback worked — let downstream fail with a clear error.
+
+
+def _print_opto_banner(config, opto_cfg) -> None:
+    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
+    G, R = "\033[92m", "\033[0m"
+    src = opto_cfg.source_dataset
+    src_dir = graphs_data_path(src)
+    if not os.path.isdir(src_dir):
+        alt = graphs_data_path("fly", src)
+        if os.path.isdir(alt):
+            src_dir = alt
+    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
+    src_ok = os.path.isdir(voltage_zarr)
+    tgt = opto_cfg.target
+    wf = opto_cfg.waveform
+    target_str = (
+        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
+        or tgt.mode == "topk_nullspace"
+        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
+    )
+    print(f"{G}{'='*70}{R}")
+    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
+    print(f"{G}[opto] source dataset:  {src}{R}")
+    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
+    print(f"{G}[opto] target output:   {config.dataset}{R}")
+    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
+    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
+    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
+          f"noise_level={wf.noise_level}{wf_extra}{R}")
+    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
+    print(f"{G}{'='*70}{R}", flush=True)

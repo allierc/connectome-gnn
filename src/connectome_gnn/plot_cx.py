@@ -1,0 +1,4166 @@
+"""CX-specific visualisations: compass / PVA, EB ring fluorescence, 3-D anatomy.
+
+These mirror the canonical fly-CX imaging panels (polar bump with PVA arrow,
+2-D EB ring fluorescence donut, kinograph with overlaid HD trace, optional
+3-D neuron-skeleton rendering).
+
+Each function is self-contained and uses only numpy / matplotlib. They are
+hooked into the data-generation pipeline via plot.plot_connconstr_diagnostics,
+and are also reusable from the teacher-training diagnostics script
+(teachers/janelia_cx_diagnostic.py).
+"""
+from __future__ import annotations
+
+import glob
+import os
+import re
+from typing import Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.gridspec import GridSpecFromSubplotSpec
+
+
+def open_axes(fig):
+    """Drop the top and right spines from every line/scatter panel of ``fig``
+    (leaving only the x and y axis); panels holding an image (imshow / matrix)
+    or a colorbar keep their full frame. Call just before ``fig.savefig`` for
+    the open-axes figure convention used across the paper."""
+    for ax in fig.axes:
+        if getattr(ax, "images", None) or getattr(ax, "_colorbar", None) is not None:
+            continue
+        spines = getattr(ax, "spines", {})
+        for sp in ("top", "right"):
+            if sp in spines:
+                spines[sp].set_visible(False)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Preferred-direction helpers
+# ---------------------------------------------------------------------------
+
+
+def cx_epg_directions(epg_ix: list[int] | np.ndarray, n_glom: int = 16) -> np.ndarray:
+    """Map each EPG neuron index to its preferred direction theta in [-pi, pi).
+
+    Args:
+        epg_ix: per-EPG-neuron mapping into [0..n_glom-1] glomeruli.
+        n_glom: total glomerulus count (default 16, fly EB convention).
+
+    Returns:
+        theta: (len(epg_ix),) float array in radians, in [-pi, pi).
+    """
+    epg_ix = np.asarray(epg_ix, dtype=int)
+    return (epg_ix / float(n_glom)) * 2.0 * np.pi - np.pi
+
+
+def cx_glomerulus_centres(n_glom: int = 16) -> np.ndarray:
+    """Angular position of each glomerulus centre."""
+    return (np.arange(n_glom) / float(n_glom)) * 2.0 * np.pi - np.pi
+
+
+def cx_population_vector(
+    epg_activity: np.ndarray,
+    epg_theta: np.ndarray,
+) -> tuple[float, float, float, float]:
+    """Compute the population-vector average (PVA) over a single time frame.
+
+    Args:
+        epg_activity: (n_epg,) firing rate / fluorescence per EPG neuron.
+        epg_theta:    (n_epg,) preferred direction in radians.
+
+    Returns:
+        pva_x, pva_y, pva_angle, pva_magnitude. pva_x, pva_y are the raw
+        unnormalised vector components.
+    """
+    r = np.clip(epg_activity, 0.0, None)  # rectify to interpret as firing rate
+    px = float(np.sum(r * np.cos(epg_theta)))
+    py = float(np.sum(r * np.sin(epg_theta)))
+    if r.sum() < 1e-12:
+        return 0.0, 0.0, 0.0, 0.0
+    px_norm = px / r.sum()
+    py_norm = py / r.sum()
+    angle = float(np.arctan2(py_norm, px_norm))
+    mag = float(np.hypot(px_norm, py_norm))
+    return px_norm, py_norm, angle, mag
+
+
+# ---------------------------------------------------------------------------
+# Compass plot — polar EPG bump + PVA arrow
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_compass(
+    voltage_history: np.ndarray,
+    epg_indices: np.ndarray,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    n_panels: int = 9,
+    frame_indices: Optional[list[int]] = None,
+    activation: str = "sigmoid",
+    title: str = "EPG compass",
+) -> None:
+    """Render a grid of polar EPG-bump panels with PVA arrows.
+
+    Args:
+        voltage_history: (T_sampled, N) per-frame subthreshold voltage.
+        epg_indices:     (n_epg,) neuron indices that are EPG.
+        epg_theta:       (n_epg,) preferred direction per EPG neuron.
+        output_path:     where to save the figure (.png).
+        n_panels:        number of frames to render (uniformly spaced over T).
+        frame_indices:   optional global frame indices for the per-panel titles.
+        activation:      'sigmoid' to apply 1/(1+e^-h) to voltage before binning,
+                         'relu' for max(0, h), 'none' to use raw voltage.
+        title:           super-title for the figure.
+    """
+    voltage_history = np.asarray(voltage_history)
+    if voltage_history.ndim != 2:
+        raise ValueError(f"voltage_history must be (T, N); got shape {voltage_history.shape}")
+    T = voltage_history.shape[0]
+    n_panels = min(n_panels, T)
+    panel_idx = np.linspace(0, T - 1, n_panels, dtype=int)
+
+    epg_indices = np.asarray(epg_indices)
+    epg_theta = np.asarray(epg_theta)
+    if epg_indices.shape != epg_theta.shape:
+        raise ValueError("epg_indices and epg_theta must have the same shape")
+
+    # Per-neuron activity over time (only EPG rows).
+    h_epg = voltage_history[:, epg_indices]
+    if activation == "sigmoid":
+        r_epg = 1.0 / (1.0 + np.exp(-h_epg))
+    elif activation == "relu":
+        r_epg = np.maximum(h_epg, 0.0)
+    elif activation == "none":
+        r_epg = h_epg
+    else:
+        raise ValueError(f"activation={activation!r} not in {{'sigmoid','relu','none'}}")
+
+    # Bin into 16 glomeruli for the polar bar chart.
+    n_glom = 16
+    glom_theta = cx_glomerulus_centres(n_glom)
+    # Build glomerulus assignment: each EPG -> closest glomerulus.
+    glom_assign = np.argmin(
+        np.abs(np.angle(np.exp(1j * (epg_theta[:, None] - glom_theta[None, :])))),
+        axis=1,
+    )
+    # Sum activity per glomerulus, normalised by count.
+    glom_act_full = np.zeros((T, n_glom), dtype=np.float32)
+    for g in range(n_glom):
+        mask = glom_assign == g
+        if mask.sum() > 0:
+            glom_act_full[:, g] = r_epg[:, mask].mean(axis=1)
+
+    n_cols = int(np.ceil(np.sqrt(n_panels)))
+    n_rows = int(np.ceil(n_panels / n_cols))
+    fig = plt.figure(figsize=(2.4 * n_cols, 2.8 * n_rows))
+    fig.suptitle(title, fontsize=12, y=0.98)
+    width = 2.0 * np.pi / n_glom
+
+    for k, t in enumerate(panel_idx):
+        ax = fig.add_subplot(n_rows, n_cols, k + 1, projection="polar")
+        ax.set_theta_zero_location("E")
+        ax.set_theta_direction(1)
+
+        # Polar bar chart of activity per glomerulus.
+        bars = ax.bar(
+            glom_theta,
+            glom_act_full[t],
+            width=width,
+            bottom=0.0,
+            color=plt.cm.Blues(np.clip(glom_act_full[t] / (glom_act_full[t].max() + 1e-9), 0, 1)),
+            edgecolor="white",
+            linewidth=0.5,
+        )
+        del bars  # quiet linter
+
+        # PVA arrow.
+        _, _, pva_angle, pva_mag = cx_population_vector(r_epg[t], epg_theta)
+        if pva_mag > 1e-8:
+            ax.annotate(
+                "",
+                xy=(pva_angle, pva_mag * glom_act_full[t].max() * 0.95),
+                xytext=(0, 0),
+                arrowprops=dict(arrowstyle="->", color="black", lw=1.6),
+            )
+
+        ax.set_thetalim(-np.pi, np.pi)
+        ax.set_rlim(0, max(glom_act_full[t].max() * 1.05, 1e-3))
+        ax.set_xticks([0, np.pi / 2, np.pi, -np.pi / 2])
+        ax.set_xticklabels(["0", r"$\pi/2$", r"$\pi$", r"$-\pi/2$"], fontsize=7)
+        ax.set_yticklabels([])
+        if frame_indices is not None and t < len(frame_indices):
+            ax.set_title(f"t={frame_indices[t]}", fontsize=8, pad=4)
+        else:
+            ax.set_title(f"frame {t}", fontsize=8, pad=4)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# 2-D EB ring fluorescence (donut view)
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_eb_ring(
+    voltage_history: np.ndarray,
+    epg_indices: np.ndarray,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    n_panels: int = 9,
+    frame_indices: Optional[list[int]] = None,
+    activation: str = "sigmoid",
+    cmap: str = "hot",
+) -> None:
+    """Render a grid of 2-D EB donut panels, one per sampled frame.
+
+    Each donut is a 16-bin annular heatmap where colour intensity = mean
+    EPG activity in that glomerulus.
+    """
+    voltage_history = np.asarray(voltage_history)
+    T = voltage_history.shape[0]
+    n_panels = min(n_panels, T)
+    panel_idx = np.linspace(0, T - 1, n_panels, dtype=int)
+
+    epg_theta = np.asarray(epg_theta)
+    epg_indices = np.asarray(epg_indices)
+    n_glom = 16
+    glom_theta = cx_glomerulus_centres(n_glom)
+    glom_assign = np.argmin(
+        np.abs(np.angle(np.exp(1j * (epg_theta[:, None] - glom_theta[None, :])))),
+        axis=1,
+    )
+
+    h_epg = voltage_history[:, epg_indices]
+    if activation == "sigmoid":
+        r_epg = 1.0 / (1.0 + np.exp(-h_epg))
+    elif activation == "relu":
+        r_epg = np.maximum(h_epg, 0.0)
+    elif activation == "none":
+        r_epg = h_epg
+    else:
+        raise ValueError(f"activation={activation!r}")
+
+    glom_act_full = np.zeros((T, n_glom), dtype=np.float32)
+    for g in range(n_glom):
+        mask = glom_assign == g
+        if mask.sum() > 0:
+            glom_act_full[:, g] = r_epg[:, mask].mean(axis=1)
+
+    vmax = float(glom_act_full.max() + 1e-9)
+    n_cols = int(np.ceil(np.sqrt(n_panels)))
+    n_rows = int(np.ceil(n_panels / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(2.2 * n_cols, 2.2 * n_rows))
+    if n_panels == 1:
+        axes = np.array([axes])
+    axes = np.atleast_1d(axes).ravel()
+
+    # Donut geometry
+    r_inner, r_outer = 0.55, 1.0
+    theta_grid = np.linspace(-np.pi, np.pi, n_glom + 1)
+
+    for k, t in enumerate(panel_idx):
+        ax = axes[k]
+        ax.set_aspect("equal")
+        ax.set_xlim(-1.1, 1.1)
+        ax.set_ylim(-1.1, 1.1)
+        ax.axis("off")
+        norm_v = glom_act_full[t] / vmax
+        for g in range(n_glom):
+            t0, t1 = theta_grid[g], theta_grid[g + 1]
+            wedge = plt.matplotlib.patches.Wedge(
+                center=(0, 0),
+                r=r_outer,
+                theta1=np.degrees(t0),
+                theta2=np.degrees(t1),
+                width=r_outer - r_inner,
+                facecolor=plt.get_cmap(cmap)(norm_v[g]),
+                edgecolor="white",
+                linewidth=0.5,
+            )
+            ax.add_patch(wedge)
+        if frame_indices is not None and t < len(frame_indices):
+            ax.set_title(f"t={frame_indices[t]}", fontsize=8)
+        else:
+            ax.set_title(f"frame {t}", fontsize=8)
+
+    for j in range(n_panels, len(axes)):
+        axes[j].axis("off")
+
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Kinograph with HD overlay
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_kinograph_pva(
+    voltage_history: np.ndarray,
+    epg_indices: np.ndarray,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    activation: str = "sigmoid",
+    cmap: str = "Blues",
+    dt_s: float = 0.01,
+    n_bins: int = 64,
+    true_theta_hd: Optional[np.ndarray] = None,
+    subtract_mean: bool = True,
+) -> None:
+    """Kinograph: time (vertical) vs orientation (horizontal) heatmap of EPG
+    fluorescence + decoded PVA trace (black) and optional ground-truth HD
+    trace (red).
+
+    Args:
+        voltage_history: (T, N) subthreshold voltage history.
+        epg_indices:     EPG neuron indices.
+        epg_theta:       (n_epg,) preferred direction.
+        output_path:     where to save the figure (.png).
+        activation:      'sigmoid', 'relu', or 'none'.
+        cmap:            matplotlib colormap name. Default 'Blues' for
+                         raw activity; switches automatically to 'RdBu_r'
+                         (divergent) when subtract_mean=True.
+        dt_s:            seconds per frame (default 0.01).
+        n_bins:          number of angular bins (default 64).
+        true_theta_hd:   optional (T,) ground-truth heading for overlay.
+        subtract_mean:   if True (default), subtract the per-bin temporal
+                         mean before colouring. Stationary baselines around
+                         the ring (caused by sigmoid floor + uneven EPG
+                         distribution) vanish; only the *moving* bump
+                         survives.
+    """
+    voltage_history = np.asarray(voltage_history)
+    T = voltage_history.shape[0]
+    epg_theta = np.asarray(epg_theta)
+    epg_indices = np.asarray(epg_indices)
+
+    h_epg = voltage_history[:, epg_indices]
+    if activation == "sigmoid":
+        r_epg = 1.0 / (1.0 + np.exp(-h_epg))
+    elif activation == "relu":
+        r_epg = np.maximum(h_epg, 0.0)
+    elif activation == "none":
+        r_epg = h_epg
+    else:
+        raise ValueError(f"activation={activation!r}")
+
+    # Bin into n_bins angular cells using soft assignment (Gaussian window).
+    bin_centres = np.linspace(-np.pi, np.pi, n_bins, endpoint=False)
+    diff = np.angle(np.exp(1j * (epg_theta[:, None] - bin_centres[None, :])))
+    sigma = 2.0 * np.pi / n_bins
+    weights = np.exp(-0.5 * (diff / sigma) ** 2)
+    weights /= weights.sum(axis=0, keepdims=True) + 1e-12
+    binned = r_epg @ weights  # (T, n_bins)
+
+    # Decoded HD via PVA.
+    decoded = np.zeros(T)
+    for t in range(T):
+        _, _, ang, _ = cx_population_vector(r_epg[t], epg_theta)
+        decoded[t] = ang
+
+    # Optionally subtract the per-bin temporal mean so stationary
+    # baseline streaks (caused by the sigmoid floor and uneven EPG
+    # distribution across glomeruli) vanish.
+    if subtract_mean:
+        binned_plot = binned - binned.mean(axis=0, keepdims=True)
+        # Divergent colormap centred at 0.
+        active_cmap = "RdBu_r" if cmap == "Blues" else cmap
+        absmax = float(np.percentile(np.abs(binned_plot), 99) + 1e-9)
+        vmin_p, vmax_p = -absmax, absmax
+    else:
+        binned_plot = binned
+        active_cmap = cmap
+        vmin_p, vmax_p = 0.0, float(np.percentile(binned, 99) + 1e-9)
+
+    fig, ax = plt.subplots(figsize=(4.5, 6.0))
+    ax.imshow(
+        binned_plot,
+        aspect="auto",
+        origin="upper",
+        cmap=active_cmap,
+        vmin=vmin_p,
+        vmax=vmax_p,
+        extent=[-np.pi, np.pi, T * dt_s, 0],
+        interpolation="nearest",
+    )
+    # Overlay true HD (thick light green) under decoded HD (thin black).
+    if true_theta_hd is not None:
+        true_wrapped = np.angle(np.exp(1j * np.asarray(true_theta_hd)))
+        ax.plot(true_wrapped, np.arange(T) * dt_s, color="#4daf4a",
+                linewidth=2.4, label="true HD")
+    ax.plot(decoded, np.arange(T) * dt_s, color="black", linewidth=0.6,
+            label="decoded HD (PVA)")
+    if true_theta_hd is not None:
+        ax.legend(loc="upper right", fontsize=7, framealpha=0.9)
+
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(T * dt_s, 0)
+    ax.set_xlabel("orientation (rad)")
+    ax.set_ylabel("time (s)")
+    ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax.set_xticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Training-time snapshots: weight matrix + kinograph with HD curves
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_matrix(
+    J: np.ndarray,
+    neuron_types: np.ndarray,
+    type_names: list[str],
+    output_path: str,
+    *,
+    title: str = "",
+    transpose_to_post_pre: bool = True,
+) -> None:
+    """Plot a CX connectivity matrix with cell-type annotations.
+
+    Args:
+        J: (N, N) dense connectivity. By default treated as (pre, post)
+            and transposed to (post, pre) for the plot (neuroscience
+            convention: rows = postsynaptic, cols = presynaptic).
+        neuron_types: (N,) int per-neuron type indices.
+        type_names: type-name strings indexed by neuron_types values.
+        output_path: PNG file to write.
+        title: optional super-title.
+        transpose_to_post_pre: if True (default), plot J.T.
+    """
+    J_plot = J.T if transpose_to_post_pre else J
+    N = J_plot.shape[0]
+    nonzero = np.abs(J_plot)[np.abs(J_plot) > 0]
+    vmax = float(np.percentile(nonzero, 98)) if nonzero.size else 1.0
+
+    # Cell-type boundary detection (assumes neurons are grouped contiguously).
+    bounds, centres, labels = [0], [], []
+    cur_t, cur_start = int(neuron_types[0]), 0
+    for i, t in enumerate(neuron_types):
+        t = int(t)
+        if t != cur_t:
+            bounds.append(i)
+            centres.append((cur_start + i - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            cur_t, cur_start = t, i
+    bounds.append(len(neuron_types))
+    centres.append((cur_start + len(neuron_types) - 1) / 2.0)
+    labels.append(type_names[cur_t])
+
+    fig, ax = plt.subplots(figsize=(6.5, 6.0))
+    im = ax.imshow(J_plot, cmap="bwr_r", vmin=-vmax, vmax=vmax,
+                   aspect="equal", interpolation="nearest", origin="upper")
+    for b in bounds[1:-1]:
+        ax.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.6)
+        ax.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.6)
+    ax.set_xticks(centres)
+    ax.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
+    ax.set_yticks(centres)
+    ax.set_yticklabels(labels, fontsize=7)
+    nnz = int((np.abs(J_plot) > 0).sum())
+    sub = f"N={N}, nonzero={nnz}, vmax={vmax:.3f}"
+    ax.set_title((title + "\n" if title else "") + sub, fontsize=10)
+    ax.set_xlabel("presynaptic")
+    ax.set_ylabel("postsynaptic")
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def render_cx_snapshot_into_axes(
+    fig,
+    ax_gt,
+    ax_mat,
+    ax_kin,
+    ax_neu,
+    ax_pen,
+    ax_hd,
+    *,
+    W_rec: np.ndarray,
+    rollout: dict,
+    epg_theta: np.ndarray,
+    W_con: Optional[np.ndarray] = None,
+    neuron_types: Optional[np.ndarray] = None,
+    type_names: Optional[list[str]] = None,
+    pen_neuron_types: Optional[np.ndarray] = None,
+    dt_s: float = 0.01,
+    n_bins: int = 32,
+    fwhm_z_thresh: float = 1.0,
+) -> None:
+    """Render the 6 CX training-snapshot panels into externally-provided axes.
+
+    Same layout/contents as `plot_cx_training_snapshot` but driven by the
+    caller's figure and axes — used to embed the snapshot inside a larger
+    composite figure.
+    """
+    # ---- shared matrix renderer (used for W_con and W_rec) ----
+    # Z-scored over the non-zero entries (raw |W| spans 4 orders of
+    # magnitude — fixed ±vmax makes the small entries invisible). Clipped
+    # to ±3 σ so the colour scale is comparable across snapshots and
+    # between W_con and W_rec.
+    def _render_matrix(ax, M, title, tick_fs: int = 7):
+        # M is [post, pre] (loader convention: J_effective[post, pre], with
+        # Dale enforced on COLS = pre). Display without transpose so the
+        # axes match the xlabel/ylabel below and Beiran fig 5d:
+        #   y = row of M = post, x = col of M = pre, Dale visible on cols.
+        J = M
+        J_arr = np.asarray(J, dtype=np.float32)
+        nz = np.abs(J_arr[J_arr != 0])
+        # Zero-centred, sign-preserving scale so EVERY non-zero edge gets a
+        # clear colour (red = excitatory, blue = inhibitory) instead of the
+        # bulk washing out to white. A z-score centres the *most common*
+        # weight at white and the 5x-amplified inhibitory tail inflates the
+        # spread, so the matrix looked empty. The sqrt compresses that heavy
+        # tail so small and large edges are both visible; the 90th-percentile
+        # magnitude maps to full saturation.
+        scale = float(np.percentile(nz, 90)) if nz.size else 1.0
+        Z = np.sign(J_arr) * np.sqrt(np.abs(J_arr) / (scale + 1e-12))
+        z_max = 1.0
+        Z = np.clip(Z, -z_max, z_max)
+        # Dilate each 1-px edge into a blob so individual synapses are visible
+        # at panel resolution (a 731-839 node matrix shown this small renders
+        # single edges sub-pixel and washes out). The blob size scales with
+        # the matrix so the edges stay visible regardless of N. Signed:
+        # positive entries via max-filter, negative via min-filter, larger
+        # magnitude wins where blobs overlap (as in fig_connectome_summary).
+        from scipy.ndimage import maximum_filter, minimum_filter
+        # Edge-blob size scales with N so the apparent dot size is constant
+        # across circuits: ~1 px at N≈156 (drosophila CX) up to ~7 px at
+        # N≈917 (zebrafish). The old max(5, …) floor over-inflated small-N
+        # matrices (the 156-cell fly dots looked ~5× too big vs the fish).
+        blob = max(1, int(round(J_arr.shape[0] / 130.0)))
+        Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
+        Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
+        Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
+        im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-z_max, vmax=z_max,
+                       aspect="equal", interpolation="nearest", origin="upper")
+        if neuron_types is not None and type_names is not None:
+            bounds, centres, labels = [0], [], []
+            cur_t, cur_start = int(neuron_types[0]), 0
+            for i, t in enumerate(neuron_types):
+                t = int(t)
+                if t != cur_t:
+                    bounds.append(i)
+                    centres.append((cur_start + i - 1) / 2.0)
+                    labels.append(type_names[cur_t])
+                    cur_t, cur_start = t, i
+            bounds.append(len(neuron_types))
+            centres.append((cur_start + len(neuron_types) - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            for b in bounds[1:-1]:
+                ax.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+                ax.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+            ax.set_xticks(centres)
+            ax.set_xticklabels(labels, fontsize=tick_fs, rotation=45, ha="right")
+            ax.set_yticks(centres)
+            ax.set_yticklabels(labels, fontsize=tick_fs)
+        if title:
+            ax.set_title(title, fontsize=8)
+        ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
+        cb = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
+        cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=10)
+        cb.ax.tick_params(labelsize=9)
+
+    # ---- (0,0) GT W_con (reference) + (0,1) learned W_rec ----
+    if W_con is not None:
+        _render_matrix(ax_gt, W_con, "GT W_con (signed, $\\sqrt{}$-scaled)")
+    else:
+        ax_gt.text(0.5, 0.5, "no W_con provided", ha="center", va="center",
+                   transform=ax_gt.transAxes, fontsize=11, color="0.5")
+        ax_gt.set_xticks([]); ax_gt.set_yticks([])
+        ax_gt.set_title("GT W_con", fontsize=8)
+    _render_matrix(ax_mat, W_rec, "", tick_fs=7)
+
+    # ---- RIGHT: kinograph with HD curves ----
+    # We plot the per-frame z-scored angular bump (mean=0, std=1 across
+    # the n_bins angular bins at each timestep). This makes the colorbar
+    # directly interpretable — yellow ≈ "k σ above the trial-mean" — so
+    # the FWHM threshold (a horizontal mark on the colorbar) shows
+    # visually where the bump-edge cutoff lies.
+    r_epg = rollout["r_epg"]  # (T, n_epg)
+    T = r_epg.shape[0]
+    bin_centres = np.linspace(-np.pi, np.pi, n_bins, endpoint=False)
+    diff = np.angle(np.exp(1j * (epg_theta[:, None] - bin_centres[None, :])))
+    sigma = 2 * np.pi / n_bins
+    w = np.exp(-0.5 * (diff / sigma) ** 2)
+    w /= w.sum(axis=0, keepdims=True) + 1e-12
+    binned = r_epg @ w                                    # (T, n_bins)
+    mu = binned.mean(axis=1, keepdims=True)
+    sd = binned.std(axis=1, keepdims=True) + 1e-12
+    z = (binned - mu) / sd                                # (T, n_bins)
+    # Fixed ±3 σ across snapshots so colour-shift between snapshots reflects
+    # actual dynamics, not changing percentile floors.
+    z_max = 3.0
+    z_clipped = np.clip(z, -z_max, z_max)
+    im_kin = ax_kin.imshow(z_clipped.T, aspect="auto", origin="lower", cmap="RdBu_r",
+                           vmin=-z_max, vmax=z_max,
+                           extent=[0, T * dt_s, -np.pi, np.pi],
+                           interpolation="nearest")
+    cb_kin = fig.colorbar(im_kin, ax=ax_kin, fraction=0.04, pad=0.02, shrink=0.85)
+    cb_kin.ax.tick_params(labelsize=9)
+    cb_kin.set_label("z-score", fontsize=11)
+    # Mark the FWHM threshold on the colorbar so "z>1" has a visual anchor.
+    cb_kin.ax.axhline(fwhm_z_thresh, color="black", linewidth=0.8)
+
+    # Scatter overlay: dense dots avoid the horizontal-jump artefact at ±π
+    # without needing wrap-aware NaN insertion.
+    def _scatter(theta, time, color, size, label):
+        theta = np.angle(np.exp(1j * np.asarray(theta)))  # ensure (-π, π]
+        ax_kin.scatter(time, theta, s=size, c=color, marker=".",
+                       linewidths=0, label=label)
+    t_axis = np.arange(T) * dt_s
+    _scatter(rollout["true_theta"], t_axis, "#4daf4a", 6, "true HD")
+    _scatter(rollout["decoded_theta"], t_axis, "black", 2, "decoded HD (W_out)")
+    ax_kin.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax_kin.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+    ax_kin.set_xlabel("time (s)")
+    ax_kin.set_ylabel("orientation (rad)")
+
+    # FWHM = mean (over time) of the angular width where the per-frame
+    # z-scored bump exceeds `fwhm_z_thresh`. Computed on the same z-scored
+    # signal that's plotted, so the annotation matches the panel.
+    bin_rad = 2 * np.pi / n_bins
+    widths = []
+    c = n_bins // 2
+    for t in range(T):
+        v = z[t]
+        peak = int(np.argmax(v))
+        if v[peak] <= fwhm_z_thresh:
+            continue
+        v_rolled = np.roll(v, c - peak)
+        left = c
+        while left - 1 >= 0 and v_rolled[left - 1] > fwhm_z_thresh:
+            left -= 1
+        right = c
+        while right + 1 < n_bins and v_rolled[right + 1] > fwhm_z_thresh:
+            right += 1
+        widths.append((right - left + 1) * bin_rad)
+    fwhm_rad = float(np.mean(widths)) if widths else float("nan")
+    fwhm_str = (f"bump width={np.degrees(fwhm_rad):.0f}°"
+                if widths else "bump width=n/a")
+    # pi_acc on the snapshot rollout = mean cos(decoded - true) after a
+    # short warmup (matches `path_integration_accuracy()` definition).
+    warmup = min(10, T // 4)
+    diff = np.angle(np.exp(1j * (np.asarray(rollout["decoded_theta"][warmup:])
+                                 - np.asarray(rollout["true_theta"][warmup:]))))
+    pi_acc = float(np.cos(diff).mean()) if diff.size else float("nan")
+    ax_kin.set_title(
+        f"EPG kinograph (z-scored)  —  "
+        f"{fwhm_str} above z={fwhm_z_thresh:g}  —  pi_acc={pi_acc:.3f}",
+        fontsize=8,
+    )
+
+    # ---- RIGHT: per-neuron EPG kinograph (sorted by preferred HD) ----
+    # Rows are individual EPG neurons (no angular smoothing). Exposes
+    # synchrony within "dynamical clone" groups (neurons whose preferred
+    # HD differs by < 5°), which should fire together. Thin separators
+    # mark the boundaries between groups.
+    n_epg = r_epg.shape[1]
+    # Per-frame z-score across the n_epg neurons (matches the kinograph's
+    # per-frame normalisation so the two panels are directly comparable).
+    epg_mu = r_epg.mean(axis=1, keepdims=True)
+    epg_sd = r_epg.std(axis=1, keepdims=True) + 1e-12
+    z_epg = np.clip((r_epg - epg_mu) / epg_sd, -3.0, 3.0)
+    im_neu = ax_neu.imshow(
+        z_epg.T, aspect="auto", origin="lower", cmap="RdBu_r",
+        vmin=-3.0, vmax=3.0,
+        extent=[0, T * dt_s, -0.5, n_epg - 0.5], interpolation="nearest",
+    )
+    cb_neu = fig.colorbar(im_neu, ax=ax_neu, fraction=0.04, pad=0.02, shrink=0.85)
+    cb_neu.set_label("z-score", fontsize=11)
+    cb_neu.ax.tick_params(labelsize=9)
+    ax_neu.set_xlabel("time (s)")
+    ax_neu.set_ylabel("EPG neuron index")
+    ax_neu.set_title("per-neuron EPG (z-scored, $\\pm 3\\,\\sigma$)", fontsize=8)
+
+    # ---- BOTTOM-RIGHT: per-neuron PEN raster (mirror of bottom-left) ----
+    # Twin of the EPG raster on the left so the user can read both bumps on
+    # the same time axis. PEN_a / PEN_b receive ω from the noduli and re-enter
+    # the EB shifted by ~one PB glomerulus (Turner-Evans 2017),
+    # so the bump should *track* EPG with a velocity-dependent offset that
+    # this side-by-side view exposes directly.
+    #
+    # Caveat on x-ordering: PEN preferred angles depend on the empirical
+    # PEN-PB-glomerulus map, which we don't load here. We sort by connectome
+    # index — the same order the circular-TV regulariser already uses
+    # (Beiran's loader sorts by neuPrint instance, which is approximately
+    # PB-glomerulus-ordered). An "outer ring / inner ring" polar overlay would
+    # be misleading without the proper angular calibration; the raster is
+    # honest about the ordering.
+    r_pen = rollout.get("r_pen")  # (T, n_pen) or None
+    if r_pen is not None and r_pen.shape[1] > 0:
+        n_pen = r_pen.shape[1]
+        pen_mu = r_pen.mean(axis=1, keepdims=True)
+        pen_sd = r_pen.std(axis=1, keepdims=True) + 1e-12
+        z_pen = np.clip((r_pen - pen_mu) / pen_sd, -3.0, 3.0)
+        im_pen = ax_pen.imshow(
+            z_pen.T, aspect="auto", origin="lower", cmap="RdBu_r",
+            vmin=-3.0, vmax=3.0,
+            extent=[0, T * dt_s, -0.5, n_pen - 0.5], interpolation="nearest",
+        )
+        cb_pen = fig.colorbar(im_pen, ax=ax_pen, fraction=0.04, pad=0.02, shrink=0.85)
+        cb_pen.set_label("z-score", fontsize=11)
+        cb_pen.ax.tick_params(labelsize=9)
+        ax_pen.set_xlabel("time (s)")
+        # Y-axis: cell-type-name ticks at each block centre if PEN subtypes
+        # are provided (e.g. PEN_a(PEN1) / PEN_b(PEN2)). Falls back to a
+        # plain "neuron index" label.
+        if (pen_neuron_types is not None and type_names is not None
+                and len(pen_neuron_types) == n_pen):
+            pt = np.asarray(pen_neuron_types).astype(np.int64)
+            bounds, centres, labels = [0], [], []
+            cur_t, cur_start = int(pt[0]), 0
+            for i, t in enumerate(pt):
+                t = int(t)
+                if t != cur_t:
+                    bounds.append(i)
+                    centres.append((cur_start + i - 1) / 2.0)
+                    labels.append(type_names[cur_t])
+                    cur_t, cur_start = t, i
+            bounds.append(n_pen)
+            centres.append((cur_start + n_pen - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            for b in bounds[1:-1]:
+                ax_pen.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+            ax_pen.set_yticks(centres)
+            ax_pen.set_yticklabels(labels, fontsize=7)
+            ax_pen.set_ylabel("")
+        else:
+            ax_pen.set_ylabel("PEN neuron index (connectome order ≈ PB glomerulus)")
+        ax_pen.set_title(
+            f"per-neuron PEN (z-scored, $\\pm 3\\,\\sigma$,  n_pen={n_pen})",
+            fontsize=8,
+        )
+    else:
+        ax_pen.text(0.5, 0.5, "no PEN data", ha="center", va="center",
+                    transform=ax_pen.transAxes, fontsize=11, color="0.5")
+        ax_pen.set_xticks([]); ax_pen.set_yticks([])
+        ax_pen.set_title("per-neuron PEN", fontsize=8)
+
+    # ---- (2,1) decoded vs true HD + residual error ----
+    # Previously this panel used a twin y-axis with unwrapped HD on the
+    # right — unwrapped HD grows linearly with ω·t and trivially dominated
+    # the axis, hiding the omega trace and any tracking error. Replaced
+    # with a single bounded axis showing wrapped HD in (−π, π) and the
+    # circular residual (decoded − true) so the heading error is directly
+    # readable on the same scale.
+    t_axis = np.arange(T) * dt_s
+    true_hd = np.angle(np.exp(1j * np.asarray(rollout["true_theta"])))
+    dec_hd  = np.angle(np.exp(1j * np.asarray(rollout["decoded_theta"])))
+    err_hd  = np.angle(np.exp(1j * (np.asarray(rollout["decoded_theta"])
+                                     - np.asarray(rollout["true_theta"]))))
+    ax_hd.plot(t_axis, true_hd, color="#4daf4a", lw=0.0,
+                marker=".", ms=3.0, ls="", label="true HD")
+    ax_hd.plot(t_axis, dec_hd, color="black", lw=0.0,
+                marker=".", ms=1.0, ls="", label="decoded HD")
+    ax_hd.plot(t_axis, err_hd, color="C0", lw=0.8, alpha=0.45,
+                label="error (dec − true)")
+    ax_hd.axhline(0.0, color="0.6", lw=0.4)
+    ax_hd.set_xlabel("time (s)")
+    ax_hd.set_ylabel("heading (rad, wrapped)")
+    ax_hd.set_yticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax_hd.set_yticklabels([r"$-\pi$", r"$-\pi/2$", "0", r"$\pi/2$", r"$\pi$"])
+    ax_hd.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    rmse_deg = float(np.degrees(np.sqrt(np.mean(err_hd ** 2))))
+    # Pearson over the plotted rollout (skip the first 10 frames to match the
+    # `_rollout_heading_metrics` warmup convention).
+    _warm = 10
+    _true_full = np.asarray(rollout["true_theta"])
+    _dec_full = np.asarray(rollout["decoded_theta"])
+    if _true_full.size > _warm:
+        _dec_unwrap = np.unwrap(_dec_full[_warm:])
+        _true_post = _true_full[_warm:]
+        if _dec_unwrap.std() > 1e-8 and _true_post.std() > 1e-8:
+            r_panel = float(np.corrcoef(_dec_unwrap, _true_post)[0, 1])
+            r_str = f"r = {r_panel:.3f}"
+        else:
+            r_str = "r = n/a"
+    else:
+        r_str = "r = n/a"
+    ax_hd.set_title(
+        "heading tracking on snapshot rollout   "
+        f"({r_str}, RMSE = {rmse_deg:.1f}°)",
+        fontsize=8,
+    )
+
+
+def plot_cx_training_snapshot(
+    W_rec: np.ndarray,
+    rollout: dict,
+    epg_theta: np.ndarray,
+    output_path: str,
+    *,
+    W_con: Optional[np.ndarray] = None,
+    neuron_types: Optional[np.ndarray] = None,
+    type_names: Optional[list[str]] = None,
+    pen_neuron_types: Optional[np.ndarray] = None,
+    step: Optional[int] = None,
+    dt_s: float = 0.01,
+    n_bins: int = 32,
+    mat_vmax: float = 1.0,
+    fwhm_z_thresh: float = 1.0,
+    pi_acc_history: Optional[tuple] = None,
+    rmse_history: Optional[tuple] = None,
+    wrec_param: str = "edge_magnitude",
+) -> None:
+    """2 × 4 training-snapshot figure — writes a PNG.
+
+    Row 1: GT W_con | learned W_rec | per-neuron EPG | per-neuron PEN
+    Row 2: EPG kinograph | HD tracking | pi_acc trace | GT vs learned scatter
+
+    pi_acc_history / rmse_history are each an optional (iterations, values)
+    tuple of 1-D arrays. `rmse_history` is drawn on a twin y-axis on the
+    right of the pi_acc panel. The bottom-right panel is a scatter of
+    GT vs learned recurrent weights (excludes diagonal and zero entries),
+    annotated with the linear-fit slope and R². The scatter is suppressed
+    when `wrec_param == "column_dale"` (dense mode — learned W_rec has
+    entries outside the connectome support, so per-edge GT comparison is
+    not meaningful).
+    """
+    fig, axes = plt.subplots(
+        2, 4, figsize=(22, 10),
+        gridspec_kw=dict(hspace=0.40, wspace=0.35,
+                         left=0.05, right=0.98, top=0.93, bottom=0.08),
+    )
+    ax_gt, ax_mat, ax_neu, ax_pen = axes[0]
+    ax_kin, ax_hd, ax_pi, ax_fw = axes[1]
+
+    render_cx_snapshot_into_axes(
+        fig, ax_gt, ax_mat, ax_kin, ax_neu, ax_pen, ax_hd,
+        W_rec=W_rec, rollout=rollout, epg_theta=epg_theta,
+        W_con=W_con, neuron_types=neuron_types, type_names=type_names,
+        pen_neuron_types=pen_neuron_types,
+        dt_s=dt_s, n_bins=n_bins, fwhm_z_thresh=fwhm_z_thresh,
+    )
+
+    if pi_acc_history is not None and len(pi_acc_history[0]) > 0:
+        it, pi = pi_acc_history
+        ax_pi.plot(it, pi, color="C0", lw=1.6)
+        ax_pi.axhline(0.95, color="r", ls=":", lw=0.8)
+        ax_pi.set_ylim(-0.05, 1.05)
+        ax_pi.set_xlabel("iteration", fontsize=10)
+        ax_pi.set_ylabel("pi_acc", color="C0", fontsize=10)
+        ax_pi.tick_params(axis="y", labelcolor="C0", labelsize=8)
+        ax_pi.tick_params(axis="x", labelsize=8)
+        ax_pi.set_title("path-integration accuracy", fontsize=8)
+        if rmse_history is not None and len(rmse_history[0]) > 0:
+            it_r, rmse = rmse_history
+            ax_pi_r = ax_pi.twinx()
+            ax_pi_r.plot(it_r, rmse, color="C3", lw=1.2)
+            ax_pi_r.set_ylabel("rmse", color="C3", fontsize=10)
+            ax_pi_r.tick_params(axis="y", labelcolor="C3", labelsize=8)
+    else:
+        ax_pi.axis("off")
+
+    if wrec_param == "column_dale":
+        ax_fw.axis("off")
+    elif W_con is not None:
+        mask = (W_con != 0)
+        np.fill_diagonal(mask, False)
+        x = np.asarray(W_con[mask], dtype=np.float32)
+        y = np.asarray(W_rec[mask], dtype=np.float32)
+        if x.size >= 2 and x.std() > 0:
+            slope, intercept = np.polyfit(x, y, 1)
+            r = float(np.corrcoef(x, y)[0, 1])
+            r2 = r * r
+            ax_fw.scatter(x, y, s=30, c="0.15", alpha=0.55, edgecolors="none")
+            lo, hi = float(x.min()), float(x.max())
+            xline = np.array([lo, hi])
+            ax_fw.plot(xline, slope * xline + intercept, color="C3", lw=1.0)
+            ax_fw.axhline(0, color="0.6", lw=0.3)
+            ax_fw.axvline(0, color="0.6", lw=0.3)
+            ax_fw.set_xlabel(r"GT $W_{rec}$", fontsize=10)
+            ax_fw.set_ylabel(r"learned $\hat W_{rec}$", fontsize=10)
+            ax_fw.set_xlim(-0.75, 0.75)
+            ax_fw.set_ylim(-0.75, 0.75)
+            ax_fw.set_title(f"slope = {slope:.3f},  $R^2$ = {r2:.3f}",
+                            fontsize=8)
+            ax_fw.tick_params(labelsize=8)
+        else:
+            ax_fw.axis("off")
+    else:
+        ax_fw.axis("off")
+
+    fig.savefig(output_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# 3-D anatomy (cached-skeletons)
+# ---------------------------------------------------------------------------
+
+
+def plot_cx_anatomy_3d(
+    output_path: str,
+    *,
+    neuron_types: Optional[np.ndarray] = None,
+    type_names: Optional[list[str]] = None,
+    epg_ix: Optional[list[int]] = None,
+    anatomy_dir: str = "papers/janelia_cx/anatomy",
+    elev: float = 22.0,
+    azim: float = -55.0,
+    edge_index: Optional[np.ndarray] = None,
+    edge_weights: Optional[np.ndarray] = None,
+    n_edge_draw: int = 200,
+) -> bool:
+    """3-D view of the CX neurons coloured by cell type.
+
+    Two rendering paths:
+    (1) If `anatomy_dir` contains per-type `<type_name>.npz` cache files
+        with a `'coords'` (P, 3) array, render real skeleton points.
+    (2) Otherwise, render a **synthetic schematic** built from the
+        connectome assignments: EPG neurons on a ring (EB), PEN on a
+        bar above (PB), Delta7 / PEG / EPGt as stylised side groups.
+        This always succeeds and gives a useful figure offline.
+
+    Args:
+        output_path:    where to save the .png.
+        neuron_types:   (N,) int array of per-neuron type indices. Required
+                        for the synthetic path.
+        type_names:     list mapping type index -> name. Required for
+                        synthetic path.
+        epg_ix:         (n_epg,) glomerulus assignment for EPG neurons
+                        (0..15). Used to place EPGs on the EB ring.
+        edge_index, edge_weights: optional (2, E) / (E,) tensors. If
+                        provided, draw up to `n_edge_draw` strongest
+                        edges as semi-transparent lines (red=excitatory,
+                        blue=inhibitory).
+
+    Returns:
+        True if real cached skeletons were used; False if the synthetic
+        schematic was rendered instead.
+    """
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — register 3D projection
+
+    fig = plt.figure(figsize=(6.0, 5.5))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # --- Path 1: real cached skeletons ----------------------------------
+    cached_path = (
+        os.path.isdir(anatomy_dir)
+        and any(f.endswith(".npz") for f in os.listdir(anatomy_dir))
+    )
+    if cached_path:
+        if type_names is None:
+            type_names = [
+                os.path.splitext(f)[0] for f in sorted(os.listdir(anatomy_dir))
+                if f.endswith(".npz")
+            ]
+        colours = plt.cm.tab10(np.linspace(0, 1, max(1, len(type_names))))
+        plotted_any = False
+        for i, tn in enumerate(type_names):
+            path = os.path.join(anatomy_dir, f"{tn}.npz")
+            if not os.path.isfile(path):
+                continue
+            coords = np.load(path)["coords"]
+            if coords.size == 0:
+                continue
+            ax.scatter(
+                coords[:, 0], coords[:, 1], coords[:, 2],
+                s=1.5, c=[colours[i]], alpha=0.6, label=tn, depthshade=True,
+            )
+            plotted_any = True
+        if plotted_any:
+            ax.view_init(elev=elev, azim=azim)
+            ax.set_axis_off()
+            ax.legend(loc="upper right", fontsize=7, framealpha=0.9)
+            plt.tight_layout()
+            fig.savefig(output_path, dpi=200, bbox_inches="tight")
+            plt.close(fig)
+            return True
+
+    # --- Path 2: synthetic schematic -----------------------------------
+    if neuron_types is None or type_names is None:
+        fig.clf()
+        ax = fig.add_subplot(111)
+        ax.text(0.5, 0.5,
+                "3D anatomy unavailable\n"
+                "(pass neuron_types + type_names, "
+                "or cache skeletons in papers/janelia_cx/anatomy/)",
+                ha="center", va="center", fontsize=10, transform=ax.transAxes)
+        ax.set_axis_off()
+        plt.tight_layout()
+        fig.savefig(output_path, dpi=200, bbox_inches="tight")
+        plt.close(fig)
+        return False
+
+    nt = np.asarray(neuron_types).astype(int)
+    n_glom = 16
+    coords = np.zeros((nt.size, 3), dtype=np.float32)
+    rng = np.random.default_rng(0)
+
+    # Helper to find type indices by name fragment.
+    def _idx_of(frag: str) -> list[int]:
+        return [i for i, n in enumerate(type_names) if frag in n]
+
+    epg_types = _idx_of("EPG")
+    pen_types = _idx_of("PEN")
+    d7_types = _idx_of("Delta7") + _idx_of("Δ7")
+    peg_types = _idx_of("PEG") if all("PE" in type_names[i] for i in []) else _idx_of("PEG")
+    # PEG/EPG name collision guard: PEG must not include EPG matches.
+    peg_types = [i for i in peg_types if "EPG" not in type_names[i]]
+    epg_types = [i for i in epg_types if "PEG" not in type_names[i]]
+
+    # --- EPG on the EB ring (radius R_eb in xy at z=0) -------------------
+    R_eb = 4.5
+    eb_jitter = 0.25
+    epg_mask = np.isin(nt, epg_types)
+    epg_indices = np.where(epg_mask)[0]
+    if epg_ix is not None and len(epg_ix) == len(epg_indices):
+        theta_epg = cx_epg_directions(epg_ix, n_glom=n_glom)
+    elif len(epg_indices) > 0:
+        # Fall back: spread EPGs uniformly on the ring.
+        theta_epg = np.linspace(-np.pi, np.pi, len(epg_indices), endpoint=False)
+    else:
+        theta_epg = np.array([])
+    for j, idx in enumerate(epg_indices):
+        th = float(theta_epg[j])
+        r = R_eb + rng.normal(0, eb_jitter)
+        coords[idx] = [r * np.cos(th), r * np.sin(th),
+                       rng.normal(0, eb_jitter)]
+
+    # --- PEN on a horizontal bar (PB) -----------------------------------
+    PB_y = 7.5
+    PB_z = 4.0
+    pen_mask = np.isin(nt, pen_types)
+    pen_indices = np.where(pen_mask)[0]
+    n_pen = pen_indices.size
+    if n_pen > 0:
+        for j, idx in enumerate(pen_indices):
+            # Half left, half right of midline.
+            side = -1.0 if j < n_pen // 2 else 1.0
+            inner = (j % (n_pen // 2 + 1)) / max(1, n_pen // 2)
+            x = side * (1.5 + inner * 6.0)
+            coords[idx] = [x, PB_y + rng.normal(0, 0.2),
+                           PB_z + rng.normal(0, 0.2)]
+
+    # --- Delta7 across the PB midline -----------------------------------
+    d7_mask = np.isin(nt, d7_types)
+    d7_indices = np.where(d7_mask)[0]
+    for j, idx in enumerate(d7_indices):
+        x = np.linspace(-7.5, 7.5, max(1, len(d7_indices)))[j]
+        coords[idx] = [x, PB_y - 1.0, PB_z + 1.5]
+
+    # --- PEG between PB and EB ------------------------------------------
+    peg_mask = np.isin(nt, peg_types)
+    peg_indices = np.where(peg_mask)[0]
+    for j, idx in enumerate(peg_indices):
+        th = (j / max(1, len(peg_indices))) * 2.0 * np.pi - np.pi
+        r = R_eb * 0.7
+        coords[idx] = [r * np.cos(th), r * np.sin(th) + PB_y * 0.45,
+                       PB_z * 0.5]
+
+    # --- Anything else: stack in a small cloud near the origin ----------
+    other_mask = ~(epg_mask | pen_mask | d7_mask | peg_mask)
+    other_indices = np.where(other_mask)[0]
+    for idx in other_indices:
+        coords[idx] = rng.normal(0, 1.5, size=3)
+        coords[idx, 1] += PB_y * 0.5
+
+    # --- Scatter, coloured by cell type --------------------------------
+    type_colours = plt.cm.tab10(np.linspace(0, 1, max(1, len(type_names))))
+    for t_idx in range(len(type_names)):
+        mask = nt == t_idx
+        if not mask.any():
+            continue
+        ax.scatter(
+            coords[mask, 0], coords[mask, 1], coords[mask, 2],
+            s=55, c=[type_colours[t_idx]], edgecolors="white",
+            linewidths=0.5, alpha=0.95, depthshade=True,
+            label=type_names[t_idx],
+        )
+
+    # --- Optional edge overlay (strongest only) -------------------------
+    if edge_index is not None and edge_weights is not None:
+        ei = np.asarray(edge_index)
+        ew = np.asarray(edge_weights)
+        # Pick the top-|w| edges.
+        order = np.argsort(-np.abs(ew))[:n_edge_draw]
+        for k in order:
+            src, dst = int(ei[0, k]), int(ei[1, k])
+            w = float(ew[k])
+            colour = "tab:red" if w > 0 else "tab:blue"
+            ax.plot(
+                [coords[src, 0], coords[dst, 0]],
+                [coords[src, 1], coords[dst, 1]],
+                [coords[src, 2], coords[dst, 2]],
+                color=colour, alpha=0.12, linewidth=0.6,
+            )
+
+    # --- Annotate EB / PB --------------------------------------------
+    ax.text(0, 0, -1.5, "EB", fontsize=10, ha="center")
+    if n_pen > 0 or d7_indices.size > 0:
+        ax.text(0, PB_y, PB_z + 2.0, "PB", fontsize=10, ha="center")
+
+    ax.view_init(elev=elev, azim=azim)
+    ax.set_axis_off()
+    ax.legend(loc="upper right", fontsize=7, framealpha=0.9)
+    ax.set_box_aspect((1, 1, 0.65))
+    plt.tight_layout()
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return False
+
+
+# ===========================================================================
+# Evolution figure — paper figure + training-time snapshot. Moved here from
+# figures/drosophila_cx/fig_evolution.py so the trainer (bump_attractor_eval._
+# save_training_snapshot) can import it via the normal package path instead
+# of the importlib hack it used to do. The standalone CLI in
+# figures/drosophila_cx/fig_evolution.py now imports plot_cx_evolution and
+# keeps only the data-loading + argparse code.
+#
+# Public entry point: plot_cx_evolution(data, out_path, run_dir, n_rows).
+# All _panel_* helpers below are private to this module.
+# ===========================================================================
+
+PANEL_LABEL_FS = 18
+TITLE_FS = 15
+LABEL_FS = 15
+TICK_FS = 13
+GT_COLOR = "#4daf4a"
+PRED_COLOR = "black"
+GT_LW = 2.4         # ground-truth trace line width
+PRED_LW = 0.6       # prediction trace line width
+
+
+def _type_tick_fs(n_labels: int) -> float:
+    """Auto-scale cell-type tick fontsize so 30+ types stay legible.
+
+    Fly CX has 7 types -> returns TICK_FS (9pt, unchanged).
+    Zebrafish HD has 31 types -> returns ~4pt so labels don't overlap.
+    """
+    return max(4.0, min(float(TICK_FS), 130.0 / max(int(n_labels), 1)))
+
+
+# --- Zebrafish HD circuit: six-way functional partition (Fig. 2) -------------
+# Same labels and colours as fig_2_connectome.py so a partition-sorted matrix
+# or kinograph here reads identically to the connectome-summary figure.
+_HD_PARTITION_ORDER = [
+    "dIPN", "IPN12", "other", "ARTR", "pt-IPN1", "motor_efferent",
+]
+_HD_PARTITION_COLOR = {
+    "dIPN":           "#d49a3a",
+    "IPN12":          "#b15a8e",
+    "ARTR":           "#1f6fb3",
+    "pt-IPN1":        "#e07b1a",
+    "motor_efferent": "#2a9d3d",
+    "other":          "#888888",
+}
+_HD_ARTR_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
+_HD_MOTOR_EFFERENT_TYPES = {"RIPN11", "RIPN12_a", "RIPN12_c"}
+
+
+def _hd_partition_of(name: str) -> str:
+    """Map a fish2 cell-type name to its six-way functional partition."""
+    if name in _HD_ARTR_TYPES:
+        return "ARTR"
+    if name in _HD_MOTOR_EFFERENT_TYPES:
+        return "motor_efferent"
+    if name == "pt-IPN1":
+        return "pt-IPN1"
+    if name.startswith("IPN12"):
+        return "IPN12"
+    if name.startswith("IPNds") or name.startswith("IPNd"):
+        return "dIPN"
+    return "other"
+
+
+def _hd_partition_ids(neuron_types, type_names) -> "np.ndarray | None":
+    """Per-neuron partition label, or None when the vocab isn't fish2-like
+    (the fly CX circuit has different cell-type names and gets no
+    partition sort)."""
+    names = list(type_names)
+    nt = np.asarray(neuron_types).astype(int)
+    fish_keys = {"IPNd", "IPNds", "IPN12_a", "IPN12_b", "RIPN01", "RIPN11",
+                 "pt-IPN1"}
+    if not any(any(k in n for k in fish_keys) for n in names):
+        return None
+    return np.array([_hd_partition_of(names[int(t)]) for t in nt],
+                    dtype=object)
+
+
+def _hd_partition_sort(partition: np.ndarray) -> np.ndarray:
+    """Stable argsort that puts neurons in PARTITION_ORDER groups."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in partition])
+    return np.argsort(rank, kind="stable")
+
+
+def _hd_set_partition_ticks(ax, part_sorted, *, axis="both",
+                            fontsize=10, rotation=30):
+    """Place the six partition-group names at each block centre."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in part_sorted])
+    changes = np.where(np.diff(rank) != 0)[0] + 0.5
+    bnds = np.concatenate([[0], changes + 0.5, [rank.size]])
+    centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+    lab = [part_sorted[int(round(c))] for c in centres]
+    if axis in ("x", "both"):
+        ax.set_xticks(centres)
+        ax.set_xticklabels(lab, fontsize=fontsize, rotation=rotation,
+                            ha="right")
+    if axis in ("y", "both"):
+        ax.set_yticks(centres)
+        ax.set_yticklabels(lab, fontsize=fontsize)
+
+
+def _hd_draw_partition_boundaries(ax, part_sorted, *, color="k", lw=0.4,
+                                   alpha=0.7, axis="both"):
+    """Draw the boundary lines between the six partition groups."""
+    key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+    rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                     for p in part_sorted])
+    for x in np.where(np.diff(rank) != 0)[0] + 0.5:
+        if axis in ("x", "both"):
+            ax.axvline(x, color=color, lw=lw, alpha=alpha)
+        if axis in ("y", "both"):
+            ax.axhline(x, color=color, lw=lw, alpha=alpha)
+
+
+def _preferred_phase(h_traj: np.ndarray, theta: np.ndarray) -> np.ndarray:
+    """Per-neuron preferred heading phase φ_i =
+    arg( Σ_t (h_i(t) − <h_i>) · e^{iθ(t)} ).
+    Mirrors fig_kinographs_const_omega._preferred_phase (drosophila CX
+    Fig. 13, third row sort)."""
+    h = np.asarray(h_traj)
+    th = np.asarray(theta)
+    act = h - h.mean(axis=0, keepdims=True)
+    return np.arctan2((act * np.sin(th)[:, None]).sum(axis=0),
+                      (act * np.cos(th)[:, None]).sum(axis=0))
+
+
+def _preferred_d(h_traj: np.ndarray, d_traj: np.ndarray) -> np.ndarray:
+    """Per-neuron preferred forward-distance signed-correlation
+    ρ_i = corr(h_i(t), d(t)), in [-1, 1]. Positive ρ -> neuron is
+    activated by forward swim; negative ρ -> suppressed. This is the
+    scalar analogue of _preferred_phase for translation-only tasks,
+    where the target is a 1-D integrated distance d rather than an
+    angular heading θ.
+    """
+    h = np.asarray(h_traj)
+    d = np.asarray(d_traj)
+    T_min = min(h.shape[0], d.size)
+    h = h[:T_min]
+    d = d[:T_min]
+    act = h - h.mean(axis=0, keepdims=True)
+    drv = d - d.mean()
+    num = (act * drv[:, None]).sum(axis=0)
+    denom = np.sqrt((act ** 2).sum(axis=0)) * np.sqrt((drv ** 2).sum())
+    out = np.zeros(h.shape[1], dtype=np.float64)
+    mask = denom > 1e-12
+    out[mask] = num[mask] / denom[mask]
+    return out
+
+
+def _panel_label(ax, letter: str, y: float = 1.02):
+    ax.text(-0.12, y, letter, transform=ax.transAxes,
+            fontsize=PANEL_LABEL_FS, fontweight="bold",
+            va="bottom", ha="right")
+
+
+def _panel_matrix(ax, M: np.ndarray, neuron_types, type_names, title: str,
+                   *, partition=None, show_cbar=True, show_title=True,
+                   show_axis_labels=True):
+    """Type-pair grouped W matrix, zero-centred signed-sqrt scaled and
+    edge-dilated so individual synapses are visible at panel resolution.
+
+    When ``partition`` is a per-neuron partition vector (six-way
+    functional partition from Fig. 2 — dIPN / IPN12 / other / ARTR /
+    pt-IPN1 / motor_efferent), rows and columns are reordered into
+    those partition blocks, the tick labels become the six partition
+    group names, and boundary lines mark the block edges. Otherwise
+    the legacy cell-type sort is used.
+    """
+    if M is None:
+        ax.text(0.5, 0.5, "no matrix", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    Marr = np.asarray(M, dtype=np.float32)
+    nt = np.asarray(neuron_types)
+    if partition is not None and len(partition) == Marr.shape[0]:
+        perm = _hd_partition_sort(np.asarray(partition, dtype=object))
+        Marr = Marr[np.ix_(perm, perm)]
+        nt = nt[perm]
+        part_sorted = np.asarray(partition, dtype=object)[perm]
+    else:
+        part_sorted = None
+    nz = np.abs(Marr[Marr != 0])
+    # Zero-centred, sign-preserving scale (red = excitatory, blue =
+    # inhibitory) so EVERY non-zero edge gets a clear colour. A mean-
+    # subtracted z-score centres the most common weight at white and the
+    # 5x-amplified inhibitory tail inflates the spread, washing the matrix
+    # out; sqrt compresses that tail (90th-percentile magnitude saturates).
+    scale = float(np.percentile(nz, 90)) if nz.size else 1.0
+    Z = np.sign(Marr) * np.sqrt(np.abs(Marr) / (scale + 1e-12))
+    Z = np.clip(Z, -1.0, 1.0)
+    # Dilate each 1-px edge into a blob (size scales with N) so individual
+    # synapses are visible; signed max/min filters, larger magnitude wins.
+    # The blob is kept proportional to N (one blob ~ a fixed fraction of the
+    # matrix) with a small floor of 2 px: at the zebrafish scale (N~900) this
+    # is ~7 px, while the smaller fly CX (N=338) gets ~3 px rather than the
+    # old hard floor of 5, which looked oversized on the 338-cell matrix.
+    from scipy.ndimage import maximum_filter, minimum_filter
+    blob = max(2, int(round(Marr.shape[0] / 130.0)))
+    Zpos = maximum_filter(np.where(Z > 0, Z, 0.0), size=blob)
+    Zneg = minimum_filter(np.where(Z < 0, Z, 0.0), size=blob)
+    Zvis = np.where(np.abs(Zpos) >= np.abs(Zneg), Zpos, Zneg)
+    im = ax.imshow(Zvis, cmap="RdBu_r", vmin=-1.0, vmax=1.0,
+                    interpolation="nearest", aspect="equal")
+    # Pin the square axes box to the NW corner of its allocated cell so
+    # the leftmost column's panel label (placed via ax.transAxes) aligns
+    # with the leftmost column of every other row.
+    ax.set_anchor("NW")
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted)
+        _hd_set_partition_ticks(ax, part_sorted, fontsize=TICK_FS,
+                                 rotation=45)
+    elif nt.size:
+        order = np.argsort(nt, kind="stable")
+        b = np.where(np.diff(nt[order]) != 0)[0] + 0.5
+        for x in b:
+            ax.axvline(x, color="k", lw=0.3, alpha=0.5)
+            ax.axhline(x, color="k", lw=0.3, alpha=0.5)
+        boundaries = np.concatenate([[0], b + 0.5, [nt.size]])
+        centres = (boundaries[:-1] + boundaries[1:]) / 2 - 0.5
+        labels = [type_names[int(nt[order[int(c)]])] for c in centres]
+        type_fs = _type_tick_fs(len(labels))
+        ax.set_xticks(centres); ax.set_xticklabels(labels, fontsize=type_fs,
+                                                     rotation=45, ha="right")
+        ax.set_yticks(centres); ax.set_yticklabels(labels, fontsize=type_fs)
+    if show_title and title:
+        ax.set_title(title, fontsize=TITLE_FS)
+    if show_axis_labels:
+        ax.set_xlabel("presynaptic", fontsize=LABEL_FS)
+        ax.set_ylabel("postsynaptic", fontsize=LABEL_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.set_label(r"sign$\cdot\sqrt{|W|}$ (norm.)", fontsize=LABEL_FS)
+        cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_weight_scatter(ax, W_con, W_rec, *, lim=0.75):
+    """Scatter of true (W_con, panel a) vs learned (W_rec, panel b) weights
+    over the connectome edges. Excludes the diagonal and zero entries; y=x
+    reference line and Pearson r annotated. Under the sign-lock the points
+    stay in matching-sign quadrants, so the spread off y=x shows how training
+    rescaled the connectome magnitudes.
+
+    ``lim`` fixes the (symmetric) axis range to ``[-lim, +lim]`` so the dense
+    cloud near the origin is legible at a consistent zoom across runs; pass
+    ``lim=None`` to fall back to the data-driven min/max box."""
+    if W_con is None or W_rec is None:
+        ax.text(0.5, 0.5, "no weights", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    A = np.asarray(W_con, dtype=np.float64)
+    B = np.asarray(W_rec, dtype=np.float64)
+    mask = A != 0
+    np.fill_diagonal(mask, False)
+    x, y = A[mask], B[mask]
+    if x.size == 0:
+        ax.text(0.5, 0.5, "no edges", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    # Training rescales the connectome by a large global gain, so the raw
+    # cloud lies on a steep line and the per-edge deviations are invisible.
+    # Correct for that slope: fit a through-origin least-squares gain
+    # (sign-locked weights pass through 0) and divide it out, so the cloud
+    # centres on y=x and the residual scatter is the genuine per-edge
+    # reweighting. The removed slope is the mean connectome amplification.
+    denom = float(np.sum(x * x))
+    slope = float(np.sum(x * y) / denom) if denom > 0 else 1.0
+    if slope != 0:
+        y = y / slope
+    r = float(np.corrcoef(x, y)[0, 1]) if x.size > 1 else float("nan")
+    ax.scatter(x, y, s=4, alpha=0.5, color="0.25", edgecolors="none",
+               rasterized=True)
+    if lim is not None:
+        lo, hi = -float(lim), float(lim)
+    else:
+        lo = float(min(x.min(), y.min())); hi = float(max(x.max(), y.max()))
+        pad = 0.05 * (hi - lo + 1e-9)
+        lo, hi = lo - pad, hi + pad
+    ax.plot([lo, hi], [lo, hi], color="0.55", lw=0.8, ls="--", zorder=0)
+    ax.axhline(0, color="0.8", lw=0.4); ax.axvline(0, color="0.8", lw=0.4)
+    ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
+    ax.set_xlabel(r"GT $W^{\mathrm{con}}_{ij}$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"learned $\hat W_{ij}\,/\,m$", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_neuron_kinograph(ax, r_pop, neuron_types_sub, type_names,
+                             dt_s: float, ylabel: str):
+    """Per-neuron z-scored firing-rate kinograph, no title."""
+    if r_pop is None or r_pop.size == 0:
+        ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    T = r_pop.shape[0]
+    z = (r_pop - r_pop.mean(axis=0, keepdims=True))
+    sd = r_pop.std(axis=0, keepdims=True); sd[sd < 1e-8] = 1.0
+    z = (z / sd).clip(-3.0, 3.0)
+    im = ax.imshow(z.T, aspect="auto", origin="lower", cmap="RdBu_r",
+                    vmin=-3.0, vmax=3.0,
+                    extent=[0, T * dt_s, 0, z.shape[1]],
+                    interpolation="nearest")
+    if neuron_types_sub is not None and neuron_types_sub.size:
+        nt = np.asarray(neuron_types_sub)
+        order = np.argsort(nt, kind="stable")
+        boundaries = np.where(np.diff(nt[order]) != 0)[0] + 0.5
+        for b in boundaries:
+            ax.axhline(b, color="k", lw=0.3, alpha=0.6)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel(ylabel, fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+    cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_all_neurons_kinograph(ax, r_full: np.ndarray, neuron_types,
+                                   type_names, dt_s: float,
+                                   *, partition=None, show_cbar=True):
+    """Per-neuron firing-rate kinograph for ALL neurons.
+
+    When ``partition`` is supplied (six-way functional partition of
+    Fig. 2), rows are reordered into those partition blocks and tick
+    labels become the partition group names. Otherwise the legacy
+    cell-type sort is used.
+
+    Z-scored per neuron (column-wise), clipped to ±3.
+    """
+    if r_full is None or r_full.size == 0:
+        ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    nt = np.asarray(neuron_types)
+    if partition is not None and len(partition) == r_full.shape[1]:
+        part_arr = np.asarray(partition, dtype=object)
+        order = _hd_partition_sort(part_arr)
+        part_sorted = part_arr[order]
+    else:
+        order = np.argsort(nt, kind="stable")
+        part_sorted = None
+    r_sorted = r_full[:, order]
+    T = r_sorted.shape[0]
+    mu = r_sorted.mean(axis=0, keepdims=True)
+    sd = r_sorted.std(axis=0, keepdims=True); sd[sd < 1e-8] = 1.0
+    z = ((r_sorted - mu) / sd).clip(-3.0, 3.0)
+    im = ax.imshow(z.T, aspect="auto", origin="upper", cmap="RdBu_r",
+                    vmin=-3.0, vmax=3.0,
+                    extent=[0, T * dt_s, z.shape[1], 0],
+                    interpolation="nearest")
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted, axis="y", lw=0.4)
+        # Place partition group names on the y axis (kinograph rows
+        # are neurons, columns are time). First-in-PARTITION_ORDER
+        # group (dIPN) is at the TOP — same orientation as the
+        # partition-sorted matrices in panels a/b.
+        key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                         for p in part_sorted])
+        changes = np.where(np.diff(rank) != 0)[0] + 0.5
+        bnds = np.concatenate([[0], changes + 0.5, [rank.size]])
+        centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+        labels = [part_sorted[int(round(c))] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=TICK_FS)
+    else:
+        nt_sorted = nt[order]
+        boundaries = np.where(np.diff(nt_sorted) != 0)[0] + 0.5
+        for b in boundaries:
+            ax.axhline(b, color="k", lw=0.3, alpha=0.6)
+        bounds_full = np.concatenate([[0], boundaries + 0.5, [nt_sorted.size]])
+        centres = (bounds_full[:-1] + bounds_full[1:]) / 2 - 0.5
+        labels = [type_names[int(nt_sorted[int(c)])] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=_type_tick_fs(len(labels)))
+        ax.set_ylabel("neuron type", fontsize=LABEL_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.tick_params(axis="x", labelsize=TICK_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_phase_sorted_kinograph(ax, r_full: np.ndarray, theta_traj,
+                                    dt_s: float, *, partition=None,
+                                    show_cbar=True, sort_key=None,
+                                    sort_label=r"$\varphi$"):
+    """Per-neuron z-scored firing-rate kinograph with rows reordered by
+    a scalar sort key. By default the key is the preferred heading
+    phase φ_i = arg( Σ_t (r_i(t) − <r_i>) · e^{iθ(t)} ) computed from
+    ``theta_traj`` (drosophila Fig. 13 row 3 sort). When the caller
+    supplies its own ``sort_key`` (per-neuron 1-D array), that array
+    is used instead — useful for translation tasks where the natural
+    sort is preferred-d ρ_i = corr(r_i, d(t)) (see
+    :func:`_preferred_d`).
+
+    When ``partition`` is supplied, the partition blocks of panels a /
+    b / d are preserved (dIPN, IPN12, other, ARTR, pt-IPN1,
+    motor_efferent — top to bottom), and rows are reordered by the
+    sort key *within each block* (drosophila Fig. 13 row 2 sort).
+    """
+    if r_full is None or r_full.size == 0:
+        ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                transform=ax.transAxes); ax.axis("off"); return
+    r = np.asarray(r_full)
+    if sort_key is None:
+        if theta_traj is None:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes); ax.axis("off"); return
+        th = np.asarray(theta_traj)
+        T_min = min(r.shape[0], th.size)
+        r = r[:T_min]
+        th = th[:T_min]
+        phi = _preferred_phase(r, th)
+    else:
+        phi = np.asarray(sort_key)
+        if phi.size != r.shape[1]:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes); ax.axis("off"); return
+    if partition is not None and len(partition) == r.shape[1]:
+        # Partition-primary, phase-secondary sort. ``lexsort`` sorts by
+        # the LAST key first, so we pass (phi, rank) — rank is primary,
+        # phi is the within-group tiebreaker.
+        part_arr = np.asarray(partition, dtype=object)
+        key = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank = np.array([key.get(p, len(_HD_PARTITION_ORDER))
+                         for p in part_arr])
+        order = np.lexsort((phi, rank))
+        part_sorted = part_arr[order]
+    else:
+        order = np.argsort(phi, kind="stable")
+        part_sorted = None
+    r_sorted = r[:, order]
+    T = r_sorted.shape[0]
+    mu = r_sorted.mean(axis=0, keepdims=True)
+    sd = r_sorted.std(axis=0, keepdims=True); sd[sd < 1e-8] = 1.0
+    z = ((r_sorted - mu) / sd).clip(-3.0, 3.0)
+    # Same orientation as panel d: origin="upper" + extent flipped on
+    # the y axis so the first sort key (dIPN) sits at the top.
+    im = ax.imshow(z.T, aspect="auto", origin="upper", cmap="RdBu_r",
+                    vmin=-3.0, vmax=3.0,
+                    extent=[0, T * dt_s, z.shape[1], 0],
+                    interpolation="nearest")
+    if part_sorted is not None:
+        _hd_draw_partition_boundaries(ax, part_sorted, axis="y", lw=0.4)
+        key2 = {k: i for i, k in enumerate(_HD_PARTITION_ORDER)}
+        rank2 = np.array([key2.get(p, len(_HD_PARTITION_ORDER))
+                          for p in part_sorted])
+        changes = np.where(np.diff(rank2) != 0)[0] + 0.5
+        bnds = np.concatenate([[0], changes + 0.5, [rank2.size]])
+        centres = (bnds[:-1] + bnds[1:]) / 2 - 0.5
+        labels = [part_sorted[int(round(c))] for c in centres]
+        ax.set_yticks(centres)
+        ax.set_yticklabels(labels, fontsize=TICK_FS)
+    else:
+        ax.set_ylabel(rf"neuron (sorted by {sort_label})",
+                      fontsize=LABEL_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.tick_params(axis="x", labelsize=TICK_FS)
+    if show_cbar:
+        cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+        cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_population_kinograph(ax, rollout: dict, epg_theta: np.ndarray,
+                                 dt_s: float, n_bins: int = 32):
+    """Population EPG kinograph (orientation × time), no overlay."""
+    r_epg = np.asarray(rollout["r_epg"])
+    T = r_epg.shape[0]
+    theta = np.angle(np.exp(1j * np.asarray(epg_theta)))
+    edges = np.linspace(-np.pi, np.pi, n_bins + 1)
+    centres = 0.5 * (edges[:-1] + edges[1:])
+    bin_idx = np.digitize(theta, edges) - 1
+    bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+    grid = np.zeros((T, n_bins), dtype=np.float32)
+    cnt = np.zeros(n_bins, dtype=np.float32)
+    for k, b in enumerate(bin_idx):
+        grid[:, b] += r_epg[:, k]
+        cnt[b] += 1.0
+    cnt[cnt < 1.0] = 1.0
+    grid /= cnt[None, :]
+    z = (grid - grid.mean(axis=1, keepdims=True))
+    sd = grid.std(axis=1, keepdims=True); sd[sd < 1e-8] = 1.0
+    z = (z / sd).clip(-3.0, 3.0)
+    im = ax.imshow(z.T, aspect="auto", origin="lower", cmap="RdBu_r",
+                    vmin=-3.0, vmax=3.0,
+                    extent=[0, T * dt_s, -np.pi, np.pi],
+                    interpolation="nearest")
+    ax.set_yticks([-np.pi, 0, np.pi])
+    ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel("orientation (rad)", fontsize=LABEL_FS)
+    ax.set_title("EPG bump", fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    cb = plt.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.85)
+    cb.ax.tick_params(labelsize=TICK_FS)
+
+
+def _hd_track_r_str(true_theta, dec_theta, warmup):
+    """Pearson r between unwrapped decoded and GT heading after warmup."""
+    if true_theta.size <= warmup:
+        return "r = n/a"
+    d_uw = np.unwrap(dec_theta[warmup:])
+    if d_uw.std() < 1e-8 or true_theta[warmup:].std() < 1e-8:
+        return "r = n/a"
+    r = float(np.corrcoef(d_uw, true_theta[warmup:])[0, 1])
+    return f"r = {r:.3f}"
+
+
+def _xi_track_r_str(true_xi, dec_xi, warmup):
+    """Pearson r between decoded ξ and GT ξ after warmup."""
+    if true_xi.size <= warmup:
+        return "r = n/a"
+    if dec_xi[warmup:].std() < 1e-8 or true_xi[warmup:].std() < 1e-8:
+        return "r = n/a"
+    r = float(np.corrcoef(dec_xi[warmup:], true_xi[warmup:])[0, 1])
+    return f"r = {r:.3f}"
+
+
+def _draw_rotation_track(ax_drive, ax_track, t_axis, u_col, true_theta,
+                         dec_theta, warmup, title_prefix="",
+                         bins_logits=None, n_bins=None):
+    """Render the rotation half of the tracking panel into two given axes:
+    top axis = ω(t), bottom axis = wrapped heading (GT vs decoded).
+
+    For a K-bin-decoder model, pass ``bins_logits`` (T, K) + ``n_bins`` and
+    the bottom axis instead shows the K-bin softmax posterior with the
+    true-θ bin overlaid (the same representation as panel h)."""
+    ax_drive.plot(t_axis, u_col, color=GT_COLOR, lw=1.2)
+    ax_drive.axhline(0, color="0.7", lw=0.3)
+    ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+    ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+    # Title carried by the LaTeX caption (CLAUDE.md rule). The r and
+    # RMSE annotations live inside the panel via fig-level text where
+    # callers want them, not on a per-panel title.
+
+    if bins_logits is not None and n_bins:
+        dt_s = float(t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 0.01
+        _draw_kbin_posterior(ax_track, bins_logits, true_theta, dt_s,
+                             int(n_bins), ann=None)
+        ax_track.set_ylabel(f"bin (K={int(n_bins)})", fontsize=LABEL_FS)
+        return
+
+    true_wrap = np.angle(np.exp(1j * true_theta))
+    dec_wrap = np.angle(np.exp(1j * dec_theta))
+    ax_track.plot(t_axis, true_wrap, color=GT_COLOR, lw=0.0, marker=".", ms=2.5)
+    ax_track.plot(t_axis, dec_wrap, color=PRED_COLOR, lw=0.0, marker=".", ms=0.8)
+    ax_track.set_yticks([-np.pi, 0, np.pi])
+    ax_track.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
+    ax_track.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+    ax_track.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+    ax_track.tick_params(labelsize=TICK_FS)
+
+
+def _draw_translation_track(ax_drive, ax_track, t_axis, u_col, true_xi,
+                            dec_xi, warmup, title_prefix=""):
+    """Render the translation half of the tracking panel into two given axes:
+    top axis = v_fwd(t), bottom axis = ξ (GT vs decoded), linear unbounded."""
+    ax_drive.plot(t_axis, u_col, color=GT_COLOR, lw=1.2)
+    ax_drive.axhline(0, color="0.7", lw=0.3)
+    ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+    ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+    # Title carried by the LaTeX caption (CLAUDE.md rule).
+    ax_track.plot(t_axis, true_xi, color=GT_COLOR, lw=1.2)
+    ax_track.plot(t_axis, dec_xi,  color=PRED_COLOR, lw=0.8)
+    ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
+    ax_track.tick_params(labelsize=TICK_FS)
+
+
+def _panel_hd_tracking_stacked(fig, subplotspec, rollout: dict, dt_s: float,
+                                warmup: int = 10):
+    """Mode-aware deterministic-rollout panel.
+
+    Picks the layout from what the rollout dict contains (set by
+    ``bump_attractor_eval._deterministic_sweep_rollout`` from
+    ``net.n_input``):
+
+      rotation in rollout + translation in rollout  → 4 stacked sub-axes
+          (ω, v_fwd, heading, ξ) — n_input == 4 mode.
+      rotation only                                 → 2 sub-axes
+          (ω, heading) — n_input == 3 (legacy CX) — byte-identical to the
+          previous implementation.
+      translation only                              → 2 sub-axes
+          (v_fwd, ξ)   — n_input == 1.
+
+    Returns the top axis (to attach the panel label).
+    """
+    has_rot = "true_theta" in rollout
+    has_trans = "true_xi" in rollout
+    has_xy = "true_xy" in rollout
+    u = np.asarray(rollout["u"])
+    T = u.shape[0]
+    t_axis = np.arange(T) * dt_s
+
+    if has_xy:
+        # position_2d mode (n_input=4, n_output=4). Drives are ω and v_fwd
+        # (compact time traces); the main panel is a square 2D path plot
+        # comparing GT (x, y) in green to decoded (x̂, ŷ) in black. The
+        # ξ trace is replaced by the 2D path because in 2D PI the
+        # informative quantity is the *spatial* trajectory rather than a
+        # 1D time series.
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.5, 0.5, 2.5], hspace=0.30,
+        )
+        ax_w   = fig.add_subplot(sub[0])
+        ax_vf  = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_xy  = fig.add_subplot(sub[2])
+        # Drives.
+        ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=1.0)
+        ax_w.axhline(0, color="0.7", lw=0.3)
+        ax_w.set_ylabel("ω", fontsize=LABEL_FS)
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False, labelleft=False)
+        ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=1.0)
+        ax_vf.axhline(0, color="0.7", lw=0.3)
+        ax_vf.set_ylabel("v", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS, labelleft=False)
+        # 2D path.
+        true_xy = np.asarray(rollout["true_xy"])
+        dec_xy = np.asarray(rollout["decoded_xy"])
+        if true_xy.shape[0] > warmup:
+            err = dec_xy[warmup:] - true_xy[warmup:]
+            rmse_xy = float(np.sqrt(np.mean(err ** 2)))
+            rs = []
+            for axis in range(2):
+                a = dec_xy[warmup:, axis]
+                b = true_xy[warmup:, axis]
+                if a.std() > 1e-8 and b.std() > 1e-8:
+                    rs.append(float(np.corrcoef(a, b)[0, 1]))
+            r_str = f"r̄ = {np.mean(rs):.3f}" if rs else "r̄ = n/a"
+            pass  # title carried by LaTeX caption
+        else:
+            pass  # title carried by LaTeX caption
+        ax_xy.plot(true_xy[:, 0], true_xy[:, 1], color=GT_COLOR, lw=1.0,
+                   label="GT")
+        ax_xy.plot(dec_xy[:, 0],  dec_xy[:, 1],  color=PRED_COLOR, lw=0.8,
+                   label="decoded")
+        # Origin marker (trial start).
+        ax_xy.plot([0.0], [0.0], "o", color="0.4", ms=4, zorder=5)
+        ax_xy.set_xlabel("x", fontsize=LABEL_FS)
+        ax_xy.set_ylabel("y", fontsize=LABEL_FS)
+        ax_xy.set_aspect("equal", adjustable="datalim")
+        ax_xy.legend(loc="best", fontsize=TICK_FS, frameon=False)
+        ax_xy.tick_params(labelsize=TICK_FS)
+        return ax_w
+
+    if has_rot and has_trans:
+        # Both: 4 stacked sub-axes. Drives compact on top (h.ratios 0.6),
+        # integrators larger (1.2) so the GT/decoded comparison is readable.
+        sub = GridSpecFromSubplotSpec(
+            4, 1, subplot_spec=subplotspec,
+            height_ratios=[0.6, 0.6, 1.2, 1.2], hspace=0.22,
+        )
+        ax_w  = fig.add_subplot(sub[0])
+        ax_vf = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_hd = fig.add_subplot(sub[2], sharex=ax_w)
+        ax_xi = fig.add_subplot(sub[3], sharex=ax_w)
+        ax_w.tick_params(labelbottom=False)
+        ax_vf.tick_params(labelbottom=False)
+        ax_hd.tick_params(labelbottom=False)
+        _draw_rotation_track(
+            ax_w, ax_hd, t_axis, u[:, 0],
+            np.asarray(rollout["true_theta"]),
+            np.asarray(rollout["decoded_theta"]),
+            warmup,
+        )
+        # u[:, 1] is v_fwd in both mode; no separate title on the v_fwd row
+        # — the rotation row's title carries the headline metrics, the xi
+        # row's title carries the translation metrics.
+        _draw_translation_track(
+            ax_vf, ax_xi, t_axis, u[:, 1],
+            np.asarray(rollout["true_xi"]),
+            np.asarray(rollout["decoded_xi"]),
+            warmup,
+        )
+        ax_xi.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_w
+    if has_rot:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        _bins = rollout.get("y_pred_bins")
+        _draw_rotation_track(
+            ax_top, ax_bot, t_axis, u[:, 0],
+            np.asarray(rollout["true_theta"]),
+            np.asarray(rollout["decoded_theta"]),
+            warmup,
+            bins_logits=(None if _bins is None else np.asarray(_bins)),
+            n_bins=(None if _bins is None else np.asarray(_bins).shape[-1]),
+        )
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    if has_trans:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        # u[:, 0] is v_fwd in translation-only mode.
+        _draw_translation_track(
+            ax_top, ax_bot, t_axis, u[:, 0],
+            np.asarray(rollout["true_xi"]),
+            np.asarray(rollout["decoded_xi"]),
+            warmup,
+        )
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    # Defensive fallback — empty rollout, blank panel rather than crash.
+    sub = GridSpecFromSubplotSpec(1, 1, subplot_spec=subplotspec)
+    ax = fig.add_subplot(sub[0])
+    ax.axis("off")
+    return ax
+
+
+def _panel_trial_rollout(fig, subplotspec, test_trial: dict,
+                         annotate: str | None = None):
+    """One-trial rollout panel — mirrors the deterministic-rollout panel f
+    layout, but on a single OU / swim trial drawn from u_test:
+
+      rotation-only  (y_true.shape[-1] == 2) → 2 sub-axes  (ω, HD)
+      translation-only (== 1)                 → 2 sub-axes  (v_fwd, ξ)
+      both (== 3)                             → 4 sub-axes  (ω, v_fwd, HD, ξ)
+
+    Mode is detected from the trial's u / y_true shapes, which the trainer
+    already slices to the active task channels in
+    ``graph_trainer._data_train_drosophila_cx_task`` (via the
+    task_targets-driven projection at the top of training).
+
+    Returns the *top* axis (used to attach the panel label).
+    """
+    u = np.asarray(test_trial["u"])
+    y_true = np.asarray(test_trial["y_true"])
+    y_pred = np.asarray(test_trial["y_pred"])
+    dt = float(test_trial["dt"])
+    T = u.shape[0]
+    t_axis = np.arange(T) * dt
+
+    n_in = int(u.shape[-1]) if u.ndim >= 2 else 0
+    n_out = int(y_true.shape[-1]) if y_true.ndim >= 2 else 0
+    has_rot = n_out >= 2   # cos, sin always lead the target when rotation is on
+    has_trans = (n_in == 1) or (n_in == 4 and n_out == 3)
+    has_xy = (n_in == 4 and n_out == 4)   # position_2d: heading + (x, y)
+
+    trial_label = str(test_trial.get("label", "test trial"))
+    title_prefix = f"{trial_label} #{int(test_trial['idx'])}  "
+
+    # --- proprioceptive-gain mismatch task --------------------------------
+    # u = [ω, v_fwd, ω_proprio, cos θ₀, sin θ₀]; y[:,2] = ∫(ω − ω_proprio)dt.
+    # Show the TWO diverging integral paths (observed θ_obs=∫ω and
+    # proprioceptive θ_pro=∫ω_proprio) and the recovered mismatch (their
+    # difference), true vs decoded.
+    if test_trial.get("mismatch") and n_in >= 5 and n_out >= 3:
+        om = u[:, 0].astype(np.float64)
+        om_pro = u[:, 2].astype(np.float64)
+        th_obs = np.cumsum(np.deg2rad(om)) * dt
+        th_pro = np.cumsum(np.deg2rad(om_pro)) * dt
+        mis_true = y_true[:, 2]
+        mis_pred = y_pred[:, 2]
+        ORANGE = "#e8820c"
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.8, 1.4, 1.4], hspace=0.30,
+        )
+        ax_dr = fig.add_subplot(sub[0])
+        ax_in = fig.add_subplot(sub[1], sharex=ax_dr)
+        ax_mm = fig.add_subplot(sub[2], sharex=ax_dr)
+        # drives ω vs ω_proprio
+        ax_dr.plot(t_axis, om, color=GT_COLOR, lw=0.7, label=r"$\omega$")
+        ax_dr.plot(t_axis, om_pro, color=ORANGE, lw=0.7,
+                   label=r"$\omega_{\mathrm{proprio}}$")
+        ax_dr.axhline(0, color="0.7", lw=0.3)
+        ax_dr.set_ylabel("°/s", fontsize=LABEL_FS)
+        ax_dr.legend(fontsize=TICK_FS, frameon=False, ncol=2, loc="upper right")
+        ax_dr.tick_params(labelsize=TICK_FS, labelbottom=False)
+        # two integral paths
+        ax_in.plot(t_axis, th_obs, color=GT_COLOR, lw=1.2,
+                   label=r"$\theta_{\mathrm{obs}}=\int\omega$")
+        ax_in.plot(t_axis, th_pro, color=ORANGE, lw=1.2,
+                   label=r"$\theta_{\mathrm{pro}}=\int\omega_{\mathrm{proprio}}$")
+        ax_in.set_ylabel("path (rad)", fontsize=LABEL_FS)
+        ax_in.legend(fontsize=TICK_FS, frameon=False, loc="best")
+        ax_in.tick_params(labelsize=TICK_FS, labelbottom=False)
+        # recovered mismatch: true (green) vs decoded (black)
+        ax_mm.plot(t_axis, mis_true, color=GT_COLOR, lw=1.4, label="true")
+        ax_mm.plot(t_axis, mis_pred, color=PRED_COLOR, lw=0.9, label="decoded")
+        ax_mm.axhline(0, color="0.7", lw=0.3)
+        ax_mm.set_ylabel(r"$\int(\omega-\omega_{\mathrm{pro}})$", fontsize=LABEL_FS)
+        ax_mm.set_xlabel("time (s)", fontsize=LABEL_FS)
+        ax_mm.legend(fontsize=TICK_FS, frameon=False, loc="best")
+        ax_mm.tick_params(labelsize=TICK_FS)
+        return ax_dr
+
+    def _draw_rot(ax_drive, ax_track, drive_col, is_top):
+        ax_drive.plot(t_axis, drive_col, color=GT_COLOR, lw=0.8)
+        ax_drive.axhline(0, color="0.7", lw=0.3)
+        ax_drive.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+        if is_top:
+            pass  # title carried by LaTeX caption
+        # K-bin decoder: bottom axis shows the bin posterior (like panel h).
+        _bins = test_trial.get("y_pred_bins")
+        if _bins is not None:
+            _bins = np.asarray(_bins)
+            theta_true_b = np.arctan2(y_true[:, 1], y_true[:, 0])
+            dt_s = float(t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 0.01
+            _draw_kbin_posterior(ax_track, _bins, theta_true_b, dt_s,
+                                 _bins.shape[-1], ann=None)
+            ax_track.set_ylabel(f"bin (K={_bins.shape[-1]})", fontsize=LABEL_FS)
+            return
+        # Heading in y[:, 0:2] in both rotation-only and both modes.
+        theta_true = np.arctan2(y_true[:, 1], y_true[:, 0])
+        theta_pred = np.arctan2(y_pred[:, 1], y_pred[:, 0])
+        ax_track.plot(t_axis, theta_true, color=GT_COLOR, lw=0.0,
+                      marker=".", ms=2.0)
+        ax_track.plot(t_axis, theta_pred, color=PRED_COLOR, lw=0.0,
+                      marker=".", ms=0.6)
+        ax_track.set_yticks([-np.pi, 0, np.pi])
+        ax_track.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=TICK_FS)
+        ax_track.set_ylim(-np.pi - 0.15, np.pi + 0.15)
+        ax_track.set_ylabel("HD (rad)", fontsize=LABEL_FS)
+        ax_track.tick_params(labelsize=TICK_FS)
+
+    def _draw_trans(ax_drive, ax_track, drive_col, xi_col_idx, is_top):
+        ax_drive.plot(t_axis, drive_col, color=GT_COLOR, lw=0.8)
+        ax_drive.axhline(0, color="0.7", lw=0.3)
+        ax_drive.set_ylabel(r"$v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+        ax_drive.tick_params(labelsize=TICK_FS, labelbottom=False)
+        if is_top:
+            pass  # title carried by LaTeX caption
+        ax_track.plot(t_axis, y_true[:, xi_col_idx], color=GT_COLOR, lw=1.2)
+        ax_track.plot(t_axis, y_pred[:, xi_col_idx], color=PRED_COLOR, lw=0.8)
+        ax_track.set_ylabel(r"$d$", fontsize=LABEL_FS)
+        ax_track.tick_params(labelsize=TICK_FS)
+
+    if has_xy:
+        # position_2d: ω(t) + v_fwd(t) on small upper traces, square 2D path
+        # below (GT green, decoded black). The trial's u is time-varying so
+        # the drives need their full time series; the path plot replaces
+        # the standard HD/ξ time-series since the informative quantity in
+        # 2D PI is the spatial trajectory.
+        sub = GridSpecFromSubplotSpec(
+            3, 1, subplot_spec=subplotspec,
+            height_ratios=[0.5, 0.5, 2.5], hspace=0.30,
+        )
+        ax_w   = fig.add_subplot(sub[0])
+        ax_vf  = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_xy  = fig.add_subplot(sub[2])
+        ax_w.plot(t_axis, u[:, 0], color=GT_COLOR, lw=0.8)
+        ax_w.axhline(0, color="0.7", lw=0.3)
+        ax_w.set_ylabel("ω", fontsize=LABEL_FS)
+        pass  # title carried by LaTeX caption
+        ax_w.tick_params(labelsize=TICK_FS, labelbottom=False, labelleft=False)
+        ax_vf.plot(t_axis, u[:, 1], color=GT_COLOR, lw=0.8)
+        ax_vf.axhline(0, color="0.7", lw=0.3)
+        ax_vf.set_ylabel("v", fontsize=LABEL_FS)
+        ax_vf.tick_params(labelsize=TICK_FS, labelleft=False)
+        # 2D path — y_true / y_pred columns [2, 3].
+        true_xy = y_true[:, 2:4]
+        dec_xy = y_pred[:, 2:4]
+        ax_xy.plot(true_xy[:, 0], true_xy[:, 1], color=GT_COLOR, lw=1.0,
+                   label="GT")
+        ax_xy.plot(dec_xy[:, 0],  dec_xy[:, 1],  color=PRED_COLOR, lw=0.8,
+                   label="decoded")
+        ax_xy.plot([0.0], [0.0], "o", color="0.4", ms=4, zorder=5)
+        ax_xy.set_xlabel("x", fontsize=LABEL_FS)
+        ax_xy.set_ylabel("y", fontsize=LABEL_FS)
+        ax_xy.set_aspect("equal", adjustable="datalim")
+        ax_xy.legend(loc="best", fontsize=TICK_FS, frameon=False)
+        ax_xy.tick_params(labelsize=TICK_FS)
+        return ax_w
+
+    if has_rot and has_trans:
+        sub = GridSpecFromSubplotSpec(
+            4, 1, subplot_spec=subplotspec,
+            height_ratios=[0.6, 0.6, 1.2, 1.2], hspace=0.22,
+        )
+        ax_w  = fig.add_subplot(sub[0])
+        ax_vf = fig.add_subplot(sub[1], sharex=ax_w)
+        ax_hd = fig.add_subplot(sub[2], sharex=ax_w)
+        ax_xi = fig.add_subplot(sub[3], sharex=ax_w)
+        ax_w.tick_params(labelbottom=False)
+        ax_vf.tick_params(labelbottom=False)
+        ax_hd.tick_params(labelbottom=False)
+        _draw_rot(ax_w, ax_hd, u[:, 0], is_top=True)
+        _draw_trans(ax_vf, ax_xi, u[:, 1], xi_col_idx=2, is_top=False)
+        ax_xi.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_w
+    if has_rot:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        _draw_rot(ax_top, ax_bot, u[:, 0], is_top=True)
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        if annotate:
+            ax_bot.text(0.02, 0.04, annotate, transform=ax_bot.transAxes,
+                        ha="left", va="bottom", fontsize=TICK_FS,
+                        bbox=dict(facecolor="white", edgecolor="none",
+                                  alpha=0.8, boxstyle="round,pad=0.18"))
+        return ax_top
+    if has_trans:
+        sub = GridSpecFromSubplotSpec(
+            2, 1, subplot_spec=subplotspec,
+            height_ratios=[1.0, 1.8], hspace=0.18,
+        )
+        ax_top = fig.add_subplot(sub[0])
+        ax_bot = fig.add_subplot(sub[1], sharex=ax_top)
+        # Translation-only: u[:, 0] is v_fwd, y_true[:, 0] is ξ.
+        _draw_trans(ax_top, ax_bot, u[:, 0], xi_col_idx=0, is_top=True)
+        ax_bot.set_xlabel("time (s)", fontsize=LABEL_FS)
+        return ax_top
+    # Defensive fallback — empty trial / unexpected shape.
+    sub = GridSpecFromSubplotSpec(1, 1, subplot_spec=subplotspec)
+    ax = fig.add_subplot(sub[0])
+    ax.axis("off")
+    return ax
+
+
+def _is_gnn(net) -> bool:
+    return all(hasattr(net, n) for n in ("a", "f_theta", "g_phi"))
+
+
+def _compute_tuning_data(gain_data, n_neurons, n_bins=16, warmup=10):
+    """Concatenate constant-omega rollouts and build per-neuron HD curves."""
+    all_r, all_dec, all_om = [], [], []
+    for omega, ro in gain_data:
+        T = ro["r"].shape[0]
+        if T <= warmup:
+            continue
+        all_r.append(ro["r"][warmup:])
+        dec = np.angle(np.exp(1j * ro["decoded_theta"][warmup:]))
+        all_dec.append(dec)
+        all_om.append(np.full(T - warmup, omega))
+    r_all = np.concatenate(all_r, axis=0)
+    dec_all = np.concatenate(all_dec)
+    om_all = np.concatenate(all_om)
+
+    bins = np.linspace(-np.pi, np.pi, n_bins + 1)
+    bin_idx = np.clip(np.digitize(dec_all, bins) - 1, 0, n_bins - 1)
+    curves = np.zeros((n_neurons, n_bins))
+    counts = np.zeros(n_bins)
+    for b in range(n_bins):
+        m = bin_idx == b
+        counts[b] = int(m.sum())
+        if m.any():
+            curves[:, b] = r_all[m].mean(axis=0)
+    centres = (bins[:-1] + bins[1:]) / 2
+    preferred = centres[np.argmax(curves, axis=1)]
+    return curves, preferred, om_all, r_all
+
+
+def _panel_preferred_direction_polar(ax, curves, preferred,
+                                       neuron_types, type_names):
+    """Polar scatter of preferred HD per neuron, coloured by cell type."""
+    nt = np.asarray(neuron_types).astype(int)
+    hd_max = curves.max(axis=1)
+    hd_min = curves.min(axis=1)
+    strength = (hd_max - hd_min) / np.maximum(hd_max, 1e-8)
+    palette = plt.get_cmap("tab10").colors
+    for t in sorted(set(nt.tolist())):
+        m = nt == t
+        if not m.any():
+            continue
+        col = palette[t % len(palette)]
+        ax.scatter(preferred[m], strength[m],
+                    c=[col], s=24, alpha=0.85,
+                    edgecolors="none", label=type_names[t])
+    ax.set_theta_zero_location("E")
+    ax.set_theta_direction(1)
+    ax.set_thetagrids([0, 90, 180, 270],
+                       [r"$0$", r"$\pi/2$", r"$\pi$", r"$-\pi/2$"],
+                       fontsize=TICK_FS)
+    ax.set_rlim(0, 1.05)
+    ax.set_rticks([0.25, 0.5, 0.75, 1.0])
+    ax.set_rlabel_position(135)
+    ax.tick_params(labelsize=TICK_FS - 1)
+    ax.set_title("preferred HD vs tuning strength",
+                  fontsize=TITLE_FS, pad=15)
+    ax.legend(fontsize=TICK_FS - 1, loc="upper right",
+              bbox_to_anchor=(1.30, 1.10),
+              framealpha=0.85, ncol=1, handletextpad=0.3)
+
+
+def _panel_tuning_scatter(ax, curves, om_all, r_all,
+                           neuron_types, type_names):
+    """HD vs velocity tuning scatter (Hulse Fig 2g analogue)."""
+    N = curves.shape[0]
+    hd_max = curves.max(axis=1)
+    hd_min = curves.min(axis=1)
+    hd_strength = (hd_max - hd_min) / np.maximum(hd_max, 1e-8)
+
+    x = om_all - om_all.mean()
+    x_var = (x ** 2).sum()
+    vel_slope = np.zeros(N)
+    if x_var > 1e-8:
+        for i in range(N):
+            y = r_all[:, i] - r_all[:, i].mean()
+            vel_slope[i] = (x * y).sum() / x_var
+    vel_slope_scaled = vel_slope * 1000.0
+
+    nt = np.asarray(neuron_types).astype(int)
+    palette = plt.get_cmap("tab10").colors
+    for t in sorted(set(nt.tolist())):
+        m = nt == t
+        col = palette[t % len(palette)]
+        ax.scatter(hd_strength[m], vel_slope_scaled[m],
+                    c=[col], s=18, alpha=0.85, edgecolors="none",
+                    label=type_names[t])
+    ax.axhline(0, color="0.7", lw=0.4)
+    ax.set_xlabel("HD-tuning strength", fontsize=LABEL_FS)
+    ax.set_ylabel(r"velocity tuning ($\times 10^3$)", fontsize=LABEL_FS)
+    ax.set_title("HD vs velocity tuning", fontsize=TITLE_FS)
+    ax.legend(fontsize=TICK_FS - 1, loc="best", framealpha=0.85, ncol=2,
+              handletextpad=0.3, columnspacing=0.4)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_phase_shift_histogram(ax, preferred, edge_index,
+                                   neuron_types, type_names):
+    """Per-edge phase shift histogram (Hulse Fig 2i analogue)."""
+    src, dst = edge_index[0], edge_index[1]
+    delta = preferred[dst] - preferred[src]
+    delta = np.angle(np.exp(1j * delta))
+    pre_types = np.asarray(neuron_types)[src]
+
+    palette = plt.get_cmap("tab10").colors
+    bins = np.linspace(-np.pi, np.pi, 36)
+    for t in sorted(set(pre_types.tolist())):
+        m = pre_types == t
+        col = palette[t % len(palette)]
+        ax.hist(np.asarray(delta)[m], bins=bins, alpha=0.55, color=col,
+                 edgecolor="0.3", linewidth=0.3,
+                 label=type_names[int(t)])
+    ax.axvline(0, color="0.7", lw=0.4)
+    ax.set_xlim(-np.pi - 0.1, np.pi + 0.1)
+    ax.set_xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    ax.set_xticklabels([r"$-\pi$", r"$-\pi/2$", "0",
+                          r"$\pi/2$", r"$\pi$"], fontsize=TICK_FS)
+    ax.set_xlabel(r"phase shift $\delta$ (rad)", fontsize=LABEL_FS)
+    ax.set_ylabel("edge count", fontsize=LABEL_FS)
+    ax.set_title("per-edge phase shift (pre $\\to$ post)",
+                  fontsize=TITLE_FS)
+    ax.legend(fontsize=TICK_FS - 1, loc="best", framealpha=0.85, ncol=2,
+              handletextpad=0.3, columnspacing=0.4)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_bump_fwhm(ax, rollout, epg_theta, dt_s,
+                      n_bins=32, fwhm_z_thresh=1.0):
+    """EPG bump FWHM (degrees) over time on the constant-omega rollout."""
+    r_epg = np.asarray(rollout["r_epg"])
+    T = r_epg.shape[0]
+    theta = np.angle(np.exp(1j * np.asarray(epg_theta)))
+    edges = np.linspace(-np.pi, np.pi, n_bins + 1)
+    bin_idx = np.clip(np.digitize(theta, edges) - 1, 0, n_bins - 1)
+    bin_rad = 2 * np.pi / n_bins
+    fwhms = np.full(T, np.nan)
+    for t in range(T):
+        grid = np.zeros(n_bins)
+        cnt = np.zeros(n_bins)
+        for k, b in enumerate(bin_idx):
+            grid[b] += r_epg[t, k]
+            cnt[b] += 1
+        cnt[cnt < 1] = 1
+        grid /= cnt
+        if grid.std() < 1e-8:
+            continue
+        z = (grid - grid.mean()) / grid.std()
+        peak = int(np.argmax(z))
+        z_rolled = np.roll(z, n_bins // 2 - peak)
+        c = n_bins // 2
+        left, right = c, c
+        while left - 1 >= 0 and z_rolled[left - 1] > fwhm_z_thresh:
+            left -= 1
+        while right + 1 < n_bins and z_rolled[right + 1] > fwhm_z_thresh:
+            right += 1
+        fwhms[t] = (right - left + 1) * bin_rad
+    t_axis = np.arange(T) * dt_s
+    ax.plot(t_axis, np.degrees(fwhms), color="black", lw=0.8)
+    ax.axhline(80, color=GT_COLOR, lw=0.7, ls="--", alpha=0.7,
+                label=r"~80$^\circ$ (Hulse target)")
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel("EPG bump FWHM (deg)", fontsize=LABEL_FS)
+    ax.set_title("bump width on constant-$\\omega$ rollout",
+                  fontsize=TITLE_FS)
+    ax.legend(fontsize=TICK_FS - 1, loc="upper right", framealpha=0.85)
+    ax.tick_params(labelsize=TICK_FS)
+    ax.set_ylim(0, 360)
+
+
+def _panel_voltage_distribution(ax, h_rollout, neuron_types, type_names):
+    """Per-cell-type distribution of subthreshold $\\hat h_i(t)$."""
+    nt = np.asarray(neuron_types).astype(int)
+    type_ids = sorted(set(nt.tolist()))
+    data = [h_rollout[:, nt == t].ravel() for t in type_ids]
+    parts = ax.violinplot(data, positions=range(len(type_ids)),
+                           widths=0.7, showmeans=False, showextrema=False)
+    palette = plt.get_cmap("tab10").colors
+    for i, p in enumerate(parts["bodies"]):
+        p.set_facecolor(palette[i % len(palette)])
+        p.set_edgecolor("0.3")
+        p.set_alpha(0.7)
+    means = [float(np.mean(d)) for d in data]
+    stds  = [float(np.std(d))  for d in data]
+    for i, (m, s) in enumerate(zip(means, stds)):
+        ax.errorbar(i, m, yerr=s, fmt="o", color="black",
+                     markersize=3, capsize=3, lw=1.0)
+    ax.axhline(0, color="0.6", lw=0.4)
+    ax.set_xticks(range(len(type_ids)))
+    ax.set_xticklabels([type_names[t] for t in type_ids],
+                        rotation=45, ha="right",
+                        fontsize=_type_tick_fs(len(type_ids)))
+    ax.set_ylabel(r"$\hat h_i(t)$", fontsize=LABEL_FS)
+    ax.set_title("subthreshold $h$ distribution by cell type",
+                  fontsize=TITLE_FS)
+    ax.tick_params(axis="y", labelsize=TICK_FS)
+
+
+def calcium_zmse_ssim(real, learned):
+    """Per-neuron z-scored MSE + SSIM between two (T, K) calcium kinographs.
+
+    Returns ``(z_mse, ssim, Rz, Lz)`` where ``Rz``/``Lz`` are the per-neuron
+    (over time) z-scored arrays. ``z_mse`` is exactly the per-neuron z-scored
+    MSE used in the training observation loss (= 2(1-corr) for unit-variance
+    signals; lower is better); ``ssim`` is the structural similarity of the two
+    z-scored kinograph images (``nan`` if scikit-image is unavailable).
+    """
+    real = np.asarray(real, dtype=np.float32)
+    learned = np.asarray(learned, dtype=np.float32)
+
+    def _z(M):
+        mu = M.mean(0, keepdims=True)
+        sd = M.std(0, keepdims=True)
+        return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
+
+    Rz = _z(real)                                           # (T, K), per-neuron z
+    Lz = _z(learned)
+    z_mse = float(np.mean((Rz - Lz) ** 2))
+    try:
+        from skimage.metrics import structural_similarity as _ssim
+        dr = float(max(Rz.max(), Lz.max()) - min(Rz.min(), Lz.min()))
+        ssim = float(_ssim(Rz, Lz, data_range=dr if dr > 0 else 1.0))
+    except Exception:
+        ssim = float("nan")
+    return z_mse, ssim, Rz, Lz
+
+
+def _panel_calcium_compare(ax, cp):
+    """Real-vs-learned calcium kinograph for one trial (zebrafish obs runs).
+
+    ``cp`` carries ``real`` / ``learned`` arrays of shape (T, K) over the same
+    K bump-pool neurons in the same (rastermap) row order. Both are per-neuron
+    z-scored for display and stacked — real on top, learned below — so the two
+    kinographs can be compared row-for-row.
+    """
+    z_mse, ssim, Rz, Lz = calcium_zmse_ssim(cp["real"], cp["learned"])
+    R = Rz.T                                                 # (K, T)
+    L = Lz.T
+    K, T = R.shape
+
+    gap = np.full((max(2, K // 20), T), np.nan, dtype=np.float32)
+    img = np.concatenate([R, gap, L], axis=0)
+    dt = float(cp.get("dt", 0.01))
+    t1 = T * dt
+    ax.imshow(img, aspect="auto", cmap="viridis", vmin=-2, vmax=3,
+              extent=[0, t1, img.shape[0], 0], interpolation="nearest")
+    ax.text(0.01, 0.99, "real", transform=ax.transAxes, va="top", ha="left",
+            color="w", fontsize=TICK_FS)
+    ax.text(0.01, 0.01, "learned", transform=ax.transAxes, va="bottom",
+            ha="left", color="w", fontsize=TICK_FS)
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel(f"bump-pool neuron (n={K})", fontsize=LABEL_FS)
+    ax.set_title(f"calcium  z-MSE={z_mse:.3f}  SSIM={ssim:.3f}",
+                 fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def plot_calcium_reconstruction(groups, dt, out_path, title=None,
+                                omega=None, v_fwd=None,
+                                hd=None, d=None, traj=None, trial_s=None,
+                                show_stitch=True):
+    """Full-block (~600 s) real-vs-learned calcium reconstruction figure.
+
+    Panels, top→bottom (all sharing the time axis):
+      * ω drive (deg/s)        — recorded angular-velocity stimulus (if ``omega``).
+      * per neuron-set GROUP, in order: real ΔF/F, learned per-trial stitch,
+        learned continuous. The observation loss supervises ALL observed neurons
+        (bump-pool + afferents), so each group (e.g. ``bump-pool``, ``afferent``)
+        gets its own real/stitch/continuous kinograph triplet.
+      * HD true-vs-predicted   — one panel per learned rollout (green = true,
+        black = readout decode), only for rollouts present in ``hd`` (heading is
+        group-independent, so these sit once at the bottom).
+
+    ``groups`` is a list of dicts ``{"name": str, "real": (T,K),
+    "stitch": (T,K), "continuous": (T,K)|None}``; per-trial stitch re-anchors
+    every 10 s (the trained regime), continuous is one unbroken rollout (drift).
+    Kinographs are per-neuron z-scored on a shared viridis scale.
+    ``omega``/``hd[<key>]['true'|'pred']`` are degree series on the model grid.
+    ``trial_s`` (e.g. 10) draws a scale bar of that many seconds on the top
+    panel — the per-trial stitch window length, so the eye can gauge how short
+    one re-anchoring window is against the 600 s block.
+    Returns ``{group_name: {stitch:{z_mse,ssim,T}, continuous:{…}}}``.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    GREEN = (0.0, 0.7, 0.25)
+    _ROLLOUTS = [("stitch", "per-trial stitch (training regime)"),
+                 ("continuous", "continuous 600 s rollout (drift)")]
+    if not show_stitch:
+        _ROLLOUTS = [(k, lbl) for k, lbl in _ROLLOUTS if k != "stitch"]
+    hd = hd or {}
+
+    # Common time window: the shortest of every array supplied.
+    lens = []
+    for g in groups:
+        lens.append(np.asarray(g["real"]).shape[0])
+        for key, _ in _ROLLOUTS:
+            if g.get(key) is not None:
+                lens.append(np.asarray(g[key]).shape[0])
+    T = int(min(lens))
+    t = np.arange(T) * dt
+
+    def _z(M):
+        mu = M.mean(0, keepdims=True)
+        sd = M.std(0, keepdims=True)
+        return (M - mu) / np.where(sd > 1e-6, sd, 1.0)
+
+    def _wrap(a):
+        w = ((np.asarray(a, np.float64) + 180.0) % 360.0) - 180.0
+        if w.size > 1:
+            w[1:][np.abs(np.diff(w)) > 180.0] = np.nan
+        return w
+
+    # Build the panel stack: (kind, payload, height_ratio).
+    specs = []
+    if omega is not None:
+        specs.append(("omega", None, 1.0))
+    if v_fwd is not None:
+        specs.append(("vfwd", None, 1.0))
+    metrics = {}
+    for g in groups:
+        name = g["name"]
+        real = np.asarray(g["real"], np.float32)[:T]
+        metrics[name] = {}
+        specs.append(("kino", (name, f"{name}: real ΔF/F (recorded)", real),
+                      2.6))
+        for key, sub in _ROLLOUTS:
+            if g.get(key) is None:
+                continue
+            L = np.asarray(g[key], np.float32)[:T]
+            z_mse, ssim, _, _ = calcium_zmse_ssim(real, L)
+            metrics[name][key] = {"z_mse": z_mse, "ssim": ssim, "T": T}
+            specs.append(("kino", (name, f"{name}: learned {sub} — "
+                                   f"z-MSE={z_mse:.3f}  SSIM={ssim:.3f}", L),
+                          2.6))
+    for key, sub in _ROLLOUTS:
+        if key in hd:
+            specs.append(("hd", (sub, hd[key]), 1.4))
+    d = d or {}
+    for key, sub in _ROLLOUTS:
+        if key in d:
+            specs.append(("d", (sub, d[key]), 1.4))
+    # 2-D path-integration trajectory (x–y spatial path) — used in place of
+    # the scalar-d panel for position_2d models. Tall + square aspect.
+    traj = traj or {}
+    for key, sub in _ROLLOUTS:
+        if key in traj:
+            specs.append(("traj", (sub, traj[key]), 4.0))
+
+    ratios = [r for _, _, r in specs]
+    fig = plt.figure(figsize=(13, 0.92 * sum(ratios)))
+    gs = fig.add_gridspec(len(specs), 1, height_ratios=ratios)
+    # The trajectory panel is a spatial x–y plot and must NOT inherit the
+    # seconds x-axis shared by the kinograph / time-trace panels above it,
+    # so build axes by hand and share x only among the non-traj panels.
+    time_idx = [i for i, (k, _, _) in enumerate(specs) if k != "traj"]
+    last_time_i = time_idx[-1] if time_idx else (len(specs) - 1)
+    axl = np.empty(len(specs), dtype=object)
+    share_ax = None
+    for i, (kind, _p, _r) in enumerate(specs):
+        if kind == "traj":
+            axl[i] = fig.add_subplot(gs[i, 0])
+        else:
+            axl[i] = fig.add_subplot(gs[i, 0], sharex=share_ax)
+            if share_ax is None:
+                share_ax = axl[i]
+    for i, (ax, (kind, payload, _r)) in enumerate(zip(axl, specs)):
+        bottom = (i == last_time_i)
+        if kind == "omega":
+            ax.plot(t, np.asarray(omega)[:T], color="0.2", lw=0.8)
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel("ω (°/s)", fontsize=LABEL_FS)
+        elif kind == "vfwd":
+            ax.plot(t, np.asarray(v_fwd)[:T], color="tab:purple", lw=0.6)
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel(r"$v_{\mathrm{fwd}}$ (a.u.)", fontsize=LABEL_FS)
+        elif kind == "kino":
+            name, sub, M = payload
+            ax.imshow(_z(M).T, aspect="auto", cmap="viridis", vmin=-2, vmax=3,
+                      extent=[0, T * dt, M.shape[1], 0],
+                      interpolation="nearest")
+            ax.set_ylabel(f"{name}\nneuron (n={M.shape[1]})", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", color="w", fontsize=TICK_FS)
+        elif kind == "hd":
+            sub, hdk = payload
+            ax.plot(t, _wrap(np.asarray(hdk["true"])[:T]), color=GREEN, lw=1.0,
+                    label="true")
+            ax.plot(t, _wrap(np.asarray(hdk["pred"])[:T]), color="black",
+                    lw=0.8, label="predicted")
+            ax.set_ylim(-185, 185); ax.set_yticks([-180, 0, 180])
+            ax.set_ylabel("HD (°)", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
+            ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
+        elif kind == "d":  # translation true vs predicted (scalar distance)
+            sub, dk = payload
+            d_true = np.asarray(dk["true"])[:T]
+            d_pred = np.asarray(dk["pred"])[:T]
+            ax.plot(t, d_true, color=GREEN, lw=1.0, label="true (cumulative)")
+            ax.plot(t, d_pred, color="black", lw=0.8, label="predicted")
+            ax.axhline(0, color="0.7", lw=0.4)
+            ax.set_ylabel(r"$d$", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
+            ax.legend(fontsize=TICK_FS, loc="upper right", framealpha=0.5)
+        else:  # kind == "traj"  (2-D path, decoded vs true, spatial x–y)
+            sub, tk = payload
+            xy_t = np.asarray(tk["true_xy"], np.float64)[:T]
+            xy_p = np.asarray(tk["pred_xy"], np.float64)[:T]
+            ax.plot(xy_t[:, 0], xy_t[:, 1], color=GREEN, lw=1.0,
+                    label="true (cumulative PI)")
+            ax.plot(xy_p[:, 0], xy_p[:, 1], color="black", lw=0.8,
+                    label="decoded")
+            ax.scatter([xy_t[0, 0]], [xy_t[0, 1]], s=18, color="0.3",
+                       zorder=5, label="start")
+            ax.set_aspect("equal", adjustable="datalim")
+            ax.set_xlabel(r"$x$", fontsize=LABEL_FS)
+            ax.set_ylabel(r"$y$", fontsize=LABEL_FS)
+            ax.text(0.005, 0.97, sub, transform=ax.transAxes, va="top",
+                    ha="left", fontsize=TICK_FS)
+            ax.legend(fontsize=TICK_FS, loc="best", framealpha=0.5)
+        if kind == "traj":
+            ax.tick_params(labelsize=TICK_FS, labelbottom=True)
+        else:
+            ax.tick_params(labelsize=TICK_FS, labelbottom=bottom)
+            if bottom:
+                ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+
+    # 10 s (one stitch trial) scale bar, lower-right of the bottom panel — x in
+    # data (seconds), y in axes fraction. A white halo keeps it legible whether
+    # the bottom panel is a (dark) kinograph or a (white) HD trace.
+    if trial_s:
+        import matplotlib.patheffects as pe
+        ax = axl[last_time_i]
+        tr = ax.get_xaxis_transform()
+        x1 = T * dt * 0.99
+        x0 = x1 - trial_s
+        ax.plot([x0, x1], [0.10, 0.10], transform=tr, color="black", lw=3,
+                clip_on=False, solid_capstyle="butt",
+                path_effects=[pe.withStroke(linewidth=5, foreground="white")])
+        ax.text((x0 + x1) / 2, 0.17, f"{trial_s:.0f} s (1 trial)", transform=tr,
+                ha="center", va="bottom", fontsize=TICK_FS, color="black",
+                path_effects=[pe.withStroke(linewidth=2.5, foreground="white")])
+
+    fig.tight_layout()
+    open_axes(fig)
+    fig.savefig(out_path, dpi=130)
+    plt.close(fig)
+    return metrics
+
+
+def _panel_image_from_png(ax, png_path):
+    """Embed a PNG file as a borderless axis."""
+    if not os.path.isfile(png_path):
+        ax.text(0.5, 0.5, "snapshot missing", ha="center", va="center",
+                 transform=ax.transAxes, fontsize=10, color="0.5")
+        ax.axis("off")
+        return
+    img = plt.imread(png_path)
+    ax.imshow(img, interpolation="bilinear")
+    ax.axis("off")
+
+
+def _latest_training_snapshot(run_dir, subdir):
+    """Return the highest-step training-snapshot PNG under
+    `run_dir/tmp_training/<subdir>/step_*.png`, or None if missing."""
+    import re as _re
+    pat = os.path.join(run_dir, "tmp_training", subdir, "step_*.png")
+    files = glob.glob(pat)
+    if not files:
+        return None
+
+    def _step_of(p):
+        m = _re.search(r"step_(\d+)\.png$", os.path.basename(p))
+        return int(m.group(1)) if m else -1
+    files.sort(key=_step_of)
+    return files[-1]
+
+
+def _panel_embedding(ax, net, neuron_types, type_names):
+    """Scatter of the per-neuron latent embedding $\\mathbf{a}_i$."""
+    emb = net.a.detach().cpu().numpy()
+    nt = np.asarray(neuron_types).astype(int)
+    n_types = len(type_names)
+    # LUT good for >32 cell types (tab10 repeats after 10).
+    from connectome_gnn.utils import qualitative_colors
+    palette = qualitative_colors(n_types)
+    for t in range(n_types):
+        mask = (nt == t)
+        if not mask.any():
+            continue
+        col = palette[t % len(palette)]
+        ax.scatter(emb[mask, 0], emb[mask, 1],
+                    c=[col], s=14, edgecolors="none",
+                    alpha=0.9, label=type_names[t])
+    ax.set_xlabel(r"$a_0$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"$a_1$", fontsize=LABEL_FS)
+    ax.set_title(r"embedding $\mathbf{a}_i$", fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    ax.legend(fontsize=3.2, loc="best", framealpha=0.6,
+              ncol=2, markerscale=0.5, handletextpad=0.3, columnspacing=0.6)
+
+
+def _panel_function_curves(ax, net, mlp_name: str, h_rollout: np.ndarray,
+                            neuron_types, type_names, *,
+                            square_output: bool, xlabel: str, ylabel: str,
+                            title: str):
+    """Mean ± SD per cell type of an MLP (f_theta or g_phi) over v ∈ [-3, 3]."""
+    import torch
+
+    device = next(getattr(net, mlp_name).parameters()).device
+    n_pts = 400
+    v_grid = torch.linspace(-3.0, 3.0, n_pts, device=device)
+    a = net.a.to(device)
+    N, emb_dim = a.shape
+    rr = v_grid.unsqueeze(0).expand(N, -1)
+    rr_flat = rr.reshape(-1, 1)
+    a_flat = a.unsqueeze(1).expand(-1, n_pts, -1).reshape(-1, emb_dim)
+    if mlp_name == "g_phi":
+        feat = torch.cat([rr_flat, a_flat], dim=1)
+    else:
+        feat = torch.cat([rr_flat, a_flat, torch.zeros_like(rr_flat)], dim=1)
+    mlp = getattr(net, mlp_name)
+    with torch.no_grad():
+        out = mlp(feat).reshape(N, n_pts, -1).squeeze(-1)
+    if square_output and bool(getattr(net, "_g_phi_positive", True)):
+        out = out.pow(2)
+    v_np = v_grid.cpu().numpy()
+    out_np = out.cpu().numpy()
+    nt = np.asarray(neuron_types).astype(int)
+    n_types = len(type_names)
+    palette = plt.get_cmap("tab10").colors
+    for t in range(n_types):
+        mask = (nt == t)
+        if not mask.any():
+            continue
+        col = palette[t % len(palette)]
+        curves = out_np[mask]
+        mean = curves.mean(axis=0)
+        std  = curves.std(axis=0)
+        ax.plot(v_np, mean, color=col, lw=1.4, label=type_names[t])
+        if std.max() > 1e-6:
+            ax.fill_between(v_np, mean - std, mean + std,
+                             color=col, alpha=0.15)
+    ax.axhline(0, color="0.6", lw=0.4)
+    ax.set_xlim(-3.0, 3.0)
+    ax.set_xlabel(xlabel, fontsize=LABEL_FS)
+    ax.set_ylabel(ylabel, fontsize=LABEL_FS)
+    ax.set_title(title, fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    # Many cell types (33 for zebrafish) -> keep the legend tiny so it does
+    # not swamp the curves. Small font, more columns, short handles.
+    n_types = len(getattr(ax, "lines", [])) or 1
+    leg_ncol = 3 if n_types <= 12 else 4
+    ax.legend(fontsize=3.2, loc="best", framealpha=0.6, ncol=leg_ncol,
+              handlelength=0.8, handletextpad=0.2, columnspacing=0.3,
+              labelspacing=0.18, borderpad=0.2)
+
+
+def _panel_integration_gain(ax, gain_data, dt: float, warmup: int = 10):
+    """Hulse-style scatter: measured slope (deg/s) vs true ω (deg/s).
+
+    No-op (axes hidden) when the rollout does not decode heading
+    (e.g. translation-only models, where the output is forward distance
+    only and the rotation gain is undefined)."""
+    if not gain_data or "decoded_theta" not in (gain_data[0][1] or {}):
+        ax.set_axis_off()
+        return
+    omegas, slopes = [], []
+    for omega, ro in gain_data:
+        dec = np.asarray(ro["decoded_theta"])
+        T = dec.size
+        t = np.arange(T) * dt
+        if T <= warmup:
+            continue
+        d_uw = np.unwrap(dec[warmup:])
+        t_post = t[warmup:]
+        if d_uw.std() < 1e-8 or t_post.size < 2:
+            slope = 0.0
+        else:
+            slope, _ = np.polyfit(t_post, d_uw, 1)
+        omegas.append(float(omega))
+        slopes.append(float(np.degrees(slope)))
+    omegas = np.array(omegas); slopes = np.array(slopes)
+    lim = max(float(np.abs(omegas).max()),
+              float(np.abs(slopes).max()) if slopes.size else 1.0,
+              1.0) * 1.10
+    ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, ls="--")
+    ax.axhline(0, color="0.8", lw=0.4)
+    ax.axvline(0, color="0.8", lw=0.4)
+
+    linearity_tol = 0.25
+    valid = np.abs(omegas) > 1e-8
+    gains = np.full_like(omegas, np.nan)
+    gains[valid] = slopes[valid] / omegas[valid]
+    linear_mask = np.isfinite(gains) & (np.abs(gains - 1.0) <= linearity_tol)
+    if linear_mask.sum() >= 2:
+        om_ok = omegas[linear_mask]
+        om_lo, om_hi = float(om_ok.min()), float(om_ok.max())
+        ax.axvspan(om_lo, om_hi, color="0.6", alpha=0.18, zorder=0)
+        domain_str = (f"linear: $[{om_lo:+.0f}, {om_hi:+.0f}]$"
+                       r"$^\circ\!/\mathrm{s}$")
+    else:
+        domain_str = "linear: none"
+
+    ax.scatter(omegas, slopes, s=10, c=PRED_COLOR, zorder=3)
+    ax.text(0.03, 0.97, domain_str, transform=ax.transAxes,
+             va="top", ha="left", fontsize=TICK_FS,
+             bbox=dict(facecolor="white", edgecolor="none", alpha=0.8,
+                        boxstyle="round,pad=0.2"))
+
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
+    ax.set_xlabel("true ω (°/s)", fontsize=LABEL_FS)
+    ax.set_ylabel("measured slope (°/s)", fontsize=LABEL_FS)
+    # Title carried by the LaTeX caption.
+
+
+def _panel_translation_gain(ax, gain_data, dt: float, warmup: int = 10):
+    """Translation companion of :func:`_panel_integration_gain`:
+    scatter of measured d-slope vs true v_fwd. For each rollout the
+    decoded ξ trajectory is linearly fit on the post-warmup window;
+    the slope is plotted against the constant v_fwd that drove the
+    rollout (gain = slope / v_fwd; perfect integrator → unit slope).
+
+    No-op (axes hidden) when no rollout in ``gain_data`` decodes ξ
+    (e.g. rotation-only models)."""
+    if not gain_data or "decoded_xi" not in (gain_data[0][1] or {}):
+        ax.set_axis_off()
+        return
+    vs, slopes = [], []
+    for v_fwd, ro in gain_data:
+        dec = np.asarray(ro["decoded_xi"])
+        T = dec.size
+        t = np.arange(T) * dt
+        if T <= warmup:
+            continue
+        d_post = dec[warmup:]
+        t_post = t[warmup:]
+        if d_post.std() < 1e-8 or t_post.size < 2:
+            slope = 0.0
+        else:
+            slope, _ = np.polyfit(t_post, d_post, 1)
+        vs.append(float(v_fwd))
+        slopes.append(float(slope))
+    vs = np.array(vs); slopes = np.array(slopes)
+    lim = max(float(np.abs(vs).max()),
+               float(np.abs(slopes).max()) if slopes.size else 1.0,
+               1.0) * 1.10
+    ax.plot([-lim, lim], [-lim, lim], color="0.5", lw=0.8, ls="--")
+    ax.axhline(0, color="0.8", lw=0.4)
+    ax.axvline(0, color="0.8", lw=0.4)
+
+    linearity_tol = 0.25
+    valid = np.abs(vs) > 1e-8
+    gains = np.full_like(vs, np.nan)
+    gains[valid] = slopes[valid] / vs[valid]
+    linear_mask = np.isfinite(gains) & (np.abs(gains - 1.0) <= linearity_tol)
+    if linear_mask.sum() >= 2:
+        v_ok = vs[linear_mask]
+        v_lo, v_hi = float(v_ok.min()), float(v_ok.max())
+        ax.axvspan(v_lo, v_hi, color="0.6", alpha=0.18, zorder=0)
+        domain_str = f"linear: $[{v_lo:+.1f}, {v_hi:+.1f}]$"
+    else:
+        domain_str = "linear: none"
+
+    ax.scatter(vs, slopes, s=10, c=PRED_COLOR, zorder=3)
+    ax.text(0.03, 0.97, domain_str, transform=ax.transAxes,
+             va="top", ha="left", fontsize=TICK_FS,
+             bbox=dict(facecolor="white", edgecolor="none", alpha=0.8,
+                        boxstyle="round,pad=0.2"))
+
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_anchor("NW")
+    ax.set_xlabel(r"true $v_{\mathrm{fwd}}$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"measured slope $\hat d / s$", fontsize=LABEL_FS)
+    # Title carried by the LaTeX caption.
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def _panel_kbin_posterior(ax, rollout: dict, dt_s: float, n_bins: int):
+    """K-bin posterior heatmap for the heading-bin ablation.
+
+    Shows the softmax over the K-bin readout as a (K × T) heatmap with
+    time on the x-axis and bin index on the y-axis, plus the true-θ
+    bin trajectory overlaid in green. A correctly integrating circuit
+    produces a diagonal stripe whose slope tracks ω; a collapsed
+    head produces a horizontal band at a single bin (the failure mode
+    of an untrained K-bin model).
+
+    Expects rollout["y_pred_bins"] (T, K) — set by
+    ``_deterministic_sweep_rollout`` whenever the net is in bins
+    mode — and rollout["true_theta"] (T,) for the GT overlay. Hides
+    itself if either is missing (defensive: a non-bins rollout reuses
+    the same panel slot).
+    """
+    if "y_pred_bins" not in rollout or "true_theta" not in rollout:
+        ax.set_axis_off()
+        return
+    logits = np.asarray(rollout["y_pred_bins"])           # (T, K)
+    if logits.ndim != 2 or logits.shape[1] != n_bins:
+        ax.set_axis_off()
+        return
+    _draw_kbin_posterior(ax, logits, np.asarray(rollout["true_theta"]),
+                         float(dt_s), int(n_bins))
+    ax.set_xlabel("time (s)", fontsize=LABEL_FS)
+    ax.set_ylabel(f"bin index (K={int(n_bins)})", fontsize=LABEL_FS)
+
+
+def _draw_kbin_posterior(ax, logits, true_theta, dt_s, n_bins, *,
+                          fs_lab=None, fs_tick=None, ann="spread"):
+    """Render a K-bin softmax-posterior heatmap (time × bin) with the
+    true-θ bin trajectory overlaid in green. Shared by the heading-bin
+    panel h and the per-trial / per-sweep rows (g, i, j) so they all use
+    the same '64 bins vs. ground-truth' representation."""
+    fs_lab = LABEL_FS if fs_lab is None else fs_lab
+    fs_tick = TICK_FS if fs_tick is None else fs_tick
+    logits = np.asarray(logits)
+    m = logits.max(axis=-1, keepdims=True)
+    e = np.exp(logits - m, dtype=np.float64)
+    p = (e / e.sum(axis=-1, keepdims=True)).astype(np.float32)  # (T, K)
+    T = p.shape[0]; K = int(n_bins)
+    t = np.arange(T) * float(dt_s)
+    extent = (t[0], t[-1] if T > 1 else 1.0, -0.5, K - 0.5)
+    ax.imshow(p.T, aspect="auto", origin="lower", extent=extent,
+              cmap="magma", vmin=0.0, vmax=1.0, interpolation="nearest")
+    th_wrap = (np.asarray(true_theta) + np.pi) % (2.0 * np.pi) - np.pi
+    true_bin = np.clip(np.floor((th_wrap + np.pi) * K / (2.0 * np.pi)
+                                ).astype(np.int64), 0, K - 1)
+    breaks = np.where(np.abs(np.diff(true_bin)) > K // 2)[0]
+    segments = (np.split(np.arange(T), breaks + 1) if breaks.size
+                else [np.arange(T)])
+    for seg in segments:
+        if seg.size >= 2:
+            ax.plot(t[seg], true_bin[seg], color=GT_COLOR, lw=1.2)
+        else:
+            ax.plot(t[seg], true_bin[seg], color=GT_COLOR, marker=".",
+                    ms=2, ls="none")
+    ax.set_xlim(t[0], t[-1] if T > 1 else 1.0)
+    ax.set_ylim(-0.5, K - 0.5)
+    ax.tick_params(labelsize=fs_tick)
+    if ann == "spread":
+        arg = p.argmax(axis=-1)
+        ax.text(0.03, 0.97,
+                f"argmax bin: {int(arg.min())}–{int(arg.max())} "
+                f"(spread {int(arg.max() - arg.min())}/{K-1})",
+                transform=ax.transAxes, va="top", ha="left", fontsize=fs_tick,
+                color="white",
+                bbox=dict(facecolor="black", edgecolor="none", alpha=0.55,
+                          boxstyle="round,pad=0.2"))
+    return fs_lab
+
+
+def plot_evolution(data: dict, out_path: str, *,
+                   run_dir: str | None = None, n_rows: int = 3):
+    """Render the drosophila CX evolution figure.
+
+    Public entry point used by both the standalone CLI
+    (``figures/drosophila_cx/fig_evolution.py``) and the training-time
+    snapshot (``bump_attractor_eval._save_training_snapshot``). Previously
+    lived as ``build_figure`` in the CLI script and was loaded via
+    ``importlib`` from the trainer; centralised here so the trainer can
+    just ``from connectome_gnn.plot_cx import plot_cx_evolution``.
+
+    ``n_rows = 3``: full paper figure with panels a–l.
+    ``n_rows = 2``: training-time snapshot — panels a–h only.
+    ``n_rows = 4``: paper figure with two extra rows (i, j) showing
+        random held-out trials and constant-input deterministic sweeps
+        in 5 columns each (requires ``data["random_trials"]`` and
+        ``data["sweep_for_test"]``; rendered with the same fonts and
+        line widths as the upper panels).
+
+    ``data["test_trial"]`` may be None when n_rows=2: panel g is hidden.
+    """
+    plt.style.use("default")
+    is_gnn = _is_gnn(data["net"])
+    # --- Drosophila CX paper layout -------------------------------------
+    # The fly central-complex paper figures use a compact a–h layout: a
+    # uniform 2×4 grid (every panel the size of panel a), with the i/j
+    # test rows dropped, panel h (integration gain) placed *before* g
+    # (held-out trial) since h is the quantitative companion of f, and a
+    # mean±SD-over-trials annotation printed in g. Detected from the
+    # dataset group so the zebrafish dashboards keep their full a–j
+    # layout. Forcing n_rows=2 reuses the existing 2×4 grid path and
+    # skips the i/j block below (those panels are intentionally not
+    # rendered for the CX figures — see the kind-dispatch block).
+    _dataset_name = str(getattr(data.get("config", None), "dataset", "") or "")
+    _is_cx_paper = "drosophila_cx" in _dataset_name
+    if _is_cx_paper and n_rows == 4:
+        n_rows = 2
+    # For the n_rows==4 paper figure, joint-target ("both") tasks
+    # need 4 test rows (HD random, d random, HD sweep, d sweep)
+    # instead of 2 — so the figure is taller. Detect early so the
+    # figsize and gridspec match.
+    _kind_early = data.get("task_kind", "hd")
+    _is_both = (n_rows == 4 and _kind_early == "both")
+    # Tasks whose f/g panels stack ω + v_fwd + integrated quantity
+    # (vs. just ω + heading for rotation-only): both (4 rows) and
+    # position_2d (3 rows including the 2D path plot). These need a
+    # wider hspace so the panel labels e/f/g/h clear the partition
+    # tick labels at the bottom of d.
+    _is_xy = (n_rows == 4 and _kind_early == "xy")
+    # Proprioceptive-gain mismatch: 3 test rows (HD random, mismatch
+    # random = companion of panel g, HD sweep) — no translation row.
+    _is_mismatch = (n_rows == 4 and _kind_early == "mismatch")
+    if n_rows == 2:
+        figsize = (20, 9.5)
+    elif n_rows == 4:
+        figsize = ((20, 24.0) if _is_both
+                   else (20, 20.5) if _is_mismatch
+                   else (20, 17.5))
+    else:
+        figsize = (20, 14)
+    fig = plt.figure(figsize=figsize)
+    # For 4-row paper figure, rows 0-1 hold the 4-column panels a-h and
+    # rows 2-3 hold the 5-column test rows i/j. Use a 4×20 macro grid so
+    # both column counts share the same gridspec horizontally
+    # (lcm(4, 5) = 20): the upper rows span 5 macro columns each, the
+    # lower rows span 4 macro columns each.
+    if n_rows == 4:
+        # Two nested gridspecs sharing identical left/right margins so
+        # the leftmost column of the 4-wide upper grid starts at the
+        # same x as the leftmost column of the 5-wide lower grid (and
+        # the rightmost column ends at the same x).
+        n_test_rows = 4 if _is_both else 3 if _is_mismatch else 2
+        outer = fig.add_gridspec(
+            2, 1, height_ratios=[2.0, float(n_test_rows)],
+            hspace=0.18,
+            left=0.05, right=0.97, top=0.97, bottom=0.04,
+        )
+        # Vertical gap between the two upper rows. The "both" and
+        # "xy" (position_2d) tasks have multi-stack rollout panels
+        # (f, g) with extra sub-axes (ω, v_fwd, ...) that consume
+        # more vertical space in row 2 and push the panel labels
+        # e / f / g / h up against the partition tick labels at the
+        # bottom of d — wider hspace clears them.
+        _gs_top_hspace = 0.7 if (_is_both or _is_xy or _is_mismatch) else 1.0
+        gs_top = outer[0].subgridspec(
+            2, 4, hspace=_gs_top_hspace, wspace=0.42)
+        gs_bot = outer[1].subgridspec(n_test_rows, 5,
+                                       hspace=0.55, wspace=0.30)
+        # `gs` kept as an alias so the older n_rows<4 path below still
+        # has something to reference (unused outside the n_rows==4
+        # block).
+        gs = gs_top
+        def _ax_top(row, col4):
+            return fig.add_subplot(gs_top[row, col4])
+        def _gs_top(row, col4):
+            return gs_top[row, col4]
+    else:
+        gs = fig.add_gridspec(n_rows, 4, hspace=0.55, wspace=0.42,
+                              left=0.05, right=0.97, top=0.96, bottom=0.05)
+        def _ax_top(row, col4):
+            return fig.add_subplot(gs[row, col4])
+        def _gs_top(row, col4):
+            return gs[row, col4]
+
+    ax_a = _ax_top(0, 0)
+    ax_b = _ax_top(0, 1)
+    ax_c = _ax_top(0, 2)
+    ax_d = _ax_top(0, 3)
+    ax_e = _ax_top(1, 0)
+    ax_f_top = _panel_hd_tracking_stacked(
+        fig, _gs_top(1, 1), data["rollout"], data["dt_s"])
+    # CX paper layout: place h (integration gain) before g (held-out
+    # trial) — h is the quantitative companion of f, so f, h, g read
+    # left-to-right. Zebrafish keeps the historical e, f, g, h order.
+    _g_col, _h_col = (3, 2) if _is_cx_paper else (2, 3)
+    # Mean±SD of the per-trial decoding metrics — printed in panel g now
+    # that the per-trial panels (i) are dropped from the CX figure. HD
+    # (rotation) tasks only. Preferred source is the run's full held-out
+    # test set (results/test_metrics.npz, n≈512 trials, written by
+    # `GNN_Main.py -o test_plot`); falls back to the handful of random
+    # trials carried in `data` when that bundle is absent (e.g. a
+    # training-time snapshot).
+    _g_txt = None
+    if _is_cx_paper and data.get("task_kind", "hd") == "hd":
+        _npz = os.path.join(run_dir or "", "results", "test_metrics.npz")
+        if run_dir and os.path.isfile(_npz):
+            try:
+                _tm = np.load(_npz, allow_pickle=True)
+                _r = np.asarray(_tm["heading_random_pearson"], dtype=float)
+                _rm = np.asarray(_tm["heading_random_rmse_deg"], dtype=float)
+                _n = int(np.isfinite(_r).sum())
+                _g_txt = (
+                    f"r = {np.nanmean(_r):.3f} ± {np.nanstd(_r):.3f}\n"
+                    f"rmse = {np.nanmean(_rm):.1f} ± {np.nanstd(_rm):.1f}°"
+                    f"  (n={_n})")
+            except Exception:
+                _g_txt = None
+        if _g_txt is None:
+            _rt = data.get("random_trials") or {}
+            _yt = _rt.get("y_true"); _yp = _rt.get("y_pred")
+            if (_yt is not None and _yp is not None
+                    and np.asarray(_yt).ndim == 3
+                    and np.asarray(_yt).shape[-1] >= 2):
+                _yt = np.asarray(_yt); _yp = np.asarray(_yp)
+                _rs, _rmses = [], []
+                for _b in range(_yt.shape[0]):
+                    _tt = np.unwrap(np.arctan2(_yt[_b, :, 1], _yt[_b, :, 0]))
+                    _pp = np.unwrap(np.arctan2(_yp[_b, :, 1], _yp[_b, :, 0]))
+                    _err = np.angle(np.exp(1j * (_pp[10:] - _tt[10:])))
+                    _rmses.append(float(np.degrees(np.sqrt(np.mean(_err ** 2)))))
+                    if _tt[10:].std() > 1e-8 and _pp[10:].std() > 1e-8:
+                        _rs.append(float(np.corrcoef(_tt[10:], _pp[10:])[0, 1]))
+                if _rs and _rmses:
+                    _g_txt = (
+                        f"r = {np.mean(_rs):.3f} ± {np.std(_rs):.3f}\n"
+                        f"rmse = {np.mean(_rmses):.1f} ± {np.std(_rmses):.1f}°"
+                        f"  (n={_yt.shape[0]})")
+    if data.get("test_trial") is not None:
+        ax_g_top = _panel_trial_rollout(fig, _gs_top(1, _g_col),
+                                          data["test_trial"],
+                                          annotate=_g_txt)
+    else:
+        ax_g_top = _ax_top(1, _g_col)
+        ax_g_top.axis("off")
+    # Panel h slot was the "subthreshold h distribution by cell type"
+    # violin; that panel was dropped. Slot h now hosts the
+    # integration-gain panel (previously panel i in the standalone
+    # 3-row layout) so the evolution figure stays at 8 panels (a–h).
+    # ``ax_h`` is created later (just before the panel-h dispatch) so its
+    # column can follow the CX f/h/g reorder.
+
+    # Partition vector (six-way fish2 functional partition of Fig. 2):
+    # used to sort the matrix and kinograph rows into anatomically
+    # meaningful blocks. Returns None on non-fish2 vocabularies so the
+    # legacy cell-type sort still kicks in for the drosophila CX
+    # evolution figure.
+    _hd_part = _hd_partition_ids(
+        data["neuron_types"], data["type_names"])
+
+    # Lift the a/b/c/d panel letters a little higher on the CX figure so
+    # they sit clear of the top-row tick labels instead of touching them.
+    _lab_y = 1.08 if _is_cx_paper else 1.02
+
+    # Panels a (GT W_con) and b (learned W_rec): partition-sorted, no
+    # colorbar, no title — labels carried by the LaTeX caption.
+    _panel_matrix(ax_a, data["W_con"],
+                   data["neuron_types"], data["type_names"], "",
+                   partition=_hd_part, show_cbar=False, show_title=False)
+    _panel_label(ax_a, "a", y=_lab_y)
+
+    # Panel b drops the presynaptic/postsynaptic axis labels — they're
+    # already on a in the same row, no need to repeat.
+    _panel_matrix(ax_b, data["W_rec"],
+                   data["neuron_types"], data["type_names"], "",
+                   partition=_hd_part, show_cbar=False, show_title=False,
+                   show_axis_labels=False)
+    _panel_label(ax_b, "b", y=_lab_y)
+
+    nt = np.asarray(data["neuron_types"])
+
+    # (c) scatter of true (W_con) vs learned (W_rec) edge weights —
+    # title stripped, alpha bumped to 0.5 (handled inside the helper).
+    _panel_weight_scatter(ax_c, data["W_con"], data["W_rec"])
+    _panel_label(ax_c, "c", y=_lab_y)
+
+    bump_label = data.get("bump_label", "EPG")
+    # (d) all-neuron kinograph, partition-sorted, no colorbar.
+    r_traj = np.asarray(data["rollout"]["r"])
+    _panel_all_neurons_kinograph(
+        ax_d, r_traj,
+        neuron_types=data["neuron_types"], type_names=data["type_names"],
+        dt_s=data["dt_s"],
+        partition=_hd_part, show_cbar=False,
+    )
+    _panel_label(ax_d, "d", y=_lab_y)
+
+    # (e) same all-neuron rate kinograph but rows reordered within
+    # each partition block by a task-appropriate scalar tuning:
+    #   rotation models (heading available) → preferred phase φ_i
+    #     = arg(Σ act · e^{iθ}) — drosophila Fig. 13 row 2 sort.
+    #   translation-only models (no heading) → preferred-d
+    #     ρ_i = corr(act_i, d(t)) — same idea for a 1-D target.
+    # Falls back to the EPG sub-population kinograph on non-fish2
+    # circuits.
+    _rollout = data["rollout"]
+    _theta_for_phase = None
+    for _k in ("true_theta", "theta"):
+        if _k in _rollout:
+            _theta_for_phase = np.asarray(_rollout[_k]); break
+    _d_for_corr = None
+    for _k in ("true_xi", "xi"):
+        if _k in _rollout:
+            _d_for_corr = np.asarray(_rollout[_k]); break
+    _epg_idx_e = getattr(data["net"], "epg_indices", None)
+    if _hd_part is not None and _theta_for_phase is not None:
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, _theta_for_phase, dt_s=data["dt_s"],
+            partition=_hd_part, show_cbar=False,
+        )
+    elif _hd_part is not None and _d_for_corr is not None:
+        # Translation-only model: sort within partition by per-neuron
+        # correlation with d(t). Positive-ρ neurons cluster at the
+        # top of each block, negative-ρ at the bottom.
+        _sort_d = _preferred_d(r_traj, _d_for_corr)
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, None, dt_s=data["dt_s"],
+            partition=_hd_part, sort_key=_sort_d,
+            sort_label=r"$\rho(\cdot, d)$", show_cbar=False,
+        )
+    elif (_theta_for_phase is not None and _epg_idx_e is not None
+          and "r_epg" in _rollout):
+        # Fly CX (no fish2 partition): phase-sort the EPG heading ring by
+        # preferred heading φ_i, the analog of the zebrafish dIPN sorted
+        # kinograph. (The old fallback showed the EPG sub-population in
+        # cell-type order, which did not reveal the travelling bump.)
+        _panel_phase_sorted_kinograph(
+            ax_e, np.asarray(_rollout["r_epg"]), _theta_for_phase,
+            dt_s=data["dt_s"], partition=None,
+            sort_label=rf"$\varphi$ ({bump_label})", show_cbar=False,
+        )
+    else:
+        epg_indices = data["net"].epg_indices
+        _panel_neuron_kinograph(
+            ax_e, np.asarray(data["rollout"]["r_epg"]),
+            neuron_types_sub=nt[epg_indices], type_names=data["type_names"],
+            dt_s=data["dt_s"], ylabel=f"{bump_label} neuron",
+        )
+    _panel_label(ax_e, "e", y=1.05)
+    # CX paper: the sort key is spelled out in the caption, so the y
+    # axis just reads "neurons (sorted)".
+    if _is_cx_paper:
+        ax_e.set_ylabel("neurons (sorted)", fontsize=LABEL_FS)
+
+    # f and g attach their label to a short top sub-axis (the ω drive
+    # strip), so the letter needs a larger offset to clear the trace.
+    _panel_label(ax_f_top, "f", y=1.22)
+    _panel_label(ax_g_top, "g", y=1.22)
+
+    # Panel h: calcium-comparison plot for observation-loss runs, or
+    # the integration-gain scatter for task-only runs. For
+    # rotation-bearing models (rotation, both, position_2d) the
+    # rotation gain is shown (measured slope of decoded heading vs
+    # true ω); for translation-only models the translation gain is
+    # shown instead (measured slope of decoded d vs true v_fwd) — the
+    # natural companion of the rotation gain when the integrated
+    # quantity is forward distance rather than heading.
+    ax_h = _ax_top(1, _h_col)
+    _dt_for_h = (data["test_trial"]["dt"]
+                  if data.get("test_trial") else data.get("dt_s", 0.01))
+    _gain_rot = data.get("gain_data")
+    _gain_trn = data.get("gain_data_v_fwd")
+    # Heading-bin ablation: when the model emits K-bin logits, the
+    # cos/sin-based integration-gain scatter (linear fit of decoded
+    # heading slope vs ω) is meaningless because the gain is set by
+    # the bin-step rate, not a continuous slope. Replace panel h with
+    # the (T × K) softmax-posterior heatmap so the figure carries a
+    # direct visualisation of the K-bin readout — a diagonal stripe
+    # means the bump is travelling around the ring at ω, a flat band
+    # means the head is collapsed onto a constant bin (the failure
+    # mode the trainer's early epochs hit before integration kicks
+    # in). Falls through to the gain/calcium logic when bins mode is
+    # off OR when y_pred_bins is missing (e.g. an older snapshot).
+    _net = data.get("net")
+    _use_bins = bool(getattr(_net, "use_heading_bins", False))
+    _K_bins = int(getattr(_net, "n_heading_bins", 0))
+    if (_use_bins and _K_bins > 0
+            and "y_pred_bins" in (data.get("rollout") or {})):
+        _panel_kbin_posterior(ax_h, data["rollout"],
+                              data.get("dt_s", 0.01), _K_bins)
+    elif data.get("calcium_panel") is not None:
+        _panel_calcium_compare(ax_h, data["calcium_panel"])
+    elif _gain_rot and "decoded_theta" in (_gain_rot[0][1] or {}):
+        _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
+    elif _gain_trn and "decoded_xi" in (_gain_trn[0][1] or {}):
+        _panel_translation_gain(ax_h, _gain_trn, _dt_for_h)
+    elif _gain_rot:
+        _panel_integration_gain(ax_h, _gain_rot, _dt_for_h)
+    else:
+        ax_h.axis("off")
+    _panel_label(ax_h, "h", y=1.05)
+
+    if n_rows < 3:
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        open_axes(fig)
+        fig.savefig(out_path, dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        return
+
+    if n_rows == 4:
+        # Test rows (i, j[, k, l]): 5 columns each. Single integrated
+        # quantity per task except for "both" (rotation + d), which
+        # gets 4 rows: i=HD random, j=d random, k=HD sweep, l=d sweep.
+        # Same fonts, line widths, and colour scheme as the upper rows.
+        n_show = 5
+        # Test-row fonts: bump up from the figure default so axis labels
+        # and the metric annotation stay legible at 0.8\textwidth in the
+        # PDF. _T_TICK_FS, _T_LABEL_FS, _T_ANN_FS shadow the module-level
+        # defaults only inside this block.
+        _T_TICK_FS = 13
+        _T_LABEL_FS = 15
+        _T_ANN_FS = 12
+        kind = data.get("task_kind", "hd")
+        random_trials = data.get("random_trials") or {}
+        sweep_dict = data.get("sweep_for_test")
+        # Legacy callers may pass a list — wrap as the single-kind dict.
+        if isinstance(sweep_dict, list):
+            sweep_dict = {kind: sweep_dict}
+        sweep_dict = sweep_dict or {}
+        dt_test = float(data.get("test_trial", {}).get("dt", data["dt_s"])
+                        if isinstance(data.get("test_trial"), dict)
+                        else data["dt_s"])
+
+        def _ax_bot(row, col5):
+            return fig.add_subplot(gs_bot[row, col5])
+
+        def _circ_rmse_deg(true_a, pred_a):
+            err = np.angle(np.exp(1j * (np.asarray(pred_a)
+                                         - np.asarray(true_a))))
+            return float(np.degrees(np.sqrt(np.mean(err[10:] ** 2))))
+
+        def _pearson(a, b):
+            a = np.asarray(a)[10:]; b = np.asarray(b)[10:]
+            if a.std() < 1e-8 or b.std() < 1e-8:
+                return float("nan")
+            return float(np.corrcoef(a, b)[0, 1])
+
+        def _annotate(ax, txt):
+            ax.text(0.02, 0.98, txt, transform=ax.transAxes,
+                    ha="left", va="top", fontsize=_T_ANN_FS,
+                    bbox=dict(facecolor="white", edgecolor="none",
+                              alpha=0.8, boxstyle="round,pad=0.18"))
+
+        # ---- Cumulative-reference overlay (leaky variants only) ----------
+        # On leaky-target variants the GT trace is the leaky integrator;
+        # overlay the cumulative integral (cumsum of v_fwd * dt) in
+        # green dashed so the reader sees how much the leaky target
+        # discards vs.\ a pure path integrator on the same input.
+        _config = data.get("config")
+        _si = getattr(getattr(_config, "task", None),
+                       "swim_integration", None)
+        _xi_tau  = float(getattr(_si, "xi_tau_s", None) or 0.0)
+        _pos_tau = float(getattr(_si, "position_tau_s", None) or 0.0)
+        _show_cum_d  = (_xi_tau  > 0.0) and (kind in ("d", "both"))
+        _show_cum_xy = (_pos_tau > 0.0) and (kind == "xy")
+
+        def _cum_d_from_u(u_one):
+            """v_fwd channel: col 0 for translation-only (n_in=1),
+            col 1 for joint tasks (n_in=4)."""
+            n_in = u_one.shape[-1]
+            v = (u_one[:, 0] if n_in == 1
+                 else u_one[:, 1] if n_in >= 4
+                 else u_one[:, 0])
+            return np.cumsum(v) * dt_test
+
+        def _cum_xy_from_u(u_one):
+            """For n_in=4 superset [ω, v_fwd, cosθ₀·δ, sinθ₀·δ].
+            θ(t) = θ₀ + Σ ω·dt; x = Σ v_fwd·cosθ·dt, y = Σ v_fwd·sinθ·dt."""
+            n_in = u_one.shape[-1]
+            if n_in < 4:
+                return None, None
+            omega = u_one[:, 0]
+            v = u_one[:, 1]
+            theta0 = float(np.arctan2(u_one[0, 3], u_one[0, 2]))
+            theta_t = theta0 + np.cumsum(np.deg2rad(omega)) * dt_test
+            x = np.cumsum(v * np.cos(theta_t)) * dt_test
+            y = np.cumsum(v * np.sin(theta_t)) * dt_test
+            return x, y
+
+        def _cum_d_from_sweep(ro):
+            u = np.asarray(ro["u"])
+            return _cum_d_from_u(u)
+
+        def _cum_xy_from_sweep(ro):
+            return _cum_xy_from_u(np.asarray(ro["u"]))
+
+        def _plot_wrapped_hd(ax, t, angles, color, lw):
+            """Plot wrapped HD with line breaks at ±π discontinuities,
+            so the wrap-around does not draw a vertical bar across the
+            panel."""
+            a = np.angle(np.exp(1j * np.asarray(angles)))
+            # A wrap is a jump in the wrapped trace larger than π.
+            jumps = np.where(np.abs(np.diff(a)) > np.pi)[0]
+            if jumps.size == 0:
+                ax.plot(t, a, color=color, lw=lw)
+                return
+            t_segs = np.split(t, jumps + 1)
+            a_segs = np.split(a, jumps + 1)
+            for ts, asg in zip(t_segs, a_segs):
+                ax.plot(ts, asg, color=color, lw=lw)
+
+        def _plot_hd_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            if y_true_show is None or y_pred_show is None:
+                return
+            T_r = y_true_show.shape[1]
+            t_r = np.arange(T_r) * dt_test
+            _bins_show = random_trials.get("y_pred_bins")
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(row, col)
+                true_hd = np.arctan2(y_true_show[col, :, 1],
+                                      y_true_show[col, :, 0])
+                if _bins_show is not None:
+                    # K-bin decoder: show the softmax posterior (like h),
+                    # with the true-θ bin overlaid in green.
+                    from connectome_gnn.models.heading_bins import (
+                        softmax_logits_to_decoded_theta_np,
+                    )
+                    lg = np.asarray(_bins_show[col]); Kc = lg.shape[-1]
+                    _draw_kbin_posterior(ax, lg, true_hd, dt_test, Kc,
+                                         fs_lab=_T_LABEL_FS, fs_tick=_T_TICK_FS,
+                                         ann=None)
+                    pred_hd = softmax_logits_to_decoded_theta_np(lg, Kc)
+                    if col == 2:
+                        ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(f"bin index (K={Kc})", fontsize=_T_LABEL_FS)
+                        _panel_label(ax, letter)
+                    _annotate(ax,
+                               f"rmse={_circ_rmse_deg(true_hd, pred_hd):.1f}°"
+                               f"\nr={_pearson(np.unwrap(true_hd), np.unwrap(pred_hd)):+.3f}")
+                    continue
+                pred_hd = np.arctan2(y_pred_show[col, :, 1],
+                                      y_pred_show[col, :, 0])
+                _plot_wrapped_hd(ax, t_r, true_hd, GT_COLOR, GT_LW)
+                _plot_wrapped_hd(ax, t_r, pred_hd, PRED_COLOR, PRED_LW)
+                ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                _annotate(ax,
+                           f"rmse={_circ_rmse_deg(true_hd, pred_hd):.1f}°"
+                           f"\nr={_pearson(np.unwrap(true_hd), np.unwrap(pred_hd)):+.3f}")
+
+        def _plot_d_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            u_show = random_trials.get("u")
+            if y_true_show is None or y_pred_show is None:
+                return
+            d_col = (0 if y_true_show.shape[-1] == 1
+                     else 2 if y_true_show.shape[-1] == 3
+                     else 2)
+            T_r = y_true_show.shape[1]
+            t_r = np.arange(T_r) * dt_test
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(row, col)
+                tr = y_true_show[col, :, d_col]
+                pr = y_pred_show[col, :, d_col]
+                ax.plot(t_r, tr, color=GT_COLOR, lw=GT_LW)
+                ax.plot(t_r, pr, color=PRED_COLOR, lw=PRED_LW)
+                # Cumulative reference (leaky variants only) — drawn in
+                # the same GT green but dashed so it doesn't compete
+                # with the leaky GT solid line.
+                if _show_cum_d and u_show is not None:
+                    d_cum = _cum_d_from_u(u_show[col])
+                    ax.plot(t_r, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
+                            ls="--", alpha=0.85)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(
+                        r"$\int(\omega-\omega_{\mathrm{proprio}})$"
+                        if kind == "mismatch" else r"$d$",
+                        fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr={_pearson(tr, pr):+.3f}")
+
+        def _plot_xy_random(row, letter):
+            y_true_show = random_trials.get("y_true")
+            y_pred_show = random_trials.get("y_pred")
+            u_show = random_trials.get("u")
+            if y_true_show is None or y_pred_show is None:
+                return
+            for col in range(min(n_show, y_true_show.shape[0])):
+                ax = _ax_bot(row, col)
+                tx = y_true_show[col, :, 2]; ty = y_true_show[col, :, 3]
+                dx = y_pred_show[col, :, 2]; dy = y_pred_show[col, :, 3]
+                ax.plot(tx, ty, color=GT_COLOR, lw=GT_LW)
+                ax.plot(dx, dy, color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_xy and u_show is not None:
+                    cx, cy = _cum_xy_from_u(u_show[col])
+                    if cx is not None:
+                        ax.plot(cx, cy, color=GT_COLOR, lw=GT_LW * 0.7,
+                                ls="--", alpha=0.85)
+                ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$y$", fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                err = np.sqrt((dx[10:] - tx[10:]) ** 2 + (dy[10:] - ty[10:]) ** 2)
+                rmse = float(np.sqrt(np.mean(err ** 2)))
+                r_x = _pearson(tx, dx); r_y = _pearson(ty, dy)
+                r_mean = float(np.nanmean([r_x, r_y]))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr̄={r_mean:+.3f}")
+
+        def _plot_hd_sweep(row, letter):
+            sweep = sweep_dict.get("hd") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_theta" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                th_true = np.asarray(ro["true_theta"])
+                th_dec  = np.asarray(ro["decoded_theta"])
+                T_s = th_true.size
+                t_s = np.arange(T_s) * dt_test
+                _lg = ro.get("y_pred_bins")
+                if _lg is not None:
+                    # K-bin decoder: softmax posterior + true-θ bin overlay.
+                    _lg = np.asarray(_lg)
+                    _draw_kbin_posterior(ax, _lg, th_true, dt_test,
+                                         _lg.shape[-1], fs_lab=_T_LABEL_FS,
+                                         fs_tick=_T_TICK_FS, ann=None)
+                    if col == 2:
+                        ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                    if col == 0:
+                        ax.set_ylabel(f"bin index (K={_lg.shape[-1]})",
+                                      fontsize=_T_LABEL_FS)
+                        _panel_label(ax, letter)
+                    _annotate(ax,
+                               f"rmse={_circ_rmse_deg(th_true, th_dec):.1f}°"
+                               f"\nr={_pearson(np.unwrap(th_true), np.unwrap(th_dec)):+.3f}")
+                    continue
+                _plot_wrapped_hd(ax, t_s, th_true, GT_COLOR, GT_LW)
+                _plot_wrapped_hd(ax, t_s, th_dec,  PRED_COLOR, PRED_LW)
+                ax.set_ylim(-np.pi - 0.2, np.pi + 0.2)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel("HD (rad)", fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                _annotate(ax,
+                           f"rmse={_circ_rmse_deg(th_true, th_dec):.1f}°"
+                           f"\nr={_pearson(np.unwrap(th_true), np.unwrap(th_dec)):+.3f}")
+
+        def _plot_d_sweep(row, letter):
+            sweep = sweep_dict.get("d") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_xi" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                tr = np.asarray(ro["true_xi"])
+                pr = np.asarray(ro["decoded_xi"])
+                T_s = tr.size
+                t_s = np.arange(T_s) * dt_test
+                ax.plot(t_s, tr, color=GT_COLOR, lw=GT_LW)
+                ax.plot(t_s, pr, color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_d:
+                    d_cum = _cum_d_from_sweep(ro)
+                    ax.plot(t_s, d_cum, color=GT_COLOR, lw=GT_LW * 0.7,
+                            ls="--", alpha=0.85)
+                ax.tick_params(labelsize=_T_TICK_FS)
+                if col == 2:
+                    ax.set_xlabel("time (s)", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$d$", fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                rmse = float(np.sqrt(np.mean((pr[10:] - tr[10:]) ** 2)))
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr={_pearson(tr, pr):+.3f}")
+
+        def _plot_xy_sweep(row, letter):
+            sweep = sweep_dict.get("xy") or []
+            for col, (om, vf, ro) in enumerate(sweep[:n_show]):
+                if "true_xy" not in ro:
+                    continue
+                ax = _ax_bot(row, col)
+                tx = np.asarray(ro["true_xy"])
+                dx_ = np.asarray(ro["decoded_xy"])
+                ax.plot(tx[:, 0], tx[:, 1], color=GT_COLOR, lw=GT_LW)
+                ax.plot(dx_[:, 0], dx_[:, 1], color=PRED_COLOR, lw=PRED_LW)
+                if _show_cum_xy:
+                    cx, cy = _cum_xy_from_sweep(ro)
+                    if cx is not None:
+                        ax.plot(cx, cy, color=GT_COLOR, lw=GT_LW * 0.7,
+                                ls="--", alpha=0.85)
+                ax.plot([0], [0], 'o', color='0.4', ms=4, zorder=5)
+                ax.set_aspect('equal', adjustable='datalim')
+                ax.tick_params(labelsize=_T_TICK_FS)
+                ax.set_xlabel(r"$x$", fontsize=_T_LABEL_FS)
+                if col == 0:
+                    ax.set_ylabel(r"$y$", fontsize=_T_LABEL_FS)
+                    _panel_label(ax, letter)
+                err = np.sqrt((dx_[10:, 0] - tx[10:, 0]) ** 2
+                               + (dx_[10:, 1] - tx[10:, 1]) ** 2)
+                rmse = float(np.sqrt(np.mean(err ** 2)))
+                r_x = _pearson(tx[:, 0], dx_[:, 0])
+                r_y = _pearson(tx[:, 1], dx_[:, 1])
+                _annotate(ax,
+                           f"rmse={rmse:.2f}\nr̄={float(np.nanmean([r_x, r_y])):+.3f}")
+
+        # ---- Dispatch by task kind ----------------------------------------
+        if kind == "hd":
+            _plot_hd_random(0, "i")
+            _plot_hd_sweep(1, "j")
+        elif kind == "d":
+            _plot_d_random(0, "i")
+            _plot_d_sweep(1, "j")
+        elif kind == "xy":
+            _plot_xy_random(0, "i")
+            _plot_xy_sweep(1, "j")
+        elif kind == "both":
+            _plot_hd_random(0, "i")
+            _plot_d_random(1, "j")
+            _plot_hd_sweep(2, "k")
+            _plot_d_sweep(3, "l")
+        elif kind == "mismatch":
+            # HD over trials; the integrated mismatch over trials (the
+            # companion of panel g); HD constant-ω sweep. No translation
+            # row — the 3rd readout is the mismatch, not a distance.
+            _plot_hd_random(0, "i")
+            _plot_d_random(1, "j")
+            _plot_hd_sweep(2, "k")
+
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        open_axes(fig)
+        fig.savefig(out_path, dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[plot_cx_evolution] wrote {out_path}")
+        return
+
+    ax_i = fig.add_subplot(gs[2, 0])
+    ax_j = fig.add_subplot(gs[2, 1])
+    ax_k = fig.add_subplot(gs[2, 2])
+    ax_l = fig.add_subplot(gs[2, 3])
+
+    skip_extras = bool(run_dir and "frozen" in os.path.basename(
+        os.path.abspath(run_dir)).lower())
+
+    if skip_extras:
+        for ax in (ax_i, ax_j, ax_k, ax_l):
+            ax.axis("off")
+    elif is_gnn:
+        _panel_integration_gain(
+            ax_i, data["gain_data"], data["test_trial"]["dt"],
+        )
+        _panel_label(ax_i, "i")
+        _panel_embedding(
+            ax_j, data["net"], data["neuron_types"], data["type_names"],
+        )
+        _panel_label(ax_j, "j")
+        _panel_function_curves(
+            ax_k, data["net"], "f_theta", h_rollout,
+            neuron_types=data["neuron_types"],
+            type_names=data["type_names"],
+            square_output=False,
+            xlabel=r"$\hat{h}_i$",
+            ylabel=r"$f_\theta(\hat{h}_i, \mathbf{a}_i, m{=}0)$",
+            title=r"$f_\theta$ (mean $\pm$ SD per type)",
+        )
+        _panel_label(ax_k, "k")
+        _g_phi_pos = bool(getattr(data["net"], "_g_phi_positive", True))
+        _panel_function_curves(
+            ax_l, data["net"], "g_phi", h_rollout,
+            neuron_types=data["neuron_types"],
+            type_names=data["type_names"],
+            square_output=True,
+            xlabel=r"$\hat{h}_j$",
+            ylabel=(r"$g_\phi(\hat{h}_j, \mathbf{a}_j)^2$" if _g_phi_pos
+                     else r"$g_\phi(\hat{h}_j, \mathbf{a}_j)$"),
+            title=(r"$g_\phi^2$ (mean $\pm$ SD per type)" if _g_phi_pos
+                    else r"$g_\phi$ (mean $\pm$ SD per type)"),
+        )
+        _panel_label(ax_l, "l")
+    else:
+        # RNN n_rows=3 path: integration gain is already in slot h,
+        # so the third row is unused. Hide everything to avoid
+        # duplicating panels.
+        for ax in (ax_i, ax_j, ax_k, ax_l):
+            ax.axis("off")
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    open_axes(fig)
+    fig.savefig(out_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[plot_cx_evolution] wrote {out_path}")
+
+
+# ===========================================================================
+# Shared evolution-figure data loader (organism-agnostic)
+# ===========================================================================
+# Relocated from figures/zebrafish/fig_evolution.py so BOTH the Drosophila CX
+# and the larval-zebrafish entry scripts build their evolution figure from one
+# loader + one plotter (plot_evolution). Branches on config.task.task_type
+# (path_integration vs swim_integration) and on the decoder (cos/sin vs
+# heading-bins); tries both fly (_pen_ind_*) and fish (_afferent_ind_*) gate
+# buffers, so it is fully species-neutral.
+
+def load_evolution_data(
+    run_dir: str,
+    snapshot_n_steps: int = 1500,
+    snapshot_omega_deg: float = 60.0,
+    gain_omegas=tuple(float(v) for v in np.concatenate([
+        np.arange(-180.0, -9.9, 15.0),
+        np.arange(15.0, 180.1, 15.0),
+    ])),
+    trial_seed: int | None = None,
+    trial_idx: int | None = None,
+    random_trials_seed: int | None = None,
+):
+    """Load model + run rollouts + pick one swim-integration test trial."""
+    import torch
+    from connectome_gnn.config import NeuralGraphConfig
+    from connectome_gnn.models.bump_attractor_eval import _deterministic_sweep_rollout
+    from connectome_gnn.models.registry import create_model
+    from connectome_gnn.plot_cx import cx_epg_directions
+    from connectome_gnn.utils import set_data_root
+    from connectome_gnn.zarr_io import load_raw_array
+
+    cfg_path = os.path.join(run_dir, "config.yaml")
+    if not os.path.isfile(cfg_path):
+        # CV runs keep no config.yaml in the log dir; fall back to the
+        # data-root config <data_root>/config/<group>/<run_basename>.yaml
+        _rda = os.path.abspath(run_dir)
+        _grp = os.path.basename(os.path.dirname(_rda))
+        _droot = os.path.dirname(os.path.dirname(os.path.dirname(_rda)))
+        _fallback = os.path.join(_droot, "config", _grp,
+                                 os.path.basename(_rda) + ".yaml")
+        if os.path.isfile(_fallback):
+            cfg_path = _fallback
+        else:
+            raise FileNotFoundError(
+                f"config.yaml missing in {run_dir} (and no {_fallback})")
+    config = NeuralGraphConfig.from_yaml(cfg_path)
+
+    # Replicate load_run_config's dataset-prefixing + data-root setup.
+    # run_dir = <data_root>/log/<group>/<config_name>/. data_root is two
+    # parents up; the prefix is the group name.
+    run_dir_abs = os.path.abspath(run_dir)
+    group = os.path.basename(os.path.dirname(run_dir_abs))   # e.g. zebrafish
+    data_root = os.path.dirname(os.path.dirname(os.path.dirname(run_dir_abs)))
+    set_data_root(data_root)
+    if group and not config.dataset.startswith(group + "/"):
+        config.dataset = f"{group}/{config.dataset}"
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    net = create_model(config.graph_model.signal_model_name,
+                       aggr_type=config.graph_model.aggr_type,
+                       config=config, device=device)
+    # Pick the highest-epoch checkpoint by default.
+    ckpts = glob.glob(os.path.join(run_dir, "models",
+                                    "best_model_with_*.pt"))
+    if not ckpts:
+        raise FileNotFoundError(f"no checkpoint under {run_dir}/models/")
+
+    def _epoch_of(p):
+        m = re.search(r"_(\d+)\.pt$", os.path.basename(p))
+        return int(m.group(1)) if m else -1
+    ckpts.sort(key=_epoch_of)
+    chosen = ckpts[-1]
+    sd = torch.load(chosen, map_location=device,
+                    weights_only=False)["model_state_dict"]
+    # Back-compat: inheritance-era zebrafish checkpoints store the four
+    # afferent velocity-gate scalars under the fly names v_pen{a,b}_{l,r}.
+    # The current model expects v_ripn_{l,r} / v_ptipn_{l,r} (PENa=RIPN,
+    # PENb=pt-IPN per the loader). Without this remap strict=False silently
+    # drops them, the swim drive is lost, and the rollout collapses.
+    _legacy_gate = {"v_pena_l": "v_ripn_l", "v_pena_r": "v_ripn_r",
+                    "v_penb_l": "v_ptipn_l", "v_penb_r": "v_ptipn_r"}
+    _model_keys = set(net.state_dict().keys())
+    for _old, _new in _legacy_gate.items():
+        if _old in sd and _new in _model_keys and _new not in sd:
+            sd[_new] = sd.pop(_old)
+    net.load_state_dict(sd, strict=False)
+    net.eval()
+
+    # Deterministic constant-ω rollout (the network's "compass test"): the
+    # bump should rotate at a constant angular velocity. Probes the
+    # ring-attractor's gain regardless of whether the training stream was
+    # OU or swim impulses.
+    rollout = _deterministic_sweep_rollout(
+        net, n_steps=snapshot_n_steps,
+        omega_deg_per_s=snapshot_omega_deg, device=device,
+    )
+    rollout["r_epg"] = rollout["r"][:, net.epg_indices]
+    # rotation_mismatch: drop the (degenerate) translation keys so panel f is
+    # rotation-only; the mismatch is shown in panel g (two-integral-path view).
+    if str(getattr(getattr(config.task, "swim_integration", None),
+                   "target_kind", "")) == "rotation_mismatch":
+        rollout.pop("true_xi", None)
+        rollout.pop("decoded_xi", None)
+
+    # Afferent population (RIPN + pt-IPN here, PEN_a/b L/R for the fly):
+    # union of the velocity-gate sub-population indicator buffers populated
+    # by the model from the loader's pen_subpop_ix. Buffer-based so the
+    # lookup is species-agnostic.
+    # Fly model registers _pen_ind_pen{a,b}_{l,r}; zebrafish registers
+    # _afferent_ind_{ripn,ptipn}_{l,r}. Try both so the afferent kinograph
+    # (panel d) is populated for either species.
+    afferent_key_sets = (
+        ("_pen_ind_pena_l", "_pen_ind_pena_r",
+         "_pen_ind_penb_l", "_pen_ind_penb_r"),
+        ("_afferent_ind_ripn_l", "_afferent_ind_ripn_r",
+         "_afferent_ind_ptipn_l", "_afferent_ind_ptipn_r"),
+    )
+    pen_indices = None
+    for ind_keys in afferent_key_sets:
+        if all(hasattr(net, k) for k in ind_keys):
+            union = sum(getattr(net, k) for k in ind_keys)
+            idx = (union > 0).nonzero(as_tuple=True)[0].cpu().numpy()
+            if idx.size:
+                pen_indices = idx.astype(np.int64)
+                rollout["r_pen"] = rollout["r"][:, pen_indices]
+            break
+
+    epg_theta = cx_epg_directions(net.epg_glom_ix)
+
+    # Integration-gain sweeps. Two complementary probes:
+    #   gain_data        — sweep ω at v_fwd = 1; tests rotation gain
+    #                      (used by panel h on rotation-bearing models).
+    #   gain_data_v_fwd  — sweep v_fwd at ω = 0; tests translation gain
+    #                      (used by panel h on translation-capable
+    #                      models — both translation-only and the
+    #                      joint "both" task).
+    gain_data = []
+    for omega in gain_omegas:
+        ro = _deterministic_sweep_rollout(
+            net, n_steps=snapshot_n_steps,
+            omega_deg_per_s=float(omega), device=device,
+        )
+        gain_data.append((float(omega), ro))
+
+    gain_data_v_fwd = []
+    v_fwd_grid = tuple(float(v) for v in np.concatenate([
+        np.arange(-3.0, -0.49, 0.5),
+        np.arange(0.5, 3.01, 0.5),
+    ]))
+    for v_fwd in v_fwd_grid:
+        ro = _deterministic_sweep_rollout(
+            net, n_steps=snapshot_n_steps,
+            omega_deg_per_s=0.0,
+            v_fwd_per_s=float(v_fwd), device=device,
+        )
+        gain_data_v_fwd.append((float(v_fwd), ro))
+
+    # One swim-integration test trial
+    from connectome_gnn.utils import graphs_data_path
+    root = graphs_data_path(config.dataset)
+    u_test = load_raw_array(f"{root}/test/stimulus.zarr")
+    y_test = load_raw_array(f"{root}/test/target.zarr")
+    # task_targets projection: mirrors the trainer's slicing of the
+    # 4-ch / 3-col on-disk superset onto the active sub-task. Needed
+    # whenever the trained model was built for n_in<4 / n_out<3.
+    # Keyed by (n_in_disk, n_out_disk, task_key) — mirrors the trainer's
+    # _PROFILE_BY_TARGET (graph_trainer) so the propriocep 5-col layout passes
+    # through all five channels instead of silently dropping the sin θ₀ column.
+    _PROFILE_BY_TARGET = {
+        (4, 3, ("rotation",)):                ([0, 2, 3],       [0, 1]),
+        (4, 3, ("translation",)):             ([1],             [2]),
+        (4, 3, ("rotation", "translation")):  ([0, 1, 2, 3],    [0, 1, 2]),
+        (4, 4, ("rotation",)):                ([0, 2, 3],       [0, 1]),
+        (4, 4, ("position_2d",)):             ([0, 1, 2, 3],    [0, 1, 2, 3]),
+        (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 3, ("translation",)):             ([1, 2],          [2]),
+        (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
+        (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
+    }
+    _RECOGNISED = ("rotation", "translation", "position_2d")
+    _task_raw = list(getattr(config.training, "task_targets", None) or [])
+    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
+    if u_test.shape[-1] >= 4 and _task_key:
+        _key = (int(u_test.shape[-1]), int(y_test.shape[-1]), _task_key)
+        if _key in _PROFILE_BY_TARGET:
+            in_cols, out_cols = _PROFILE_BY_TARGET[_key]
+            u_test = u_test[..., in_cols]
+            y_test = y_test[..., out_cols]
+    if trial_idx is None:
+        # Match _build_test_trial used by the training-time snapshot:
+        # sample K=32 candidates and keep the one whose centred target has
+        # the largest column-wise amplitude. Reproduces the trial shown in
+        # tmp_training/evolution/epoch_*.png exactly.
+        if trial_seed is None:
+            trial_seed = int(getattr(config.training, "seed", 0)) + 17
+        rng = np.random.default_rng(trial_seed)
+        n_test = u_test.shape[0]
+        K = int(min(32, n_test))
+        cand_idx = np.sort(rng.choice(n_test, size=K, replace=False))
+        y_cand = np.asarray(y_test[cand_idx])
+        if y_cand.size:
+            y_centred = y_cand - y_cand.mean(axis=1, keepdims=True)
+            scores = np.abs(y_centred).max(axis=(1, 2))
+            trial_idx = int(cand_idx[int(np.argmax(scores))])
+        else:
+            trial_idx = int(rng.integers(0, n_test))
+    trial_idx = int(trial_idx) % u_test.shape[0]
+    # Heading-bin model: the model expects a one-hot K-bin initial-heading
+    # cue, not the on-disk (cos θ₀, sin θ₀) impulse. Convert the cue BEFORE
+    # the forward (as the training-time snapshot does) — otherwise θ₀ is
+    # mis-anchored and every decoded trial carries a spurious constant
+    # offset. K-bin logits are then decoded back to a (cos, sin) view.
+    _use_bins = bool(getattr(net, "use_heading_bins", False))
+    _Kbin = int(getattr(net, "n_heading_bins", 0))
+
+    def _net_fwd(u_t):
+        if _use_bins:
+            from connectome_gnn.models.heading_bins import (
+                convert_cos_sin_input_to_bin_cue_torch,
+            )
+            u_t = convert_cos_sin_input_to_bin_cue_torch(u_t, _Kbin)
+        return net(u_t)
+
+    def _decode_bins(yp):
+        if _use_bins:
+            from connectome_gnn.models.heading_bins import (
+                softmax_logits_to_cos_sin_np,
+            )
+            return softmax_logits_to_cos_sin_np(yp, _Kbin)
+        return yp
+
+    u_one = u_test[trial_idx]
+    y_true = y_test[trial_idx]
+    with torch.no_grad():
+        u_t = torch.from_numpy(u_one[None]).to(device)
+        y_pred, _ = _net_fwd(u_t)
+    y_pred_raw = y_pred[0].cpu().numpy()
+    test_trial_bins = y_pred_raw if _use_bins else None   # (T, K) logits
+    y_pred = _decode_bins(y_pred_raw)
+
+    # --- 5 random held-out trials for the bottom-row paper figure ------
+    # Picks the 5 most-informative trials (largest centred-amplitude
+    # over a K=32 candidate sample) so the trace plots are not flat
+    # zeros for trials that happened to have no events. The
+    # default seed (training.seed + 17) is overridable via
+    # ``random_trials_seed`` for variants where the default pick
+    # contains a degenerate trial (e.g.\ v_fwd ≈ 0 in one of the 5).
+    _train_seed = int(getattr(config.training, "seed", 0))
+    _rt_seed = (_train_seed + 17 if random_trials_seed is None
+                else int(random_trials_seed))
+    rng_r = np.random.default_rng(_rt_seed)
+    K_r = int(min(32, u_test.shape[0]))
+    cand_r = np.sort(rng_r.choice(u_test.shape[0], size=K_r,
+                                    replace=False))
+    y_cand_r = np.asarray(y_test[cand_r])
+    y_centred_r = y_cand_r - y_cand_r.mean(axis=1, keepdims=True)
+    scores_r = np.abs(y_centred_r).max(axis=(1, 2))
+    idx_show = np.sort(cand_r[np.argsort(-scores_r)[:5]])
+    with torch.no_grad():
+        u_show = torch.from_numpy(
+            np.asarray(u_test[idx_show])
+        ).to(device)
+        y_pred_show, _ = _net_fwd(u_show)
+    # Convert the cue (inside _net_fwd) and decode the K-bin logits back to
+    # a (cos θ̂, sin θ̂) view so the HD plotters (which atan2 cols 0/1) work.
+    y_pred_show_raw = y_pred_show.cpu().numpy()
+    y_pred_show = _decode_bins(y_pred_show_raw)
+    random_trials = dict(
+        idx=idx_show,
+        u=np.asarray(u_test[idx_show]),
+        y_true=np.asarray(y_test[idx_show]),
+        y_pred=y_pred_show,
+        # Raw K-bin logits (B, T, K) for the bin-posterior panels (i);
+        # None for the cos/sin models.
+        y_pred_bins=(y_pred_show_raw if _use_bins else None),
+    )
+
+    # --- 5 representative deterministic sweeps for the test rows ------
+    # T=2000 frames matches the publication metric.
+    has_rotation_local = ("rotation" in _task_key) or (not _task_key)
+    has_translation_local = "translation" in _task_key
+    has_position_2d_local = "position_2d" in _task_key
+    T_sweep_test = 2000
+    # sweep_for_test is a dict keyed by quantity ("hd", "d", "xy") so
+    # joint-target ("both") tasks can carry separate ω-sweeps for HD
+    # and v_fwd-sweeps for d.
+    sweep_for_test = {}
+    if has_position_2d_local:
+        omega_v_set = [(-120.0, 1.0), (-60.0, 1.0), (30.0, 1.0),
+                        (60.0, 1.0), (120.0, 1.0)]
+        sweep_for_test["xy"] = [
+            (om, vf, _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                omega_deg_per_s=om, v_fwd_per_s=vf, device=device))
+            for om, vf in omega_v_set
+        ]
+    if has_rotation_local:
+        sweep_for_test["hd"] = [
+            (om, None, _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                omega_deg_per_s=om, device=device))
+            for om in [-120.0, -60.0, 60.0, 120.0, 180.0]
+        ]
+    if has_translation_local or (has_rotation_local
+                                  and not has_position_2d_local
+                                  and "translation" in _task_key):
+        sweep_for_test["d"] = [
+            (None, vf, _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                v_fwd_per_s=vf, device=device))
+            for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]
+        ]
+    # For "both" task (rotation+translation), also include d sweeps.
+    if has_rotation_local and has_translation_local and "d" not in sweep_for_test:
+        sweep_for_test["d"] = [
+            (None, vf, _deterministic_sweep_rollout(
+                net, n_steps=T_sweep_test,
+                v_fwd_per_s=vf, device=device))
+            for vf in [-2.0, -1.0, 0.5, 1.0, 2.0]
+        ]
+    # dt comes from whichever task block this run uses (swim_integration
+    # for zebrafish, path_integration for the fly companion).
+    task_block = (config.task.path_integration
+                  if config.task.task_type == "path_integration"
+                  else config.task.swim_integration)
+    _is_mismatch = str(getattr(task_block, "target_kind", "")) == "rotation_mismatch"
+    test_trial = dict(
+        idx=trial_idx,
+        u=u_one,
+        y_true=y_true,
+        y_pred=y_pred,
+        y_pred_bins=test_trial_bins,   # (T, K) logits for bins, else None
+        dt=float(task_block.dt),
+        label="swim test trial",
+        mismatch=_is_mismatch,
+    )
+
+    # Species-specific display labels picked up from the model class
+    # (DrosophilaCxTaskRNN → "EPG"/"PEN", ZebrafishHdTaskRNN →
+    # "r1π / dIPN"/"RIPN / pt-IPN", same for the GNN subclasses).
+    bump_label = getattr(type(net), "bump_label", "EPG")
+    afferent_label = getattr(type(net), "afferent_label", "PEN")
+
+    return dict(
+        net=net,
+        config=config,
+        W_rec=net.W_rec.detach().cpu().numpy(),
+        W_con=net.W_con.detach().cpu().numpy(),
+        neuron_types=net.neuron_types,
+        type_names=net.type_names,
+        pen_indices=pen_indices,
+        rollout=rollout,
+        epg_theta=epg_theta,
+        gain_data=gain_data,
+        gain_data_v_fwd=gain_data_v_fwd,
+        test_trial=test_trial,
+        random_trials=random_trials,
+        sweep_for_test=sweep_for_test,
+        task_kind=("mismatch" if _is_mismatch
+                   else "xy" if has_position_2d_local
+                   else "both" if (has_translation_local
+                                    and has_rotation_local)
+                   else "d" if (has_translation_local
+                                and not has_rotation_local)
+                   else "hd"),
+        dt_s=float(net.dt),
+        checkpoint=chosen,
+        bump_label=bump_label,
+        afferent_label=afferent_label,
+    )
+
+
+# Back-compat alias: plot_evolution was named plot_cx_evolution while the
+# drosophila CX was its only caller.
+plot_cx_evolution = plot_evolution
+
+
+# ===========================================================================
+# Shared GNN training dashboard (organism-agnostic)
+# ===========================================================================
+# Relocated from figures/zebrafish/fig_gnn_dashboard.py so the fly + fish
+# dashboards share one builder. Consumes the load_evolution_data dict; rows
+# 1-2 reuse the evolution _panel_* helpers, row 3 the GNN embedding/g_phi/
+# f_theta panels. Render with plot_gnn_dashboard(data, out_path).
+
+def _dash_label(ax, letter, y=1.04, x=-0.08):
+    ax.text(x, y, letter, transform=ax.transAxes, fontsize=PANEL_LABEL_FS,
+            fontweight="bold", va="bottom", ha="right")
+
+
+def _gnn_embedding_panel(ax, data, device):
+    """Per-neuron embedding scatter a_0 vs a_1, coloured by cell type."""
+    from connectome_gnn.plot import plot_embedding
+    from connectome_gnn.utils import CustomColorMap
+
+    net = data["net"]
+    nt = np.asarray(data["neuron_types"])
+    n_types = len(data["type_names"])
+    cmap = CustomColorMap(config=data["config"])
+    plot_embedding(ax, net, nt, n_types, cmap)
+    ax.set_title("")
+    ax.set_xlabel(r"$a_{i,0}$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"$a_{i,1}$", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def _gnn_gphi_panel(ax, data, device):
+    """Learned per-edge signalling function g_phi(v), mean +/- SD per type."""
+    from connectome_gnn.plot import plot_g_phi
+    from connectome_gnn.utils import CustomColorMap
+
+    net = data["net"]
+    config = data["config"]
+    nt = np.asarray(data["neuron_types"])
+    cmap = CustomColorMap(config=config)
+    # g_phi/f_theta consume the raw subthreshold state v (no sigmoid wrap);
+    # probe over v in [-3, 3]. Override xlim/ylim for the call, then restore.
+    _xlim, _ylim = list(config.plotting.xlim), list(config.plotting.ylim)
+    try:
+        config.plotting.xlim = [-3.0, 3.0]
+        config.plotting.ylim = [-1.0, 1.0]
+        plot_g_phi(ax, net, config, int(net.n_units), nt, cmap, device,
+                   type_names=list(data["type_names"]))
+    finally:
+        config.plotting.xlim = _xlim
+        config.plotting.ylim = _ylim
+    ax.set_title("")
+    ax.set_xlabel(r"$v_j$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"$g_\phi(\mathbf{a}_j, v_j)$", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+    leg = ax.get_legend()
+    if leg is not None:
+        leg.remove()
+
+
+def _gnn_ftheta_panel(ax, data, device):
+    """Learned node update f_theta(a_i, v) at zero recurrent input, per type.
+
+    Replicates ``bump_attractor_eval._plot_gnn_functions`` (the training-time
+    f_theta plot) so the dashboard panel matches what the trainer logs.
+    """
+    import torch
+
+    from connectome_gnn.metrics import _batched_mlp_eval
+    from connectome_gnn.utils import qualitative_colors
+
+    net = data["net"]
+    nt = np.asarray(data["neuron_types"])
+    type_names = list(data["type_names"])
+    n_neurons = int(net.n_units)
+    n_pts = 1000
+    rr_1d = torch.linspace(-3.0, 3.0, n_pts, device=device)
+    rr = rr_1d.unsqueeze(0).expand(n_neurons, -1)
+    # TaskGNN f_theta input is (v, a, msg); pin msg=0 to probe the bare update.
+    feat_fn = lambda rr_f, emb_f: torch.cat(
+        [rr_f, emb_f, torch.zeros_like(rr_f)], dim=1)
+    func = _batched_mlp_eval(net.f_theta, net.a, rr, feat_fn, device)
+
+    type_np = nt.astype(int).ravel()
+    x_np = rr_1d.detach().cpu().numpy()
+    func_np = func.detach().cpu().numpy()
+    _type_cols = qualitative_colors(int(type_np.max()) + 1)
+    for t in np.unique(type_np):
+        mask = type_np == int(t)
+        mean = func_np[mask].mean(axis=0)
+        std = func_np[mask].std(axis=0)
+        color = (_type_cols[int(t)] if int(t) < len(_type_cols) else "0.4")
+        ax.plot(x_np, mean, linewidth=1.5, color=color)
+        if std.max() > 1e-6:
+            ax.fill_between(x_np, mean - std, mean + std, color=color,
+                            alpha=0.15)
+    ax.axhline(0, color="#aaaaaa", linewidth=0.5, linestyle="--")
+    ax.set_xlim([-3.0, 3.0])
+    ax.set_xlabel(r"$v_i$", fontsize=LABEL_FS)
+    ax.set_ylabel(r"$f_\theta(\mathbf{a}_i, v_i)$", fontsize=LABEL_FS)
+    ax.tick_params(labelsize=TICK_FS)
+
+
+def plot_gnn_dashboard(data, out_path):
+    """Render the whole dashboard into a single figure."""
+    import torch
+
+    from connectome_gnn.plot_cx import (
+        _hd_partition_ids,
+        _panel_all_neurons_kinograph,
+        _panel_hd_tracking_stacked,
+        _panel_integration_gain,
+        _panel_matrix,
+        _panel_phase_sorted_kinograph,
+        _panel_trial_rollout,
+        _panel_weight_scatter,
+    )
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    hd_part = _hd_partition_ids(data["neuron_types"], data["type_names"])
+    rollout = data["rollout"]
+    r_traj = np.asarray(rollout["r"])
+    dt_s = data["dt_s"]
+
+    fig = plt.figure(figsize=(20, 15))
+    # Three stacked row-blocks. Rows 1-2 are 4-column (the Fig. 4 a-h
+    # panels); row 3 is 3-column (the GNN-specific embedding + 2 MLPs).
+    outer = fig.add_gridspec(
+        3, 1, height_ratios=[1.0, 1.0, 1.0], hspace=0.42,
+        left=0.05, right=0.97, top=0.96, bottom=0.06,
+    )
+    gs1 = outer[0].subgridspec(1, 4, wspace=0.42)
+    gs2 = outer[1].subgridspec(1, 4, wspace=0.42)
+    gs3 = outer[2].subgridspec(1, 3, wspace=0.34)
+
+    # ---- Row 1: connectome / learned weights / activity ------------------
+    ax_a = fig.add_subplot(gs1[0, 0])
+    _panel_matrix(ax_a, data["W_con"], data["neuron_types"],
+                  data["type_names"], "", partition=hd_part,
+                  show_cbar=False, show_title=False)
+    _dash_label(ax_a, "a")
+
+    ax_b = fig.add_subplot(gs1[0, 1])
+    _panel_matrix(ax_b, data["W_rec"], data["neuron_types"],
+                  data["type_names"], "", partition=hd_part,
+                  show_cbar=False, show_title=False, show_axis_labels=False)
+    _dash_label(ax_b, "b")
+
+    ax_c = fig.add_subplot(gs1[0, 2])
+    _panel_weight_scatter(ax_c, data["W_con"], data["W_rec"])
+    _dash_label(ax_c, "c")
+
+    ax_d = fig.add_subplot(gs1[0, 3])
+    _panel_all_neurons_kinograph(
+        ax_d, r_traj, neuron_types=data["neuron_types"],
+        type_names=data["type_names"], dt_s=dt_s,
+        partition=hd_part, show_cbar=False)
+    _dash_label(ax_d, "d")
+
+    # ---- Row 2: dIPN kinograph / HD tracking / test trial / gain ---------
+    ax_e = fig.add_subplot(gs2[0, 0])
+    _theta = None
+    for _k in ("true_theta", "theta"):
+        if _k in rollout:
+            _theta = np.asarray(rollout[_k])
+            break
+    _epg_idx = getattr(data["net"], "epg_indices", None)
+    if hd_part is not None and _theta is not None:
+        # fish2 vocab: within-partition phase sort over all neurons.
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, _theta, dt_s=dt_s, partition=hd_part,
+            show_cbar=False)
+    elif _theta is not None and _epg_idx is not None and "r_epg" in rollout:
+        # Fly CX (no fish2 partition): phase-sort the EPG heading ring by
+        # preferred heading φ_i — the analog of the zebrafish dIPN sorted
+        # kinograph, so panel e shows the travelling bump rather than an
+        # empty axis. Matches plot_evolution's panel e.
+        _panel_phase_sorted_kinograph(
+            ax_e, np.asarray(rollout["r_epg"]), _theta, dt_s=dt_s,
+            partition=None,
+            sort_label=rf"$\varphi$ ({data.get('bump_label', 'EPG')})",
+            show_cbar=False)
+    elif _theta is not None:
+        # last resort: phase-sort all neurons together.
+        _panel_phase_sorted_kinograph(
+            ax_e, r_traj, _theta, dt_s=dt_s, partition=None,
+            show_cbar=False)
+    else:
+        ax_e.axis("off")
+    _dash_label(ax_e, "e")
+
+    ax_f = _panel_hd_tracking_stacked(fig, gs2[0, 1], rollout, dt_s)
+    _dash_label(ax_f, "f", y=1.22)
+
+    if data.get("test_trial") is not None:
+        ax_g = _panel_trial_rollout(fig, gs2[0, 2], data["test_trial"])
+    else:
+        ax_g = fig.add_subplot(gs2[0, 2])
+        ax_g.axis("off")
+    _dash_label(ax_g, "g", y=1.22)
+
+    ax_h = fig.add_subplot(gs2[0, 3])
+    _gain = data.get("gain_data")
+    _dt_h = (data["test_trial"]["dt"]
+             if data.get("test_trial") else dt_s)
+    if _gain:
+        _panel_integration_gain(ax_h, _gain, _dt_h)
+    else:
+        ax_h.axis("off")
+    _dash_label(ax_h, "h")
+
+    # ---- Row 3: GNN-specific (embedding + two learned MLPs) --------------
+    ax_i = fig.add_subplot(gs3[0, 0])
+    _gnn_embedding_panel(ax_i, data, device)
+    _dash_label(ax_i, "i")
+
+    ax_j = fig.add_subplot(gs3[0, 1])
+    _gnn_gphi_panel(ax_j, data, device)
+    _dash_label(ax_j, "j")
+
+    ax_k = fig.add_subplot(gs3[0, 2])
+    _gnn_ftheta_panel(ax_k, data, device)
+    _dash_label(ax_k, "k")
+
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    try:
+        from _despine import open_axes
+        open_axes(fig)
+    except Exception:
+        pass
+    fig.savefig(out_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_run_dashboard(run_dir, out_dir=None, *,
+                       snapshot_n_steps: int = 1500,
+                       snapshot_omega_deg: float = 60.0):
+    """Build and save the multi-panel training dashboard for a CX /
+    zebrafish task run.
+
+    Dispatches on the model family: message-passing GNN runs (the model
+    exposes ``a`` / ``g_phi`` / ``f_theta``) render the a–k GNN dashboard
+    (:func:`plot_gnn_dashboard`); the sign-locked RNN renders the a–j
+    evolution figure (:func:`plot_evolution`, ``n_rows=4``) --- the same
+    panel layout as the zebrafish Fig. 4 dashboard.
+
+    The figure is written into ``out_dir`` (default ``<run_dir>/results``)
+    as ``fig_gnn_dashboard_<run>.png`` or ``fig_evolution_<run>.png``.
+    Returns the written path, or ``None`` if the run carries no loadable
+    rollout (e.g. a non-task config).
+    """
+    data = load_evolution_data(
+        run_dir, snapshot_n_steps=snapshot_n_steps,
+        snapshot_omega_deg=snapshot_omega_deg)
+    if out_dir is None:
+        out_dir = os.path.join(run_dir, "results")
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.basename(os.path.abspath(run_dir))
+    if _is_gnn(data["net"]):
+        out_path = os.path.join(out_dir, f"fig_gnn_dashboard_{base}.png")
+        plot_gnn_dashboard(data, out_path)
+    else:
+        out_path = os.path.join(out_dir, f"fig_evolution_{base}.png")
+        plot_evolution(data, out_path, run_dir=run_dir, n_rows=4)
+    return out_path

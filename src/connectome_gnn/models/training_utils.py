@@ -158,60 +158,33 @@ def build_model(config, device, checkpoint_path=None, reset_epoch=False):
     return model, start_epoch
 
 
-def resolve_checkpoint_path(config, best_model):
-    """Resolve a best_model specifier to an absolute checkpoint path.
+def find_latest_epoch_checkpoint(log_dir, n_runs):
+    """Locate the highest-numbered completed per-epoch checkpoint.
 
-    Handles:
-        None / '' / 'None' → pretrained_model from config (or None)
-        'best' → glob for latest checkpoint
-        numeric string (e.g. '5') → specific epoch checkpoint
-
-    Returns:
-        str path or None
-    """
-    tc = config.training
-    log_dir = os.path.dirname(os.path.dirname(
-        graphs_data_path(config.dataset, '')))  # not ideal but matches existing pattern
-    # Use the actual log_path utility
-    from connectome_gnn.utils import log_path as _log_path
-    log_dir = _log_path(config.config_file)
-
-    if best_model == 'best':
-        files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
-        if not files:
-            return None
-        files.sort(key=sort_key)
-        filename = files[-1].split('/')[-1]
-        filename = filename.split('graphs')[-1][1:-3]
-        return f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{filename}.pt"
-    elif best_model and best_model != 'None' and best_model != '':
-        return f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt"
-    elif tc.pretrained_model != '':
-        return tc.pretrained_model
-    return None
-
-
-def build_optimizer(model, config):
-    """Build Adam optimizer with per-parameter-group learning rates.
-
-    Wraps set_trainable_parameters with the learning rates from config.
+    Per-epoch checkpoints are written as
+    ``best_model_with_{n_runs-1}_graphs_{E}.pt`` (E = 0-based epoch index) at
+    the end of each epoch. Used by ``--resume`` to continue from the next epoch.
 
     Returns:
-        optimizer: torch.optim.Adam
-        n_total_params: int
+        (path, epoch_index) for the largest E, or (None, -1) if none exist.
+        The plain ``best_model_with_{n_runs-1}_graphs.pt`` (no epoch suffix) is
+        skipped — only epoch-numbered checkpoints count as completed epochs.
     """
-    tc = config.training
-    lr = tc.lr
-    lr_update = tc.lr_update if tc.lr_update != 0 else lr
-    lr_embedding = tc.lr_embedding
-    lr_W = tc.lr_W
-    lr_NNR_f = tc.lr_NNR_f
-
-    return set_trainable_parameters(
-        model=model, lr_embedding=lr_embedding, lr=lr,
-        lr_update=lr_update, lr_W=lr_W,
-        lr_NNR_f=lr_NNR_f,
-    )
+    prefix = f'best_model_with_{n_runs - 1}_graphs_'
+    pattern = os.path.join(log_dir, 'models', f'{prefix}*.pt')
+    best_path, best_epoch = None, -1
+    for path in glob.glob(pattern):
+        stem = os.path.basename(path)[:-len('.pt')]
+        suffix = stem[len(prefix):]
+        # Require a pure-digit suffix. NB int('2_3400') == 23400 in Python
+        # (underscore digit-grouping), so a mid-epoch "..._{E}_{N}.pt" name
+        # would otherwise be misread as a giant epoch — isdigit() rejects it.
+        if not suffix.isdigit():
+            continue
+        epoch = int(suffix)
+        if epoch > best_epoch:
+            best_path, best_epoch = path, epoch
+    return best_path, best_epoch
 
 
 def build_lr_scheduler(optimizer, config):
@@ -268,14 +241,6 @@ def build_lr_scheduler(optimizer, config):
 
     else:
         raise ValueError(f"Unknown lr_scheduler: {scheduler_type}")
-
-
-def save_checkpoint(model, optimizer, path):
-    """Save model + optimizer state dict to path."""
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-    }, path)
 
 
 def enforce_dale_law(model, edge_index):

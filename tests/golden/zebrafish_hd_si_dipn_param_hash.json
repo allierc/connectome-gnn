@@ -1,0 +1,90 @@
+{
+  "n_units": 731,
+  "param_hashes": {
+    "S": {
+      "dtype": "torch.float32",
+      "sha256": "77c1aa12141c8bc979b19c4442cf34e90dab648f01fc6bba18723255d52d5d64",
+      "shape": [
+        731,
+        731
+      ]
+    },
+    "W_con": {
+      "dtype": "torch.float32",
+      "sha256": "7d3f17f462a653c2d7147f2cac5de30f60703c430b9891becf0facb0568491a2",
+      "shape": [
+        731,
+        731
+      ]
+    },
+    "W_con_mask": {
+      "dtype": "torch.float32",
+      "sha256": "03c2b98c9809d3229b9b516a5634d3b58ce492686493dd81cde46de8678231f7",
+      "shape": [
+        731,
+        731
+      ]
+    },
+    "W_con_sign": {
+      "dtype": "torch.float32",
+      "sha256": "370547486a1b76a897168841c19b4b25dab45bd66f98eb60946afbf59f5bbd91",
+      "shape": [
+        731,
+        731
+      ]
+    },
+    "W_in": {
+      "dtype": "torch.float32",
+      "sha256": "25406ce23bac9c4d66f959e5cee88a89bba826441f10675a77d22d3b46350795",
+      "shape": [
+        731,
+        3
+      ]
+    },
+    "W_out": {
+      "dtype": "torch.float32",
+      "sha256": "826b7b8bd97d08154a56972e29ceec616f0dc64af28d39035200ab75f9cef208",
+      "shape": [
+        2,
+        443
+      ]
+    },
+    "b": {
+      "dtype": "torch.float32",
+      "sha256": "ae6149ce237cf3f752d27c0f8c898388e59297dff8b85ec6071e83795b586258",
+      "shape": [
+        731
+      ]
+    },
+    "b_out": {
+      "dtype": "torch.float32",
+      "sha256": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "shape": [
+        2
+      ]
+    },
+    "v_pena_l": {
+      "dtype": "torch.float32",
+      "sha256": "0d66bd808e9247acb560fe33efaa62ad6f11ee6f85cc4f61bd17673263de04ee",
+      "shape": []
+    },
+    "v_pena_r": {
+      "dtype": "torch.float32",
+      "sha256": "4ea7d926a2904d1009eac6fe956a796ec347ef9bfa5923d539fc182ec63515f3",
+      "shape": []
+    },
+    "v_penb_l": {
+      "dtype": "torch.float32",
+      "sha256": "0d66bd808e9247acb560fe33efaa62ad6f11ee6f85cc4f61bd17673263de04ee",
+      "shape": []
+    },
+    "v_penb_r": {
+      "dtype": "torch.float32",
+      "sha256": "4ea7d926a2904d1009eac6fe956a796ec347ef9bfa5923d539fc182ec63515f3",
+      "shape": []
+    }
+  },
+  "seed": 47506,
+  "signal_model_name": "zebrafish_hd_si",
+  "yaml": "config/zebrafish/zebrafish_hd_si_dipn.yaml"
+}

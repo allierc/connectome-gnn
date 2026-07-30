@@ -1,7 +1,9 @@
 import datetime
 import fcntl
 import glob
+import math
 import shutil
+from typing import Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +16,7 @@ except ImportError:
     load_wormvae_data = None
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
+from connectome_gnn.generators.optogenetics import build_input_perturbation
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
@@ -25,9 +28,13 @@ from connectome_gnn.plot import (
     plot_selected_neuron_traces,
     plot_spatial_activity_grid,
     plot_spiking_traces,
+    plot_task_pi_traces,
+    plot_task_swim_traces,
 )
-
+# plot_task_cortex_* are imported lazily inside _generate_cortex_task so plot.py
+# can be edited without affecting non-task code paths.
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
 
 def _rmtree(path):
     """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
@@ -61,6 +68,8 @@ import os
 from tqdm import tqdm, trange
 
 from connectome_gnn.generators.utils import (
+    _print_opto_banner,
+    _resolve_opto_data_root,
     apply_pairwise_knobs_torch,
     assign_columns_from_uv,
     build_neighbor_graph,
@@ -77,75 +86,6 @@ from connectome_gnn.generators.utils import (
 from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
-
-
-def _resolve_opto_data_root(opto_cfg) -> None:
-    """Switch the data root to whichever fallback contains the opto source.
-
-    Opto re-simulation requires the source dataset to already exist on disk.
-    GNN_Main.py's _maybe_fallback_data_root() skips fallback resolution for
-    'generate' tasks (it expects fresh local data). For opto we override that:
-    if the source can't be found at the current data root, scan the
-    data_paths.json fallback roots and switch to the first one that has it.
-    """
-    from connectome_gnn.utils import (
-        get_data_root, load_data_fallback_roots, set_data_root,
-    )
-
-    src = opto_cfg.source_dataset
-    if not src:
-        return
-
-    def _has_source(root: str) -> bool:
-        for sub in (src, os.path.join("fly", src)):
-            voltage = os.path.join(root, "graphs_data", sub,
-                                  "x_list_train", "voltage.zarr")
-            if os.path.isdir(voltage):
-                return True
-        return False
-
-    if _has_source(get_data_root()):
-        return
-
-    Y, R = "\033[93m", "\033[0m"
-    for root in load_data_fallback_roots():
-        if _has_source(root):
-            print(f"{Y}[opto] source not found at current data root; "
-                  f"switching to {root}{R}", flush=True)
-            set_data_root(root)
-            return
-    # No fallback worked — let downstream fail with a clear error.
-
-
-def _print_opto_banner(config, opto_cfg) -> None:
-    """Green banner: confirms source-dataset reuse and dumps opto parameters."""
-    G, R = "\033[92m", "\033[0m"
-    src = opto_cfg.source_dataset
-    src_dir = graphs_data_path(src)
-    if not os.path.isdir(src_dir):
-        alt = graphs_data_path("fly", src)
-        if os.path.isdir(alt):
-            src_dir = alt
-    voltage_zarr = os.path.join(src_dir, "x_list_train", "voltage.zarr")
-    src_ok = os.path.isdir(voltage_zarr)
-    tgt = opto_cfg.target
-    wf = opto_cfg.waveform
-    target_str = (
-        f"mode={tgt.mode} k={tgt.k}" if str(tgt.mode) == "OptoTargetMode.TOPK_NULLSPACE"
-        or tgt.mode == "topk_nullspace"
-        else f"mode={tgt.mode} cell_types={list(tgt.cell_types)}"
-    )
-    print(f"{G}{'='*70}{R}")
-    print(f"{G}[opto] OPTOGENETIC PERTURBATION — re-simulation from existing source{R}")
-    print(f"{G}[opto] source dataset:  {src}{R}")
-    print(f"{G}[opto] source on disk:  {src_dir}  ({'OK' if src_ok else 'MISSING'}){R}")
-    print(f"{G}[opto] target output:   {config.dataset}{R}")
-    print(f"{G}[opto] target spec:     {target_str}  column_distinct={tgt.column_distinct}{R}")
-    wf_extra = f"  frames_on={wf.frames_on}" if wf.kind == "heaviside" else ""
-    print(f"{G}[opto] waveform:        kind={wf.kind}  amplitude={wf.amplitude}  "
-          f"noise_level={wf.noise_level}{wf_extra}{R}")
-    print(f"{G}[opto] seed:            {wf.seed}  (paired with source for matched comparison){R}")
-    print(f"{G}{'='*70}{R}", flush=True)
 
 
 def data_generate(
@@ -178,6 +118,23 @@ def data_generate(
         _print_opto_banner(config, opto_cfg)
         add_optogenetics_stimulus(config)
         return
+
+    # Teacher-voltage generation: roll out a trained TaskRNN over fresh task
+    # stimuli and write the hidden-state trajectory to x_list_train/voltage.zarr
+    # (compatible with data_train_gnn). Owns the whole pipeline -> return.
+    if getattr(config.simulation, 'task_model_config_path', ''):
+        _generate_voltage_from_task_model(
+            config, device=device, visualize=visualize,
+        )
+        return
+
+    # Task-data generation (PR1: path_integration only). Runs independently
+    # from the simulation pipeline below; merging the two (task-trained
+    # circuit -> simulate activity -> GNN recovery) is a follow-up PR.
+    if getattr(config, 'task', None) is not None:
+        data_generate_task(config, device=device, visualize=visualize)
+        if config.task.task_only:
+            return
 
     dataset_dir = graphs_data_path(config.dataset)
     os.makedirs(dataset_dir, exist_ok=True)
@@ -282,6 +239,1400 @@ def data_generate(
             _dm.write(f"dataset: {config.dataset}\n")
 
     default_style.apply_globally()
+
+
+# ---------------------------------------------------------------------------
+# Task-data generation (PR1: path_integration only; OF + twenty_tasks stubbed)
+# Schema: see config.TaskConfig + InputPerturbation.
+# Plan:   /home/node/.claude/plans/structured-swimming-pearl.md
+# ---------------------------------------------------------------------------
+
+
+def _write_trial_zarr(
+    path: str,
+    arr: np.ndarray,
+    *,
+    chunk_trials: int = 1000,
+    desc: str | None = None,
+) -> None:
+    """Write a (N_trials, T, n) array as a zarr with per-trial chunks.
+
+    `chunk_trials` is the number of trials per zstd block. 1000 trials × T=1000 ×
+    3 channels ≈ 12 MB per chunk — the sweet spot for sequential reads. Reuses
+    ZarrArrayWriter by remapping its (T, N, F) axes to (N_trials, T, n).
+    """
+    n_trials, T, n_feat = arr.shape
+    chunks = max(1, min(int(chunk_trials), n_trials))
+    writer = ZarrArrayWriter(
+        path=path,
+        n_neurons=T,
+        n_features=n_feat,
+        time_chunks=chunks,
+    )
+    n_flushes = math.ceil(n_trials / chunks)
+    label = desc or os.path.basename(path)
+    for i in tqdm(range(n_trials), desc=f"  zarr {label} ({n_flushes} chunks)",
+                  leave=False, ncols=150):
+        writer.append(arr[i])
+    writer.finalize()
+
+
+def _write_trial_zarr_1d(
+    path: str,
+    arr: np.ndarray,
+    *,
+    chunk_trials: int = 1000,
+    desc: str | None = None,
+) -> None:
+    """Write a (N_trials, T) array as zarr by promoting to (N_trials, T, 1)."""
+    _write_trial_zarr(path, arr[..., None].astype(np.float32),
+                      chunk_trials=chunk_trials, desc=desc)
+
+
+def _generate_path_integration_task(config, *, device, visualize: bool = True) -> None:
+    """Generate the Hulse path-integration task data (input + heading target).
+
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            task_traces_{train,test}.png
+            train/
+                stimulus.zarr   (N, T, 3)   [omega(t), cos(theta_0)*delta_t0, sin(theta_0)*delta_t0]
+                target.zarr     (N, T, 2)   [cos(theta_hd(t)), sin(theta_hd(t))]
+                theta_hd.zarr   (N, T)      ground-truth heading
+                is_stop.zarr    (N, T)      standing-pause mask
+            test/
+                same fields
+
+    Inlines the OU-velocity / heading integration from Hulse Methods Eqs. 5-7;
+    the trainer in teachers/janelia_cx_teacher.py keeps its own torch-tensor
+    version for the BPTT loop.
+    """
+    task = config.task
+    path_integration = task.path_integration
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(path_integration.seed)
+    np.random.seed(path_integration.seed)
+
+    out_root = graphs_data_path(config.dataset)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] path_integration -> {out_root}")
+    logger.info(
+        f"[task] T={path_integration.n_steps} dt={path_integration.dt} sigma_omega={path_integration.sigma_omega_deg} "
+        f"tau_corr={path_integration.tau_corr} train={path_integration.n_trials_train} test={path_integration.n_trials_test} "
+        f"omega_noise_level={path_integration.omega_noise_level}"
+    )
+
+    T = int(path_integration.n_steps)
+    dt = float(path_integration.dt)
+    alpha = 1.0 / float(path_integration.tau_corr)
+    sigma_step = float(path_integration.sigma_omega_deg) * math.sqrt(2.0 * alpha) * math.sqrt(dt)
+    decay = 1.0 - alpha * dt
+    mean_steps = path_integration.stop_mean_s / dt
+    max_steps = int(path_integration.stop_max_s / dt)
+    target_stop = int(path_integration.stop_fraction * T)
+
+    for split, n_trials in [
+        ("train", path_integration.n_trials_train),
+        ("test", path_integration.n_trials_test),
+    ]:
+        if n_trials <= 0:
+            continue
+        B = int(n_trials)
+
+        logger.info(f"[task] {split}: generating {B} trials of T={T} ...")
+
+        # OU-driven angular velocity. Loop is over T (not B), so
+        # the bar shows time-step progress; B-scaling is in the array width.
+        omega = np.zeros((B, T), dtype=np.float32)
+        eta = np.random.standard_normal(size=(B, T)).astype(np.float32)
+        for t in tqdm(range(1, T), desc=f"  {split} OU velocity (B={B})",
+                      ncols=150, leave=False):
+            omega[:, t] = decay * omega[:, t - 1] + sigma_step * eta[:, t]
+
+        # Standing-pause mask: insert exponential-duration stops per trial.
+        is_stop = np.zeros((B, T), dtype=np.float32)
+        if path_integration.stop_fraction > 0.0:
+            for b in tqdm(range(B), desc=f"  {split} stop-mask",
+                          ncols=150, leave=False):
+                covered = 0
+                attempts = 0
+                while covered < target_stop and attempts < 100:
+                    attempts += 1
+                    start = np.random.randint(0, T)
+                    length = min(max_steps, int(np.random.exponential(mean_steps)), T - start)
+                    if length <= 0:
+                        continue
+                    end = start + length
+                    already = int(is_stop[b, start:end].sum())
+                    is_stop[b, start:end] = 1.0
+                    covered += length - already
+            omega *= 1.0 - is_stop  # zero velocity during stops
+
+        # Integrate to heading.
+        theta0 = np.random.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+        theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
+        theta_hd[:, 0] = theta0
+        target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd)],
+                            axis=-1).astype(np.float32)
+
+        # Input vector: [omega, cos(theta0)·δ_t0, sin(theta0)·δ_t0].
+        # Observation noise is added to the omega channel only — theta_hd /
+        # target_y above are computed from clean omega.
+        stimulus = np.zeros((B, T, 3), dtype=np.float32)
+        stimulus[:, :, 0] = omega
+        stimulus[:, 0, 1] = np.cos(theta0)
+        stimulus[:, 0, 2] = np.sin(theta0)
+        if path_integration.omega_noise_level > 0:
+            stimulus[:, :, 0] += (
+                path_integration.omega_noise_level
+                * np.random.standard_normal(size=(B, T)).astype(np.float32)
+            )
+
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(split_dir, exist_ok=True)
+
+        # Refactor: build a TaskTrials in memory, then dispatch to the shared
+        # task_state writer. On-disk layout for the legacy fields
+        # (stimulus / target / theta_hd / is_stop) is byte-identical to what
+        # _write_trial_zarr / _write_trial_zarr_1d used to produce inline, so
+        # the trainer keeps working unchanged. The refactor also persists
+        # omega.zarr and a meta.json sidecar that the v2 reader uses.
+        from connectome_gnn.task_state import TaskTrials, task_trials_to_disk
+        trials = TaskTrials(
+            task_family="path_integration",
+            n_input=int(stimulus.shape[-1]),
+            n_output=int(target_y.shape[-1]),
+            dt=dt,
+            stimulus=torch.from_numpy(stimulus),
+            target  =torch.from_numpy(target_y),
+            theta_hd=torch.from_numpy(theta_hd.astype(np.float32)),
+            is_stop =torch.from_numpy(is_stop),
+            omega   =torch.from_numpy(omega),
+        )
+        task_trials_to_disk(trials, split_dir)
+        logger.info(f"[task]   {split}: wrote {B} trials of T={T} (TaskTrials v2 layout)")
+
+        if visualize:
+            plot_task_pi_traces(
+                u=stimulus, y=target_y, theta_hd=theta_hd, is_stop=is_stop, dt=dt,
+                out_path=os.path.join(out_root, f"task_traces_{split}.png"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Place-cell task helpers (target_kind="place_cells")
+# ---------------------------------------------------------------------------
+def _reflecting_arena_trajectory(omega_deg_base, vfwd_base, theta0, dt, A, L_turn):
+    """Forage a bounded square arena [-A, A]² with reflecting walls.
+
+    Walls are modelled as a *stop-and-turn*: when a forward step would leave
+    the arena the agent freezes its translation and rotates in place toward
+    the specular-reflected heading over ``L_turn`` frames, then resumes. This
+    keeps the angular velocity bounded (a leaky bump can physically track it)
+    and — by construction — preserves the integrator identities exactly:
+
+        θ(t)      = θ(t-1) + ω_real(t)·dt
+        (x,y)(t)  = (x,y)(t-1) + v_real(t)·(cosθ, sinθ)(t)·dt
+
+    so the realized ω_real / v_real drives (returned, in deg/s and units/s)
+    reproduce the heading and position the network is supervised on.
+
+    Inputs are the swim-event base drives ``omega_deg_base`` (B,T, deg/s) and
+    ``vfwd_base`` (B,T), the per-trial initial heading ``theta0`` (B,), the
+    time step ``dt``, arena half-width ``A`` and turn duration ``L_turn``
+    (frames). Returns realized ``theta_hd, x, y`` (B,T) and the realized
+    drives ``omega_deg_real, vfwd_real`` (B,T). Random start positions are
+    drawn from the global ``np.random`` stream (seeded by the caller).
+    """
+    B, T = omega_deg_base.shape
+    w_base = np.deg2rad(omega_deg_base.astype(np.float64))
+    v_base = vfwd_base.astype(np.float64)
+    theta = theta0.astype(np.float64).copy()
+    x = np.random.uniform(-A * 0.8, A * 0.8, size=B)
+    y = np.random.uniform(-A * 0.8, A * 0.8, size=B)
+    th_o = np.zeros((B, T)); xo = np.zeros((B, T)); yo = np.zeros((B, T))
+    wo = np.zeros((B, T)); vo = np.zeros((B, T))
+    th_o[:, 0] = theta; xo[:, 0] = x; yo[:, 0] = y
+    turn_rem = np.zeros(B, dtype=np.int64)
+    turn_w = np.zeros(B)
+    for t in range(1, T):
+        turning = turn_rem > 0
+        w = np.where(turning, turn_w, w_base[:, t])
+        v = np.where(turning, 0.0, v_base[:, t])
+        th_prop = theta + w * dt
+        xt = x + v * np.cos(th_prop) * dt
+        yt = y + v * np.sin(th_prop) * dt
+        ox = (~turning) & ((xt > A) | (xt < -A))
+        oy = (~turning) & ((yt > A) | (yt < -A))
+        newhit = ox | oy
+        th_ref = th_prop.copy()
+        th_ref = np.where(ox, np.pi - th_ref, th_ref)   # reflect across x-wall
+        th_ref = np.where(oy, -th_ref, th_ref)          # reflect across y-wall
+        d = np.angle(np.exp(1j * (th_ref - theta)))     # shortest turn to it
+        turn_w = np.where(newhit, d / (L_turn * dt), turn_w)
+        # Realized drives this frame: newhit → freeze (0,0); turning →
+        # (turn_w, 0); moving → (base, base). Commit position only when moving.
+        wo[:, t] = np.rad2deg(np.where(newhit, 0.0, w))
+        vo[:, t] = np.where(newhit, 0.0, v)
+        theta = np.where(newhit, theta, th_prop)
+        x = np.where(newhit, x, xt)
+        y = np.where(newhit, y, yt)
+        turn_rem = np.where(turning, turn_rem - 1, turn_rem)
+        turn_rem = np.where(newhit, L_turn, turn_rem)
+        th_o[:, t] = theta; xo[:, t] = x; yo[:, t] = y
+    return (th_o.astype(np.float32), xo.astype(np.float32), yo.astype(np.float32),
+            wo.astype(np.float32), vo.astype(np.float32))
+
+
+def place_cell_centers(grid: int, arena_half: float) -> np.ndarray:
+    """(K=grid², 2) regular grid of place-field centres over [-A, A]²."""
+    ax = np.linspace(-arena_half, arena_half, grid)
+    gx, gy = np.meshgrid(ax, ax, indexing="xy")
+    return np.stack([gx.ravel(), gy.ravel()], axis=-1).astype(np.float32)
+
+
+def place_cell_activation(xy: np.ndarray, centers: np.ndarray,
+                          sigma: float) -> np.ndarray:
+    """Gaussian place-field activations p_k = exp(-‖xy-c_k‖²/2σ²).
+
+    ``xy`` is (..., 2), ``centers`` is (K, 2); returns (..., K). Used both for
+    the example figure here and (on the fly) by the trainer/plots so the place
+    code is never materialised to disk.
+    """
+    xy = np.asarray(xy, dtype=np.float32)
+    d2 = ((xy[..., None, :] - centers[None, ...]) ** 2).sum(-1)
+    return np.exp(-d2 / (2.0 * sigma * sigma)).astype(np.float32)
+
+
+def grid_cell_centers(grid: int, period: float) -> np.ndarray:
+    """(K=grid², 2) regular grid of grid-cell centres on the torus [0, λ)²."""
+    ax = np.linspace(0.0, period, grid, endpoint=False)
+    gx, gy = np.meshgrid(ax, ax, indexing="xy")
+    return np.stack([gx.ravel(), gy.ravel()], axis=-1).astype(np.float32)
+
+
+def grid_cell_activation(xy: np.ndarray, centers: np.ndarray,
+                         sigma: float, period: float) -> np.ndarray:
+    """Toroidal Gaussian grid-cell activations on the torus of period λ:
+    g_k = exp(-d_torus(xy, c_k)²/2σ²), where the per-axis distance is the
+    wrapped difference (xy and centres compared modulo λ). ``xy`` (...,2) may
+    be unbounded; returns (..., K). Each cell fires on a periodic real-space
+    lattice."""
+    xy = np.asarray(xy, dtype=np.float32)
+    d = xy[..., None, :] - centers[None, ...]          # (..., K, 2)
+    d = d - period * np.round(d / period)              # wrap to [-λ/2, λ/2)
+    d2 = (d ** 2).sum(-1)
+    return np.exp(-d2 / (2.0 * sigma * sigma)).astype(np.float32)
+
+
+def _plot_grid_field_examples(centers, sigma, period, out_path, n=4,
+                              view_periods=3.0):
+    """1×4 row of example grid cells, each over a ±view_periods·λ real-space
+    window so the periodic firing lattice is visible (viridis, non-bold)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    L = float(period); A = view_periods * L
+    g = np.linspace(-A, A, 200)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    K = centers.shape[0]
+    picks = [0, K // 4 + 2, K // 2 + int(np.sqrt(K)) // 2, K - 1]
+    fig, axes = plt.subplots(1, n, figsize=(3.4 * n, 3.4))
+    for j, (ax, k) in enumerate(zip(np.atleast_1d(axes), picks[:n])):
+        act = grid_cell_activation(grid_xy, centers[k:k + 1], sigma, L).reshape(gx.shape)
+        im = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                       cmap="viridis", vmin=0, vmax=1, aspect="equal")
+        ax.set_title(f"grid cell {k}  (λ={L:g}, σ={sigma:g})",
+                     fontsize=9, fontweight="normal")
+        ax.set_xlabel("x")
+        if j == 0:
+            ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _generate_net2_connectivity(n_inter, n_place, sparsity, ei_ratio, seed):
+    """Synthetic sign-locked E/I recurrent connectome for Net2.
+
+    Returns ``(W2, neuron_types, ei, type_names)``: ``W2`` (N2,N2) in
+    [post, pre] layout (same convention as Net1's W_con), ``neuron_types``
+    (N2,) 0=interneuron / 1=place_cell (contiguous blocks), ``ei`` (N2,) +1
+    excitatory / -1 inhibitory (Dale's law — every outgoing weight of a
+    neuron carries its sign), ``type_names`` ['interneuron','place_cell'].
+    Sparse at density ``sparsity`` (no self-loops), excitatory fraction
+    ``ei_ratio``, deterministic given ``seed``.
+    """
+    rng = np.random.default_rng(seed)
+    N2 = n_inter + n_place
+    neuron_types = np.concatenate(
+        [np.zeros(n_inter, dtype=np.int64), np.ones(n_place, dtype=np.int64)])
+    type_names = ["interneuron", "place_cell"]
+    n_exc = int(round(ei_ratio * N2))
+    ei = -np.ones(N2, dtype=np.int64)
+    ei[rng.choice(N2, size=n_exc, replace=False)] = 1
+    mask = rng.random((N2, N2)) < float(sparsity)
+    np.fill_diagonal(mask, False)
+    mag = np.abs(rng.normal(0.0, 1.0, size=(N2, N2)))
+    # Column j = presynaptic neuron j → its sign (Dale) multiplies its column.
+    W2 = (mag * mask) * ei[None, :].astype(np.float64)
+    kin = mask.sum(axis=1, keepdims=True).clip(min=1)
+    W2 = (W2 / np.sqrt(kin)).astype(np.float32)
+    return W2, neuron_types, ei, type_names
+
+
+def _plot_net2_matrix(W2, neuron_types, ei, type_names, out_path):
+    """Matrix heatmap of Net2's recurrent connectome with type blocks."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    N2 = W2.shape[0]
+    n_inter = int((neuron_types == 0).sum())
+    vmax = float(np.abs(W2).max()) or 1.0
+    fig, ax = plt.subplots(figsize=(7.2, 6.4))
+    im = ax.imshow(W2, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                   interpolation="nearest", origin="upper")
+    # Block boundary between interneuron and place-cell blocks.
+    for b in (n_inter,):
+        ax.axhline(b - 0.5, color="k", lw=0.8)
+        ax.axvline(b - 0.5, color="k", lw=0.8)
+    ax.set_xticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    ax.set_xticklabels(type_names)
+    ax.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    ax.set_yticklabels(type_names, rotation=90, va="center")
+    ax.set_xlabel("presynaptic"); ax.set_ylabel("postsynaptic")
+    n_exc = int((ei == 1).sum())
+    ax.set_title(f"Net2 $W^{{(2)}}_{{\\mathrm{{con}}}}$  (N={N2}: "
+                 f"{n_inter} interneurons + {N2 - n_inter} place cells; "
+                 f"E/I={n_exc}/{N2 - n_exc}, density="
+                 f"{(np.abs(W2) > 0).mean():.2f})", fontsize=10)
+    cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    cb.ax.tick_params(labelsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_place_field_examples(centers, sigma, arena_half, out_path, n=4):
+    """4×1 column of example place-cell Gaussian receptive fields (heatmaps)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    g = np.linspace(-A, A, 120)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    K = centers.shape[0]
+    # Four representative cells: lower-left, off-centre, centre, upper-right.
+    picks = [0, K // 4 + 2, K // 2 + int(np.sqrt(K)) // 2, K - 1]
+    fig, axes = plt.subplots(1, n, figsize=(3.4 * n, 3.4))
+    for j, (ax, k) in enumerate(zip(np.atleast_1d(axes), picks[:n])):
+        act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
+        im = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                       cmap="viridis", vmin=0, vmax=1, aspect="equal")
+        ax.set_title(f"place cell {k}  c=({centers[k,0]:+.2f},{centers[k,1]:+.2f}), "
+                     f"σ={sigma:g}", fontsize=9, fontweight="normal")
+        ax.set_xlabel("x")
+        if j == 0:
+            ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_place_cells_setup(W2, neuron_types, ei, type_names, centers, sigma,
+                            arena_half, out_path):
+    """Combined setup figure: (left) Net2 connectome, (right) 2×2 place fields.
+
+    No panel titles; bold ``a`` / ``b`` panel labels (paper convention),
+    horizontally aligned above the panels and clear of the plots."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    N2 = W2.shape[0]
+    n_inter = int((neuron_types == 0).sum())
+    grid = int(round(np.sqrt(centers.shape[0])))
+    fig = plt.figure(figsize=(13.0, 6.2))
+    gs = fig.add_gridspec(2, 4, wspace=0.40, hspace=0.30,
+                          left=0.06, right=0.97, top=0.92, bottom=0.10)
+
+    # (a) Net2 recurrent connectome — left 2×2 block (square). No title.
+    axm = fig.add_subplot(gs[0:2, 0:2])
+    vmax = float(np.abs(W2).max()) or 1.0
+    im = axm.imshow(W2, cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+                    interpolation="nearest", origin="upper")
+    axm.axhline(n_inter - 0.5, color="k", lw=0.8)
+    axm.axvline(n_inter - 0.5, color="k", lw=0.8)
+    axm.set_xticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    axm.set_xticklabels(type_names, fontsize=6)
+    axm.set_yticks([n_inter / 2, n_inter + (N2 - n_inter) / 2])
+    axm.set_yticklabels(type_names, rotation=90, va="center", fontsize=6)
+    axm.set_xlabel("presynaptic", fontsize=7); axm.set_ylabel("postsynaptic", fontsize=7)
+
+    # (b) 2×2 example place fields — right block, laid out to match arena
+    # geometry (top row = high y, left column = low x). No titles.
+    g = np.linspace(-A, A, 120)
+    gx, gy = np.meshgrid(g, g, indexing="xy")
+    grid_xy = np.stack([gx.ravel(), gy.ravel()], -1)
+    rows_iy = [3 * grid // 4, grid // 4]
+    cols_ix = [grid // 4, 3 * grid // 4]
+    place_axes = []
+    for ri, iy in enumerate(rows_iy):
+        for ci, ix in enumerate(cols_ix):
+            k = iy * grid + ix
+            ax = fig.add_subplot(gs[ri, 2 + ci])
+            act = place_cell_activation(grid_xy, centers[k:k + 1], sigma).reshape(gx.shape)
+            im2 = ax.imshow(act, extent=[-A, A, -A, A], origin="lower",
+                            cmap="viridis", vmin=0, vmax=1, aspect="equal")
+            ax.tick_params(labelsize=6)
+            if ri == 1:
+                ax.set_xlabel("x", fontsize=7)
+            if ci == 0:
+                ax.set_ylabel("y", fontsize=7)
+            place_axes.append(ax)
+    # (colorbars removed)
+
+    # Bold panel labels a / b, horizontally aligned just above the panels
+    # (figure coords, so the two letters share one baseline and never touch
+    # the axes). Positions taken from the final axes geometry.
+    pa = axm.get_position()
+    pb = place_axes[0].get_position()
+    y_lab = max(pa.y1, pb.y1) + 0.025
+    for x0, lab in ((pa.x0, "a"), (pb.x0, "b")):
+        fig.text(x0 - 0.012, y_lab, lab, fontsize=13, fontweight="bold",
+                 va="bottom", ha="right")
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_trajectory_examples(xy, arena_half, out_path, nrows=3, ncols=3):
+    """nrows×ncols grid of example arena trajectories (colour = time)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    A = float(arena_half)
+    n = nrows * ncols
+    xy = np.asarray(xy)
+    T = xy.shape[1]
+    tcol = np.linspace(0.0, 1.0, T)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.0 * ncols, 3.0 * nrows))
+    for i, ax in enumerate(np.atleast_1d(axes).ravel()[:n]):
+        p = xy[i]
+        pts = p.reshape(-1, 1, 2)
+        segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
+        lc = LineCollection(segs, cmap="viridis", array=tcol[:-1], lw=0.8)
+        ax.add_collection(lc)
+        ax.plot(p[0, 0], p[0, 1], "o", color="lime", ms=5, zorder=5)   # start
+        ax.plot(p[-1, 0], p[-1, 1], "s", color="red", ms=5, zorder=5)  # end
+        ax.add_patch(plt.Rectangle((-A, -A), 2 * A, 2 * A, fill=False,
+                                   ec="0.5", lw=1.0))
+        ax.set_xlim(-A * 1.06, A * 1.06); ax.set_ylim(-A * 1.06, A * 1.06)
+        ax.set_aspect("equal")
+        ax.set_xticks([-A, 0, A]); ax.set_yticks([-A, 0, A])
+        ax.tick_params(labelsize=7)
+    fig.suptitle("Example arena trajectories (colour = time; "
+                 "● start, ■ end)", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_occupancy_map(xy, arena_half, out_path, bins=50, centers=None,
+                        sigma=None, grid=None):
+    """Global exploration map averaged over all trajectories. Panels:
+    (1) linear occupancy, (2) log occupancy (reveals under-explored edges),
+    (3) per-place-cell mean target activation on the place grid — the actual
+    spatial class imbalance the place-cell loss sees."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    A = float(arena_half)
+    xy = np.asarray(xy)
+    x = xy[..., 0].ravel(); y = xy[..., 1].ravel()
+    H, xe, ye = np.histogram2d(x, y, bins=bins, range=[[-A, A], [-A, A]])
+    H = H / max(H.sum(), 1.0)
+    have_cells = centers is not None and sigma is not None and grid is not None
+    ncol = 3 if have_cells else 2
+    fig, axes = plt.subplots(1, ncol, figsize=(5.6 * ncol, 4.8))
+    for ax, dat, lab in (
+        (axes[0], H.T, "occupancy (fraction of time)"),
+        (axes[1], np.log10(H.T + 1e-9), "$\\log_{10}$ occupancy")):
+        im = ax.imshow(dat, origin="lower", extent=[-A, A, -A, A],
+                       cmap="viridis", aspect="equal")
+        ax.set_title(lab, fontsize=10); ax.set_xlabel("x"); ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+    ratio_txt = ""
+    if have_cells:
+        # Per-cell mean activation on a subsample (the loss-relevant imbalance).
+        nsub = min(xy.shape[0], 1500)
+        P = place_cell_activation(xy[:nsub], centers, float(sigma)).mean((0, 1))
+        Pm = P.reshape(int(grid), int(grid))    # (iy, ix) since k = iy*grid+ix
+        ax = axes[2]
+        im = ax.imshow(Pm, origin="lower", extent=[-A, A, -A, A],
+                       cmap="viridis", aspect="equal")
+        ax.set_title("per-place-cell mean target activation", fontsize=10)
+        ax.set_xlabel("x"); ax.set_ylabel("y")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02).ax.tick_params(labelsize=7)
+        c = np.abs(centers) < 0.4 * A
+        k = np.abs(centers) > 0.8 * A
+        ctr = P[(c[:, 0] & c[:, 1])].mean()
+        cor = P[(k[:, 0] & k[:, 1])].mean()
+        ratio_txt = (f" — corner place cells fire {ctr / max(cor, 1e-9):.1f}× "
+                     f"less than centre (mean act {cor:.3f} vs {ctr:.3f})")
+    fig.suptitle("Arena occupancy over all trajectories" + ratio_txt, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _generate_swim_integration_task(config, *, device, visualize: bool = True) -> None:
+    """Generate the larval-zebrafish swim-integration task data.
+
+    Companion of ``_generate_path_integration_task``: identical on-disk
+    layout (same TaskTrials v2 fields under ``<dataset>/{train,test}/``),
+    same heading-integration formula ``θ_hd(t) = θ₀ + ∫ω(t)dt``, same
+    3-channel stimulus ``[ω(t), cos θ₀·δ, sin θ₀·δ]``. What differs is
+    only the distribution of ω(t): instead of a continuous OU stream,
+    ω(t) is built from a sparse Poisson sequence of typed swim events
+    (left, right, forward, backward), each stretched over a boxcar of
+    ``swim_duration_s`` so heading integrates smoothly. ω is stored
+    in deg/s for consistency with the drosophila pipeline.
+
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            task_traces_{train,test}.png
+            train/
+                stimulus.zarr     (N, T, 3)  [ω(t), cos(θ₀)·δ_t0, sin(θ₀)·δ_t0]
+                target.zarr       (N, T, 2)  [cos(θ_hd(t)), sin(θ_hd(t))]
+                theta_hd.zarr     (N, T)     ground-truth heading
+                is_stop.zarr      (N, T)     non-swim mask (1 outside boxcars)
+                omega.zarr        (N, T)     ω in deg/s
+                swim_label.zarr   (N, T)     int8: 0=none, 1=left, 2=right,
+                                                   3=forward, 4=backward
+            test/
+                same fields
+    """
+    task = config.task
+    si = task.swim_integration
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(si.seed)
+    np.random.seed(si.seed)
+
+    out_root = graphs_data_path(config.dataset)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] swim_integration -> {out_root}")
+
+    # Skip regeneration when the dataset is already on disk (both splits
+    # populated with the TaskTrials meta.json). Two configs that share
+    # the same task dataset (e.g. zebrafish_hd_si_ipn12_v1 and
+    # zebrafish_hd_si_ipn12_v2 — same swim_integration recipe, different
+    # circuit) must be able to invoke `-o generate_train` independently
+    # without zarr v3 refusing to overwrite the prior run's nodes.
+    train_meta = os.path.join(out_root, "train", "meta.json")
+    test_meta = os.path.join(out_root, "test", "meta.json")
+    if os.path.isfile(train_meta) and os.path.isfile(test_meta):
+        logger.info(f"[task] swim_integration: dataset already present at "
+                    f"{out_root}, skipping regeneration (delete the folder "
+                    f"to force regenerate).")
+        # Still refresh circuit_provenance.json so the file reflects the
+        # current circuit selection (cheap; updates the sha + circuit name
+        # if the yaml's circuit.name changed between runs).
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            import json
+            from connectome_gnn.generators.circuits import get_circuit
+            c = get_circuit(circuit_cfg.name)
+            prov = {
+                "circuit_name": c.name,
+                "N": int(c.N),
+                "J_effective_sha256": c.provenance.get("J_effective_sha256", ""),
+                "dt": float(si.dt),
+                "task_family": "swim_integration",
+                "type_count": len(c.type_names),
+                "n_bump_cells": int(len(c.subpops.get("bump", []))),
+                "source_provenance": {
+                    k: v for k, v in c.provenance.items()
+                    if k != "J_effective_sha256"
+                },
+            }
+            with open(os.path.join(out_root, "circuit_provenance.json"), "w") as f:
+                json.dump(prov, f, indent=2, sort_keys=True)
+            logger.info(f"[task] refreshed circuit_provenance.json for "
+                        f"{c.name!r} (sha={prov['J_effective_sha256'][:16]})")
+        return
+
+    # --- Circuit provenance ------------------------------------------------
+    # When a named circuit was selected (``config.circuit.name``), write a
+    # small JSON next to the train/test splits so the dataset folder is
+    # self-describing about which connectome it was generated against.
+    # swim_integration itself is connectome-agnostic (stimulus + heading
+    # target only), so this is purely metadata: a future tester / loader
+    # can read circuit_provenance.json and assert it matches the circuit
+    # baked into a checkpoint. Skipped silently when circuit.name is absent.
+    circuit_cfg = getattr(config, "circuit", None)
+    if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+        import json
+        from connectome_gnn.generators.circuits import get_circuit
+        c = get_circuit(circuit_cfg.name)
+        prov = {
+            "circuit_name": c.name,
+            "N": int(c.N),
+            "J_effective_sha256": c.provenance.get("J_effective_sha256", ""),
+            "dt": float(si.dt),
+            "task_family": "swim_integration",
+            "type_count": len(c.type_names),
+            "n_bump_cells": int(len(c.subpops.get("bump", []))),
+            "source_provenance": {
+                k: v for k, v in c.provenance.items()
+                if k != "J_effective_sha256"
+            },
+        }
+        with open(os.path.join(out_root, "circuit_provenance.json"), "w") as f:
+            json.dump(prov, f, indent=2, sort_keys=True)
+        logger.info(f"[task] wrote circuit_provenance.json for "
+                    f"{c.name!r} (sha={prov['J_effective_sha256'][:16]})")
+    # Echo angles in degrees so they read off the same scale as ω (deg/s).
+    # The underlying config fields stay in radians (suffix _rad) because the
+    # heading-integration math is computed in radians; only the log line is
+    # converted.
+    lr_deg = math.degrees(si.phase_impulse_mean_rad)
+    bw_deg = math.degrees(si.backward_phase_mean_rad)
+    _tgt_kind = str(getattr(si, "target_kind", "scalar_xi")).lower()
+    if _tgt_kind == "position_2d":
+        _pos_tau = getattr(si, "position_tau_s", None)
+        _int_str = ("perfect (cumsum)"
+                    if _pos_tau is None or float(_pos_tau) <= 0.0
+                    else f"leaky τ={float(_pos_tau):.3f}s")
+        _int_label = "(x,y)-integrator"
+    elif _tgt_kind == "rotation_mismatch":
+        _int_str = (f"g∈[{float(getattr(si,'proprio_gain_min',0.0)):.2f},"
+                    f"{float(getattr(si,'proprio_gain_max',1.5)):.2f}] "
+                    f"seg={float(getattr(si,'proprio_gain_segment_s',2.0)):.2f}s")
+        _int_label = "ω_proprio-gain"
+    else:
+        _xi_tau = getattr(si, "xi_tau_s", None)
+        _int_str = ("perfect (cumsum)"
+                    if _xi_tau is None or float(_xi_tau) <= 0.0
+                    else f"leaky τ={float(_xi_tau):.3f}s")
+        _int_label = "ξ-integrator"
+    logger.info(
+        f"[task] T={si.n_steps} dt={si.dt} rate={si.swim_rate_hz}Hz "
+        f"swim_dur={si.swim_duration_s}s "
+        f"mean|Δθ|_LR={lr_deg:.1f}° "
+        f"mean|Δθ|_B={bw_deg:.1f}° "
+        f"fractions=L{si.left_fraction:.2f}/R{si.right_fraction:.2f}/"
+        f"F{si.forward_fraction:.2f}/B{si.backward_fraction:.2f} "
+        f"train={si.n_trials_train} test={si.n_trials_test} "
+        f"omega_noise_level={si.omega_noise_level} "
+        f"target_kind={_tgt_kind} {_int_label}={_int_str}"
+    )
+
+    T = int(si.n_steps)
+    dt = float(si.dt)
+    L = max(1, int(round(si.swim_duration_s / dt)))   # boxcar length in frames
+    p_swim_per_frame = float(si.swim_rate_hz) * dt    # per-frame Bernoulli prob
+
+    # Cumulative category cutoffs for sampling swim type per event.
+    fracs = np.array([si.left_fraction, si.right_fraction,
+                       si.forward_fraction, si.backward_fraction],
+                      dtype=np.float64)
+    cdf = np.cumsum(fracs)  # [P(L), P(L)+P(R), ..., 1.0]
+    # Labels: 1=left, 2=right, 3=forward, 4=backward
+    LABEL_LEFT, LABEL_RIGHT, LABEL_FORWARD, LABEL_BACKWARD = 1, 2, 3, 4
+
+    for split, n_trials in [
+        ("train", si.n_trials_train),
+        ("test",  si.n_trials_test),
+    ]:
+        if n_trials <= 0:
+            continue
+        B = int(n_trials)
+
+        logger.info(f"[task] {split}: generating {B} trials of T={T} ...")
+
+        # 1) Poisson swim onsets per frame. Refractory enforced by skipping
+        # any onset that falls inside an already-active boxcar (so two
+        # events can't overlap).
+        onset = (np.random.uniform(size=(B, T)) < p_swim_per_frame)
+
+        # 2) Per-onset swim type (1..4) drawn from the category cdf, then
+        # per-event |Δθ| from a lognormal whose mean is the category mean.
+        # Backward gets its own mean; LR/forward share phase_impulse_mean.
+        # Sign comes from the category (L = +, R = -, F = 0, B = ±π).
+        u_type = np.random.uniform(size=(B, T))
+        cat = np.digitize(u_type, cdf[:-1])  # 0=L, 1=R, 2=F, 3=B
+        cat = (cat + 1).astype(np.int8)      # shift to 1..4 labels
+
+        # Lognormal magnitudes (rad). σ_log = std_rad / mean_rad keeps the
+        # spread in linear-magnitude space close to the requested std.
+        sigma_log_LR = float(si.phase_impulse_std_rad) / max(
+            float(si.phase_impulse_mean_rad), 1e-6)
+        sigma_log_B  = float(si.backward_phase_std_rad) / max(
+            float(si.backward_phase_mean_rad), 1e-6)
+        mag_LR = np.random.lognormal(
+            mean=math.log(max(float(si.phase_impulse_mean_rad), 1e-6)),
+            sigma=sigma_log_LR, size=(B, T))
+        mag_B = np.random.lognormal(
+            mean=math.log(max(float(si.backward_phase_mean_rad), 1e-6)),
+            sigma=sigma_log_B,  size=(B, T))
+
+        # Per-event signed Δθ (radians, angular) and Δs (translational) at
+        # onsets. L/R drive heading (rotation); F/B drive the translational
+        # channel (forward = +, backward = −). The dataset carries both — which
+        # is supervised is a trainer choice.
+        delta_theta = np.zeros((B, T), dtype=np.float32)
+        delta_fwd   = np.zeros((B, T), dtype=np.float32)
+        delta_theta[(cat == LABEL_LEFT)  & onset] = (
+            +mag_LR[(cat == LABEL_LEFT) & onset].astype(np.float32))
+        delta_theta[(cat == LABEL_RIGHT) & onset] = (
+            -mag_LR[(cat == LABEL_RIGHT) & onset].astype(np.float32))
+        # F/B -> translational displacement per event (units); magnitude from a
+        # lognormal on forward_vel_mean.
+        sigma_log_F = float(si.forward_vel_std) / max(
+            float(si.forward_vel_mean), 1e-6)
+        mag_F = np.random.lognormal(
+            mean=math.log(max(float(si.forward_vel_mean), 1e-6)),
+            sigma=sigma_log_F, size=(B, T))
+        delta_fwd[(cat == LABEL_FORWARD)  & onset] = (
+            +mag_F[(cat == LABEL_FORWARD) & onset].astype(np.float32))
+        delta_fwd[(cat == LABEL_BACKWARD) & onset] = (
+            -mag_F[(cat == LABEL_BACKWARD) & onset].astype(np.float32))
+
+        # Onset-only labels (0 outside onsets).
+        swim_label_onset = np.where(onset, cat, np.int8(0)).astype(np.int8)
+
+        # 3) Convert per-event Δθ to ω(t) deg/s by stretching each event
+        # over L frames as a boxcar of height (Δθ / (L·dt)). Cumulative
+        # contribution from past onsets within a sliding window of L frames.
+        # Also stretch the per-frame label so the boxcar carries the type.
+        omega_rad = np.zeros((B, T), dtype=np.float32)
+        vfwd      = np.zeros((B, T), dtype=np.float32)   # translational velocity
+        swim_label = np.zeros((B, T), dtype=np.int8)
+        for k in tqdm(range(L), desc=f"  {split} boxcar stretch",
+                      ncols=150, leave=False):
+            omega_rad[:, k:] += delta_theta[:, : T - k] / (L * dt)
+            vfwd[:, k:] += delta_fwd[:, : T - k] / (L * dt)
+            # label: take the most recent onset's type (overwrite is fine
+            # because we don't allow two onsets within L frames in expectation
+            # — even when they do collide, last-onset wins, which is fine).
+            mask = swim_label_onset[:, : T - k] != 0
+            if k == 0:
+                swim_label[:, k:] = np.where(mask, swim_label_onset[:, : T - k],
+                                              swim_label[:, k:])
+            else:
+                swim_label[:, k:] = np.where(mask, swim_label_onset[:, : T - k],
+                                              swim_label[:, k:])
+        omega = np.rad2deg(omega_rad).astype(np.float32)  # deg/s, like PI
+
+        # `is_stop` here means "fish is not swimming"; complement of any
+        # non-zero ω. We keep the field name so the loader/plot code is
+        # shared with the drosophila pipeline. Forward swims have Δθ = 0,
+        # so they appear in swim_label but not in is_stop.
+        is_stop = (omega == 0).astype(np.float32)
+
+        # 4) Heading integration (radians) — identical formula to PI,
+        # except ω here is already in deg/s, so we deg2rad before integrating.
+        theta0 = np.random.uniform(0.0, 2.0 * math.pi, size=B).astype(np.float32)
+        theta_hd = theta0[:, None] + np.cumsum(np.deg2rad(omega), axis=1) * dt
+        theta_hd[:, 0] = theta0
+
+        # ------ TARGET ASSEMBLY ----------------------------------------------
+        # Two recipes selected by task.swim_integration.target_kind. Each
+        # supports an optional leaky-integrator τ (xi_tau_s / position_tau_s);
+        # τ None or ≤ 0 → perfect integrator (byte-identical to the original
+        # for the scalar_xi case).
+        _target_kind = str(getattr(si, "target_kind", "scalar_xi")).lower()
+
+        def _integrate_leaky(drive: np.ndarray, tau: "float | None") -> np.ndarray:
+            """Forward-Euler integrator. tau = None / ≤ 0 → perfect cumsum."""
+            if tau is None or float(tau) <= 0.0:
+                out = (np.cumsum(drive, axis=1) * dt).astype(np.float32)
+            else:
+                alpha = max(0.0, min(1.0 - dt / float(tau), 1.0))
+                out = np.zeros_like(drive, dtype=np.float32)
+                # T ≤ 1000 so a Python loop with batch-vector ops is fine
+                # (runs once at generation time).
+                for _t in range(1, drive.shape[1]):
+                    out[:, _t] = alpha * out[:, _t - 1] + drive[:, _t] * dt
+            out[:, 0] = 0.0
+            return out
+
+        # ω_proprio defaults to ω (no proprioceptive mismatch); the
+        # rotation_mismatch recipe below overrides it with g(t)·ω.
+        omega_proprio = omega
+        proprio_gain = None
+
+        if _target_kind == "position_2d":
+            # 2D path integration: project v_fwd through the *current*
+            # heading and integrate the two axes independently. This
+            # couples translation to heading — the network has to
+            # internally maintain θ to predict (x, y).
+            #     dx/dt = v_fwd · cosθ ;  dy/dt = v_fwd · sinθ
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            vx = (vfwd * cos_th).astype(np.float32)
+            vy = (vfwd * sin_th).astype(np.float32)
+            _pos_tau = getattr(si, "position_tau_s", None)
+            x_pos = _integrate_leaky(vx, _pos_tau)
+            y_pos = _integrate_leaky(vy, _pos_tau)
+            # Target — 4 columns [cosθ, sinθ, x, y]: heading (0,1) +
+            # 2D position (2,3). disp is unused but kept as a side-array
+            # for the swim_label / forward_vel / displacement sidecars
+            # below (cheap; keeps the sidecar contract uniform across
+            # target_kind).
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [cos_th, sin_th, x_pos, y_pos], axis=-1,
+            ).astype(np.float32)
+        elif _target_kind == "scalar_xi":
+            # Scalar forward-axis displacement ξ — heading and translation
+            # supervised independently (no coupling on the target side).
+            _xi_tau = getattr(si, "xi_tau_s", None)
+            disp = _integrate_leaky(vfwd, _xi_tau)
+            # Target — 3 columns [cosθ, sinθ, ξ]: rotation (0,1) + translation (2).
+            target_y = np.stack([np.cos(theta_hd), np.sin(theta_hd), disp],
+                                axis=-1).astype(np.float32)
+        elif _target_kind == "rotation_mismatch":
+            # Proprioceptive-gain mismatch task. The proprioceptive (effective)
+            # angular velocity is a time-varying gain g(t) of the observed ω:
+            #     ω_proprio(t) = g(t) · ω(t),   g(t) ∈ [g_min, g_max]
+            # g(t) is PIECEWISE-CONSTANT — it holds for ~segment_s seconds then
+            # steps to a new uniform draw (a discrete proprioceptive-gain
+            # regime switch). The supervised scalar is the integral of the
+            # mismatch ∫(ω − ω_proprio) dt in radians — the accumulated
+            # sensory-vs-proprioceptive heading discrepancy the recurrent
+            # circuit must recover from its two afferent streams (ω → ARTR,
+            # ω_proprio → motor_efferent).
+            g_min = float(getattr(si, "proprio_gain_min", 0.0))
+            g_max = float(getattr(si, "proprio_gain_max", 1.5))
+            seg_s = float(getattr(si, "proprio_gain_segment_s", 2.0))
+            n_seg = max(1, int(round((T * dt) / max(seg_s, dt))))
+            seg_gains = np.random.uniform(
+                g_min, g_max, size=(B, n_seg)).astype(np.float32)
+            proprio_gain = np.zeros((B, T), dtype=np.float32)
+            bounds = np.linspace(0, T, n_seg + 1).astype(int)
+            for _s in range(n_seg):
+                proprio_gain[:, bounds[_s]:bounds[_s + 1]] = seg_gains[:, _s:_s + 1]
+            omega_proprio = (proprio_gain * omega).astype(np.float32)
+            mismatch = (np.cumsum(np.deg2rad(omega - omega_proprio), axis=1)
+                        * dt).astype(np.float32)
+            mismatch[:, 0] = 0.0
+            disp = mismatch  # reuse the displacement sidecar slot
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), mismatch], axis=-1,
+            ).astype(np.float32)
+        elif _target_kind == "place_cells":
+            # Head-direction + distance + PLACE-CELL task. The agent forages a
+            # bounded arena [-A, A]² with reflecting walls (stop-and-turn), so
+            # the swim-event ω/v_fwd are re-realised as bounded drives that
+            # keep the path inside the box while preserving θ=∫ω·dt and
+            # (x,y)=∫v·dir·dt exactly. We OVERWRITE ω, v_fwd, θ_hd and is_stop
+            # with the realised quantities so the stimulus and sidecars stay
+            # self-consistent. On-disk target is 5-col [cosθ, sinθ, ξ, x, y];
+            # the K=place_grid² Gaussian place activations are derived on the
+            # fly (a dense (B,T,K) target would be ~160 GB), from these (x,y)
+            # and the saved place_centers/σ.
+            _A = float(getattr(si, "arena_half", 1.0))
+            theta_hd, x_pos, y_pos, omega, vfwd = _reflecting_arena_trajectory(
+                omega, vfwd, theta0, dt, _A, L)
+            is_stop = (omega == 0).astype(np.float32)
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
+                axis=-1,
+            ).astype(np.float32)
+        elif _target_kind == "grid_cells":
+            # Grid-cell torus task: free 2-D path integration (UNBOUNDED, no
+            # walls) — same coupling as position_2d, plus the distance column.
+            # The grid code (torus of period λ) + circular decode are derived
+            # on the fly from (x,y); position is intentionally unbounded so the
+            # phase (x,y) mod λ covers the whole torus.
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            x_pos = (np.cumsum(vfwd * cos_th, axis=1) * dt).astype(np.float32)
+            y_pos = (np.cumsum(vfwd * sin_th, axis=1) * dt).astype(np.float32)
+            x_pos[:, 0] = 0.0; y_pos[:, 0] = 0.0
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd), disp, x_pos, y_pos],
+                axis=-1,
+            ).astype(np.float32)
+        elif _target_kind == "rotation_torus":
+            # Net1 reads its own position as two toroidal phases (no Net2).
+            # Free unbounded 2-D PI; φ=2π·(x,y)/λ encoded (cos,sin) per axis.
+            _L = float(getattr(si, "grid_period", 0.5))
+            cos_th = np.cos(theta_hd).astype(np.float32)
+            sin_th = np.sin(theta_hd).astype(np.float32)
+            x_pos = (np.cumsum(vfwd * cos_th, axis=1) * dt).astype(np.float32)
+            y_pos = (np.cumsum(vfwd * sin_th, axis=1) * dt).astype(np.float32)
+            x_pos[:, 0] = 0.0; y_pos[:, 0] = 0.0
+            phx = (2.0 * np.pi / _L) * x_pos
+            phy = (2.0 * np.pi / _L) * y_pos
+            disp = (np.cumsum(vfwd, axis=1) * dt).astype(np.float32)
+            disp[:, 0] = 0.0          # kept only for the displacement sidecar
+            target_y = np.stack(
+                [np.cos(theta_hd), np.sin(theta_hd),
+                 np.cos(phx), np.sin(phx), np.cos(phy), np.sin(phy)],
+                axis=-1,
+            ).astype(np.float32)
+        else:
+            raise ValueError(
+                f"task.swim_integration.target_kind must be 'scalar_xi', "
+                f"'position_2d', 'rotation_mismatch', 'place_cells', "
+                f"'grid_cells' or 'rotation_torus'; got {_target_kind!r}"
+            )
+        # Input — channel layout selected by ``propriocep_split``:
+        #   default (False): 4 channels [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
+        #   propriocep_split: 5 channels
+        #                     [ω, v_fwd, ω_proprio, cos θ₀·δ, sin θ₀·δ]
+        # The motor-efferent RIPN cells are tied to head direction, NOT
+        # forward swim (biologist correction): channel 2 is a separate
+        # angular proprioceptive efference copy ω_proprio (= ω in this first
+        # version) routed to motor_efferent, a companion of the ω drive to
+        # ARTR. v_fwd routes to pt-IPN1 only.
+        # rotation_mismatch always uses the 5-channel propriocep layout (it
+        # needs the separate ω_proprio column routed to motor_efferent).
+        _propriocep_split = bool(getattr(si, "propriocep_split", False)) \
+            or _target_kind == "rotation_mismatch"
+        if _propriocep_split:
+            stimulus = np.zeros((B, T, 5), dtype=np.float32)
+            stimulus[:, :, 0] = omega
+            stimulus[:, :, 1] = vfwd      # v_fwd → pt-IPN1
+            stimulus[:, :, 2] = omega_proprio  # ω_proprio (= g(t)·ω) → motor_efferent
+            stimulus[:, 0, 3] = np.cos(theta0)
+            stimulus[:, 0, 4] = np.sin(theta0)
+        else:
+            stimulus = np.zeros((B, T, 4), dtype=np.float32)
+            stimulus[:, :, 0] = omega
+            stimulus[:, :, 1] = vfwd
+            stimulus[:, 0, 2] = np.cos(theta0)
+            stimulus[:, 0, 3] = np.sin(theta0)
+        if si.omega_noise_level > 0:
+            stimulus[:, :, 0] += (
+                si.omega_noise_level
+                * np.random.standard_normal(size=(B, T)).astype(np.float32)
+            )
+        # Diagnostic conjunction input: append vx=v·cosθ, vy=v·sinθ (world-frame
+        # velocity) so the network only has to integrate. Uses the realised
+        # heading θ_hd and forward speed v_fwd of this trajectory.
+        if bool(getattr(si, "conjunction_input", False)):
+            _vx = (vfwd * np.cos(theta_hd)).astype(np.float32)
+            _vy = (vfwd * np.sin(theta_hd)).astype(np.float32)
+            stimulus = np.concatenate(
+                [stimulus, _vx[:, :, None], _vy[:, :, None]], axis=-1)
+
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(split_dir, exist_ok=True)
+
+        from connectome_gnn.task_state import TaskTrials, task_trials_to_disk
+        trials = TaskTrials(
+            task_family="swim_integration",
+            n_input=int(stimulus.shape[-1]),
+            n_output=int(target_y.shape[-1]),
+            dt=dt,
+            stimulus=torch.from_numpy(stimulus),
+            target  =torch.from_numpy(target_y),
+            theta_hd=torch.from_numpy(theta_hd.astype(np.float32)),
+            is_stop =torch.from_numpy(is_stop),
+            omega   =torch.from_numpy(omega),
+        )
+        task_trials_to_disk(trials, split_dir)
+        # swim_label is a swim-specific extra field; write alongside the
+        # TaskTrials zarrs as a plain (B, T) int8 zarr so plotting and
+        # downstream analyses can read it without modifying TaskTrials.
+        import zarr as _zarr
+        _zarr.save(os.path.join(split_dir, "swim_label.zarr"),
+                   swim_label.astype(np.int8))
+        # Extra fields: the translational velocity drive (input ch1) and its
+        # integral displacement (target col 2), split out for plotting/analysis.
+        _zarr.save(os.path.join(split_dir, "forward_vel.zarr"),
+                   vfwd.astype(np.float32))
+        _zarr.save(os.path.join(split_dir, "displacement.zarr"),
+                   disp.astype(np.float32))
+        # rotation_mismatch sidecars: the proprioceptive angular drive and its
+        # time-varying gain g(t), for the training-evolution mismatch plot.
+        if _target_kind == "rotation_mismatch":
+            _zarr.save(os.path.join(split_dir, "omega_proprio.zarr"),
+                       omega_proprio.astype(np.float32))
+            if proprio_gain is not None:
+                _zarr.save(os.path.join(split_dir, "proprio_gain.zarr"),
+                           proprio_gain.astype(np.float32))
+        logger.info(f"[task]   {split}: wrote {B} trials of T={T} "
+                    f"(TaskTrials v2 layout + swim_label/forward_vel/displacement.zarr)")
+
+        if visualize:
+            plot_task_swim_traces(
+                u=stimulus, y=target_y, theta_hd=theta_hd, is_stop=is_stop,
+                swim_label=swim_label, dt=dt,
+                out_path=os.path.join(out_root, f"task_traces_{split}.png"),
+            )
+
+    # --- Place-cell task artefacts (target_kind="place_cells") -------------
+    # Generated once per dataset, saved next to the train/test splits so the
+    # model and every plot share one fixed Net2 connectome and place-field
+    # geometry. (a) Net2's synthetic sign-locked E/I connectome + its matrix
+    # plot; (b) the place-field centres + σ; (c) a 4×1 example-field figure.
+    if str(getattr(si, "target_kind", "")).lower() == "place_cells":
+        import json
+        _A = float(getattr(si, "arena_half", 1.0))
+        grid = int(getattr(si, "place_grid", 20))
+        sigma = float(getattr(si, "place_sigma", 0.2))
+        centers = place_cell_centers(grid, _A)
+        n_place = centers.shape[0]
+        n_inter = int(getattr(si, "net2_n_interneurons", 200))
+        W2, n_types, ei, type_names = _generate_net2_connectivity(
+            n_inter, n_place,
+            float(getattr(si, "net2_sparsity", 0.10)),
+            float(getattr(si, "net2_ei_ratio", 0.60)),
+            int(getattr(si, "net2_seed", 700000)))
+        np.savez(os.path.join(out_root, "net2_Wcon.npz"),
+                 W2_con=W2, neuron_types=n_types, ei=ei,
+                 type_names=np.array(type_names),
+                 n_interneurons=np.int64(n_inter), n_place=np.int64(n_place))
+        np.savez(os.path.join(out_root, "place_geometry.npz"),
+                 centers=centers, sigma=np.float32(sigma),
+                 grid=np.int64(grid), arena_half=np.float32(_A))
+        with open(os.path.join(out_root, "place_meta.json"), "w") as f:
+            json.dump({"place_grid": grid, "n_place": int(n_place),
+                       "place_sigma": sigma, "arena_half": _A,
+                       "net2_n_interneurons": n_inter,
+                       "net2_n_neurons": int(n_inter + n_place),
+                       "net2_sparsity": float(getattr(si, "net2_sparsity", 0.10)),
+                       "net2_ei_ratio": float(getattr(si, "net2_ei_ratio", 0.60)),
+                       "net2_seed": int(getattr(si, "net2_seed", 700000))},
+                      f, indent=2, sort_keys=True)
+        if visualize:
+            _plot_net2_matrix(W2, n_types, ei, type_names,
+                              os.path.join(out_root, "net2_Wcon.png"))
+            _plot_place_field_examples(
+                centers, sigma, _A,
+                os.path.join(out_root, "place_fields_examples.png"))
+            # Combined paper figure: Net2 matrix (left) + 2×2 place fields (right).
+            _plot_place_cells_setup(
+                W2, n_types, ei, type_names, centers, sigma, _A,
+                os.path.join(out_root, "place_cells_setup.png"))
+            # 3×3 grid of example arena trajectories (exploration check). The
+            # (x,y) path lives in target columns 3:5 of the test split.
+            try:
+                import zarr as _z
+                _xy = np.asarray(_z.load(
+                    os.path.join(out_root, "test", "target.zarr")))[:9, :, 3:5]
+                _plot_trajectory_examples(
+                    _xy, _A, os.path.join(out_root, "trajectory_examples.png"))
+                _xy_all = np.asarray(_z.load(
+                    os.path.join(out_root, "test", "target.zarr")))[..., 3:5]
+                _plot_occupancy_map(
+                    _xy_all, _A, os.path.join(out_root, "occupancy_map.png"),
+                    centers=centers, sigma=sigma, grid=grid)
+            except Exception as _e:
+                logger.info(f"[task]   place_cells: trajectory plot skipped ({_e})")
+        logger.info(f"[task]   place_cells: wrote net2_Wcon.npz "
+                    f"(N2={n_inter + n_place}), place_geometry.npz "
+                    f"(K={n_place}, σ={sigma}, arena=±{_A}), and plots")
+
+    # --- Grid-cell torus task artefacts (target_kind="grid_cells") ---------
+    if str(getattr(si, "target_kind", "")).lower() == "grid_cells":
+        import json
+        period = float(getattr(si, "grid_period", 0.5))
+        grid = int(getattr(si, "grid_grid", 20))
+        sigma = float(getattr(si, "grid_sigma", 0.1))
+        centers = grid_cell_centers(grid, period)
+        n_place = centers.shape[0]
+        n_inter = int(getattr(si, "net2_n_interneurons", 200))
+        W2, n_types, ei, type_names = _generate_net2_connectivity(
+            n_inter, n_place,
+            float(getattr(si, "net2_sparsity", 0.10)),
+            float(getattr(si, "net2_ei_ratio", 0.60)),
+            int(getattr(si, "net2_seed", 700000)))
+        np.savez(os.path.join(out_root, "net2_Wcon.npz"),
+                 W2_con=W2, neuron_types=n_types, ei=ei,
+                 type_names=np.array(type_names),
+                 n_interneurons=np.int64(n_inter), n_place=np.int64(n_place))
+        np.savez(os.path.join(out_root, "grid_geometry.npz"),
+                 centers=centers, sigma=np.float32(sigma),
+                 grid=np.int64(grid), period=np.float32(period))
+        with open(os.path.join(out_root, "grid_meta.json"), "w") as f:
+            json.dump({"grid_grid": grid, "n_grid": int(n_place),
+                       "grid_sigma": sigma, "grid_period": period,
+                       "net2_n_interneurons": n_inter,
+                       "net2_n_neurons": int(n_inter + n_place),
+                       "net2_sparsity": float(getattr(si, "net2_sparsity", 0.10)),
+                       "net2_ei_ratio": float(getattr(si, "net2_ei_ratio", 0.60)),
+                       "net2_seed": int(getattr(si, "net2_seed", 700000))},
+                      f, indent=2, sort_keys=True)
+        if visualize:
+            _plot_net2_matrix(W2, n_types, ei, type_names,
+                              os.path.join(out_root, "net2_Wcon.png"))
+            _plot_grid_field_examples(
+                centers, sigma, period,
+                os.path.join(out_root, "grid_fields_examples.png"))
+        logger.info(f"[task]   grid_cells: wrote net2_Wcon.npz "
+                    f"(N2={n_inter + n_place}), grid_geometry.npz "
+                    f"(K={n_place}, σ={sigma}, λ={period}), and plots")
+
+    # --- Torus-position task artefacts (target_kind="rotation_torus") ------
+    # Net1-only task: just record the torus period λ so the test/decode can
+    # map the (cos,sin) phase pairs back to position. No Net2.
+    if str(getattr(si, "target_kind", "")).lower() == "rotation_torus":
+        import json
+        period = float(getattr(si, "grid_period", 0.5))
+        np.savez(os.path.join(out_root, "torus_geometry.npz"),
+                 period=np.float32(period))
+        with open(os.path.join(out_root, "torus_meta.json"), "w") as f:
+            json.dump({"torus_period": period,
+                       "target_cols": ["cos_theta", "sin_theta",
+                                       "cos_phi_x", "sin_phi_x",
+                                       "cos_phi_y", "sin_phi_y"]},
+                      f, indent=2, sort_keys=True)
+        logger.info(f"[task]   rotation_torus: wrote torus_geometry.npz "
+                    f"(λ={period}); 6-col target [cosθ,sinθ,cosφx,sinφx,"
+                    f"cosφy,sinφy]")
+
+
+def _generate_cortex_task(config, *, device, visualize: bool = True) -> None:
+    """Generate Yang et al. 2019 multitask cognitive battery data.
+
+    Drives `generators/cortex_task.py` (verbatim port of gyyang/multitask) and
+    stores trials as zarr arrays under `<dataset>/<split>/`. Single flat
+    layout: for any fixed `ruleset` Yang's N_i / N_o are constant across
+    rules (the rule one-hot embedded in the input acts as the task ID).
+
+    Layout — flyvis-style flat dataset folder:
+        <dataset>/
+            rules.json            ruleset + N_i + N_o + dt + rules list
+            task_cortex_overview_<split>.png      multi-rule heatmap grid (only if >1 rule)
+            task_cortex_example_<split>_<rule>.png  single-rule close-up
+            task_cortex_traces_<split>_<rule>.png   line-overlay sanity check
+            train/
+                stimulus.zarr     (N, T_max, N_i)     padded Yang trial.x
+                target.zarr       (N, T_max, N_o)     padded Yang trial.y
+                c_mask.zarr       (N, T_max, N_o)     padded Yang c_mask
+                length.zarr       (N, T_max)          real-step mask
+                rule_idx.zarr     (N,)                index into ct.rules
+                stimulus_canonical.zarr / delta_stimulus.zarr  (only when input_perturbation set)
+            test/
+                same fields
+    """
+    import json
+
+    from connectome_gnn.generators.cortex_task import generate_trials, get_default_hp
+    from connectome_gnn.generators.cortex_adapter import trial_to_numpy
+
+    task = config.task
+    ct = task.cortex
+
+    if ct.rule_weights and len(ct.rule_weights) != len(ct.rules):
+        raise ValueError(
+            f"cortex.rule_weights length {len(ct.rule_weights)} != "
+            f"rules length {len(ct.rules)}"
+        )
+
+    # Build Yang hp + apply overrides. `get_default_hp` returns a fresh dict.
+    hp = get_default_hp(ct.ruleset)
+    for k, v in (ct.hp_overrides or {}).items():
+        hp[k] = v
+    n_in = int(hp["n_input"])
+    n_out = int(hp["n_output"])
+    dt_s = float(hp["dt"]) / 1000.0   # Yang stores dt in ms; convert to seconds
+
+    out_root = graphs_data_path(config.dataset)
+    os.makedirs(out_root, exist_ok=True)
+    logger.info(f"[task] cortex -> {out_root}")
+    logger.info(
+        f"[task] ruleset={ct.ruleset!r} rules={ct.rules} n_in={n_in} n_out={n_out} "
+        f"dt={dt_s}s n_steps_max={ct.n_steps_max} "
+        f"train={ct.n_trials_train} test={ct.n_trials_test} "
+        f"perturb={ct.input_perturbation is not None}"
+    )
+
+    rules = list(ct.rules)
+    weights = list(ct.rule_weights) if ct.rule_weights else None
+    if weights:
+        s = float(sum(weights))
+        weights = [w / s for w in weights]
+
+    # Persist ruleset metadata at dataset root.
+    with open(os.path.join(out_root, "rules.json"), "w") as f:
+        json.dump({
+            "rules":   rules,
+            "ruleset": ct.ruleset,
+            "N_i":     n_in,
+            "N_o":     n_out,
+            "dt":      dt_s,
+            "n_steps_max": int(ct.n_steps_max),
+            "hp_overrides": dict(ct.hp_overrides or {}),
+        }, f, indent=2)
+
+    # Per-split deterministic seed streams: train and test use different RNGs
+    # spawned from the cortex.seed so adding test trials doesn't shift train.
+    seed_seq = np.random.SeedSequence(ct.seed)
+    split_seeds = dict(zip(("train", "test"), seed_seq.spawn(2)))
+
+    for split, n_total in [("train", ct.n_trials_train),
+                           ("test",  ct.n_trials_test)]:
+        if n_total <= 0:
+            continue
+
+        # One RNG drives both rule choice and Yang's per-trial randomness
+        # (passed in via hp['rng']).
+        rule_rng, yang_rng = (
+            np.random.default_rng(s) for s in split_seeds[split].spawn(2)
+        )
+        # Yang uses RandomState (legacy); bridge it with the per-split seed.
+        hp = dict(hp)
+        hp['rng'] = np.random.RandomState(int(yang_rng.integers(0, 2**31 - 1)))
+
+        T_max = int(ct.n_steps_max)
+        stimulus_canonical = np.zeros((n_total, T_max, n_in), dtype=np.float32)
+        target             = np.zeros((n_total, T_max, n_out), dtype=np.float32)
+        c_mask             = np.zeros((n_total, T_max, n_out), dtype=np.float32)
+        length             = np.zeros((n_total, T_max),        dtype=np.float32)
+        rule_idx           = np.zeros((n_total,),              dtype=np.int64)
+
+        # Stash the first 5 Trials per rule so plotters can render per-trial
+        # epoch boundaries (each trial has its own random epoch timing).
+        sampled_trials_per_rule: dict[str, list] = {}
+
+        for i in tqdm(range(n_total), desc=f"  {split} trials",
+                      ncols=150, leave=False):
+            r_idx = int(rule_rng.choice(len(rules), p=weights))
+            r = rules[r_idx]
+            trial = generate_trials(r, hp, mode='random', batch_size=1)
+            T_trial = int(trial.tdim)
+            if T_trial > T_max:
+                raise ValueError(
+                    f"[cortex/{r}] trial length {T_trial} > "
+                    f"n_steps_max={T_max}; raise n_steps_max in the YAML."
+                )
+            x_in, y_tgt, cm = trial_to_numpy(trial, 0)
+            stimulus_canonical[i, :T_trial] = x_in
+            target[i, :T_trial]             = y_tgt
+            c_mask[i, :T_trial]             = cm
+            length[i, :T_trial]             = 1.0
+            rule_idx[i]                     = r_idx
+            bucket = sampled_trials_per_rule.setdefault(r, [])
+            if len(bucket) < 5:
+                bucket.append(trial)
+
+        # Optional decorrelation perturbation on top of the canonical input.
+        delta_stimulus = None
+        if ct.input_perturbation is not None:
+            delta_stimulus = np.zeros_like(stimulus_canonical)
+            for i in tqdm(range(n_total), desc=f"  {split} perturbation",
+                          ncols=150, leave=False):
+                pert = build_input_perturbation(
+                    n_frames=T_max,
+                    n_channels=n_in,
+                    perturbation=ct.input_perturbation,
+                    device=device,
+                )
+                # Mask perturbation to real timesteps so padding stays clean.
+                delta_stimulus[i] = pert.detach().cpu().numpy() * length[i, :, None]
+            stimulus = (stimulus_canonical + delta_stimulus).astype(np.float32)
+        else:
+            stimulus = stimulus_canonical
+
+        # Write zarrs.
+        split_dir = os.path.join(out_root, split)
+        os.makedirs(split_dir, exist_ok=True)
+        _write_trial_zarr(os.path.join(split_dir, "stimulus.zarr"), stimulus)
+        _write_trial_zarr(os.path.join(split_dir, "target.zarr"),   target)
+        _write_trial_zarr(os.path.join(split_dir, "c_mask.zarr"),   c_mask)
+        _write_trial_zarr_1d(os.path.join(split_dir, "length.zarr"), length)
+        # rule_idx is one-per-trial (1D); zarr chunked layout is overkill — store
+        # as .npy at the split root. Plotting / loaders read it as a flat array.
+        np.save(os.path.join(split_dir, "rule_idx.npy"), rule_idx)
+        if delta_stimulus is not None:
+            _write_trial_zarr(
+                os.path.join(split_dir, "stimulus_canonical.zarr"), stimulus_canonical
+            )
+            _write_trial_zarr(
+                os.path.join(split_dir, "delta_stimulus.zarr"), delta_stimulus
+            )
+
+        rule_counts = {r: int((rule_idx == ri).sum()) for ri, r in enumerate(rules)}
+        logger.info(
+            f"[task]   {split}: wrote {n_total} trials "
+            f"(N_i={n_in}, N_o={n_out}, T_max={T_max}) — rule counts: {rule_counts}"
+        )
+
+        if visualize:
+            from connectome_gnn.plot import (
+                plot_task_cortex_example,
+                plot_task_cortex_overview,
+                plot_task_cortex_samples,
+            )
+
+            # Per-rule: 5-trial heatmap grid + 5-trial line-trace grid.
+            for r, trial_list in sampled_trials_per_rule.items():
+                idxs_for_r = np.where(rule_idx == rules.index(r))[0]
+                sample_idx = idxs_for_r[:5]
+                epochs_per_trial = [getattr(t, 'epochs', None) for t in trial_list]
+                plot_task_cortex_example(
+                    stimulus=stimulus[sample_idx],
+                    target=target[sample_idx],
+                    length=length[sample_idx],
+                    dt=dt_s, rule=r, epochs=epochs_per_trial,
+                    n_rule=int(hp.get('n_rule', 0)),
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_example_{split}_{r}.png"),
+                )
+                plot_task_cortex_samples(
+                    stimulus=stimulus[sample_idx],
+                    target=target[sample_idx],
+                    length=length[sample_idx],
+                    dt=dt_s, rule=r,
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_samples_{split}_{r}.png"),
+                )
+
+            # Multi-rule grid overview — only meaningful for multi-rule runs.
+            if len(rules) > 1:
+                # Pick one trial per rule (the first occurrence) for the grid.
+                ridx_for_grid = [int(np.where(rule_idx == ri)[0][0])
+                                 for ri in range(len(rules))
+                                 if (rule_idx == ri).any()]
+                plot_task_cortex_overview(
+                    stimulus=stimulus[ridx_for_grid],
+                    target=target[ridx_for_grid],
+                    rules=[rules[int(rule_idx[i])] for i in ridx_for_grid],
+                    n_rule=int(hp.get('n_rule', 0)),
+                    n_eachring=int(hp.get('n_eachring', 32)),
+                    out_path=os.path.join(out_root, f"task_cortex_overview_{split}.png"),
+                )
+
+
+def data_generate_task(config, *, device, visualize: bool = True) -> None:
+    """Top-level dispatcher for task-data generation.
+
+    Routes on config.task.task_type. path_integration: Hulse heading task;
+    cortex: Yang 2019 multitask cognitive battery; optical_flow: not yet
+    implemented (schema only).
+    """
+    task = config.task
+    if task is None:
+        return
+    if task.task_type == "path_integration":
+        _generate_path_integration_task(config, device=device, visualize=visualize)
+    elif task.task_type == "swim_integration":
+        _generate_swim_integration_task(config, device=device, visualize=visualize)
+    elif task.task_type == "optical_flow":
+        raise NotImplementedError(
+            "optical_flow task generation is not implemented yet; "
+            "schema is declared so YAMLs validate."
+        )
+    elif task.task_type == "cortex":
+        _generate_cortex_task(config, device=device, visualize=visualize)
+    else:
+        raise ValueError(f"unknown task_type: {task.task_type!r}")
 
 
 def data_generate_connconstr(config, visualize=True, device=None, save=True, erase=False):
@@ -2025,6 +3376,20 @@ def _run_ode_generation(
     it = it_start
     id_fig = id_fig_start
 
+    # --- NeurIPS-2026 rebuttal: model-misspecification knobs (graded flyvis path) ---
+    # Defaults reproduce the base single-Euler-step generator byte-for-byte.
+    _n_sub = max(1, int(getattr(sim, 'n_generation_substeps', 1)))
+    _fd_target = bool(getattr(sim, 'finite_difference_target', False))
+    _adapt_g = float(getattr(sim, 'adapt_g', 0.0))
+    _adapt_tau_s = float(getattr(sim, 'adapt_tau_ms', 200.0)) / 1000.0  # ms -> same time unit as delta_t (s)
+    _need_substep_loop = (_n_sub > 1) or (_adapt_g > 0.0)
+    adapt_c = None  # latent per-neuron adaptation state c_i (Test 3); persists across the loop
+    if _n_sub > 1 or _fd_target or _adapt_g > 0.0:
+        logger.info(
+            f"\033[95m[misspec] n_substeps={_n_sub}  finite_diff_target={_fd_target}  "
+            f"adapt_g={_adapt_g}  adapt_tau_ms={getattr(sim, 'adapt_tau_ms', 200.0)}\033[0m"
+        )
+
     tile_labels = None
     tile_codes_torch = None
     tile_period = None
@@ -2090,6 +3455,8 @@ def _run_ode_generation(
             for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
+                    if _adapt_g > 0.0 and adapt_c is not None:
+                        adapt_c[:] = x.voltage  # reset latent adaptation to c_i(0)=v_i(0) on state reset
                     if sim.only_noise_visual_input > 0:
                         x.stimulus[: sim.n_input_neurons] = torch.clamp(
                             torch.relu(
@@ -2304,6 +3671,14 @@ def _run_ode_generation(
                     else:
                         y = pde(x, edge_index, has_field=False)
                         dv_step = y.squeeze()
+                        if _adapt_g > 0.0:
+                            # Subtract latent adaptation current -g_a*c_i/tau_i so the
+                            # stored analytic target y is the TRUE (adaptation-including)
+                            # dv/dt of the observed voltage. c_i is never observed.
+                            if adapt_c is None:
+                                adapt_c = x.voltage.clone()
+                            dv_step = dv_step - _adapt_g * adapt_c / pde.ode_params.tau_i
+                            y = dv_step.unsqueeze(-1)
 
                     # Generate measurement noise for this timestep.
                     # AR(1) recursion when noise_ar1_rho > 0; falls back to i.i.d. otherwise.
@@ -2326,14 +3701,45 @@ def _run_ode_generation(
                     x_writer.append_state(x)
 
                     if not (has_gates and hh_substeps > 1):
-                        if noise_model_level > 0:
-                            x.voltage = (
-                                x.voltage
-                                + sim.delta_t * dv_step
-                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
-                            )
+                        _v_before = x.voltage.clone() if _fd_target else None
+                        if _need_substep_loop:
+                            # Integrate the graded ODE with M Euler substeps of h=delta_t/M
+                            # (Test 1: finer than the delta_t inference step) and/or step the
+                            # latent adaptation state c_i (Test 3). Process noise is scaled by
+                            # 1/sqrt(M) so the per-observed-frame noise variance matches base.
+                            # Stimulus is held constant across substeps (observed cadence=delta_t).
+                            _h = sim.delta_t / _n_sub
+                            for _sub in range(_n_sub):
+                                if _sub == 0:
+                                    _dv = dv_step  # reuse the derivative already computed above
+                                else:
+                                    _dv = pde(x, edge_index, has_field=False).squeeze()
+                                    if _adapt_g > 0.0:
+                                        _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
+                                if noise_model_level > 0:
+                                    x.voltage = (
+                                        x.voltage
+                                        + _h * _dv
+                                        + torch.randn(n_neurons, dtype=torch.float32, device=device)
+                                        * noise_model_level / (_n_sub ** 0.5)
+                                    )
+                                else:
+                                    x.voltage = x.voltage + _h * _dv
+                                if _adapt_g > 0.0:
+                                    adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
                         else:
-                            x.voltage = x.voltage + sim.delta_t * dv_step
+                            if noise_model_level > 0:
+                                x.voltage = (
+                                    x.voltage
+                                    + sim.delta_t * dv_step
+                                    + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
+                                )
+                            else:
+                                x.voltage = x.voltage + sim.delta_t * dv_step
+                        if _fd_target:
+                            # Test 1: overwrite target with the OBSERVED one-step finite
+                            # difference at delta_t (curvature-biased vs the analytic drift).
+                            y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
                         if has_gates:
                             pde.step_gates(x, sim.delta_t)
 
@@ -2552,3 +3958,1285 @@ def _compute_noisy_derivatives(config, sim, n_neurons, split="train"):
         f"computed noisy derivatives for {split}: {noisy_y.shape[0]} frames "
         f"(measurement_noise_level={sim.measurement_noise_level})"
     )
+
+
+# ============================================================================
+# Voltage generation from a trained task-optimized TaskRNN
+# ============================================================================
+
+def _resolve_task_config_path(path_str: str) -> str:
+    """Resolve a task-model yaml path.
+
+    Resolution order:
+      1. absolute path or relative-to-cwd file
+      2. <repo>/config/<path_str>[.yaml]
+      3. <repo>/config/<pre_folder>/<basename>[.yaml]  (matches GNN_Main's
+         add_pre_folder routing so users can write `cortex_delaygo_winner`
+         instead of `cortex/cortex_delaygo_winner`)
+    """
+    from connectome_gnn.utils import add_pre_folder, config_path
+    if os.path.isabs(path_str) and os.path.isfile(path_str):
+        return path_str
+    if os.path.isfile(path_str):
+        return os.path.abspath(path_str)
+    candidates = []
+    candidates.append(config_path(path_str))
+    if not path_str.endswith(".yaml"):
+        candidates.append(config_path(path_str + ".yaml"))
+    # Apply add_pre_folder routing (e.g. 'cortex_delaygo_winner' -> 'cortex/cortex_delaygo_winner')
+    try:
+        cfg_file, _ = add_pre_folder(path_str)
+        candidates.append(config_path(cfg_file))
+        if not cfg_file.endswith(".yaml"):
+            candidates.append(config_path(cfg_file + ".yaml"))
+    except Exception:
+        pass
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            return cand
+    raise FileNotFoundError(
+        f"task_model_config_path not found: {path_str}\n"
+        f"  checked: {candidates}"
+    )
+
+
+def _resolve_task_checkpoint(task_cfg, task_cfg_path: str) -> str:
+    """Find the latest best_model checkpoint for a task-trained TaskRNN."""
+    from connectome_gnn.utils import add_pre_folder, log_path
+    cf = task_cfg.config_file
+    if cf in ("none", ""):
+        stem = os.path.splitext(os.path.basename(task_cfg_path))[0]
+        cf, _ = add_pre_folder(stem)
+    task_log_dir = log_path(cf)
+    ckpt_dir = os.path.join(task_log_dir, "models")
+    cands = sorted(glob.glob(os.path.join(ckpt_dir, "best_model_with_*_graphs_*.pt")))
+    if not cands:
+        raise FileNotFoundError(
+            f"no task-model checkpoint found in {ckpt_dir}; train the task "
+            f"model first via `GNN_Main.py -o train <task_config>`"
+        )
+    return cands[-1]
+
+
+def _generate_voltage_from_task_model(
+    config, *, device=None, visualize: bool = True
+) -> None:
+    """Dispatch by `task.task_type` to the appropriate teacher-rollout generator.
+
+    - "cortex"           → `_generate_voltage_from_cortex_task_model`
+    - "path_integration" → `_generate_voltage_from_cx_task_model`
+    """
+    from connectome_gnn.config import NeuralGraphConfig
+    sim = config.simulation
+    task_cfg_path = _resolve_task_config_path(sim.task_model_config_path)
+    task_cfg = NeuralGraphConfig.from_yaml(task_cfg_path)
+    task_type = str(getattr(task_cfg.task, "task_type", "cortex")).lower()
+    if task_type == "path_integration":
+        _generate_voltage_from_cx_task_model(
+            config, task_cfg=task_cfg, task_cfg_path=task_cfg_path,
+            device=device, visualize=visualize,
+        )
+    else:
+        _generate_voltage_from_cortex_task_model(
+            config, task_cfg=task_cfg, task_cfg_path=task_cfg_path,
+            device=device, visualize=visualize,
+        )
+
+
+def _generate_voltage_from_cortex_task_model(
+    config, *, task_cfg=None, task_cfg_path: Optional[str] = None,
+    device=None, visualize: bool = True
+) -> None:
+    """Generate voltage data by rolling out a trained TaskRNN over fresh cortex task trials.
+
+    Loads the TaskRNN described by `simulation.task_model_config_path`,
+    runs it forward over freshly-sampled cortex trials, and stitches the
+    hidden-state trajectory into a continuous (T, N) sequence. The
+    on-disk format matches `data_generate_voltage` (ZarrSimulationWriterV3
+    + ZarrArrayWriter) so a downstream `data_train_gnn` can train on the
+    teacher's dynamics without any loader changes.
+
+    Inputs:
+      simulation.task_model_config_path : path to TaskRNN yaml (winner).
+      simulation.n_frames               : target voltage frames for train split.
+      simulation.seed                   : seed for trial sampling.
+
+    Outputs (under graphs_data/<config.dataset>/):
+      x_list_train/voltage.zarr      (T_train, N)
+      x_list_train/stimulus.zarr     (T_train, N) — per-unit input drive
+      x_list_train/pos.zarr          (N, 2)        — synthetic 2D grid
+      x_list_train/group_type.zarr   (N,)          — zeros
+      x_list_train/neuron_type.zarr  (N,)          — zeros
+      y_list_train.zarr              (T_train, N, 1) — numerical dv/dt
+      (and *_test under x_list_test / y_list_test at 25% of n_frames)
+    """
+    import torch
+
+    from connectome_gnn.config import NeuralGraphConfig
+    from connectome_gnn.generators.cortex_adapter import trial_to_numpy
+    from connectome_gnn.generators.cortex_task import (
+        generate_trials, get_default_hp,
+    )
+    from connectome_gnn.models.registry import create_model
+    from connectome_gnn.neuron_state import NeuronState
+    from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
+    sim = config.simulation
+
+    if task_cfg is None or task_cfg_path is None:
+        task_cfg_path = _resolve_task_config_path(sim.task_model_config_path)
+        task_cfg = NeuralGraphConfig.from_yaml(task_cfg_path)
+    logger.info(f"[voltage_from_task] loading task config: {task_cfg_path}")
+
+    if device is None:
+        from connectome_gnn.utils import set_device
+        device = set_device(task_cfg.training.device)
+    if isinstance(device, str):
+        device = torch.device(device)
+
+    model = create_model(
+        task_cfg.graph_model.signal_model_name,
+        aggr_type=task_cfg.graph_model.aggr_type,
+        config=task_cfg, device=device,
+    )
+    ckpt_path = _resolve_task_checkpoint(task_cfg, task_cfg_path)
+    logger.info(f"[voltage_from_task] loading checkpoint: {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state["model_state_dict"])
+    model.eval()
+
+    N = int(model.n_units)
+    dt = float(getattr(model, "dt", 0.02))
+    # CRITICAL: the saved y_list = (v[t+1] - v[t]) / model.dt is dv/dt at
+    # model.dt resolution. Downstream data_train_gnn reads y_list and
+    # interprets dt = sim.delta_t. If they disagree the GNN's W learns a
+    # rescaled solution and conn_R² stays badly negative. Override
+    # sim.delta_t to match model.dt and log it.
+    if abs(float(sim.delta_t) - dt) > 1e-9:
+        print(
+            f"\033[93m[voltage_from_task] dt mismatch: sim.delta_t="
+            f"{float(sim.delta_t)} vs model.dt={dt}. Overriding sim.delta_t "
+            f"in-memory so the downstream trainer interprets y_list "
+            f"correctly. Update the yaml to delta_t: {dt} to make this "
+            f"explicit.\033[0m",
+            flush=True,
+        )
+        sim.delta_t = float(dt)
+    logger.info(
+        f"[voltage_from_task] N={N}  dt={dt}s  task={task_cfg.task.cortex.rules}"
+    )
+
+    # Synthetic neuron metadata (TaskRNN has no biological positions or types):
+    #   - pos: 2D grid (sqrt(N) × sqrt(N))
+    #   - group_type, neuron_type: zeros
+    n_side = int(np.ceil(np.sqrt(N)))
+    grid = np.array(
+        [[i // n_side, i % n_side] for i in range(N)],
+        dtype=np.float32,
+    ) / max(1, n_side - 1)
+    pos = torch.from_numpy(grid).to(device)
+    group_type_t = torch.zeros(N, dtype=torch.int32, device=device)
+    neuron_type_t = torch.zeros(N, dtype=torch.int32, device=device)
+
+    # Task-stimulus generator parameters from task config.
+    ct = task_cfg.task.cortex
+    hp = get_default_hp(ct.ruleset)
+    if ct.hp_overrides:
+        hp.update(ct.hp_overrides)
+    rules = list(ct.rules)
+
+    folder = graphs_data_path(config.dataset)
+    os.makedirs(folder, exist_ok=True)
+    print(f"\033[93m[voltage_from_task] writing to {folder}\033[0m", flush=True)
+
+    # --- Save ground-truth ODE params for the downstream GNN ---
+    # Map TaskRNN's W_rec / b / tau into the FlyVisODEParams schema so the
+    # standard data_train_gnn loader picks them up unchanged. W_rec layout
+    # is (rows=presynaptic j, cols=postsynaptic i) — np.nonzero returns
+    # (row=src=pre, col=dst=post) which is exactly the edge_index
+    # convention the GNN expects.
+    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    W_rec_full = model.W_rec.detach().cpu().numpy().astype(np.float32)
+    src, dst = np.nonzero(W_rec_full)
+    edge_index_gt = np.stack([src, dst], axis=0).astype(np.int64)
+    W_gt = W_rec_full[src, dst].astype(np.float32)
+    tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
+    V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
+    ode_params = FlyVisODEParams(
+        tau_i=torch.from_numpy(tau_i_gt),
+        V_i_rest=torch.from_numpy(V_i_rest_gt),
+        edge_index=torch.from_numpy(edge_index_gt),
+        W=torch.from_numpy(W_gt),
+    )
+    ode_params.save(folder)
+    logger.info(
+        f"[voltage_from_task] saved ode_params.pt: N={N}  E={W_gt.size}  "
+        f"density={W_gt.size / (N * (N - 1)):.3f}  "
+        f"tau={float(model.tau):.4f}  ||b||={float(np.linalg.norm(V_i_rest_gt)):.3f}"
+    )
+
+    # Dynamics-noise injection during rollout (mirrors data_generate_voltage's
+    # sim.noise_model_level). The TaskRNN's forward already adds
+    # `noise_recurrent_level · randn` per Euler step when the module is in
+    # training mode; we route sim.noise_model_level through that field.
+    # Test split is deterministic unless sim.noisy_test_data is True
+    # (matches the standard generator's convention).
+    base_noise = float(getattr(sim, "noise_model_level", 0.0))
+    noisy_test = bool(getattr(sim, "noisy_test_data", False))
+    print(
+        f"\033[93m[noise] noise_model_level={base_noise}  "
+        f"noisy_test_data={noisy_test}\033[0m",
+        flush=True,
+    )
+
+    splits = [
+        ("train", int(sim.n_frames), base_noise),
+        ("test",  max(1, int(sim.n_frames) // 4),
+         base_noise if noisy_test else 0.0),
+    ]
+    for split, n_frames_split, split_noise in splits:
+        x_path = graphs_data_path(config.dataset, f"x_list_{split}")
+        y_path = graphs_data_path(config.dataset, f"y_list_{split}")
+        # Clean any prior data so we don't append.
+        for p in (x_path, y_path):
+            if os.path.isdir(p):
+                _rmtree(p)
+
+        x_writer = ZarrSimulationWriterV3(
+            path=x_path, n_neurons=N, time_chunks=2000, save_calcium=False,
+        )
+        y_writer = ZarrArrayWriter(
+            path=y_path, n_neurons=N, n_features=1, time_chunks=2000,
+        )
+
+        seed_offset = 0 if split == "train" else 1
+        rng = np.random.default_rng(sim.seed + seed_offset)
+        hp_split = dict(hp)
+        hp_split["rng"] = np.random.RandomState(
+            int(rng.integers(0, 2**31 - 1))
+        )
+
+        # Activate / deactivate dynamics noise for this split. TaskRNN's
+        # forward only injects noise when `self.training and
+        # noise_recurrent_level > 0`; we honour that gate explicitly.
+        model.noise_recurrent_level = float(split_noise)
+        if split_noise > 0:
+            model.train()
+        else:
+            model.eval()
+        logger.info(
+            f"[voltage_from_task] {split}: dynamics noise σ={split_noise}  "
+            f"(mode={'train' if split_noise > 0 else 'eval'})"
+        )
+
+        n_done = 0
+        n_trials_done = 0
+        from tqdm import tqdm as _tqdm
+        pbar = _tqdm(total=n_frames_split, ncols=150,
+                     desc=f"  {split}: voltage frames", leave=True)
+        with torch.no_grad():
+            while n_done < n_frames_split:
+                r = rules[int(rng.integers(len(rules)))]
+                trial = generate_trials(r, hp_split, mode="random", batch_size=1)
+                x_in_np, _y_tgt, _cm = trial_to_numpy(trial, 0)
+                T_trial = int(trial.tdim)
+                u = torch.from_numpy(x_in_np[None]).to(device)
+                _y_hat, h_buf = model(u)
+
+                voltage = h_buf[0, :T_trial].detach().cpu()
+                u_t = u[0, :T_trial]
+                if model.input_proj == "matrix":
+                    drive_t = u_t @ model.W_in.t()
+                else:
+                    drive_t = model._W_in_mlp(u_t)
+                drive = drive_t.detach().cpu()
+
+                # Numerical dv/dt (forward diff; last frame copies previous).
+                dv = torch.zeros_like(voltage)
+                if T_trial >= 2:
+                    dv[:-1] = (voltage[1:] - voltage[:-1]) / dt
+                    dv[-1] = dv[-2]
+
+                for t in range(T_trial):
+                    if n_done >= n_frames_split:
+                        break
+                    st = NeuronState(
+                        pos=pos, group_type=group_type_t, neuron_type=neuron_type_t,
+                        voltage=voltage[t].to(device),
+                        stimulus=drive[t].to(device),
+                    )
+                    x_writer.append_state(st)
+                    y_writer.append(dv[t].unsqueeze(-1).numpy())
+                    n_done += 1
+                    pbar.update(1)
+                n_trials_done += 1
+        pbar.close()
+        x_writer.finalize()
+        y_writer.finalize()
+        logger.info(
+            f"[voltage_from_task] {split}: {n_done} frames from "
+            f"{n_trials_done} trials -> {x_path}"
+        )
+
+    # --- Sanity plots (saved at dataset root, before any downstream GNN
+    # training kicks off). Stimulus.zarr is the deterministic per-unit
+    # drive (W_in @ u(t)) — no noise is ever added to it; only the
+    # voltage receives `noise_recurrent_level · randn` during the rollout
+    # when sim.noise_model_level > 0. ---
+
+    # 1. Trace plot: reuse the canonical flyvis-style stacked-voltage
+    #    figure (cross.trace_plot.save_trace_plot). Falls back to picking
+    #    12 evenly-spaced units when neuron_type is uniform (cortex case).
+    #    Output: <dataset>/traces.png
+    from connectome_gnn.cross.trace_plot import save_trace_plot
+    save_trace_plot(folder, force=True)
+    logger.info(
+        f"[voltage_from_task] saved traces: {os.path.join(folder, 'traces.png')}"
+    )
+
+    # 2. Decoder sanity plot: re-run the teacher end-to-end on 5 fresh
+    #    trials and pass through `save_cortex_test_kinograph` (3 rows ×
+    #    5 cols + 2 right panels). If the decoder reproduces the cortex
+    #    target, the rollout is consistent.
+    #    Output: <dataset>/sanity_decoder.png
+    from connectome_gnn.models.cortex_eval import save_cortex_test_kinograph
+    n_sanity = 5
+    rng_s = np.random.default_rng(sim.seed + 9)
+    hp_s = dict(hp)
+    hp_s["rng"] = np.random.RandomState(int(rng_s.integers(0, 2**31 - 1)))
+    sanity_stim, sanity_pred, sanity_tgt, sanity_cm = [], [], [], []
+    # Decoder check should be deterministic — temporarily disable noise.
+    saved_noise = model.noise_recurrent_level
+    model.noise_recurrent_level = 0.0
+    model.eval()
+    with torch.no_grad():
+        for _ in range(n_sanity):
+            r = rules[int(rng_s.integers(len(rules)))]
+            trial = generate_trials(r, hp_s, mode="random", batch_size=1)
+            x_in_np, y_tgt_np, cm_np = trial_to_numpy(trial, 0)
+            T_trial = int(trial.tdim)
+            u = torch.from_numpy(x_in_np[None]).to(device)
+            y_hat, _ = model(u)
+            sanity_stim.append(torch.from_numpy(x_in_np[:T_trial]))
+            sanity_pred.append(y_hat[0, :T_trial].detach().cpu())
+            sanity_tgt.append(torch.from_numpy(y_tgt_np[:T_trial]))
+            sanity_cm.append(torch.from_numpy(cm_np[:T_trial]))
+    model.noise_recurrent_level = saved_noise
+    sanity_path = os.path.join(folder, "sanity_decoder.png")
+    save_cortex_test_kinograph(
+        sanity_stim, sanity_pred, sanity_tgt, sanity_cm,
+        output_path=sanity_path,
+        rule_name=(rules[0] if rules else "cortex"),
+        n_trials=n_sanity,
+    )
+    logger.info(f"[voltage_from_task] saved decoder sanity plot: {sanity_path}")
+
+
+# ============================================================================
+# CX path-integration variant
+# ============================================================================
+
+def _sample_long_pi_stimulus(
+    *, T: int, dt: float,
+    sigma_omega_deg: float, tau_corr: float,
+    stop_fraction: float, stop_mean_s: float, stop_max_s: float,
+    omega_noise_level: float = 0.0,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample one (T, 3) PI stimulus + (T,) ground-truth heading.
+
+    Same OU+heading+stop pipeline as `_generate_path_integration_task`,
+    but for a single long sequence (B=1) instead of many short trials.
+
+    Returns (u, theta_hd) where:
+      u[:, 0] = omega(t)         (degrees per second, OU-driven, stops zeroed)
+      u[0, 1] = cos(theta_hd[0]) (initial-bump cue, delta-impulse at t=0)
+      u[0, 2] = sin(theta_hd[0])
+      theta_hd[t] = cumulative heading (radians, unwrapped)
+    """
+    rng = np.random.default_rng(int(seed))
+    alpha = 1.0 / float(tau_corr)
+    sigma_step = float(sigma_omega_deg) * math.sqrt(2.0 * alpha) * math.sqrt(dt)
+    decay = 1.0 - alpha * dt
+    mean_steps = stop_mean_s / dt
+    max_steps = int(stop_max_s / dt)
+    target_stop = int(stop_fraction * T)
+
+    omega = np.zeros(T, dtype=np.float32)
+    eta = rng.standard_normal(T).astype(np.float32)
+    for t in range(1, T):
+        omega[t] = decay * omega[t - 1] + sigma_step * eta[t]
+
+    is_stop = np.zeros(T, dtype=np.float32)
+    if stop_fraction > 0.0:
+        covered, attempts = 0, 0
+        while covered < target_stop and attempts < 100:
+            attempts += 1
+            start = int(rng.integers(0, T))
+            length = min(max_steps,
+                         int(rng.exponential(mean_steps)),
+                         T - start)
+            if length <= 0:
+                continue
+            end = start + length
+            already = int(is_stop[start:end].sum())
+            is_stop[start:end] = 1.0
+            covered += length - already
+        omega *= 1.0 - is_stop
+
+    if omega_noise_level > 0:
+        omega = omega + omega_noise_level * rng.standard_normal(T).astype(np.float32)
+
+    theta0 = float(rng.uniform(0.0, 2.0 * math.pi))
+    theta_hd = theta0 + np.cumsum(np.deg2rad(omega), axis=0) * dt
+    theta_hd[0] = theta0
+
+    u = np.zeros((T, 3), dtype=np.float32)
+    u[:, 0] = omega
+    u[0, 1] = math.cos(theta0)
+    u[0, 2] = math.sin(theta0)
+    return u, theta_hd.astype(np.float32)
+
+
+def _resolve_cx_cell_types(
+    cell_types: list, *, cx: dict, neuron_types_np: np.ndarray, type_names: list,
+) -> np.ndarray:
+    """Translate a list of CX cell-type tokens to a sorted unique index array.
+
+    Accepted tokens:
+      - "PEN_a" / "PENa"  → PENa_L ∪ PENa_R (from cx["pen_subpop_ix"])
+      - "PEN_b" / "PENb"  → PENb_L ∪ PENb_R
+      - "PENa_L", "PENa_R", "PENb_L", "PENb_R" → cx["pen_subpop_ix"][name]
+      - any element of `type_names`  → all neurons of that type
+    Raises ValueError for unknown tokens.
+    """
+    pen_subpop = cx.get("pen_subpop_ix", {})
+    out: list[int] = []
+    for name in cell_types:
+        if name in ("PEN_a", "PENa"):
+            out.extend(list(pen_subpop.get("PENa_L", [])))
+            out.extend(list(pen_subpop.get("PENa_R", [])))
+        elif name in ("PEN_b", "PENb"):
+            out.extend(list(pen_subpop.get("PENb_L", [])))
+            out.extend(list(pen_subpop.get("PENb_R", [])))
+        elif name in pen_subpop:
+            out.extend(list(pen_subpop[name]))
+        elif name in type_names:
+            t = type_names.index(name)
+            out.extend(np.where(neuron_types_np == t)[0].tolist())
+        else:
+            raise ValueError(
+                f"input_cell_types entry '{name}' not recognised. "
+                f"Available pen subpops: {list(pen_subpop.keys())}; "
+                f"available type_names: {type_names}"
+            )
+    return np.unique(np.asarray(out, dtype=np.int64))
+
+
+def _generate_voltage_from_cx_task_model(
+    config, *, task_cfg=None, task_cfg_path: Optional[str] = None,
+    device=None, visualize: bool = True
+) -> None:
+    """Roll out a trained DrosophilaCxTaskRNN / DrosophilaCxTaskGNN over a long PI stimulus and
+    write the activity in `data_train_gnn`-compatible zarr format.
+
+    Differs from the cortex variant:
+      - One long PI sequence (sim.n_frames train, sim.n_frames // 4 test)
+        sampled via OU + heading integration (not many short trials).
+      - `sim.input_cell_types` (default ["PEN_a", "PEN_b"]) defines the
+        opto target — only those rows of `stimulus.zarr` carry the drive;
+        the rest are zeroed. Mask is resolved via cx["pen_subpop_ix"] /
+        cx["type_names"] (no hardcoded indices).
+      - Long sequences are rolled out in chunks (carrying h0 across chunks)
+        to bound activation memory.
+    """
+    from connectome_gnn.config import NeuralGraphConfig
+    from connectome_gnn.generators.connectome_loaders import (
+        load_drosophila_cx_connectome,
+    )
+    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.models.registry import create_model
+
+    sim = config.simulation
+    if task_cfg is None or task_cfg_path is None:
+        task_cfg_path = _resolve_task_config_path(sim.task_model_config_path)
+        task_cfg = NeuralGraphConfig.from_yaml(task_cfg_path)
+    logger.info(f"[voltage_from_task/cx] task config: {task_cfg_path}")
+
+    if device is None:
+        from connectome_gnn.utils import set_device
+        device = set_device(task_cfg.training.device)
+    if isinstance(device, str):
+        device = torch.device(device)
+
+    # --- Build task model and load checkpoint ---------------------------
+    model = create_model(
+        task_cfg.graph_model.signal_model_name,
+        aggr_type=task_cfg.graph_model.aggr_type,
+        config=task_cfg, device=device,
+    )
+    ckpt_path = _resolve_task_checkpoint(task_cfg, task_cfg_path)
+    logger.info(f"[voltage_from_task/cx] checkpoint: {ckpt_path}")
+    state = torch.load(ckpt_path, map_location=device, weights_only=False)
+    model.load_state_dict(state["model_state_dict"])
+    model.eval()
+
+    N = int(model.n_units)
+    dt = float(getattr(model, "dt", 0.01))
+    if abs(float(sim.delta_t) - dt) > 1e-9:
+        print(
+            f"\033[93m[voltage_from_task/cx] dt mismatch: sim.delta_t="
+            f"{float(sim.delta_t)} vs model.dt={dt}. Overriding sim.delta_t "
+            f"in-memory so the downstream trainer interprets y_list "
+            f"correctly. Update the yaml to delta_t: {dt} to make this "
+            f"explicit.\033[0m",
+            flush=True,
+        )
+        sim.delta_t = float(dt)
+    logger.info(f"[voltage_from_task/cx] N={N}  dt={dt}s")
+
+    # --- Resolve input-neuron mask from sim.input_cell_types ------------
+    input_cell_types = list(
+        getattr(sim, "input_cell_types", None) or ["PEN_a", "PEN_b"]
+    )
+    cx = load_drosophila_cx_connectome(task_cfg.simulation.connconstr_datapath)
+    type_names_list = list(cx["type_names"])
+    neuron_types_np = np.asarray(cx["neuron_types"], dtype=np.int64)
+    input_ix = _resolve_cx_cell_types(
+        input_cell_types, cx=cx,
+        neuron_types_np=neuron_types_np, type_names=type_names_list,
+    )
+    input_mask_np = np.zeros(N, dtype=bool)
+    input_mask_np[input_ix] = True
+    input_mask_t = torch.from_numpy(input_mask_np).to(device)
+    logger.info(
+        f"[voltage_from_task/cx] input mask: {input_ix.size} of {N} neurons "
+        f"(types={input_cell_types})"
+    )
+
+    # --- Synthetic neuron metadata + write folder -----------------------
+    n_side = int(np.ceil(np.sqrt(N)))
+    grid = np.array(
+        [[i // n_side, i % n_side] for i in range(N)],
+        dtype=np.float32,
+    ) / max(1, n_side - 1)
+    pos = torch.from_numpy(grid).to(device)
+    neuron_type_t = torch.from_numpy(
+        neuron_types_np.astype(np.int32)
+    ).to(device)
+    group_type_t = torch.zeros(N, dtype=torch.int32, device=device)
+
+    folder = graphs_data_path(config.dataset)
+    os.makedirs(folder, exist_ok=True)
+    print(f"\033[93m[voltage_from_task/cx] writing to {folder}\033[0m", flush=True)
+
+    # --- Save GT ODE params (from model.W_rec / tau / b) ----------------
+    # Convention fix: the CX connectome loader stores J_effective as
+    # [post, pre] (hemibrain native orientation; Dale on COLUMNS = pre).
+    # drosophila_cx_task_rnn inherits W_con = J_effective without transposing, so
+    # `model.W_rec` is also [post, pre]. NeuralGNN downstream expects
+    # edge_index in (src=pre, dst=post) order. Transpose here so the saved
+    # edge_index honours the standard convention.
+    W_rec_full = model.W_rec.detach().cpu().numpy().astype(np.float32).T
+    src_np, dst_np = np.nonzero(W_rec_full)
+    edge_index_gt = np.stack([src_np, dst_np], axis=0).astype(np.int64)
+    W_gt = W_rec_full[src_np, dst_np].astype(np.float32)
+    tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
+    # DrosophilaCxTaskRNN exposes an explicit per-neuron bias `b` (V_rest).
+    # DrosophilaCxTaskGNN has no `b` — the bias is folded into f_theta, so
+    # the implicit V_rest is f_theta(0, a_i, 0). Fall back to zeros for the
+    # GNN teacher; downstream `gt_R2` on V_rest is then a constant-zero
+    # baseline rather than a meaningful comparison.
+    if hasattr(model, 'b') and model.b is not None:
+        V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
+    else:
+        V_i_rest_gt = np.zeros(N, dtype=np.float32)
+        logger.info(
+            "[voltage_from_task/cx]   teacher has no explicit bias (GNN); "
+            "saving V_i_rest = 0. Downstream V_rest_R2 is informational only."
+        )
+    # Use the CX-voltage params class so the teacher's firing-rate nonlinearity
+    # (recurrent_activation, default sigmoid for drosophila_cx_pi) is recorded in
+    # ode_params.pt and drives the GT g_phi curve downstream — instead of the
+    # FlyVis ReLU/softplus default. The activation is a property of how the data
+    # was generated, so it belongs with the data, not the config.
+    from connectome_gnn.generators.ode_params import DrosophilaCxVoltageODEParams
+    _teacher_act = str(getattr(model, 'recurrent_activation_name', 'sigmoid')).lower()
+    ode_params = DrosophilaCxVoltageODEParams(
+        tau_i=torch.from_numpy(tau_i_gt),
+        V_i_rest=torch.from_numpy(V_i_rest_gt),
+        edge_index=torch.from_numpy(edge_index_gt),
+        W=torch.from_numpy(W_gt),
+        # Save the hemibrain cell-type names so downstream rollout-trace
+        # plotters label rows by CX type (EPG / PEN_a / Delta7 / …)
+        # instead of the generic Type0..Type6 fallback.
+        type_names=list(cx["type_names"]),
+        activation=_teacher_act,
+    )
+    logger.info(f"[voltage_from_task/cx]   teacher recurrent_activation = {_teacher_act}")
+    ode_params.save(folder)
+    logger.info(
+        f"[voltage_from_task/cx] saved ode_params.pt: N={N}  E={W_gt.size}  "
+        f"density={W_gt.size / max(1, N * (N - 1)):.3f}  "
+        f"tau={float(model.tau):.4f}  ||b||={float(np.linalg.norm(V_i_rest_gt)):.3f}"
+    )
+    # Detailed per-tensor stats so the user doesn't need a separate inspection step.
+    logger.info(
+        f"[voltage_from_task/cx]   tau_i: uniform = {float(model.tau):.4f}  "
+        f"(no per-neuron variation; DrosophilaCxTaskRNN.tau is a scalar)"
+    )
+    logger.info(
+        f"[voltage_from_task/cx]   b (V_i_rest, shape={V_i_rest_gt.shape}): "
+        f"min={V_i_rest_gt.min():.3f}  max={V_i_rest_gt.max():.3f}  "
+        f"mean={V_i_rest_gt.mean():.3f}  std={V_i_rest_gt.std():.3f}"
+    )
+    logger.info(
+        f"[voltage_from_task/cx]   W (shape={W_gt.shape}): "
+        f"min={W_gt.min():.3e}  max={W_gt.max():.3e}  "
+        f"mean|W|={float(np.abs(W_gt).mean()):.3e}  "
+        f"frac_negative={float((W_gt < 0).mean()):.3f}"
+    )
+
+    # --- Splits + rollout ----------------------------------------------
+    base_noise = float(getattr(sim, "noise_model_level", 0.0))
+    noisy_test = bool(getattr(sim, "noisy_test_data", False))
+    print(
+        f"\033[93m[voltage_from_task/cx] noise_model_level={base_noise}  "
+        f"noisy_test_data={noisy_test}\033[0m",
+        flush=True,
+    )
+
+    pi_cfg = task_cfg.task.path_integration
+    pi_kwargs = dict(
+        dt=dt,
+        sigma_omega_deg=float(pi_cfg.sigma_omega_deg),
+        tau_corr=float(pi_cfg.tau_corr),
+        stop_fraction=float(pi_cfg.stop_fraction),
+        stop_mean_s=float(pi_cfg.stop_mean_s),
+        stop_max_s=float(pi_cfg.stop_max_s),
+        omega_noise_level=float(getattr(pi_cfg, "omega_noise_level", 0.0)),
+    )
+
+    splits = [
+        ("train", int(sim.n_frames), base_noise, int(sim.seed)),
+        ("test",  max(1, int(sim.n_frames) // 4),
+         base_noise if noisy_test else 0.0, int(sim.seed) + 1),
+    ]
+    chunk_size = 2000  # frames per forward call; carries h0 between chunks
+
+    # Cache for sanity plots
+    sanity_cache: dict = {}
+
+    for split, T_split, split_noise, split_seed in splits:
+        # 1) Sample one long PI stimulus.
+        u_np, theta_gt_np = _sample_long_pi_stimulus(
+            T=T_split, seed=split_seed, **pi_kwargs,
+        )
+        u_t = torch.from_numpy(u_np).to(device)  # (T, 3)
+
+        # 2) Compute per-neuron drive via the model's own encoder (so the
+        #    velocity-gate masking — pen_only / pen_4scalar — is respected
+        #    automatically). Reshape to (T, N).
+        with torch.no_grad():
+            drive_full = model._project_in(u_t)  # (T, N) — full Win drive
+
+        # 3) Apply input-cell mask: zero out non-input rows in the on-disk
+        #    stimulus, mirroring an opto target that hits only PEN cells.
+        drive = torch.zeros_like(drive_full)
+        drive[:, input_mask_t] = drive_full[:, input_mask_t]
+
+        # 4) Rollout in chunks (full drive, not masked — preserves the task
+        #    model's trained dynamics).
+        model.noise_recurrent_level = float(split_noise)
+        if split_noise > 0:
+            model.train()
+        else:
+            model.eval()
+        h = torch.zeros(1, N, dtype=u_t.dtype, device=device)
+        voltage_chunks: list[torch.Tensor] = []
+        y_pred_chunks: list[torch.Tensor] = []
+        with torch.no_grad():
+            for start in tqdm(
+                range(0, T_split, chunk_size),
+                ncols=150, desc=f"  {split}: rollout", leave=True,
+            ):
+                end = min(start + chunk_size, T_split)
+                u_chunk = u_t[start:end].unsqueeze(0)  # (1, T_chunk, 3)
+                y_chunk, h_buf = model(u_chunk, h0=h)
+                voltage_chunks.append(h_buf[0].cpu())
+                y_pred_chunks.append(y_chunk[0].cpu())
+                h = h_buf[:, -1, :].detach()
+        voltage = torch.cat(voltage_chunks, dim=0)  # (T, N)
+        y_pred = torch.cat(y_pred_chunks, dim=0)    # (T, 2)
+
+        # 5) Numerical dv/dt (forward diff; last frame copies previous).
+        dv = torch.zeros_like(voltage)
+        if T_split >= 2:
+            dv[:-1] = (voltage[1:] - voltage[:-1]) / dt
+            dv[-1] = dv[-2]
+
+        # 6) Write zarrs.
+        x_path = graphs_data_path(config.dataset, f"x_list_{split}")
+        y_path = graphs_data_path(config.dataset, f"y_list_{split}")
+        for p in (x_path, y_path):
+            if os.path.isdir(p):
+                _rmtree(p)
+        x_writer = ZarrSimulationWriterV3(
+            path=x_path, n_neurons=N, time_chunks=2000, save_calcium=False,
+        )
+        y_writer = ZarrArrayWriter(
+            path=y_path, n_neurons=N, n_features=1, time_chunks=2000,
+        )
+        drive_cpu = drive.cpu()
+        for t in tqdm(
+            range(T_split), ncols=150,
+            desc=f"  {split}: writing", leave=True,
+        ):
+            st = NeuronState(
+                pos=pos, group_type=group_type_t, neuron_type=neuron_type_t,
+                voltage=voltage[t].to(device),
+                stimulus=drive_cpu[t].to(device),
+            )
+            x_writer.append_state(st)
+            y_writer.append(dv[t].unsqueeze(-1).numpy())
+        x_writer.finalize()
+        y_writer.finalize()
+        logger.info(
+            f"[voltage_from_task/cx] {split}: {T_split} frames -> {x_path}"
+        )
+
+        # Cache for sanity plots (train split only). `voltage` is the short
+        # (10000-frame) cache used by trace + per-type + function-dynamics
+        # plots; `voltage_full` is the entire train split used by the
+        # all-neurons kinograph (typically 64k frames × 156 neurons ≈ 40 MB).
+        if split == "train":
+            n_cache = min(10000, T_split)
+            sanity_cache.update(
+                u=u_np[:n_cache], theta_gt=theta_gt_np[:n_cache],
+                drive=drive_cpu[:n_cache].numpy(),
+                y_pred=y_pred[:n_cache].numpy(),
+                voltage=voltage[:n_cache].numpy(),
+                voltage_full=voltage.numpy(),
+                theta_gt_full=theta_gt_np,
+            )
+
+    # --- Sanity figures (first 1000 frames of train) --------------------
+    if visualize and sanity_cache:
+        n_show = sanity_cache["u"].shape[0]
+        _cx_voltage_sanity_plots(
+            folder=folder,
+            u=sanity_cache["u"], theta_gt=sanity_cache["theta_gt"],
+            drive=sanity_cache["drive"], y_pred=sanity_cache["y_pred"],
+            cx=cx, dt=dt, n_show=n_show,
+        )
+        _cx_voltage_sanity_combined_plot(
+            folder=folder,
+            u=sanity_cache["u"], theta_gt=sanity_cache["theta_gt"],
+            voltage=sanity_cache["voltage"], drive=sanity_cache["drive"],
+            y_pred=sanity_cache["y_pred"],
+            cx=cx, dt=dt, n_show=n_show,
+        )
+        _cx_voltage_kinograph_plot(
+            folder=folder,
+            voltage_short=sanity_cache["voltage"],
+            voltage_full=sanity_cache["voltage_full"],
+            theta_gt_full=sanity_cache["theta_gt_full"],
+            cx=cx, dt=dt,
+        )
+        _cx_voltage_sanity_matrix_plot(
+            folder=folder,
+            W_con=np.asarray(cx["J_effective"], dtype=np.float32),
+            W_rec=model.W_rec.detach().cpu().numpy(),
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+        )
+        _cx_voltage_sanity_per_type_plot(
+            folder=folder,
+            b=V_i_rest_gt,
+            W=W_gt,
+            edge_src=src_np.astype(np.int64),
+            edge_dst=dst_np.astype(np.int64),
+            neuron_types=np.asarray(cx["neuron_types"], dtype=np.int64),
+            type_names=list(cx["type_names"]),
+        )
+        # Operating-range plot under the natural-OU rollout (the same plot
+        # that test_plot makes under the constant-ω = 60°/s deterministic
+        # sweep — see fig:function_dynamics in docs/drosophila.tex). The
+        # OU version uses the actual training-stimulus distribution, so
+        # the visited operating range is the on-distribution one.
+        if all(hasattr(model, name) for name in ("a", "g_phi", "f_theta")):
+            try:
+                from connectome_gnn.plot import plot_function_dynamics
+                fdyn_path = os.path.join(folder, "task_function_dynamics_ou.png")
+                plot_function_dynamics(
+                    net=model,
+                    h_traj=sanity_cache["voltage"],   # (n_cache, N) — OU rollout h
+                    out_path=fdyn_path,
+                    device=device,
+                )
+                logger.info(
+                    f"[voltage_from_task/cx] saved OU function dynamics: "
+                    f"{fdyn_path}"
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[voltage_from_task/cx] OU function-dynamics plot "
+                    f"failed: {exc}"
+                )
+
+
+# --- Plot styling constants (see memory: feedback_plot_color_scheme.md) -----
+# GT vs prediction: lighter green (thicker) for GT, plain black (thinner) for pred.
+_GT_COLOR = "#4daf4a"     # lighter than mpl "green"; colorblind-friendly
+_GT_LW = 2.8              # thicker line for GT
+_GT_MS = 3.0              # bigger marker for GT in marker-scatter (wrapped HD)
+_PRED_COLOR = "black"
+_PRED_LW = 0.5            # thinner line for pred
+_PRED_MS = 0.8            # smaller marker for pred
+# Axis labels / ticks / legends get a small bump; suptitle stays small.
+_LABEL_FS = 12
+_TICK_FS = 11
+_LEGEND_FS = 10
+_TITLE_FS = 10
+
+
+def _cx_voltage_sanity_plots(
+    *, folder: str, u: np.ndarray, theta_gt: np.ndarray,
+    drive: np.ndarray, y_pred: np.ndarray,
+    cx: dict, dt: float, n_show: int = 1000,
+) -> None:
+    """Two sanity figures saved at the dataset root.
+
+    task_sanity_stim.png  3 rows:
+      Row 1: ω(t)
+      Row 2: stimulus[PENa_L sample] + stimulus[PENa_R sample] (red / blue)
+      Row 3: stimulus[PENb_L sample] + stimulus[PENb_R sample] (red / blue)
+      PEN indices come from cx["pen_subpop_ix"] (same mapping the model uses
+      for velocity_gate=pen_4scalar — no hardcoded rows).
+
+    task_sanity_hd.png  one row: wrapped HD true (green) vs decoded (black).
+    """
+    T = min(n_show, u.shape[0])
+    t = np.arange(T) * dt
+    pen_subpop = cx.get("pen_subpop_ix", {})
+
+    def _first_ix(key: str) -> Optional[int]:
+        vals = pen_subpop.get(key, [])
+        return int(vals[0]) if len(vals) > 0 else None
+
+    pena_l = _first_ix("PENa_L")
+    pena_r = _first_ix("PENa_R")
+    penb_l = _first_ix("PENb_L")
+    penb_r = _first_ix("PENb_R")
+
+    # --- Stim figure ---
+    fig, axes = plt.subplots(3, 1, figsize=(9, 5.5), sharex=True)
+    axes[0].plot(t, u[:T, 0], color="black", lw=1.0)
+    axes[0].set_ylabel("ω(t) (deg/s)", fontsize=_LABEL_FS)
+    axes[0].axhline(0, color="0.5", lw=0.5)
+    axes[0].tick_params(labelsize=_TICK_FS)
+
+    def _stim_panel(ax, ix_l: Optional[int], ix_r: Optional[int], label: str):
+        if ix_l is not None:
+            ax.plot(t, drive[:T, ix_l], color="red", lw=0.9, label=f"L (n={ix_l})")
+        if ix_r is not None:
+            ax.plot(t, drive[:T, ix_r], color="blue", lw=0.9, ls="--", label=f"R (n={ix_r})")
+        ax.set_ylabel(label, fontsize=_LABEL_FS)
+        ax.axhline(0, color="0.5", lw=0.5)
+        ax.tick_params(labelsize=_TICK_FS)
+        ax.legend(fontsize=_LEGEND_FS, loc="upper right", framealpha=0.7)
+
+    _stim_panel(axes[1], pena_l, pena_r, "stim PEN_a")
+    _stim_panel(axes[2], penb_l, penb_r, "stim PEN_b")
+    axes[-1].set_xlabel("time (s)", fontsize=_LABEL_FS)
+    fig.suptitle(
+        f"CX teacher rollout — PEN stim (first {T} frames, dt={dt:.3g}s)",
+        fontsize=_TITLE_FS,
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.97])
+    stim_path = os.path.join(folder, "task_sanity_stim.png")
+    plt.savefig(stim_path, dpi=120)
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved stim sanity: {stim_path}")
+
+    # --- HD figure ---
+    # GT/pred convention: lighter green dots (slightly bigger) for true HD;
+    # plain black dots for decoded HD.
+    true_hd_wrap = np.angle(np.exp(1j * theta_gt[:T]))
+    decoded_hd = np.arctan2(y_pred[:T, 1], y_pred[:T, 0])
+    fig, ax = plt.subplots(1, 1, figsize=(9, 2.5))
+    ax.plot(t, true_hd_wrap, color=_GT_COLOR, lw=0.0, marker=".", ms=_GT_MS)
+    ax.plot(t, decoded_hd, color=_PRED_COLOR, lw=0.0, marker=".", ms=_PRED_MS)
+    ax.set_yticks([-np.pi, 0, np.pi])
+    ax.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=_TICK_FS)
+    ax.set_ylabel("HD (rad, wrapped)", fontsize=_LABEL_FS)
+    ax.set_xlabel("time (s)", fontsize=_LABEL_FS)
+    ax.tick_params(axis='x', labelsize=_TICK_FS)
+    ax.axhline(0, color="0.5", lw=0.5)
+    fig.suptitle(
+        f"CX teacher rollout — HD decode (first {T} frames; green=GT, black=model)",
+        fontsize=_TITLE_FS,
+    )
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    hd_path = os.path.join(folder, "task_sanity_hd.png")
+    plt.savefig(hd_path, dpi=120)
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved HD sanity: {hd_path}")
+
+
+def _cx_voltage_sanity_combined_plot(
+    *, folder: str, u: np.ndarray, theta_gt: np.ndarray,
+    voltage: np.ndarray, drive: np.ndarray, y_pred: np.ndarray,
+    cx: dict, dt: float, n_show: int = 1000,
+) -> None:
+    """Task-rollout traces plot saved as task_traces.png.
+
+    Single-column 2-row layout:
+
+        Row 1: raw mean-subtracted voltage traces. Several neurons per
+               type, stacked, with the type name labelled at the cluster
+               centre. On PEN_a / PEN_b clusters the stim traces of the
+               first L (lighter red) and first R (lighter blue) subpop
+               cell are overlaid for visual context.
+        Row 2: wrapped HD — true (green) vs decoded (black).
+    """
+    T = min(n_show, u.shape[0])
+    t = np.arange(T) * dt
+
+    neuron_types_np = np.asarray(cx["neuron_types"], dtype=np.int64)
+    type_names = list(cx["type_names"])
+
+    # Pick up to `n_per_type` representative neurons per cell type. With
+    # 7 CX types × 5 neurons = 35 traces this stacks cleanly without
+    # being unreadable.
+    n_per_type = 5
+    chosen: list[tuple[str, int]] = []
+    type_blocks: list[tuple[str, list[int]]] = []
+    for ti, name in enumerate(type_names):
+        idx = np.where(neuron_types_np == ti)[0]
+        if idx.size == 0:
+            continue
+        take = idx[:n_per_type].tolist()
+        type_blocks.append((name, take))
+        for ix in take:
+            chosen.append((name, int(ix)))
+
+    n_sel = len(chosen)
+    if n_sel == 0:
+        return
+
+    # Raw mean-subtracted traces (n_sel, T).
+    raw = np.stack(
+        [voltage[:T, ix] - voltage[:T, ix].mean() for _, ix in chosen],
+        axis=0,
+    )
+    step_raw = 3.0 * float(raw.std()) if raw.size else 1.0
+    step_raw = max(step_raw, 1e-6)
+
+    fig = plt.figure(figsize=(12, 9))
+    gs = fig.add_gridspec(
+        2, 1, height_ratios=[4.0, 1], hspace=0.18,
+    )
+    ax_raw = fig.add_subplot(gs[0, 0])
+    ax_hd  = fig.add_subplot(gs[1, 0], sharex=ax_raw)
+    ax_raw.set_xlim(0, t[-1] if T > 0 else 1.0)
+
+    # Row 1: traces (raw mean-subtracted). PEN stim overlay marks the
+    # first PEN_a / PEN_b cell in each cluster (light red = L, light
+    # blue = R) to give context for the input → activity relationship.
+    pen_subpop = cx.get("pen_subpop_ix", {})
+
+    def _first_ix(key: str) -> Optional[int]:
+        vals = pen_subpop.get(key, [])
+        return int(vals[0]) if len(vals) > 0 else None
+
+    pena_l, pena_r = _first_ix("PENa_L"), _first_ix("PENa_R")
+    penb_l, penb_r = _first_ix("PENb_L"), _first_ix("PENb_R")
+    STIM_L_COLOR = "#f08080"  # light coral
+    STIM_R_COLOR = "#87cefa"  # light sky blue
+
+    slot = 0
+    block_centres: list[tuple[str, float]] = []
+    for name, idx_list in type_blocks:
+        block_start = slot
+        for ix in idx_list:
+            base = slot * step_raw
+            ax_raw.plot(t, raw[slot] + base, color="black", lw=0.6)
+            # PEN stim overlay at the first neuron of each PEN cluster.
+            nm = name.replace("_", "")
+            if slot == block_start:
+                if nm.startswith("PENa"):
+                    if pena_l is not None:
+                        s = drive[:T, pena_l]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_L_COLOR, lw=0.6, alpha=0.75)
+                    if pena_r is not None:
+                        s = drive[:T, pena_r]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_R_COLOR, lw=0.6, alpha=0.75)
+                elif nm.startswith("PENb"):
+                    if penb_l is not None:
+                        s = drive[:T, penb_l]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_L_COLOR, lw=0.6, alpha=0.75)
+                    if penb_r is not None:
+                        s = drive[:T, penb_r]
+                        ax_raw.plot(t, (s - s.mean()) + base,
+                                    color=STIM_R_COLOR, lw=0.6, alpha=0.75)
+            slot += 1
+        block_end = slot - 1
+        block_centres.append((name, ((block_start + block_end) / 2) * step_raw))
+
+    ax_raw.set_yticks([y for _, y in block_centres])
+    ax_raw.set_yticklabels([n for n, _ in block_centres], fontsize=_TICK_FS)
+    ax_raw.tick_params(axis="x", labelsize=_TICK_FS)
+    ax_raw.set_ylim(-step_raw, n_sel * step_raw)
+
+    # Row 3: HD (GT green vs decoded black).
+    true_hd_wrap = np.angle(np.exp(1j * theta_gt[:T]))
+    decoded_hd = np.arctan2(y_pred[:T, 1], y_pred[:T, 0])
+    ax_hd.plot(t, true_hd_wrap, color=_GT_COLOR, lw=0.0, marker=".", ms=_GT_MS)
+    ax_hd.plot(t, decoded_hd, color=_PRED_COLOR, lw=0.0, marker=".", ms=_PRED_MS)
+    ax_hd.set_yticks([-np.pi, 0, np.pi])
+    ax_hd.set_yticklabels([r"$-\pi$", "0", r"$\pi$"], fontsize=_TICK_FS)
+    ax_hd.set_ylabel("HD (rad)", fontsize=_LABEL_FS)
+    ax_hd.set_xlabel("time (s)", fontsize=_LABEL_FS)
+    ax_hd.tick_params(axis="x", labelsize=_TICK_FS)
+    ax_hd.axhline(0, color="0.5", lw=0.5)
+
+    plt.tight_layout()
+    out = os.path.join(folder, "task_traces.png")
+    plt.savefig(out, dpi=120)
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved task traces: {out}")
+
+
+def _cx_voltage_kinograph_plot(
+    *, folder: str, voltage_short: np.ndarray, voltage_full: np.ndarray,
+    theta_gt_full: np.ndarray, cx: dict, dt: float,
+) -> None:
+    """All-neurons-by-time kinograph saved as task_kinograph.png.
+
+    Neurons sorted by **cell type in descending type index** so the
+    block order from top to bottom matches the task_traces.png layout:
+    ER6, PEG, Δ7, PEN_b, PEN_a, EPGt, EPG. Cell-type tick labels at
+    block centres on the y-axis. `theta_gt_full` is accepted for
+    interface compatibility with phase-sorted variants but not used in
+    the type-sorted layout.
+
+    Two sub-panels per file: left = first 10k frames (≈100 s),
+    right = full train split (≈640 s). Shared colormap from the
+    [1, 99] percentile of the full trace.
+    """
+    del theta_gt_full  # unused in cell-type sort; kept in signature for parity
+
+    neuron_types_np = np.asarray(cx["neuron_types"], dtype=np.int64)
+    type_names = list(cx["type_names"])
+
+    # Descending type-index sort so highest type number ends up at top
+    # of the imshow (extent y0=N at top → first-row-of-data at top).
+    # Cell-type 0 (EPG) → bottom; cell-type max (ER6) → top.
+    order = np.argsort(-neuron_types_np, kind="stable")
+    nt_sorted = neuron_types_np[order]
+
+    V_s = voltage_short[:, order].T                             # (N, T_short)
+    V_f = voltage_full[:, order].T                              # (N, T_full)
+    N, T_short = V_s.shape
+    _, T_full  = V_f.shape
+    t_short = np.arange(T_short) * dt
+    t_full  = np.arange(T_full)  * dt
+
+    # Per-neuron z-score normalisation — each row centred on its own
+    # mean and scaled by its own std (computed on the full train split
+    # so the short and full panels share the same scale). This makes
+    # the colour show relative excursions rather than absolute voltage,
+    # so models with narrow dynamic ranges (the GNN variants) are not
+    # smeared into a single colour band by a global percentile clip.
+    mu = V_f.mean(axis=1, keepdims=True)
+    sd = V_f.std(axis=1,  keepdims=True) + 1e-8
+    V_s = (V_s - mu) / sd
+    V_f = (V_f - mu) / sd
+    vmax = 3.0  # ±3 z-scores → 99.7% of a Gaussian's mass
+
+    # Block boundaries (in row-index = sorted-position) + per-type centres.
+    bnd = np.where(np.diff(nt_sorted) != 0)[0] + 0.5
+    bounds = np.concatenate([[0.0], bnd, [float(N)]])
+    centres = (bounds[:-1] + bounds[1:]) / 2.0
+    tick_labels = [type_names[int(nt_sorted[int(np.floor(c))])] for c in centres]
+
+    fig, (ax_s, ax_f) = plt.subplots(
+        1, 2, figsize=(16, 7),
+        gridspec_kw=dict(wspace=0.10, width_ratios=[1.0, 4.0]),
+    )
+
+    for ax, V, t_axis, title in (
+        (ax_s, V_s, t_short, f"first {T_short} frames"),
+        (ax_f, V_f, t_full,  f"full train split ({T_full} frames)"),
+    ):
+        im = ax.imshow(
+            V, aspect="auto", interpolation="nearest",
+            cmap="RdBu_r", vmin=-vmax, vmax=vmax,
+            extent=(0.0, float(t_axis[-1]), float(N), 0.0),
+        )
+        for x in bnd:
+            ax.axhline(x, color="k", lw=0.3, alpha=0.5)
+        ax.set_xlabel("time (s)", fontsize=_LABEL_FS)
+        ax.set_title(title, fontsize=_LABEL_FS)
+        ax.tick_params(axis="x", labelsize=_TICK_FS)
+
+    ax_s.set_yticks(centres)
+    ax_s.set_yticklabels(tick_labels, fontsize=_TICK_FS)
+    ax_s.set_ylabel("neuron (sorted by cell type)", fontsize=_LABEL_FS)
+    ax_f.set_yticks([])
+
+    cb = fig.colorbar(im, ax=[ax_s, ax_f], fraction=0.018, pad=0.015)
+    cb.set_label(r"$(\hat h_i - \langle\hat h_i\rangle) / \mathrm{std}(\hat h_i)$",
+                 fontsize=_LABEL_FS)
+    cb.ax.tick_params(labelsize=_TICK_FS)
+
+    out = os.path.join(folder, "task_kinograph.png")
+    plt.savefig(out, dpi=120, bbox_inches="tight")
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved task kinograph "
+                f"(cell-type sort, per-neuron z-score): {out}")
+
+
+def _cx_voltage_sanity_matrix_plot(
+    *, folder: str,
+    W_con: np.ndarray, W_rec: np.ndarray,
+    neuron_types: np.ndarray, type_names: list,
+) -> None:
+    """Two-panel side-by-side: GT W_con (left) vs loaded model W_rec (right).
+
+    Mirrors the matrix-rendering style in `plot_cx._save_training_snapshot`:
+    z-scored over non-zero entries, clipped to ±3σ, RdBu_r colourmap, with
+    cell-type block boundaries and labels on both axes. Saved as
+    `task_sanity_matrix.png` in the dataset folder.
+    """
+    def _render(ax, fig_, M, title):
+        # M is [post, pre] (loader convention: J_effective[post, pre], with
+        # Dale enforced on COLS = pre). Display without transpose so the
+        # axes match the xlabel/ylabel below and Beiran fig 5d:
+        #   y = row of M = post, x = col of M = pre, Dale visible on cols.
+        J = M
+        J_arr = np.asarray(J, dtype=np.float32)
+        nz = J_arr[J_arr != 0]
+        if nz.size:
+            mu = float(nz.mean())
+            sd = float(nz.std() + 1e-12)
+        else:
+            mu, sd = 0.0, 1.0
+        Z = np.where(J_arr != 0, (J_arr - mu) / sd, 0.0)
+        z_max = 3.0
+        Z = np.clip(Z, -z_max, z_max)
+        im = ax.imshow(Z, cmap="RdBu_r", vmin=-z_max, vmax=z_max,
+                       aspect="equal", interpolation="nearest", origin="upper")
+        if neuron_types is not None and type_names is not None:
+            bounds, centres, labels = [0], [], []
+            cur_t, cur_start = int(neuron_types[0]), 0
+            for i, t in enumerate(neuron_types):
+                t = int(t)
+                if t != cur_t:
+                    bounds.append(i)
+                    centres.append((cur_start + i - 1) / 2.0)
+                    labels.append(type_names[cur_t])
+                    cur_t, cur_start = t, i
+            bounds.append(len(neuron_types))
+            centres.append((cur_start + len(neuron_types) - 1) / 2.0)
+            labels.append(type_names[cur_t])
+            for b in bounds[1:-1]:
+                ax.axhline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+                ax.axvline(b - 0.5, color="k", linewidth=0.4, alpha=0.5)
+            ax.set_xticks(centres)
+            ax.set_xticklabels(labels, fontsize=8, rotation=45, ha="right")
+            ax.set_yticks(centres)
+            ax.set_yticklabels(labels, fontsize=8)
+        ax.set_title(title, fontsize=_TITLE_FS)
+        ax.set_xlabel("presynaptic", fontsize=_LABEL_FS)
+        ax.set_ylabel("postsynaptic", fontsize=_LABEL_FS)
+        cb = fig_.colorbar(im, ax=ax, fraction=0.04, pad=0.02, shrink=0.8)
+        cb.set_label("z-score", fontsize=_LABEL_FS)
+        cb.ax.tick_params(labelsize=_TICK_FS - 1)
+
+    fig, (ax_gt, ax_lr) = plt.subplots(1, 2, figsize=(13, 6))
+    _render(ax_gt, fig, W_con, "GT W_con (z-scored, ±3σ)")
+    _render(ax_lr, fig, W_rec, "loaded W_rec (z-scored, ±3σ)")
+    plt.tight_layout()
+    out = os.path.join(folder, "task_sanity_matrix.png")
+    plt.savefig(out, dpi=120)
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved matrix sanity: {out}")
+
+
+def _cx_voltage_sanity_per_type_plot(
+    *, folder: str,
+    b: np.ndarray, W: np.ndarray,
+    edge_src: np.ndarray, edge_dst: np.ndarray,
+    neuron_types: np.ndarray, type_names: list,
+) -> None:
+    """Distribution of node bias `b` and edge weight `W`, grouped by cell type.
+
+    Three panels saved as `task_sanity_per_type.png`:
+      1. `b` violin per cell type (postsynaptic-bias distribution per type)
+      2. `W` violin per **presynaptic** type   (outgoing weight distribution)
+      3. `W` violin per **postsynaptic** type  (incoming weight distribution)
+    """
+    n_types = len(type_names)
+    src_types = neuron_types[edge_src]
+    dst_types = neuron_types[edge_dst]
+
+    def _gather(values: np.ndarray, group_ids: np.ndarray):
+        out_data, out_labels = [], []
+        for t in range(n_types):
+            v = values[group_ids == t]
+            if v.size > 0:
+                out_data.append(v)
+                out_labels.append(f"{type_names[t]}\n(n={v.size})")
+        return out_data, out_labels
+
+    def _violin(ax, data, labels, ylabel, title):
+        if not data:
+            ax.text(0.5, 0.5, "no data", ha="center", va="center",
+                    transform=ax.transAxes, fontsize=11, color="0.5")
+            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_title(title, fontsize=_TITLE_FS)
+            return
+        parts = ax.violinplot(data, showmeans=False, showmedians=True,
+                              showextrema=True)
+        for body in parts["bodies"]:
+            body.set_alpha(0.6)
+            body.set_facecolor("#4daf4a")
+            body.set_edgecolor("black")
+        for key in ("cbars", "cmins", "cmaxes", "cmedians"):
+            if key in parts:
+                parts[key].set_color("black")
+                parts[key].set_linewidth(0.8)
+        ax.set_xticks(range(1, len(labels) + 1))
+        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=_TICK_FS - 1)
+        ax.set_ylabel(ylabel, fontsize=_LABEL_FS)
+        ax.set_title(title, fontsize=_TITLE_FS)
+        ax.axhline(0, color="0.5", lw=0.5)
+        ax.tick_params(axis="y", labelsize=_TICK_FS)
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    b_data, b_labels = _gather(b, neuron_types)
+    _violin(axes[0], b_data, b_labels,
+            ylabel="b (recurrent bias)",
+            title="node bias b by cell type")
+
+    w_pre_data, w_pre_labels = _gather(W, src_types)
+    _violin(axes[1], w_pre_data, w_pre_labels,
+            ylabel="edge weight W",
+            title="W by presynaptic type")
+
+    w_post_data, w_post_labels = _gather(W, dst_types)
+    _violin(axes[2], w_post_data, w_post_labels,
+            ylabel="edge weight W",
+            title="W by postsynaptic type")
+
+    plt.tight_layout()
+    out = os.path.join(folder, "task_sanity_per_type.png")
+    plt.savefig(out, dpi=120)
+    plt.close(fig)
+    logger.info(f"[voltage_from_task/cx] saved per-type sanity: {out}")
