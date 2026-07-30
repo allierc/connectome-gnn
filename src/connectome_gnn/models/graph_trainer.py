@@ -122,6 +122,28 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info("training completed.")
 
 
+def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
+    """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
+
+    Mutates x.voltage[hidden_ids] in place.
+
+    Phase 1 (injection_active=False): hidden voltages are zero-silenced
+    (identical to the no-NGP baseline). NGP/SIREN still trains via the
+    anchor loss elsewhere in the step, which routes through the spatial
+    NGP position cache — normally primed inside forward_hidden, so it is
+    primed here instead (idempotent) to keep that path populated.
+
+    Phase 2 (injection_active=True): NGP/SIREN forward_hidden predicts the
+    hidden voltages directly, and gradients flow back through injection.
+    """
+    if model.NNR_hidden is not None and injection_active:
+        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+    else:
+        x.voltage[hidden_ids] = 0.0
+        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
+            model._ngp_cache_pos(x)
+
+
 def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision('high')
@@ -1008,17 +1030,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # The smooth absorption of the new input distribution at the
                 # phase 1→2 transition is handled by the LR-damping V-schedule
                 # on the GNN param groups, not by ramping injection magnitude.
+                # See _inject_hidden_voltage for the phase 1/2 branching.
                 if has_hidden_neurons:
-                    if model.NNR_hidden is not None and injection_active:
-                        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
-                    else:
-                        x.voltage[hidden_ids] = 0.0
-                        # Phase 1: forward_hidden is skipped, so the spatial NGP
-                        # position cache (normally primed there) stays empty —
-                        # but the anchor-voltage loss below still routes through
-                        # _ngp_query_spatial. Prime it here; it is idempotent.
-                        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
-                            model._ngp_cache_pos(x)
+                    _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
 
                 if tc.time_window > 0:
                     x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
