@@ -417,18 +417,32 @@ def run_batch_0(state: ExplorationState):
         )
 
     # Validate slot YAMLs are still parseable (Edit tool writes atomically, but
-    # confirm explicitly so we never submit broken jobs).
+    # confirm explicitly so we never submit broken jobs). If Claude corrupted
+    # a slot, auto-restore from source_config and keep going — the slot will
+    # run baseline (same as the seed config) for this batch, which is fine
+    # as a robustness sample.
     for slot, path in state.config_paths.items():
         try:
+            # YAML-syntax check first, then full pydantic-schema check so
+            # we catch Claude putting a field under the wrong block (e.g.
+            # graph_model.w_init_scale instead of training.w_init_scale).
             with open(path) as f:
                 yaml.safe_load(f)
+            NeuralGraphConfig.from_yaml(path)
         except Exception as e:
             print(
-                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
-                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
-                f"and re-run.\033[0m"
+                f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Auto-restoring from "
+                f"{state.source_config}; this slot will run baseline.\033[0m"
             )
-            sys.exit(1)
+            try:
+                shutil.copy2(state.source_config, path)
+            except Exception as exc:
+                print(
+                    f"\033[91mFATAL: failed to restore slot {slot} from "
+                    f"{state.source_config}: {exc}\033[0m"
+                )
+                sys.exit(1)
 
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:
@@ -504,10 +518,17 @@ def _check_causality(state: ExplorationState, batch: BatchInfo):
         'coeff_W_L1', 'coeff_W_L2', 'coeff_W_sign',
         'coeff_tau_L1', 'coeff_tau_L2', 'coeff_V_rest_L1', 'coeff_V_rest_L2',
         'w_init_mode', 'w_init_scale', 'dale_law',
+        # Task-trainer knobs (TaskRNN: drosophila_cx_pi + cortex_delaygo)
+        'noise_recurrent_level', 'grad_clip_W',
+        'coeff_cos_distance', 'coeff_norm_floor', 'kappa_norm_floor',
+        'coeff_tv_circular', 'coeff_rate_L2',
     ]
     COMPARE_GRAPH_KEYS = [
         'hidden_dim', 'hidden_dim_update', 'embedding_dim',
         'input_size', 'input_size_update', 'g_phi_positive',
+        # TaskRNN architecture knobs
+        'n_units', 'n_layers', 'MLP_activation', 'recurrent_activation',
+        'input_proj', 'output_proj',
     ]
     COMPARE_SIM_KEYS = ['noise_model_level']
 
@@ -957,6 +978,9 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
 
         conn_r2       = _p('connectivity_R2')
         conn_r2_vis   = _p('connectivity_R2_visible')
+        struct_r      = _p('W_structure_r')      # scale-free wiring Pearson (PRIMARY for cx_voltage)
+        zscore_r2     = _p('W_zscored_R2')       # structure R² (scale removed)
+        rollout_pear  = _p('rollout_pearson')    # autoregressive rollout Pearson (GUARD >=0.99)
         tau_r2        = _p('tau_R2')
         vrest_r2      = _p('V_rest_R2')
         hid_nnr_pear  = _p('hidden_nnr_pearson')
@@ -971,6 +995,14 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             if conn_r2_vis:
                 conn_str += f"({_color_metric(conn_r2_vis, 0.9, 0.5)})"
             parts.append(conn_str)
+        # Scale-free structure metrics — the meaningful "did we recover the wiring"
+        # numbers for cx_voltage (NSE conn is dragged down by the W<->g_phi scale gap).
+        if struct_r:
+            parts.append(f"r_struct={_color_metric(struct_r, 0.8, 0.5)}")
+        if zscore_r2:
+            parts.append(f"zR²={_color_metric(zscore_r2, 0.7, 0.4)}")
+        if rollout_pear:
+            parts.append(f"roll={_color_metric(rollout_pear, 0.99, 0.9)}")
         if vrest_r2:
             parts.append(f"Vr={_color_metric(vrest_r2, 0.9, 0.5)}")
         if tau_r2:
@@ -1279,18 +1311,31 @@ def run_claude_analysis(state: ExplorationState, batch: BatchInfo):
             f"previous-batch values; proceeding with re-test.\033[0m"
         )
 
-    # Validate slot YAMLs are still parseable.
+    # Validate slot YAMLs are still parseable. If Claude corrupted a slot,
+    # auto-restore from source_config and keep going (slot will run baseline
+    # for this batch — fine as a robustness sample).
     for slot, path in state.config_paths.items():
         try:
+            # YAML-syntax check first, then full pydantic-schema check so
+            # we catch Claude putting a field under the wrong block (e.g.
+            # graph_model.w_init_scale instead of training.w_init_scale).
             with open(path) as f:
                 yaml.safe_load(f)
+            NeuralGraphConfig.from_yaml(path)
         except Exception as e:
             print(
-                f"\033[91mFATAL: slot {slot} YAML at {path} no longer parses "
-                f"({type(e).__name__}: {e}). Restore from {state.source_config} "
-                f"and re-run.\033[0m"
+                f"\033[93mWARNING: slot {slot} YAML at {path} no longer parses "
+                f"({type(e).__name__}: {e}). Auto-restoring from "
+                f"{state.source_config}; this slot will run baseline.\033[0m"
             )
-            sys.exit(1)
+            try:
+                shutil.copy2(state.source_config, path)
+            except Exception as exc:
+                print(
+                    f"\033[91mFATAL: failed to restore slot {slot} from "
+                    f"{state.source_config}: {exc}\033[0m"
+                )
+                sys.exit(1)
 
     if output_text.strip():
         with open(state.reasoning_log_path, 'a') as f:

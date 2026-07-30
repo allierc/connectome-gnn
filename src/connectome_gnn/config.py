@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 
 # Python 3.10 compatibility (StrEnum added in 3.11)
@@ -127,6 +127,7 @@ class WInitMode(StrEnum):
     RANDN_SCALED = "randn_scaled"
     UNIFORM_SCALED = "uniform_scaled"
     ZEROS = "zeros"
+    W_CON = "w_con"  # CX task models: init recurrent param so W_rec == W_con
 
 class GPhiMode(StrEnum):
     MLP = "mlp"
@@ -272,6 +273,26 @@ class SimulationConfig(BaseModel):
     start_frame: int = 0
     seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
 
+    # Teacher-model voltage generation: when set, `data_generate` rolls out
+    # the TaskRNN described by this YAML over fresh task stimuli and saves
+    # the hidden-state trajectory as voltage.zarr (compatible with the
+    # standard data_generate_voltage output). Empty = use the conventional
+    # ODE-based / flyvis generators.
+    task_model_config_path: str = ""
+    # CX teacher-voltage variant only: list of cell-type tokens defining the
+    # opto-style input target. Accepted tokens: "PEN_a" / "PEN_b" (= L ∪ R
+    # subpops), specific subpop names ("PENa_L", "PENa_R", "PENb_L", "PENb_R"),
+    # or any entry of the hemibrain `type_names` list (e.g. "EPG", "Delta7").
+    # Only the resolved input rows of `stimulus.zarr` carry the drive; the
+    # rest are zeroed. None defaults to ["PEN_a", "PEN_b"] inside the CX
+    # variant of _generate_voltage_from_task_model.
+    input_cell_types: Optional[List[str]] = None
+
+    # GCaMP indicator used for the voltage->calcium observation model (registry
+    # name in connectome_gnn.models.gcamp, e.g. gcamp6f/6s/7f/8f/8m). Selects the
+    # rise/decay kinetics when rendering calcium from rolled-out voltage.
+    gcamp_kernel: str = "gcamp7f"
+
     model_id: str = "000"
     ensemble_id: str = "0000"
 
@@ -376,6 +397,13 @@ class SimulationConfig(BaseModel):
     connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
     connconstr_model: str = ""         # which model: drosophila_cx, larva, zebrafish
     connconstr_n_trials: int = 50      # number of stimulus trials (CX model)
+    # Drosophila CX input streams. "full" = Hulse Model A (EPG landmark cues +
+    # PEN_a angular velocity). "velocity_only" drops the landmark cues after
+    # cx_seed_frames so EPG activity comes from recurrence rather than injection;
+    # the seed window exists because the velocity drive is rotationally symmetric
+    # and cannot break symmetry to form a bump on its own.
+    cx_drive: str = "full"             # "full" | "velocity_only"
+    cx_seed_frames: int = 100          # landmark-cue seed window for velocity_only
     connconstr_use_pretrained: bool = True  # use pre-trained teacher params if available
 
     connectivity_file: str = ""
@@ -419,6 +447,26 @@ class SimulationConfig(BaseModel):
     repeat_short_sequence_factor: int = 1
     noisy_test_data: bool = False  # if True, test split uses the same noise levels as train; default keeps test deterministic
     derivative_smoothing_window: int = 1  # temporal smoothing window for noisy derivatives (1 = no smoothing)
+    # --- NeurIPS-2026 rebuttal: model-misspecification knobs (flyvis/graded ODE) ---
+    # All default to base behaviour; the flyvis Euler path is byte-identical when
+    # n_generation_substeps==1, finite_difference_target==False, adapt_g==0.
+    # Test 1 (Δt mismatch): integrate the flyvis ODE with M Euler substeps of
+    # h = delta_t / M per OBSERVED frame (finer than the fixed delta_t inference
+    # step), with process noise scaled by 1/sqrt(M) so the per-observation noise
+    # variance is unchanged. The observed cadence stays at delta_t.
+    n_generation_substeps: int = 1
+    # Test 1: store the target y as the OBSERVED one-step finite difference
+    # (v[t+delta_t] - v[t]) / delta_t instead of the analytic derivative pde(x_t),
+    # so the GNN/oracle is trained on what a delta_t observer can actually measure
+    # (curvature-biased when the true trajectory is integrated more finely).
+    finite_difference_target: bool = False
+    # Test 3 (unobserved adaptation current): add a slow per-neuron adaptation
+    # current -adapt_g * c_i to the flyvis ODE, with c_i integrated as
+    # dc_i/dt = (v_i - c_i) / adapt_tau (tau in ms). c_i is NEVER observed or
+    # written, so it is a latent variable outside the graph that violates the
+    # first-order-in-observables assumption. adapt_g==0 disables it entirely.
+    adapt_g: float = 0.0
+    adapt_tau_ms: float = 200.0
     calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
     calcium_num_compartments: int = 1
     calcium_down_sample: int = 1  # down-sample [Ca] time series by this factor
@@ -533,6 +581,107 @@ class GraphModelConfig(BaseModel):
     g_phi_positive: bool = False
 
     update_type: UpdateType = UpdateType.NONE
+
+    # TaskRNN: shape of W_in / W_out (Hulse path-integration model).
+    # "matrix" → learnable Linear (Hulse default). "mlp" → small MLP reusing
+    # `hidden_dim` and `n_layers` above.
+    input_proj: Literal["matrix", "mlp"] = "matrix"
+    output_proj: Literal["matrix", "mlp"] = "matrix"
+    # DrosophilaCxTaskRNN / DrosophilaCxTaskGNN: when True, the decoder W_out
+    # reads only from the 46 EPG neurons (rows 0..45 in the model's neuron
+    # ordering) instead of all 156. Matches Hulse 2021 nn_fig5_drosophilaCx_*.py
+    # (lines 574-577: wout[0:46, ...] non-zero, rest zero, train_wout=False).
+    # Here W_out stays learnable but its input is restricted to the 46 EPG
+    # firing rates, so the optimiser is forced to put the heading code in
+    # EPG cells (the biological prior). Default False keeps the legacy
+    # behaviour (all 156 neurons connected to the decoder).
+    output_from_epg_only: bool = False
+    # Zebrafish-specific counterpart of ``output_from_epg_only``: restricts
+    # the readout to the first ``n_epg = 443`` dIPN cells (IPNd* + IPNds*
+    # = the r1π HD ring per Petrucco 2023). Read by ``ZebrafishHdTaskRNN``;
+    # ignored by the drosophila models so fly yamls keep using the
+    # ``output_from_epg_only`` flag unchanged.
+    output_from_dipn_only: bool = False
+    # CortexTaskRNN: whether the readout sees the firing rate r = σ(h) (default,
+    # historical) or the raw subthreshold h (Yang 2019 convention). False matches
+    # the paper's VanillaLeakyRNN exactly.
+    readout_uses_sigma: bool = True
+    # TaskGNN-only: when True, the effective per-edge weight is `|w| · sign_GT`
+    # (Dale-conformant; only magnitudes are learned). When False, the per-edge
+    # weight is learned with free sign — the GT connectome topology is still
+    # enforced via the mask, but Dale's law is relaxed. DrosophilaCxTaskRNN uses
+    # `wrec_param` below instead.
+    lock_edge_signs: bool = True
+    # NeuralGNN voltage-recovery path (Branch 0): hard Eq-10 sign-lock against
+    # the GT connectome. When True, the per-edge effective weight in the
+    # message is `|W| · sign_GT` (sign from ode_params.W, set by data_train_gnn
+    # after model build) — only magnitudes are learned. Distinct from the
+    # emergent `coeff_W_sign`/`dale_law` (which pick each neuron's own sign,
+    # not the connectome's). Default False keeps every existing neural_gnn
+    # config byte-equivalent.
+    lock_edge_signs_from_connectome: bool = False
+    # DrosophilaCxTaskRNN: recurrent-matrix parameterisation.
+    #   "edge_magnitude" — W_rec = |S| ⊙ sign(W_con); sparsity locked to W_con,
+    #                      per-edge sign locked to connectome (Dale).
+    #   "edge_free"      — W_rec = S ⊙ mask(W_con); sparsity locked to W_con,
+    #                      per-edge sign free.
+    #   "column_dale"    — W_rec = |S| ⊙ col_sign[None,:]; dense N×N, the only
+    #                      constraint is that every entry in pre-column j shares
+    #                      sign(W_con[:, j].sum()). Diagonal still zero.
+    wrec_param: Literal["edge_magnitude", "edge_free", "column_dale"] = "edge_magnitude"
+    # TaskRNN: anatomical gate on the velocity column of W_in.
+    # "pen_only"    — zero W_in[:, 0] outside PENa/PENb rows; per-unit
+    #                 weights stay free.
+    # "pen_4scalar" — strict Hulse 2025: 4 learnable scalars (L/R × PENa/PENb)
+    #                 broadcast onto their subpopulations; sign initialised
+    #                 opposite for L vs R.
+    # "none"        — W_in fully free (default).
+    velocity_gate: Literal["none", "pen_only", "pen_4scalar",
+                           "pen_artr_ptipn1",
+                           "pen_artr_ptipn1_propriocep",
+                           "pen_pfn",
+                           "pen_propriocep",
+                           "pen_propriocep_swap"] = "none"
+    # Sign-lock the bilateral velocity-gate scalars so the left port is ≤0 and
+    # the right port is ≥0 (effective = ∓softplus(raw), magnitude free). This
+    # forces the L/R afferents to be driven in antiphase — matching the
+    # recorded ARTR L/R anti-correlation — instead of letting a task-only
+    # model collapse to a degenerate same-sign (symmetric) gate. True by
+    # default; set false for the unconstrained legacy gate.
+    sign_constrain_gate: bool = True
+
+    # TaskRNN (cortex/free-W mode): explicit recurrent population size + I/O
+    # dimensions. For sign_locked (CX) mode these are derived from the
+    # connectome and these fields are ignored.
+    n_units: int = 0
+    n_input: int = 0
+    n_output: int = 0
+    # W parameterisation. "sign_locked" → W_rec = |S| ⊙ W_con (CX, Hulse).
+    # "free" → W_rec is a plain (N, N) Parameter (cortex/Yang, no biological
+    # prior, no Dale).
+    W_param: Literal["sign_locked", "free"] = "sign_locked"
+    # Recurrent activation σ in r = σ(h). "sigmoid" is the Hulse paper
+    # default; "relu" / "softplus" are Yang's defaults for cortex tasks.
+    # "tanh"/"leaky_relu" allow a signed rate code (σ(h) not constrained ≥0).
+    recurrent_activation: Literal["sigmoid", "relu", "tanh", "softplus", "leaky_relu"] = "sigmoid"
+    # Activation checkpointing over the GNN rollout: recompute the per-step
+    # (B, E, hidden) edge messages in backward instead of storing them for
+    # every one of the up-to-800 rollout steps. Bounds the GNN's rollout
+    # activation memory to ~O(1) in T so it fits a single GPU (without it the
+    # message-passing model OOMs by T≈100 on a 22 GB L4). Used only by the
+    # GNN task models (DrosophilaCxTaskGNN); the dense RNN ignores it.
+    gnn_grad_checkpoint: bool = True
+    # Optional image-derived binary mask on W_rec — a fun structural prior
+    # to test capacity / sparsity trade-offs. The image is resized to N×N
+    # and thresholded at its median to produce a 0/1 mask; W_rec is
+    # multiplied by this mask, so dark pixels become forbidden connections.
+    # Path is absolute or resolved via connectome_gnn.utils.config_path().
+    w_mask_image_path: str = ""
+    # Dynamics constants for TaskRNN's Euler integration. CX (sign_locked
+    # mode) overrides these from task.path_integration; cortex (free mode)
+    # reads them from here directly. Defaults match the Hulse paper.
+    tau: float = 0.1
+    dt: float = 0.01
 
     MLP_activation: MLPActivation = MLPActivation.RELU
     zero_init_output: bool = False  # zero-init final layer so model starts predicting dvdt=0
@@ -711,6 +860,119 @@ class PlottingConfig(BaseModel):
     norm_x_start: float | None = None  # None = auto (0.85 * xnorm * 4 for training, 0.8 * xnorm for best)
     norm_x_stop: float | None = None   # None = auto (xnorm * 4 for training, xnorm for best)
 
+    # --- 3D anatomy-voltage snapshot --------------------------------------
+    # Consumed by connectome_gnn.plot_anatomy_voltage.render_*_anatomy_voltage,
+    # invoked from data_test when GNN_Main.py is launched with
+    # `--anatomy_voltage`. The render lives in `<log_dir>/tmp_recons/`
+    # alongside the per-trial trace plots. Defaults match the user's
+    # known-good settings for both drosophila CX (`--stride 5 --z_lo 0
+    # --z_hi 15 --alpha 1.0`) and zebrafish HD (`--stride 5 --z_lo 0
+    # --z_hi 15`). Per-yaml overrides are the expected customisation
+    # path.
+    anatomy_voltage_enabled: bool = False
+    """yaml-side toggle; when True the snapshot is rendered even without
+    the --anatomy_voltage CLI flag. Defaults to False."""
+    anatomy_voltage_pattern: str = "const"
+    """Probe rollout pattern. One of:
+        ``"const"``     constant-omega sweep (default)
+        ``"swim"``      stochastic swim-integration stimulus (zebrafish)
+        ``"swim_left"`` periodic left-impulse train (zebrafish)
+        ``"swim_right"`` periodic right-impulse train (zebrafish)
+        ``"ou"``        OU velocity stream (drosophila Hulse defaults)
+    Helpers live in :mod:`connectome_gnn.plot_anatomy_voltage`."""
+    anatomy_voltage_n_steps: int = 2000
+    """Length of the probe rollout (frames)."""
+    anatomy_voltage_stride: int = 0
+    """When 0, render a single PNG at ``anatomy_voltage_frame_idx``.
+    When > 0, render every Nth frame as an animation strip into a
+    per-type sub-folder ``tmp_recons/<types>/frame_NNNN.png`` (``<types>``
+    = the ``anatomy_voltage_types`` whitelist joined by ``_``, or ``all``
+    when empty), and assemble ``tmp_recons/<types>.mp4`` from the cropped
+    frames."""
+    anatomy_voltage_frame_idx: int = -1
+    """Single-snapshot mode: which timestep of h_traj to visualise (-1 = last)."""
+    anatomy_voltage_trial_idx: int = 0
+    """Unused when ``anatomy_voltage_pattern`` is set (the probe rollout
+    replaces the random test trial). Kept for back-compat; ignored by the
+    v2 render entry point."""
+    anatomy_voltage_omega_deg: float = 60.0
+    """Constant-omega angular velocity (deg/s) for the ``const`` pattern."""
+    anatomy_voltage_theta0_rad: float = 0.0
+    """Initial bump heading (rad). Used by the const + swim_*  patterns."""
+    anatomy_voltage_swim_interval_s: float = 1.0
+    """Inter-impulse interval (s) for the swim_left/swim_right patterns,
+    and the mean Poisson period (1/swim_rate_hz) for ``swim``. Pass 0
+    for a single-shot impulse (swim_left/right)."""
+    anatomy_voltage_swim_magnitude_rad: float = 0.393
+    """Per-impulse magnitude (rad) for the swim_left/swim_right
+    patterns. Default π/8 ≈ 22.5° per turn (half the Petrucco median)."""
+    anatomy_voltage_swim_t_event_s: float = 0.0
+    """Time of the first deterministic impulse (s) for swim_left/right."""
+    anatomy_voltage_seed: int = 0
+    """RNG seed for stochastic patterns (``swim`` and ``ou``)."""
+    anatomy_voltage_warmup_s: float = 10.0
+    """Zero-ω warmup (s) prepended to the ``zapbench_rotation`` stimulus so the
+    bump settles; discarded after the rollout. 0 = no warmup."""
+    anatomy_voltage_zapbench_connectome: str = ""
+    """``zapbench_rotation`` only: connectome dir holding functional/
+    rotation_heading.npz (the cached 45°/s heading). Empty -> the packaged
+    figures/zebrafish/zebrafish_connectome_HD_IPN12 default."""
+    anatomy_voltage_zapbench_fishfuncem_data: str = ""
+    """``zapbench_rotation`` only: fishFuncEM data dir (onsets/stim) used to
+    (re)build the heading cache. Empty -> packaged papers/fishFuncEM/data."""
+    anatomy_voltage_elev: float = 90.0
+    """Camera elevation for the 3D->2D projection. Default 90.0 = dorsal
+    view (matches the zebrafish `--elev_top` default in
+    fig_zebrafish_anatomy_3d_voltage_anim.py). Drosophila CX yamls
+    override with -7.6 (the Hulse 2025 paper view used by
+    fig_cx_anatomy_3d_voltage_anim.py --elev)."""
+    anatomy_voltage_azim: float = -85.5
+    """Camera azimuth. Default -85.5 = dorsal view. Drosophila CX yamls
+    override with 86.6."""
+    anatomy_voltage_z_lo: float = 0.0
+    """z-score lower threshold (only z > z_lo lights up)."""
+    anatomy_voltage_z_hi: float = 15.0
+    """z-score saturation point (alpha = 1 at z >= z_hi)."""
+    anatomy_voltage_alpha: float = 1.0
+    """Global multiplier on per-segment green alpha."""
+    anatomy_voltage_downsample: int = 10
+    """SWC downsample factor for the skeleton lines (larger = sparser)."""
+    anatomy_voltage_bg: str = "black"
+    """Figure background: 'black' or 'white'."""
+    anatomy_voltage_show_base: bool = True
+    """When True, paint the dark-grey base skeleton beneath the green
+    lit-segment overlay (matches the new -o test --anatomy_voltage
+    default). When False, the base is dropped (matches the standalone
+    ``fig_zebrafish_anatomy_3d_voltage_anim.py`` dorsal panel, which
+    uses ``show_base=False`` so ROI pixel-sampling isn't biased by the
+    static ink)."""
+    anatomy_voltage_show_icon: bool = False
+    """When True, draw a small fish (zebrafish) or fly (drosophila)
+    silhouette in the top-right corner of every frame, oriented at the
+    current heading ``theta_hd[t]``. Mirrors the standalone scripts'
+    icon overlay. Default False."""
+    anatomy_voltage_types: list[str] = []
+    """Cell-type whitelist for the anatomy-voltage snapshot. Empty list
+    = plot every neuron (the default). When non-empty, only neurons
+    whose ``circuit.type_names[circuit.neuron_types[i]]`` is in this
+    list contribute skeletons. Useful for showing just the bump pool
+    (e.g. ``["EPG"]`` for fly or
+    ``["IPNd13B","IPNd13A","IPNds13A","IPNds13B","IPN12_a","IPN12_b"]``
+    for fish) without the surrounding afferents."""
+    anatomy_voltage_fps: int = 20
+    """Playback frame-rate for the mp4 assembled from the frame sequence
+    (``stride > 0``). The render writes frames to
+    ``tmp_recons/<types>/frame_NNNN.png`` and a movie
+    ``tmp_recons/<types>.mp4`` at this fps."""
+    anatomy_voltage_kinograph: bool = False
+    """When True, also render a companion *sliding kinograph* movie next to
+    the anatomy movie: a (neuron x time) z-scored heatmap of the same
+    probe rollout, rows sorted by peak time, with a vertical time-cursor
+    that slides across in lock-step with the anatomy frames (same
+    ``stride`` / ``fps``). Written to
+    ``tmp_recons/<types>_kino/frame_NNNN.png`` + ``tmp_recons/<types>_kino.mp4``.
+    Toggle on the CLI with ``--anatomy_voltage_kinograph``."""
+
 
 class TrainingConfig(BaseModel):
     # allow: LLM_code agents introduce new coeff_<name> keys per block; they
@@ -799,8 +1061,27 @@ class TrainingConfig(BaseModel):
 
     lr: float = 0.001
     lr_embedding: float = 0.001
+    # Swim/CX-task GNN trainer only: when True, the per-neuron embedding ``a``
+    # is pulled out of the schedule-driven ``w_rec`` param group into its own
+    # constant-lr ``embedding`` group at ``lr_embedding`` (so the embedding can
+    # be driven faster/slower than the recurrent weights — useful when the
+    # cluster is meant to move freely, e.g. coeff_embedding_cluster=0). When
+    # False (default) ``a`` stays in ``w_rec`` exactly as before, so existing
+    # configs are byte-for-byte unchanged.
+    embedding_separate_lr: bool = False
     lr_update: float = 0.0
     lr_W: float = 0.0001
+    # CX task trainer (_data_train_drosophila_cx_task): separate LR for the recurrent-
+    # core params (S in DrosophilaCxTaskRNN; W + a + g_phi + f_theta in DrosophilaCxTaskGNN).
+    # When set, `lr_schedule` drives THIS group only (per-epoch trajectory of
+    # the recurrent core); when None, the recurrent core starts at `lr` and is
+    # still the group `lr_schedule` drives. Schedule never touches the other
+    # groups (lr_W_ED and `lr`-biases stay constant).
+    lr_W_rec: Optional[float] = None
+    # Constant LR for encoder/decoder params: W_in, W_out, MLP variants
+    # (_W_in_mlp.*, _W_out_mlp.*), and velocity-gate scalars (v_pena_l/r,
+    # v_penb_l/r). Falls back to `lr` when None.
+    lr_W_ED: Optional[float] = None
 
     lr_missing_activity: float = 0.0001
     lr_NNR_f_start: float = 0.0
@@ -837,8 +1118,15 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights
 
     # -- g_phi (edge message) regularizers --
-    coeff_g_phi_diff: float = 0  # Variance penalty on g_phi output across edges
+    coeff_g_phi_diff: float = 0  # Positive-monotonicity prior on ∂g_phi/∂v (forces g_phi non-decreasing in presynaptic state — Dale-conformant when g_phi_positive=False)
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
+    # g_phi_norm anchoring target — pins g_phi(2*xnorm)^2 to resolve the W<->g_phi
+    # scale degeneracy (the gain can float between W and g_phi, leaving W under-
+    # scaled). "auto": legacy trainer_type behaviour (1 for signal, 2*xnorm for
+    # flyvis). "unit": anchor to 1 (forces g_phi small so W carries the scale —
+    # use this when recovered W is under-scaled, e.g. drosophila_cx_voltage).
+    # "xnorm": anchor to 2*xnorm.
+    g_phi_norm_target: str = "auto"
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights
@@ -858,6 +1146,113 @@ class TrainingConfig(BaseModel):
     coeff_TV_norm: float = 0  # Total variation norm on predictions
     coeff_missing_activity: float = 0  # Penalty for missing activity patterns
     coeff_model_a: float = 0  # Regularizer on embedding a
+
+    # -- TaskRNN (path-integration) regularizers (Hulse Eqs. 10, 11 + circular TV) --
+    coeff_cos_distance: float = 0.0    # cos-distance per (post, pre) type-pair block
+    coeff_norm_floor:   float = 0.0    # soft floor on mean |W| per type-pair block
+    kappa_norm_floor:   float = 0.05   # floor target for norm-floor reg
+    coeff_tv_circular:  float = 0.0    # circular TV on EPG ring firing rates
+    snapshots_per_epoch: int = 5       # cadence of matrix+kinograph + pi_acc/fwhm eval
+    # Per-epoch trial-length curriculum (Hulse Methods). Each epoch slices the
+    # first n_steps_schedule[epoch] frames from the on-disk T=1000 trials.
+    # Padded with the last value if n_epochs > len(schedule). Empty list → use
+    # the full T from the dataset throughout (no curriculum).
+    n_steps_schedule: List[int] = Field(default_factory=lambda: [100, 250, 500, 1000, 1000])
+    # Soft-curriculum tail weight. When > 0, the PI trainer rolls forward to
+    # the full T (not n_steps_schedule[epoch]) and weights the per-frame MSE
+    # by 1.0 for t < n_steps_schedule[epoch] and `coeff_tail_loss` for
+    # t >= n_steps_schedule[epoch]. Default 0.0 keeps the hard-truncation
+    # behaviour. Typical value 0.1 prevents late-time activity collapse by
+    # supplying a small gradient on the post-horizon segment.
+    coeff_tail_loss: float = 0.0
+    # --- place-cell task (target_kind='place_cells', model drosophila_cx_pi_place) ---
+    # Weight on the place-cell distribution loss KL(q‖softmax(place_logits))
+    # and on the auxiliary population-vector position decode
+    # ‖Σ_k p̂_k c_k − (x,y)‖². Heading+distance keep their unit-weight MSE.
+    coeff_place: float = 1.0
+    coeff_pos: float = 1.0
+    # Net1↔Net2 integrator-consistency weight: penalises the per-step mismatch
+    # between Net2's decoded position speed ‖Δ(x̂,ŷ)‖ and Net1's decoded
+    # forward-distance speed |Δd̂| (both = |v_fwd|·dt). 0 = off. Couples the two
+    # integrators so Net1's distance can't run away from Net2's position.
+    coeff_consistency: float = 0.0
+    # Net1 warm-up: for the first ``place_warmup_epochs`` epochs the place loss
+    # (KL + position decode) is switched off (coeffs forced to 0), so only the
+    # heading+distance MSE trains — Net1's compass converges before Net2 has to
+    # read it. 0 = no warm-up (place loss on from step 1). Net2 still runs but
+    # receives no gradient during warm-up.
+    place_warmup_epochs: int = 0
+    # Path-integration anchor: at t=0 seed Net2's place-cell population with the
+    # Gaussian place-field code of the true start position (σ = place_sigma),
+    # then let Net2 integrate velocity from there. Trajectories start at random
+    # points in the arena, so absolute position is unobservable from the
+    # velocity drive alone — this anchor supplies the one unrecoverable piece
+    # (where the trial started), exactly as standard PI models do (Banino 2018,
+    # Cueva & Wei 2018). False = no anchor (legacy behaviour). Eval/test/MP4
+    # honour the same flag via the model so train/eval stay consistent.
+    place_anchor: bool = False
+    # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
+    # Number of real-calcium trials (dataset B, produced by
+    # generators/make_calcium_dataset.py) appended to each task batch. 0
+    # disables the whole observation branch — byte-equal to task-only training.
+    # This is the single on/off flag (`use_calcium = calcium_batch_size > 0`).
+    calcium_batch_size: int = 0
+    # Dataset-B name (a TaskTrials dir with an extra calcium.zarr +
+    # calcium_mapping.pt). Empty → reuse the task `dataset`. Unused when
+    # calcium_batch_size == 0.
+    calcium_dataset: str = ""
+    # Scale of the scale-invariant calcium observation loss relative to the
+    # heading MSE (the first loss term). The voltage→calcium model is chosen by
+    # `simulation.gcamp_kernel`.
+    coeff_observation: float = 0.0
+    # Which shared observed neurons the observation loss supervises:
+    #   'all'              — every observed neuron mapped into the model
+    #                        (bump-pool + afferent RIPN/pt-IPN). Default.
+    #   'exclude_afferent' — drop the input/afferent neurons (the circuit's
+    #                        afferent_subpop_ix: RIPN + pt-IPN) and supervise
+    #                        only the recurrent bump-pool, so the calcium loss
+    #                        constrains the network's internal dynamics rather
+    #                        than the externally-driven inputs.
+    observation_neurons: str = "all"
+    # Task mode for the swim-integration task — selects which sub-task the
+    # network is trained on and projects the 4-ch / 3-col on-disk superset
+    # onto the matching input / target sub-channels:
+    #   ['rotation']                — angular only.    in=[ω,cosθ0,sinθ0]  (3)
+    #                                                  out=[cosθ,sinθ]    (2)
+    #   ['translation']             — displacement.   in=[v_fwd]          (1)
+    #                                                  out=[ξ]            (1)
+    #   ['rotation','translation']  — both.            in=[ω,v_fwd,cos,sin] (4)
+    #                                                  out=[cos,sin,ξ]    (3)
+    # graph_model.n_input / n_output auto-derive from this when not explicitly
+    # set in the yaml. Legacy 3-ch on-disk datasets pass through unchanged
+    # (the slicing is gated on the dataset's 4-ch input width).
+    task_targets: List[str] = Field(default_factory=lambda: ['rotation'])
+    # Heading-bin ablation. When False (default): standard cos/sin readout
+    # and (cos θ₀, sin θ₀) input cue. When True: replace BOTH with a
+    # K-bin one-hot representation — input cue becomes a one-hot bump
+    # over `n_heading_bins` channels at t=0, output is K-bin logits trained
+    # with cross-entropy. Purpose: remove the circular geometry of the
+    # cos/sin target/cue from the supervision so the recurrent code is not
+    # pushed toward a sinusoidal embedding of θ. The on-disk dataset is
+    # untouched (cos/sin format); conversion happens at training time and
+    # in the rollout helpers. Affects rotation-bearing task_targets only;
+    # downstream targets (ξ, x, y) pass through unchanged.
+    use_heading_bins: bool = False
+    n_heading_bins: int = 64
+    # Per-epoch learning-rate schedule (Hulse). Empty list → constant `lr`.
+    # Padded with the last value if n_epochs > len(schedule).
+    lr_schedule: List[float] = Field(default_factory=lambda: [5e-3, 1e-3, 5e-4, 2e-4, 1e-4])
+    # PI trainer only: per-epoch lr trajectory for the w_rec group. Cortex
+    # has a single param group and uses `lr_schedule` above. This field is
+    # the unambiguous name for the three-group PI setup.
+    lr_W_rec_schedule: List[float] = Field(default_factory=list)
+    # TaskRNN: stddev of Gaussian noise added to the hidden state at
+    # every Euler step during training (flyvis-style). 0 → off (Hulse default).
+    # Try {0, 1e-3, 1e-2, 5e-2} — small noise smooths the long-T BPTT
+    # landscape and is the key trick used by flyvis for stable recurrent
+    # training. Noise is gated by `self.training`; eval / snapshot rollouts
+    # are deterministic.
+    noise_recurrent_level: float = 0.0
     coeff_model_b: float = 0  # Regularizer on bias b
     coeff_embedding_cluster: float = 0.0  # pull same-cell-type embeddings toward their per-type centroid (L2)
 
@@ -870,20 +1265,6 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_centering: float = 0.0   # Weight of centering loss (0 = disabled)
     f_theta_centering_warmup_fraction: float = 0.3   # Fraction of iters before activation
     f_theta_centering_rampup_iters: int = 200        # Linear ramp-up after warmup
-
-    # -- SPEND-style Noise2Noise add-ons (graph_trainer_spend.py) --
-    # Three N2N variants for measurement-noise data; consumed by data_train_spend.
-    # Cite: https://github.com/buchenglab/SPEND  (Ding et al. 2025, Newton 1, 100195)
-    coeff_spend_replay: float = 0.0          # Add-on #3 — stimulus-replay N2N weight (synth two noise seeds)
-    coeff_spend_time: float = 0.0            # Add-on #1 — time-permutation N2N weight (even/odd frames)
-    coeff_spend_typed: float = 0.0           # Add-on #2 — typed-equivariance loss (same-type neuron pairs)
-    spend_load_clean: bool = False           # if True, load with measurement_noise_level=0 then synth noise inline
-    spend_replay_noise_seed_a: int = 0       # RNG seed for first noise realisation
-    spend_replay_noise_seed_b: int = 1       # RNG seed for second noise realisation (must differ from a)
-    spend_time_window: int = 16              # frames per time-permutation N2N window
-    spend_smoother_hidden: int = 32          # 1D-conv smoother hidden channels
-    spend_smoother_lr: float = 1.0e-3        # separate LR for smoother param group
-    spend_typed_max_pos_dist: float = 5.0    # max retinotopic position distance for typed-pair construction
 
     g_phi_mode: GPhiMode = GPhiMode.MLP  # mlp=learned MLP, tanh=fixed tanh(u_j), identity=fixed u_j
     w_optimizer_type: WOptimizerType = WOptimizerType.ADAM  # adam (default) or sgd (SGD with momentum)
@@ -935,6 +1316,8 @@ class TrainingConfig(BaseModel):
     w_init_scale: float = 1.0  # scaling factor for 'randn_scaled' mode
     coeff_W_L1_proximal: float = 0.0  # proximal L1 soft-thresholding on W after optimizer step, 0 = disabled
     dale_law: bool = False  # enforce Dale's law: force each column of W to a consistent sign, 3 times per epoch
+    freeze_known_ode_gain: bool = False  # drosophila_cx known-ODE: hold the per-neuron gain g fixed, so W is not free up to a per-source scale
+    freeze_known_ode_bias: bool = False  # drosophila_cx known-ODE: hold the per-neuron bias b fixed; in the softplus tail b is a second per-source gain
 
     alternate_training: bool = False  # two-stage training: joint warmup then V_rest focus
     alternate_joint_ratio: float = 0.4  # fraction of total iterations for joint phase (all components at full LR)
@@ -981,6 +1364,394 @@ class TrainingConfig(BaseModel):
 
 
 
+# ---------------------------------------------------------------------------
+# Task-data generation (input stimulus + target output). Three task families:
+#   - path_integration: Hulse heading-direction estimation
+#   - optical_flow: video-driven flow targets
+#   - cortex: Yang et al. 2019 multitask cognitive battery, ported directly
+#             from gyyang/multitask (see generators/cortex_task.py)
+# ---------------------------------------------------------------------------
+
+
+class InputPerturbation(BaseModel):
+    """Stochastic decorrelation signal added to task-input channels.
+
+    Wraps the existing OptoWaveform schema (kind/amplitude/frames_on/
+    noise_level/...) and adds a channel mask. Channels not in the mask are
+    untouched — critical for PI where channels 1,2 carry the initial heading
+    only and perturbing them destroys the IC semantics.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    waveform: OptoWaveform
+    channel_mask: Optional[List[int]] = None  # None = all channels
+
+
+class PathIntegrationTaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test: int
+    n_steps: int = 100              # T per trial (Hulse default)
+    dt: float = 0.01                # seconds (Hulse default)
+    seed: int = 42
+
+    tau_corr: float = 0.12
+    sigma_omega_deg: float = 40.0
+    stop_fraction: float = 0.20
+    stop_mean_s: float = 2.0
+    stop_max_s: float = 8.0
+
+    device: Literal["cpu", "cuda", "auto"] = "cpu"
+    # Additive Gaussian noise σ on the observed omega channel of the
+    # stimulus. True heading (theta_hd / target_y) is computed from the
+    # clean omega — only the network's input is corrupted. 0 = no noise.
+    omega_noise_level: float = 0.0
+
+
+class SwimIntegrationTaskConfig(BaseModel):
+    """Larval-zebrafish swim-impulse heading-integration task.
+
+    Companion of ``PathIntegrationTaskConfig`` for the dIPN HD-ring port
+    (see ``docs/zebrafish.tex``). Where the drosophila PI generator drives
+    the heading with a continuous OU angular-velocity stream, this generator
+    drives it with a sparse Poisson sequence of typed swim events. Each
+    event applies a finite-duration boxcar to a discrete angular-velocity
+    channel and integrates to heading exactly as in PI; consumers see the
+    same TaskTrials/zarr layout, so the trainer and the readout are
+    unchanged.
+
+    Four swim categories are sampled per onset, mirroring the larval
+    zebrafish behavioural taxonomy (Petrucco et al.\\ 2023 Fig.\\ 3a,c):
+
+      left      - CCW turn,  signed Δθ = +phase_impulse_mean_rad
+      right     - CW turn,   signed Δθ = -phase_impulse_mean_rad
+      forward   - propulsion, Δθ ≈ 0 (no net heading rotation)
+      backward  - escape / large turn-around,
+                  |Δθ| ≈ backward_phase_mean_rad (~π by default)
+
+    Category proportions are configurable via the four ``*_fraction`` fields
+    and must sum to 1. The boxcar duration ``swim_duration_s`` discretises
+    each impulse over L = swim_duration_s / dt frames so heading integrates
+    smoothly rather than via a Dirac.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test:  int
+    n_steps: int = 1000             # T per trial; ~10s at dt=0.01
+    dt: float = 0.01                # seconds
+    seed: int = 42
+
+    # Swim event statistics
+    swim_rate_hz: float = 0.5       # mean Poisson rate of swim onsets
+    swim_duration_s: float = 0.3    # boxcar width per swim event
+
+    # Phase-impulse magnitude per swim event (rad). Petrucco Fig 3c reports
+    # median 0.83 rad, Q1=0.49, Q3=1.28 over n=31 fish, so the default
+    # mean/std target that envelope on a lognormal in Δθ.
+    phase_impulse_mean_rad: float = 0.785       # ~π/4
+    phase_impulse_std_rad:  float = 0.40
+    # Backward-swim mean phase (rad). Large turn-around / escape; ~π.
+    backward_phase_mean_rad: float = 3.14
+    backward_phase_std_rad:  float = 0.30
+
+    # Category proportions; must sum to 1.
+    left_fraction:     float = 0.40
+    right_fraction:    float = 0.40
+    forward_fraction:  float = 0.15
+    backward_fraction: float = 0.05
+
+    # Additive Gaussian σ on the observed ω channel of the stimulus (deg/s).
+    # True heading is computed from the clean ω — only the network input is
+    # corrupted. 0 = no noise. Mirrors PathIntegrationTaskConfig.
+    omega_noise_level: float = 0.0
+
+    # --- Translational (forward/backward) drive ---------------------------
+    # The dataset ALWAYS writes the complete superset: forward/backward swims
+    # drive a translational velocity channel v_fwd that integrates to a
+    # displacement target ξ = ∫v_fwd·dt, in parallel to the rotational ω→heading
+    # (forward = +v_fwd, backward = −v_fwd). The input is 4-channel
+    # [ω, v_fwd, cosθ0·δ, sinθ0·δ] and the target is 3-column [cosθ, sinθ, ξ].
+    # v_fwd is a drive, ξ its readout — never both. WHICH target(s) are actually
+    # supervised (translation, rotation, or both) is a TRAINER choice, not a
+    # data choice — the data carries everything.
+    forward_vel_mean: float = 1.0   # mean |v_fwd| per forward/backward event (units/s)
+    forward_vel_std:  float = 0.40
+
+    # Leaky-integrator time constant for the displacement target ξ. None (or
+    # ≤ 0) → perfect integrator ξ = ∫ v_fwd dt (the default, byte-identical
+    # to the original generator). A finite value τ > 0 replaces cumsum with
+    # the leaky recurrence
+    #     ξ(t+Δt) = (1 − Δt/τ) ξ(t) + v_fwd(t) Δt,   ξ(0)=0,
+    # i.e. dξ/dt = −ξ/τ + v_fwd. Steady-state for constant v_fwd is τ·v_fwd
+    # so the target is bounded and the loss no longer grows with curriculum
+    # T. Biologically defensible — real neural integrators leak; the
+    # quantity then tracks "recent forward swim vigour" rather than
+    # absolute displacement. Use a new dataset name when generating with
+    # a non-None τ so the on-disk recipe stays self-describing
+    # (CLAUDE.md: a new variant = a new dataset name).
+    xi_tau_s: Optional[float] = None
+
+    # Target representation written by the generator:
+    #   "scalar_xi"  (default) — 3-col target [cosθ, sinθ, ξ]. ξ is the
+    #                            scalar forward-axis displacement
+    #                            ξ = ∫ v_fwd dt (or its leaky variant via
+    #                            xi_tau_s). Heading is supervised separately.
+    #   "position_2d"         — 4-col target [cosθ, sinθ, x, y]. The fish
+    #                            actually moves in 2D: forward swim
+    #                            distance is projected through the
+    #                            current heading,
+    #                                dx/dt = v_fwd · cosθ
+    #                                dy/dt = v_fwd · sinθ
+    #                            so position integration is COUPLED to
+    #                            heading — the network must internally
+    #                            maintain θ to predict (x, y) at all.
+    #                            This is "true" path integration vs the
+    #                            scalar_xi sub-task which is the
+    #                            forward-axis projection.
+    # The two recipes write different on-disk target shapes, so they must
+    # live under separate dataset names — the trainer dispatches on
+    # u_train.shape / y_train.shape in concert with training.task_targets.
+    #   "place_cells"         — head-direction + distance + PLACE-CELL task.
+    #                            The agent forages a bounded square arena
+    #                            [-arena_half, +arena_half]² with REFLECTING
+    #                            walls (modelled as a stop-and-turn: forward
+    #                            motion freezes and the heading rotates to the
+    #                            specular-reflected angle over one swim-boxcar
+    #                            so θ=∫ω·dt and (x,y)=∫v·dir·dt stay exact and
+    #                            the path stays inside the arena). On-disk
+    #                            target is 5-col [cosθ, sinθ, ξ, x, y]; the
+    #                            K=place_grid² Gaussian place-cell activations
+    #                            are NOT stored (a dense (B,T,K) array is
+    #                            prohibitively large) but computed on the fly
+    #                            from (x,y) and the saved place_centers/σ. A
+    #                            second learnable sign-locked E/I network
+    #                            (Net2) reads Net1's state and emits the place
+    #                            code; its synthetic connectome is generated
+    #                            and saved next to the dataset (net2_Wcon.*).
+    #   "grid_cells"          — head-direction + distance + GRID-CELL task: the
+    #                            place task on a TORUS. The agent forages
+    #                            freely (unbounded 2-D path integration, NO
+    #                            walls); the K=grid_grid² cells tile a torus
+    #                            [0,λ)² (λ=grid_period) and fire
+    #                            exp(-d_torus(pos mod λ, c_k)²/2σ²) with WRAPPED
+    #                            distance, so each fires on a periodic lattice
+    #                            in real space (grid cells). On-disk target is
+    #                            5-col [cosθ, sinθ, ξ, x, y] (x,y unbounded);
+    #                            the grid code + circular position decode are
+    #                            derived on the fly from (x,y) mod λ and the
+    #                            saved grid geometry. Canonical toroidal
+    #                            continuous-attractor target (cf. Burak & Fiete
+    #                            2009; Gardner et al. 2022).
+    #   "rotation_torus"      — head-direction + TORUS-POSITION task, read
+    #                            directly off Net1 (NO Net2). The agent forages
+    #                            freely (unbounded 2-D PI); position is encoded
+    #                            as two toroidal phases φ=2π·(x,y)/λ, each a
+    #                            (cos,sin) pair like the heading ring. On-disk
+    #                            target is 6-col [cosθ, sinθ, cosφx, sinφx,
+    #                            cosφy, sinφy]; trained with plain MSE (the
+    #                            cos/sin encoding is circular). Net1 must read
+    #                            from the full state (output_from_epg_only:
+    #                            false), since position lives in PFN/hΔ.
+    target_kind: Literal[
+        "scalar_xi", "position_2d", "rotation_mismatch", "place_cells",
+        "grid_cells", "rotation_torus"
+    ] = "scalar_xi"
+
+    # --- Place-cell task (target_kind="place_cells") -----------------------
+    # Square arena half-width: the agent is confined to
+    # [-arena_half, +arena_half]² by reflecting walls.
+    arena_half: float = 1.0
+    # K = place_grid² place cells tile the arena on a regular grid; their
+    # centres span [-arena_half, +arena_half] on each axis.
+    place_grid: int = 20
+    # Gaussian place-field width σ (arena units): the target activation of
+    # cell k at time t is exp(-‖(x,y)-c_k‖² / (2σ²)). Tunable.
+    place_sigma: float = 0.2
+    # Net2 — the synthetic sign-locked E/I network that reads Net1's state and
+    # produces the place code. Its recurrent connectome is generated at
+    # data-generation time and saved as net2_Wcon.* next to the dataset so
+    # train/test/plot share one fixed matrix. n_place is derived (place_grid²);
+    # total Net2 size = net2_n_interneurons + n_place.
+    net2_n_interneurons: int = 200
+    net2_sparsity: float = 0.10     # recurrent connection density
+    net2_ei_ratio: float = 0.60     # fraction excitatory (Dale's law sign-lock)
+    net2_seed: int = 700000
+    net2_tau_s: float = 0.1         # Net2 membrane time constant (s)
+
+    # --- Grid-cell task (target_kind="grid_cells") -------------------------
+    # Spatial period λ of the torus the grid cells tile (real position units).
+    # Each of grid_grid² cells centres on a regular [0,λ)² torus grid; a cell
+    # fires whenever (x,y) mod λ is near its centre → a periodic lattice in
+    # real space. grid_sigma is the toroidal Gaussian width (real units).
+    grid_period: float = 0.5
+    grid_grid: int = 20
+    grid_sigma: float = 0.1
+
+    # Diagnostic: append the velocity×heading conjunction vx=v·cosθ, vy=v·sinθ
+    # as two extra input channels, so the network only has to INTEGRATE (not
+    # learn the multiplication) to recover 2-D position. Adds 2 channels to the
+    # stimulus (n_input += 2); use with velocity_gate: none (free W_in). Tests
+    # whether the position-integration failure is the conjunction or the
+    # integrator/attractor.
+    conjunction_input: bool = False
+
+    # Leaky-integrator time constant for the 2D position target (x, y).
+    # Same semantics as xi_tau_s but applied to the position recurrence:
+    #     x(t+Δt) = (1 − Δt/τ) x(t) + v_fwd cosθ · Δt
+    #     y(t+Δt) = (1 − Δt/τ) y(t) + v_fwd sinθ · Δt
+    # None → perfect 2D integrator (the default; trajectories are
+    # unbounded random walks). τ > 0 → bounded "recent egocentric
+    # displacement" — the fish-relevant short-range readout. Only
+    # applies when target_kind == "position_2d".
+    position_tau_s: Optional[float] = None
+
+    # Proprioception-split input layout. When True the on-disk stimulus
+    # gains a 3rd column carrying v_proprio so the
+    # ``pen_artr_ptipn1_propriocep`` gate's two parallel pathways
+    # (v_extero → pt-IPN1, v_proprio → motor_efferent) are anatomically
+    # and parameterically independent rather than sharing a single
+    # input column. For the first version v_proprio = v_extero =
+    # v_fwd (same Poisson swim drive routed twice); per-channel delay
+    # or noise can be added later. Stimulus layout becomes
+    # ``[ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]`` (5 channels).
+    propriocep_split: bool = False
+
+    # --- Proprioceptive-gain mismatch task (target_kind="rotation_mismatch") ---
+    # Models a time-varying discrepancy between the OBSERVED angular velocity
+    # ω (the sensory ARTR drive) and the PROPRIOCEPTIVE / effective angular
+    # velocity ω_proprio routed to motor_efferent: ω_proprio(t) = g(t) · ω(t),
+    # where the gain g(t) is a PIECEWISE-CONSTANT process in
+    # [proprio_gain_min, proprio_gain_max] that steps to a new random value
+    # every ~proprio_gain_segment_s seconds. The 3rd target column is the
+    # integral of the mismatch, ∫(ω − ω_proprio) dt (radians), which the
+    # recurrent circuit must recover from the two afferent streams. Forces the
+    # 5-channel propriocep_split stimulus layout [ω, v_fwd, ω_proprio, cos0,
+    # sin0]. Only used when target_kind == "rotation_mismatch".
+    proprio_gain_min: float = 0.0
+    proprio_gain_max: float = 1.5
+    proprio_gain_segment_s: float = 2.0
+
+    device: Literal["cpu", "cuda", "auto"] = "cpu"
+
+    @model_validator(mode="after")
+    def _fractions_sum_to_one(self):
+        s = (self.left_fraction + self.right_fraction
+             + self.forward_fraction + self.backward_fraction)
+        if abs(s - 1.0) > 1e-6:
+            raise ValueError(
+                f"swim_integration: left/right/forward/backward fractions must "
+                f"sum to 1; got {s:.6f}"
+            )
+        return self
+
+
+class OpticalFlowTaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    n_trials_train: int
+    n_trials_test: int
+    n_steps: int = 80
+    dt: float = 1.0 / 24            # seconds; video framerate
+    seed: int = 42
+
+    flow_target: Literal["sintel_gt", "raft_pseudo", "photometric_selfsup"] = "sintel_gt"
+    train_test_split: Literal["random", "video_held_out"] = "video_held_out"
+    raft_model: Literal["raft_large", "raft_small"] = "raft_large"
+
+    # Reused flyvis video-source fields (see SimulationConfig.visual_input_type etc.).
+    # Used by raft_pseudo / photometric_selfsup; ignored for sintel_gt.
+    datavis_roots: List[str] = []
+    truncate_max_frames: Optional[int] = Field(default=80, gt=0)
+    flywire_stimulus: bool = False
+    all_columns: bool = False
+    steady_state_value: float = 0.5
+
+    device: Literal["cpu", "cuda", "auto"] = "auto"
+    input_perturbation: Optional[InputPerturbation] = None
+
+
+class CortexTaskConfig(BaseModel):
+    """Yang et al. 2019 multitask cognitive battery (gyyang/multitask port).
+
+    The Yang generator (`generators/cortex_task.py`) defines task dimensions
+    from `ruleset`: for ruleset='all', N_i = 1 + 2*32 + 20 = 85 (fixation +
+    two stimulus rings + 20-rule one-hot), N_o = 1 + 32 = 33 (fixation +
+    motor ring). Per-trial tdim varies; trials get padded to `n_steps_max`.
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    # Task selection
+    rules: List[str]                                      # Yang task names (subset of ruleset)
+    rule_weights: List[float] = []                        # empty = uniform sampling
+    ruleset: Literal["all", "mante", "oicdmc"] = "all"
+
+    # Trial counts
+    n_trials_train: int
+    n_trials_test: int
+    n_steps_max: int = 200                                # padding length; raises if any trial exceeds
+
+    # Yang hp overrides — passed through `get_default_hp(ruleset)` then
+    # mutated. Use to tweak dt, tau, sigma_x, sigma_rec, etc. Empty = Yang defaults.
+    hp_overrides: Dict[str, Any] = {}
+    seed: int = 0
+
+    device: Literal["cpu"] = "cpu"
+    input_perturbation: Optional[InputPerturbation] = None
+
+
+class TaskConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    task_type: Literal["path_integration", "swim_integration",
+                        "optical_flow", "cortex"]
+
+    path_integration: Optional[PathIntegrationTaskConfig] = None
+    swim_integration: Optional[SwimIntegrationTaskConfig] = None
+    optical_flow: Optional[OpticalFlowTaskConfig] = None
+    cortex: Optional[CortexTaskConfig] = None
+
+    # If True, the data_generate dispatcher returns immediately after writing
+    # task data — skipping the (still-required-by-schema) simulation pipeline.
+    # Default False so configs that legitimately want both task+sim still work.
+    task_only: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_matching_subblock(self):
+        sub = {
+            "path_integration": self.path_integration,
+            "swim_integration": self.swim_integration,
+            "optical_flow": self.optical_flow,
+            "cortex": self.cortex,
+        }
+        present = [k for k, v in sub.items() if v is not None]
+        if present != [self.task_type]:
+            raise ValueError(
+                f"task_type={self.task_type!r} requires exactly the matching "
+                f"subblock to be populated; got populated={present}"
+            )
+        return self
+
+
+class CircuitConfig(BaseModel):
+    """Optional named-circuit selector — sister of TaskConfig.
+
+    When ``name`` is set, the model class resolves the connectome via
+    ``connectome_gnn.generators.circuits.get_circuit(name)`` (the named
+    registry of pre-cached, sign-locked, spectrally-rescaled adjacency
+    templates). When unset (default), the model falls through to the
+    legacy ``load_<organism>_*_connectome(sim.connconstr_datapath)``
+    path — so existing yamls keep loading byte-equivalently.
+
+    See ``docs/REFACTOR_zebrafish_circuit_registry.md`` §4 for the
+    motivation.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+
+
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -999,6 +1770,8 @@ class NeuralGraphConfig(BaseModel):
     plotting: PlottingConfig
     training: TrainingConfig
     zarr: Optional[ZarrConfig] = None
+    task: Optional[TaskConfig] = None
+    circuit: Optional[CircuitConfig] = None
 
     @staticmethod
     def from_yaml(file_name: str):

@@ -1,0 +1,684 @@
+"""DrosophilaCxTaskRNN — sign-locked recurrent network for the Drosophila
+CX path-integration task.
+
+Architecture (Hulse 2025 Methods Eqs. 1, 9-11):
+
+    τ * dh_j/dt = -h_j + Σ_k W_rec[j,k] σ(h_k) + Σ_l W_in[j,l] u_l + b_j
+    y_hat_i     = Σ_j W_out[i,j] σ(h_j) + b_out_i
+
+Recurrent matrix parameterisation via `graph_model.wrec_param`:
+    "edge_magnitude" → W_rec = |S| ⊙ sign(W_con)        (Dale, sparsity locked)
+    "edge_free"      → W_rec =  S  ⊙ mask(W_con)        (free sign per edge)
+    "column_dale"    → W_rec = |S| ⊙ col_sign[None,:]   (dense N×N, column-Dale)
+where col_sign[j] = sign(Σᵢ W_con[i, j]) is the dominant E/I identity of pre-
+neuron j. Diagonal is always masked to zero.
+
+Single-purpose class: hemibrain connectome loaded at init, n_input=3
+(omega, cos(θ₀)·δ_t0, sin(θ₀)·δ_t0), n_output=2 (cos/sin heading readout).
+
+Buffer protocol matches `teachers.JaneliaCxRNN`: W_rec, W_con, S,
+_block_mask_i, _ring_order_<name>, dt, n_units, neuron_types,
+type_names, epg_indices, epg_glom_ix — so the helpers in
+`models.bump_attractor_eval` (path_integration_accuracy, bump_fwhm,
+_save_training_snapshot, _deterministic_sweep_rollout) work without
+branching.
+
+Registered name: "drosophila_cx_pi".
+"""
+
+from __future__ import annotations
+
+import math
+import os
+from typing import Optional
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from connectome_gnn.models.bump_attractor_eval import build_type_pair_blocks
+from connectome_gnn.models.MLP import MLP
+from connectome_gnn.models.registry import register_model
+
+
+_ACT_MAP = {
+    "sigmoid": torch.sigmoid,
+    "relu": F.relu,
+    "tanh": torch.tanh,
+    "softplus": F.softplus,
+}
+
+
+def _load_image_mask(path: str, N: int) -> torch.Tensor:
+    """Load `path`, resize to (N, N), threshold at median → binary (N, N)."""
+    from PIL import Image
+    if not os.path.isfile(path):
+        from connectome_gnn.utils import get_data_root
+        cand = os.path.join(get_data_root(), path)
+        if os.path.isfile(cand):
+            path = cand
+        else:
+            raise FileNotFoundError(f"w_mask_image_path not found: {path}")
+    img = Image.open(path).convert("L")
+    img = img.resize((N, N), Image.BILINEAR)
+    arr = np.asarray(img, dtype=np.float32) / 255.0
+    threshold = float(np.median(arr))
+    mask_np = (arr > threshold).astype(np.float32)
+    return torch.from_numpy(mask_np)
+
+
+@register_model("drosophila_cx_pi")
+class DrosophilaCxTaskRNN(nn.Module):
+    """Sign-locked Drosophila CX path-integration RNN."""
+
+    # Display labels for the bump-carrying population (analog of EPG) and the
+    # angular-velocity-gated afferent population (analog of PEN). Read by the
+    # training-snapshot helper / plot_cx_evolution so panels d, e carry the
+    # species-correct axis labels. Subclasses (e.g. ZebrafishHdTaskRNN)
+    # override these.
+    bump_label: str = "EPG"
+    afferent_label: str = "PEN"
+
+    @staticmethod
+    def _load_connectome(datapath):
+        """Connectome loader hook. Default = hemibrain CX (Hulse 2025).
+
+        Subclasses targeting a different organism override this method to
+        return a dict with the same canonical keys (N, J_effective,
+        neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...).
+        See ``ZebrafishHdTaskRNN`` for the larval-zebrafish dIPN port.
+        """
+        from connectome_gnn.generators.connectome_loaders import (
+            load_drosophila_cx_connectome,
+        )
+        return load_drosophila_cx_connectome(datapath)
+
+    @staticmethod
+    def _resolve_bump_only_readout(gm) -> bool:
+        """Bump-only-readout config hook. Default reads the fly-historical
+        ``output_from_epg_only`` flag. Subclasses targeting a different
+        organism override to read their species-specific yaml flag (e.g.
+        ``output_from_dipn_only`` for ``ZebrafishHdTaskRNN``) without
+        otherwise touching __init__."""
+        return bool(getattr(gm, "output_from_epg_only", False))
+
+    def __init__(self, aggr_type: str = "add", config=None, device=None):
+        super().__init__()
+        self.device = device
+        self.aggr_type = aggr_type
+
+        sim = config.simulation
+        gm = config.graph_model
+        task = config.task
+
+        self.wrec_param = str(getattr(gm, "wrec_param", "edge_magnitude")).lower()
+        if self.wrec_param not in ("edge_magnitude", "edge_free", "column_dale"):
+            raise ValueError(
+                f"graph_model.wrec_param must be 'edge_magnitude', 'edge_free' "
+                f"or 'column_dale'; got {self.wrec_param!r}"
+            )
+
+        train_config = config.training
+        w_init_mode = getattr(train_config, "w_init_mode", "const")
+
+        # --- Load CX connectome -----------------------------------------
+        # Two paths produce the same canonical dict shape (N, J_effective,
+        # neuron_types, type_names, n_epg, epg_ix, pen_subpop_ix, ...):
+        #   1. ``config.circuit.name`` set -> resolve via the named-circuit
+        #      registry (``connectome_gnn.generators.circuits``);
+        #      ``Circuit.as_loader_dict`` flattens it to the legacy access
+        #      pattern. This is the same registry path the zebrafish model
+        #      uses, and lets a single config select drosophila_cx_156_v1,
+        #      drosophila_cx_338_v1 (path-integration extension), etc.
+        #   2. ``config.circuit`` absent / name empty -> fall through to the
+        #      legacy ``_load_connectome(sim.connconstr_datapath)`` hook so
+        #      existing yamls without a circuit block load byte-equivalently.
+        # NB: drosophila_cx_156_v1's build() calls the same legacy loader, so
+        # routing a 156 config through the registry is byte-equivalent to the
+        # old direct-load path.
+        circuit_cfg = getattr(config, "circuit", None)
+        if circuit_cfg is not None and getattr(circuit_cfg, "name", None):
+            from connectome_gnn.generators.circuits import get_circuit
+            cx = get_circuit(circuit_cfg.name).as_loader_dict()
+        else:
+            cx = self._load_connectome(sim.connconstr_datapath)
+        N = int(cx["N"])
+        self.n_units = N
+        # n_input / n_output derive from the supervised task targets
+        # (training.task_targets), mirroring the zebrafish model so the same
+        # class serves heading-only and path-integration sub-tasks:
+        #   ['rotation'] / absent       → 3-in [ω, cosθ0, sinθ0]        / 2-out [cosθ, sinθ]
+        #   ['rotation_vfwd']           → 4-in [ω, v_fwd, cosθ0, sinθ0] / 2-out [cosθ, sinθ]
+        #       (heading-only supervision but v_fwd KEPT in the input — the
+        #        latent path-integration probe: does the recurrent circuit
+        #        build a translation representation it is never asked for?)
+        #   ['rotation','translation'] → 4-in / 3-out [cosθ, sinθ, d]
+        #   ['position_2d']            → 4-in / 4-out [cosθ, sinθ, x, y]
+        # An explicit graph_model.n_input / n_output overrides the auto value.
+        _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
+                       "rotation_torus")
+        _tt_raw = list(getattr(config.training, "task_targets", None) or [])
+        _tt_key = tuple(t for t in _RECOGNISED if t in _tt_raw)
+        # On the proprioceptive gate the angular drive is split into two
+        # independent input columns (sensory ω and efference ω_proprio), so the
+        # on-disk stimulus is the 5-channel [ω, v_fwd, ω_proprio, cos0, sin0]
+        # layout and any rotation-bearing task gains one extra input channel
+        # (mirrors the zebrafish pen_artr_ptipn1_propriocep gate).
+        _is_propriocep_split = str(getattr(gm, "velocity_gate", "none")).lower() \
+            in ("pen_propriocep", "pen_propriocep_swap")
+        if _is_propriocep_split:
+            _TT_DIMS = {
+                ("rotation",):                (4, 2),
+                ("translation",):             (2, 1),
+                ("rotation", "translation"):  (5, 3),
+                ("position_2d",):             (5, 4),
+            }
+        else:
+            _TT_DIMS = {
+                ("rotation",):                (3, 2),
+                ("rotation_vfwd",):           (4, 2),
+                ("rotation", "translation"):  (4, 3),
+                ("position_2d",):             (4, 4),
+                ("translation",):             (1, 1),
+                # torus position: 4-ch input, 6-col target [cosθ, sinθ,
+                # cosφx, sinφx, cosφy, sinφy] (Net1-only, no Net2).
+                ("rotation_torus",):          (4, 6),
+            }
+        _auto_in, _auto_out = _TT_DIMS.get(_tt_key, (3, 2))  # default = rotation
+        self.n_input = int(getattr(gm, "n_input", 0)) or _auto_in
+        self.n_output = int(getattr(gm, "n_output", 0)) or _auto_out
+
+        W_con = torch.from_numpy(cx["J_effective"].astype(np.float32))
+        self.register_buffer("W_con", W_con)
+        self.register_buffer("W_con_sign", torch.sign(W_con))
+        self.register_buffer("W_con_mask", (W_con != 0).to(torch.float32))
+
+        # Per-pre-neuron sign for column_dale mode. W_con layout is
+        # row=post, col=pre, so summing along dim=0 gives the net outgoing
+        # weight of each pre-neuron j. Cells whose net is zero (e.g.
+        # orphan leaves in a subset connectome where all outgoing partners
+        # fall outside the modelled population — happens in the zebrafish
+        # HD subset for 8 cells) fall back to ``cx["dale_signs"]`` if the
+        # loader provided it; otherwise the build errors so the issue is
+        # surfaced rather than silently zeroing those cells' outgoing
+        # column.
+        if self.wrec_param == "column_dale":
+            col_sign = torch.sign(W_con.sum(dim=0))
+            if (col_sign == 0).any() and "dale_signs" in cx:
+                dale = torch.as_tensor(cx["dale_signs"],
+                                        dtype=col_sign.dtype,
+                                        device=col_sign.device)
+                col_sign = torch.where(col_sign == 0, dale, col_sign)
+            if (col_sign == 0).any():
+                zero_idx = torch.nonzero(col_sign == 0, as_tuple=True)[0].tolist()
+                raise ValueError(
+                    f"wrec_param='column_dale' requires every pre-neuron to "
+                    f"have non-zero net outgoing weight in W_con (or a Dale "
+                    f"prior via cx['dale_signs']); col_sign==0 at indices "
+                    f"{zero_idx[:10]} (showing first 10)"
+                )
+            self.register_buffer("col_sign", col_sign)
+
+        # --- Trainable matrix S -----------------------------------------
+        # Shape (N, N) in all wrec_param modes. The W_rec property combines
+        # S with the relevant sign/mask buffers (see W_rec docstring).
+        if self.wrec_param == "column_dale":
+            # Dense mode: random init at w_init_scale across all entries
+            # (sparsity is not enforced; w_init_mode is ignored).
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = torch.randn(N, N, dtype=W_con.dtype) * w_init_scale
+        elif w_init_mode == "zeros":
+            S_init = torch.zeros_like(self.W_con_mask)
+        elif w_init_mode == "randn":
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = torch.randn_like(self.W_con_mask) * w_init_scale * self.W_con_mask
+        elif w_init_mode == "w_con":
+            # Init S so the effective W_rec equals W_con exactly:
+            #   "edge_magnitude" → |S|·sign(W_con) = W_con  ⇒  S = |W_con|
+            #   "edge_free"      → S·mask         = W_con  ⇒  S = W_con
+            if self.wrec_param == "edge_magnitude":
+                S_init = W_con.abs().clone()
+            else:
+                S_init = W_con.clone()
+        else:  # 'const'
+            w_init_scale = getattr(train_config, "w_init_scale", 0.01)
+            S_init = w_init_scale * self.W_con_mask
+        self.S = nn.Parameter(S_init)
+
+        # --- Type-pair masks for cos-distance / norm-floor regularisers
+        neuron_types = np.asarray(cx["neuron_types"]).astype(np.int64)
+        type_names = list(cx["type_names"])
+        type_pair_blocks = build_type_pair_blocks(
+            neuron_types, type_names, cx["J_effective"].astype(np.float32)
+        )
+        self._block_names: list[str] = list(type_pair_blocks.keys())
+        for i, name in enumerate(self._block_names):
+            self.register_buffer(
+                f"_block_mask_{i}", type_pair_blocks[name].to(torch.bool),
+                persistent=False,
+            )
+
+        # --- Ring orderings for circular-TV regulariser -----------------
+        n_epg = int(cx["n_epg"])
+        epg_glom_ix = np.asarray(cx["epg_ix"], dtype=np.int64)
+        self._ring_names: list[str] = []
+        ring_assignments: dict = {}
+        if "EPG" in type_names:
+            epg_t = type_names.index("EPG")
+            epg_idx = np.where(neuron_types == epg_t)[0]
+            if epg_idx.size == epg_glom_ix.size:
+                ring_assignments["EPG"] = (epg_idx, epg_glom_ix)
+        for name, (idx, pos) in ring_assignments.items():
+            sort = np.argsort(np.asarray(pos, dtype=np.int64), kind="stable")
+            order = torch.from_numpy(np.asarray(idx, dtype=np.int64)[sort]).long()
+            safe = name.replace("-", "_").replace(" ", "_")
+            self.register_buffer(f"_ring_order_{safe}", order, persistent=False)
+            self._ring_names.append(safe)
+
+        # --- Metadata for bump_attractor_eval helpers --------------------
+        self.neuron_types = neuron_types
+        self.type_names = type_names
+        self.epg_indices = np.arange(n_epg, dtype=np.int64)
+        self.epg_glom_ix = epg_glom_ix
+
+        # --- Velocity gating (PEN-specific, CX-only) -------------------
+        # `pen_only`: zero W_in[:, 0] outside PEN rows; per-unit weights free.
+        # `pen_4scalar` (Hulse 2025 strict): 4 learnable scalars
+        #               (L/R × PENa/PENb) broadcast onto subpopulations,
+        #               signs initialised opposite for L vs R.
+        # In either case, channels 1-2 (initial-bump cue) stay free for all rows.
+        self.velocity_gate = str(getattr(gm, "velocity_gate", "none")).lower()
+        if self.velocity_gate == "pen_only":
+            mask = torch.zeros(N, self.n_input, dtype=torch.float32)
+            mask[:, 1:] = 1.0
+            if pen_idx_all:
+                mask[torch.as_tensor(sorted(pen_idx_all), dtype=torch.long), 0] = 1.0
+            self.register_buffer("_W_in_mask", mask, persistent=False)
+        elif self.velocity_gate == "pen_4scalar":
+            pen_subpop = cx.get("pen_subpop_ix", {})
+            required = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
+            missing = [k for k in required if k not in pen_subpop or len(pen_subpop[k]) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate='pen_4scalar' requires non-empty "
+                    f"pen_subpop_ix for {required}; missing/empty: {missing}"
+                )
+            for key in required:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pen_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pen_ind_{key.lower()}", ind, persistent=False)
+            self.v_pena_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_penb_l = nn.Parameter(torch.tensor(0.01))
+            self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate in ("pen_pfn", "pen_propriocep",
+                                    "pen_propriocep_swap"):
+            # pen_pfn — Drosophila path-integration gate (companion of the
+            #   zebrafish ``pen_artr_ptipn1``): ω → PEN (PENa/PENb L/R) on
+            #   input col 0, v_fwd → PFN (PFNd/PFNv L/R) on input col 1.
+            # pen_propriocep — sensory/efference angular split (companion of
+            #   the zebrafish ``pen_artr_ptipn1_propriocep``): on the
+            #   5-channel [ω, v_fwd, ω_proprio, cos0, sin0] layout, sensory
+            #   ω → PEN_a, efference ω_proprio → PEN_b, v_fwd → PFN.
+            #   pen_propriocep_swap reverses the PEN_a/PEN_b roles (control).
+            # All require a circuit that publishes both pen_subpop_ix and
+            # pfn_subpop_ix (i.e. drosophila_cx_338_v1).
+            pen_subpop = cx.get("pen_subpop_ix", {})
+            pfn_subpop = cx.get("pfn_subpop_ix", {})
+            pen_req = ("PENa_L", "PENa_R", "PENb_L", "PENb_R")
+            pfn_req = ("PFNd_L", "PFNd_R", "PFNv_L", "PFNv_R")
+            missing = [k for k in pen_req if len(pen_subpop.get(k, [])) == 0] \
+                + [k for k in pfn_req if len(pfn_subpop.get(k, [])) == 0]
+            if missing:
+                raise ValueError(
+                    f"velocity_gate={self.velocity_gate!r} requires non-empty "
+                    f"pen_subpop_ix {pen_req} and pfn_subpop_ix {pfn_req}; "
+                    f"missing/empty: {missing}. Use circuit drosophila_cx_338_v1."
+                )
+            for key in pen_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pen_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pen_ind_{key.lower()}", ind, persistent=False)
+            for key in pfn_req:
+                ind = torch.zeros(N, dtype=torch.float32)
+                ind[torch.as_tensor(pfn_subpop[key], dtype=torch.long)] = 1.0
+                self.register_buffer(f"_pfn_ind_{key.lower()}", ind, persistent=False)
+            self.v_pena_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pena_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_penb_l = nn.Parameter(torch.tensor(0.01))
+            self.v_penb_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnd_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnd_r = nn.Parameter(torch.tensor(-0.01))
+            self.v_pfnv_l = nn.Parameter(torch.tensor(0.01))
+            self.v_pfnv_r = nn.Parameter(torch.tensor(-0.01))
+        elif self.velocity_gate != "none":
+            raise ValueError(
+                f"graph_model.velocity_gate must be 'none', 'pen_only', "
+                f"'pen_4scalar', 'pen_pfn', 'pen_propriocep', or "
+                f"'pen_propriocep_swap', got {self.velocity_gate!r}"
+            )
+
+        # --- Dynamics constants -----------------------------------------
+        # ``dt`` is task-side data (matches the stimulus zarr grid); ``tau``
+        # is an RNN dynamics constant the task block may carry alongside.
+        # Read from whichever task sub-block this run uses
+        # (path_integration for fly PI, swim_integration for zebrafish SI),
+        # so the loader stays decoupled from the task name.
+        task_block = (task.path_integration if task.task_type == "path_integration"
+                      else task.swim_integration if task.task_type == "swim_integration"
+                      else None)
+        if task_block is None:
+            raise ValueError(
+                f"DrosophilaCxTaskRNN expects task_type in "
+                f"{{path_integration, swim_integration}}; got {task.task_type!r}"
+            )
+        self.tau = float(getattr(task_block, "tau", 0.1))
+        self.dt = float(task_block.dt)
+
+        # --- Zero-diagonal mask -----------------------------------------
+        # No self-connections, matching the GNN convention (edge_index
+        # never includes self-loops).
+        self.register_buffer(
+            "_no_diag", 1.0 - torch.eye(N, dtype=torch.float32),
+            persistent=False,
+        )
+
+        # --- Optional image-derived binary mask on W_rec ----------------
+        # When set, dark pixels of the image become forbidden recurrent
+        # connections. The image is resized to N×N and thresholded at its
+        # median.
+        img_path = str(getattr(gm, "w_mask_image_path", "")).strip()
+        if img_path:
+            img_mask = _load_image_mask(img_path, N)
+        else:
+            img_mask = torch.ones(N, N, dtype=torch.float32)
+        self.register_buffer("_image_mask", img_mask, persistent=False)
+
+        # --- Encoder W_in (matrix or MLP) ------------------------------
+        self.input_proj = getattr(gm, "input_proj", "matrix")
+        if self.input_proj == "matrix":
+            self.W_in = nn.Parameter(
+                torch.randn(N, self.n_input, dtype=torch.float32) * (1.0 / 100.0)
+            )
+            self._W_in_mlp = None
+        elif self.input_proj == "mlp":
+            self.W_in = None
+            self._W_in_mlp = MLP(
+                input_size=self.n_input, output_size=N,
+                nlayers=gm.n_layers, hidden_size=gm.hidden_dim,
+                activation=gm.MLP_activation, device=device,
+            )
+        else:
+            raise ValueError(f"input_proj must be 'matrix' or 'mlp', got {self.input_proj!r}")
+
+        # --- Recurrent bias (Hulse: initialised to 1) ------------------
+        self.b = nn.Parameter(torch.ones(N, dtype=torch.float32))
+
+        # --- Decoder W_out (matrix or MLP) ------------------------------
+        # Hulse-style EPG-only readout option: when set, the decoder reads
+        # only from the first n_epg neurons (EPG block; indices 0..n_epg-1)
+        # rather than all N. Forces the optimiser to put the heading code in
+        # EPG cells, matching Hulse 2021's frozen wout[0:46,:] convention.
+        # Resolution is factored into ``_resolve_bump_only_readout`` so
+        # species subclasses (e.g. ZebrafishHdTaskRNN) can read a
+        # different yaml flag without touching the rest of __init__.
+        self.output_from_epg_only = self._resolve_bump_only_readout(gm)
+        self._readout_dim = int(n_epg) if self.output_from_epg_only else N
+        self.output_proj = getattr(gm, "output_proj", "matrix")
+        if self.output_proj == "matrix":
+            self.W_out = nn.Parameter(
+                torch.empty(self.n_output, self._readout_dim, dtype=torch.float32)
+            )
+            nn.init.kaiming_uniform_(self.W_out, a=math.sqrt(5))
+            self.b_out = nn.Parameter(torch.zeros(self.n_output, dtype=torch.float32))
+            self._W_out_mlp = None
+        elif self.output_proj == "mlp":
+            self.W_out = None
+            self.b_out = None
+            self._W_out_mlp = MLP(
+                input_size=self._readout_dim, output_size=self.n_output,
+                nlayers=gm.n_layers, hidden_size=gm.hidden_dim,
+                activation=gm.MLP_activation, device=device,
+            )
+        else:
+            raise ValueError(f"output_proj must be 'matrix' or 'mlp', got {self.output_proj!r}")
+
+        # --- Recurrent activation σ -------------------------------------
+        act_name = str(getattr(gm, "recurrent_activation", "sigmoid")).lower()
+        if act_name not in _ACT_MAP:
+            raise ValueError(
+                f"recurrent_activation must be one of {list(_ACT_MAP)}, "
+                f"got {act_name!r}"
+            )
+        self.recurrent_activation_name = act_name
+        self._sigma = _ACT_MAP[act_name]
+
+        # --- Stochastic regularisation during BPTT ---------------------
+        # Flyvis injects `noise_recurrent_level * randn` at every recurrent
+        # step. Smooths the long-T BPTT landscape; 0 = off (Hulse default).
+        self.noise_recurrent_level = float(
+            getattr(config.training, "noise_recurrent_level", 0.0)
+        )
+
+        if device is not None:
+            self.to(device)
+
+    # ------------------------------------------------------------------
+    # Effective recurrent weight
+    # ------------------------------------------------------------------
+
+    @property
+    def W_rec(self) -> torch.Tensor:
+        """Effective recurrent matrix, diagonal masked to zero.
+
+        Layout: row i = postsynaptic, col j = presynaptic. Recurrent input
+        is computed as `r @ W_rec.T` (Hulse/Beiran convention).
+
+            "edge_magnitude" → W_rec = |S| ⊙ sign(W_con)
+            "edge_free"      → W_rec =  S  ⊙ mask(W_con)
+            "column_dale"    → W_rec = |S| ⊙ col_sign[None, :]
+        """
+        if self.wrec_param == "column_dale":
+            W = self.S.abs() * self.col_sign.unsqueeze(0)
+        elif self.wrec_param == "edge_magnitude":
+            W = self.S.abs() * self.W_con_sign
+        else:  # "edge_free"
+            W = self.S * self.W_con_mask
+        return W * self._no_diag * self._image_mask
+
+    # ------------------------------------------------------------------
+    # Forward path
+    # ------------------------------------------------------------------
+
+    def _project_in(self, u_t: torch.Tensor) -> torch.Tensor:
+        """(B, n_input) -> (B, N)."""
+        if self.input_proj == "matrix":
+            W = self.W_in
+            if self.velocity_gate == "pen_4scalar":
+                v_col = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                    + self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                W = torch.cat([v_col.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate == "pen_pfn":
+                # ω → PEN on col 0; v_fwd → PFN on col 1 (when present).
+                v_col_pen = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                    + self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                v_col_pfn = (
+                    self._pfn_ind_pfnd_l * self.v_pfnd_l
+                    + self._pfn_ind_pfnd_r * self.v_pfnd_r
+                    + self._pfn_ind_pfnv_l * self.v_pfnv_l
+                    + self._pfn_ind_pfnv_r * self.v_pfnv_r
+                )
+                if self.n_input >= 4:
+                    # [ω, v_fwd, cosθ0, sinθ0]: ω→PEN, v_fwd→PFN, cue free.
+                    W = torch.cat(
+                        [v_col_pen.unsqueeze(1), v_col_pfn.unsqueeze(1),
+                         W[:, 2:]], dim=1)
+                else:
+                    # [ω, cosθ0, sinθ0]: ω→PEN col 0 only (PFN unused).
+                    W = torch.cat([v_col_pen.unsqueeze(1), W[:, 1:]], dim=1)
+            elif self.velocity_gate in ("pen_propriocep", "pen_propriocep_swap"):
+                # 5-channel propriocep layout [ω, v_fwd, ω_proprio, cos0, sin0]:
+                # sensory ω→PEN_a, efference ω_proprio→PEN_b (swapped for
+                # pen_propriocep_swap), v_fwd→PFN, cue columns (3:) free.
+                v_col_pena = (
+                    self._pen_ind_pena_l * self.v_pena_l
+                    + self._pen_ind_pena_r * self.v_pena_r
+                )
+                v_col_penb = (
+                    self._pen_ind_penb_l * self.v_penb_l
+                    + self._pen_ind_penb_r * self.v_penb_r
+                )
+                v_col_pfn = (
+                    self._pfn_ind_pfnd_l * self.v_pfnd_l
+                    + self._pfn_ind_pfnd_r * self.v_pfnd_r
+                    + self._pfn_ind_pfnv_l * self.v_pfnv_l
+                    + self._pfn_ind_pfnv_r * self.v_pfnv_r
+                )
+                if self.velocity_gate == "pen_propriocep_swap":
+                    v_col_sensory, v_col_efference = v_col_penb, v_col_pena
+                else:
+                    v_col_sensory, v_col_efference = v_col_pena, v_col_penb
+                if self.n_input < 5:
+                    raise ValueError(
+                        f"velocity_gate={self.velocity_gate!r} expects the "
+                        f"5-channel propriocep stimulus "
+                        f"[ω, v_fwd, ω_proprio, cos0, sin0]; got "
+                        f"n_input={self.n_input}."
+                    )
+                W = torch.cat(
+                    [v_col_sensory.unsqueeze(1), v_col_pfn.unsqueeze(1),
+                     v_col_efference.unsqueeze(1), W[:, 3:]], dim=1)
+            else:
+                mask = getattr(self, "_W_in_mask", None)
+                if mask is not None:
+                    W = W * mask
+            return u_t @ W.t()
+        return self._W_in_mlp(u_t)
+
+    def _project_out(self, r: torch.Tensor) -> torch.Tensor:
+        """(B, T, N) -> (B, T, n_output).
+
+        With ``output_from_epg_only=True`` the decoder sees only the first
+        ``n_epg`` columns of ``r`` (the EPG block, indices 0..n_epg-1).
+        """
+        if self.output_from_epg_only:
+            r = r[..., : self._readout_dim]
+        if self.output_proj == "matrix":
+            return r @ self.W_out.t() + self.b_out
+        return self._W_out_mlp(r)
+
+    def forward(
+        self,
+        u: torch.Tensor,
+        h0: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Run the network for T timesteps over a batch.
+
+        Args:
+            u: (B, T, n_input) input stream.
+            h0: (B, N) initial subthreshold activity (zeros if None).
+
+        Returns:
+            y_hat: (B, T, n_output) readout.
+            h_buf: (B, T, N)        subthreshold activity (for diagnostics
+                                   and the circular-TV regulariser).
+        """
+        # Eval/rollout probes (bump_fwhm, deterministic sweep) build the
+        # legacy 3-channel input [ω, cosθ0, sinθ0]; this model may have a
+        # wider input (e.g. 4-ch [ω, v_fwd, cosθ0, sinθ0]). Pad the missing
+        # middle (translational) channels with zeros so ω stays in ch0 and
+        # the heading cue stays in the last two. No-op when already wide.
+        if u.shape[-1] < self.n_input:
+            pad = self.n_input - u.shape[-1]
+            u = torch.cat(
+                [u[..., :1], u.new_zeros(*u.shape[:-1], pad), u[..., 1:]],
+                dim=-1)
+
+        B, T, _ = u.shape
+        N = self.n_units
+
+        h = (torch.zeros(B, N, dtype=u.dtype, device=u.device)
+             if h0 is None else h0)
+        h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
+
+        # W_rec layout: row i = post, col j = pre, so the recurrent input is
+        # rec[b, i] = sum_j W_rec[i, j] · r[b, j] = (r @ W_rec.T)[b, i].
+        W_rec = self.W_rec
+        dt_over_tau = self.dt / self.tau
+        noise_lvl = (self.noise_recurrent_level
+                     if (self.training and self.noise_recurrent_level > 0)
+                     else 0.0)
+
+        for t in range(T):
+            r = self._sigma(h)
+            # W_rec inherits J_effective's [post, pre] orientation from the
+            # loader (Dale on cols = pre). The biologically-correct recurrent
+            # input is `r @ W_rec.T` (matches Hulse/Beiran reference code:
+            # `h += alpha * (-h + g · σ(h+b) @ J^T + I) / tau`).
+            rec = r @ W_rec.T
+            inp = self._project_in(u[:, t, :])
+            h = h + dt_over_tau * (-h + rec + inp + self.b)
+            if noise_lvl > 0:
+                h = h + noise_lvl * torch.randn_like(h)
+            h_buf[:, t, :] = h
+
+        y_hat = self._project_out(self._sigma(h_buf))
+        return y_hat, h_buf
+
+    # ------------------------------------------------------------------
+    # Regularisers (Hulse Eqs. 10-11 + circular TV)
+    # ------------------------------------------------------------------
+
+    def loss_cos_distance(self, lam: float = 1.0) -> torch.Tensor:
+        """Hulse Eq. 10: per-(post-type, pre-type) block cosine-distance
+        between W_rec and the connectome template W_con."""
+        if not self._block_names:
+            return self.W_rec.new_zeros(())
+        if torch.all(self.W_con == 0):
+            return self.W_rec.new_zeros(())
+        total = self.W_rec.new_zeros(())
+        eps = 1e-12
+        for i in range(len(self._block_names)):
+            mask = getattr(self, f"_block_mask_{i}")
+            w_rec_b = self.W_rec[mask]
+            w_con_b = self.W_con[mask]
+            if w_con_b.abs().sum() < eps:
+                continue
+            num = (w_rec_b * w_con_b).sum()
+            den = w_rec_b.norm() * w_con_b.norm() + eps
+            total = total + (1.0 - num / den)
+        return lam * total / max(len(self._block_names), 1)
+
+    def loss_norm_floor(self, lam: float = 1.0, kappa: float = 0.05) -> torch.Tensor:
+        """Hulse Eq. 11: soft lower bound on mean |W| per type-pair block."""
+        if not self._block_names:
+            return self.W_rec.new_zeros(())
+        total = self.W_rec.new_zeros(())
+        for i in range(len(self._block_names)):
+            mask = getattr(self, f"_block_mask_{i}")
+            mean_abs = self.W_rec[mask].abs().mean()
+            slack = F.relu(kappa - mean_abs)
+            total = total + slack.pow(2)
+        return lam * total / max(len(self._block_names), 1)
+
+    def loss_tv_circular(self, h_buf: torch.Tensor, lam: float = 1.0) -> torch.Tensor:
+        """Circular total-variation penalty on EPG ring firing rates."""
+        if not self._ring_names or lam == 0.0:
+            return h_buf.new_zeros(())
+        r = self._sigma(h_buf)
+        total = h_buf.new_zeros(())
+        for name in self._ring_names:
+            order = getattr(self, f"_ring_order_{name}")
+            r_ring = r.index_select(-1, order)
+            diffs = (torch.roll(r_ring, -1, dims=-1) - r_ring).abs()
+            total = total + diffs.sum(dim=-1).mean()
+        return lam * total / len(self._ring_names)

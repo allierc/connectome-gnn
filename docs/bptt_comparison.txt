@@ -1,0 +1,496 @@
+================================================================================
+BPTT implementations in connectome-gnn-cx — core code for second-expert review
+================================================================================
+
+Five BPTT-through-time training paths coexist in this repo. They optimize
+different models for different data shapes, but the shared question is: which
+of these patterns is the right starting point for a new cortex-multitask
+trainer (Yang et al. 2019 tasks, padded to T_max=200, 85-ch input, 33-ch
+target, with a per-(t, ch) loss mask `c_mask`)?
+
+The whole-file analyses are elsewhere; this document holds JUST the core code
+of each path, lightly stripped (logging, checkpointing, snapshot plotting,
+config-validation, fallback branches removed) so an external reader can see
+the essential time loop, loss, and optimizer step for each.
+
+Each section quotes the actual current source verbatim where it fits, and
+labels file:line for the original.
+
+Layout:
+  1. Reference: papers/multi-tasks/.../train_multi_task.py:rollout
+  2. Current cortex draft: graph_trainer.py:data_train_task_gnn (uses TaskRNN.forward)
+  3. Flyvis main: graph_trainer.py:data_train_gnn -> recurrent_step.py:recurrent_loss
+  4. EED native: data_train_eed.py:compute_eed_loss
+  5. Generic Euler: data_train_rollout.py:_compute_loss_multistep
+
+
+================================================================================
+1. REFERENCE — papers/multi-tasks (Yang et al. 2019 multitask)
+================================================================================
+
+Architecture: 3-block GNN (input + hidden + output as graph nodes). Voltage
+on every node carried in time; input nodes get HARD-CLAMPED to x_in[t] each
+step. Output is `v[output_ids]` read at every step. W is learnable, masked
+to the input->hidden, hidden->hidden, hidden->output block structure.
+
+Key trait: per-trial Python loop over `tdim` (Yang trial length varies per
+draw). One trial = one .backward() call; loop over `mt.batch_size` trials
+to accumulate gradients before .step().
+
+File: papers/multi-tasks/src/NeuralGraph/training/train_multi_task.py
+Functions: rollout (line 75), masked_mse (106), train loop (261-291)
+
+----- rollout (per trial, autograd through full tdim) -------------------------
+
+def rollout(model, topo, x_in, dt):
+    # x_in: (tdim, N_i)  ->  drives clamped voltage on input nodes each step
+    # Returns: (tdim, N_o)
+    device = x_in.device
+    N_total = topo.N_total
+    tdim = x_in.shape[0]
+
+    v = torch.zeros(N_total, 1, device=device)
+    v[topo.input_ids, 0] = x_in[0]
+
+    data_id = torch.zeros((N_total, 1), dtype=torch.int, device=device)
+    k_dummy = torch.zeros((N_total, 1), dtype=torch.int, device=device)
+
+    out_traj = []
+    for t in range(tdim):
+        data = build_pyg_data(v, topo.edge_index, device)
+        dv = model(data, data_id=data_id, k=k_dummy)        # MLP-on-PyG msg-pass -> du/dt
+        v_full = v + dt * dv                                # Euler step
+
+        clamp_vals = torch.zeros(N_total, 1, device=device)
+        clamp_vals[topo.input_ids, 0] = x_in[t]
+        v = clamp_vals * topo.is_clamp + v_full * (1 - topo.is_clamp)  # HARD CLAMP
+
+        out_traj.append(v[topo.output_ids])
+
+    return torch.stack(out_traj, dim=0).squeeze(-1)
+
+----- loss (c_mask-weighted MSE; cm encodes Yang's pre/post-response weights) -
+
+def masked_mse(pred, target, c_mask):
+    return ((pred - target) ** 2 * c_mask).mean()
+
+----- training-loop body (per iter; accumulates over mt.batch_size trials) ----
+
+for it in range(start_iter + 1, mt.n_iter + 1):
+    # LR schedule (multiplicative every mt.lr_schedule_step iters)
+    if mt.lr_schedule_step > 0 and it > 1 and (it - 1) % mt.lr_schedule_step == 0:
+        for g in opt.param_groups:
+            g['lr'] *= mt.lr_schedule_gamma
+
+    if pregen_dataset is not None:
+        idx = hp['rng'].choice(len(pregen_dataset), size=mt.batch_size, replace=False)
+        items = [(pregen_dataset[i]['x_in'].to(device),
+                  pregen_dataset[i]['y_tgt'].to(device),
+                  pregen_dataset[i]['c_mask'].to(device)) for i in idx]
+    else:
+        items, _ = make_multi_task_batch(mt.rules, mt.rule_weights, hp,
+                                         batch_size=mt.batch_size, device=device)
+    opt.zero_grad()
+    loss_accum = 0.0
+    for x_in, y_tgt, c_mask in items:
+        pred = rollout(model, topo, x_in, dt)
+        loss = masked_mse(pred, y_tgt, c_mask) / mt.batch_size
+        loss.backward()                                    # per-trial backward
+        loss_accum += loss.item()
+
+    if model.W.grad is not None:
+        model.W.grad.mul_(topo.mask)                       # preserve block sparsity
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=mt.grad_clip)
+    opt.step()
+    with torch.no_grad():
+        model.W.mul_(topo.mask)
+
+
+================================================================================
+2. CURRENT cortex draft — graph_trainer.py:data_train_task_gnn
+================================================================================
+
+Architecture: connectome-locked recurrent layer + separate I/O projections.
+W_rec = |S| * sign(W_con)  (Hulse Eq. 9 — magnitude trainable, sign frozen,
+sparsity baked in via W_con_mask). Inputs go through learnable W_in (3-ch ->
+N) or a small MLP; outputs through W_out (N -> 2-ch) or MLP. Path-integration
+target = (cos theta_hd, sin theta_hd).
+
+Key trait: batched (B, T) vectorised time loop on PRE-PADDED tensors. Loop
+body is one matmul per step; `torch.compile(reduce-overhead, fullgraph=True)`
+captures CUDA graphs. No c_mask. Hulse curriculum (T_epoch grows over epochs).
+
+File: src/connectome_gnn/models/neural_task_gnn.py:187 (forward)
+      src/connectome_gnn/models/graph_trainer.py:1733 (training loop)
+
+----- TaskRNN.forward (vectorised over B, loops over T) -----------------
+
+def forward(self, u, h0=None):
+    # u: (B, T, n_input)
+    # Returns: y_hat (B, T, n_output), h_buf (B, T, N)
+    B, T, _ = u.shape
+    N = self.n_units
+
+    h = (torch.zeros(B, N, dtype=u.dtype, device=u.device)
+         if h0 is None else h0)
+    h_buf = torch.empty(B, T, N, dtype=u.dtype, device=u.device)
+
+    W_rec_t = self.W_rec.t()      # W_rec = |S| * sign(W_con)
+    dt_over_tau = self.dt / self.tau
+
+    for t in range(T):
+        r = torch.sigmoid(h)                              # firing rate
+        rec = r @ W_rec_t                                 # recurrent input
+        inp = self._project_in(u[:, t, :])                # W_in or small MLP
+        h = h + dt_over_tau * (-h + rec + inp + self.b)   # leaky integrator
+        h_buf[:, t, :] = h
+
+    y_hat = self._project_out(torch.sigmoid(h_buf))       # W_out * sigmoid(h)
+    return y_hat, h_buf
+
+----- training-loop body (per batch; one .backward() per batch) ---------------
+
+# Outside loop: pre-load to GPU, build optimizer, torch.compile model.
+if getattr(tc, 'torch_compile', True):
+    model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+
+for epoch in range(tc.n_epochs):
+    T_epoch = n_steps_schedule[epoch]                     # Hulse curriculum
+    perm = torch.randperm(n_trials, device=device, ...)
+    for N in trange(Niter):
+        idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
+        u = u_train[idx, :T_epoch]                        # curriculum slice
+        y = y_train[idx, :T_epoch]
+
+        y_hat, h_buf = model(u)
+        mse  = F.mse_loss(y_hat, y)
+        cosd = model.loss_cos_distance(coeff_cos)         # Hulse Eq. 10
+        norm = model.loss_norm_floor(coeff_norm, kappa)   # Hulse Eq. 11
+        tv   = model.loss_tv_circular(h_buf, coeff_tv)    # ring TV penalty
+        l1S  = coeff_l1S * model.S.abs().sum()
+        loss = mse + cosd + norm + tv + l1S
+
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        if grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+        lr_scheduler.step()
+
+
+================================================================================
+3. FLYVIS MAIN — graph_trainer.py:data_train_gnn (delegates to recurrent_step.py)
+================================================================================
+
+Architecture: PyG message-passing GNN (Signal_Propagation). State is voltage
+per neuron in a single long time-series (one "run", thousands of frames). Two
+recurrent modes: standard and multi-start.
+
+(a) Standard: pick a random start frame k, unroll `time_step` self-predictions,
+    MSE against observed v(k + time_step).
+(b) Multi-start: pick target frame T, launch time_step parallel rollouts of
+    decreasing length (lengths time_step, time_step-1, ..., 1) all targeting
+    v(T). Each start has its own noisy initial frame so gradient noise from
+    different starts partially cancels.
+
+Key trait: noise INJECTED during the unroll:
+    pred_x = v + dt * dv + noise_recurrent_level * randn_like(dv)
+plus stride-subsampling, hidden-neuron NGP slot-in, and a huge regulariser
+pipeline (cos-distance, norm-floor, NGP Pearson, per-cell-type R²).
+
+File: src/connectome_gnn/models/recurrent_step.py (45-305)
+
+----- _standard_recurrent_loss (single start, unroll time_step forward) -------
+
+def _standard_recurrent_loss(model, x_ts, edges, ids, frame_indices, iter_idx,
+                             time_step, sim, tc, device, xnorm, regularizer,
+                             has_visual_field, hidden_ids=None):
+    batch_size = tc.batch_size
+    state_batch, y_list, ids_list, k_list = [], [], [], []
+    ids_index = 0
+
+    for b in range(batch_size):
+        k = int(frame_indices[iter_idx * batch_size + b])
+        x = x_ts.frame(k)
+        if x.noise is not None and sim.measurement_noise_level > 0:
+            x.voltage = x.voltage + x.noise                # noisy initial state
+        if hidden_ids is not None:
+            x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
+        state_batch.append(x); y_list.append(y); ...
+        ids_index += x.n_neurons
+
+    y_batch = torch.cat(y_list, dim=0)
+    ids_batch = torch.cat(ids_list, dim=0)
+
+    # Step 1: forward + Euler from observed frame
+    regul_loss = regularizer.compute(model=model, x=state_batch[0], ...)
+    loss = regul_loss.clone()
+    batched_state, batched_edges = _batch_frames(state_batch, edges)
+    pred, in_features, msg = model(batched_state, batched_edges,
+                                   data_id=data_id, return_all=True)
+    loss = loss + regularizer.compute_update_regul(model, in_features, ids_batch, device)
+    pred_x = (batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred
+              + tc.noise_recurrent_level * torch.randn_like(pred))   # noise injected
+
+    # Steps 2..time_step: feed prediction back
+    for step in range(time_step - 1):
+        # ... rewrite per-sample voltages from pred_x, refresh stimulus
+        for b_idx in range(len(state_batch)):
+            s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
+            state_batch[b_idx].voltage = pred_x[s:e].squeeze()
+            if hidden_ids is not None:
+                state_batch[b_idx].voltage[hidden_ids] = model.forward_hidden(...)
+            if has_visual_field:
+                vi = model.forward_visual(state_batch[b_idx], k_current)
+                state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
+
+        batched_state, batched_edges = _batch_frames(state_batch, edges)
+        pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+        pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch])
+                   / (sim.delta_t * time_step)).norm(2)
+    return loss, regul_value
+
+----- _multi_start_loss (time_step starts, all targeting v(T)) ----------------
+
+def _multi_start_loss(...):
+    # Pick target frame T
+    T = clipped(frame_indices[iter_idx * time_step], ...)
+    y_target = x_ts.voltage[T].unsqueeze(-1)
+    loss = regul_loss.clone()
+
+    for s in range(time_step):
+        start_k = T - time_step + s      # start frame
+        n_steps = time_step - s          # rollout length
+
+        x = x_ts.frame(start_k)
+        if x.noise is not None and sim.measurement_noise_level > 0:
+            x.voltage = x.voltage + x.noise
+
+        for step in range(n_steps):
+            batched_state, batched_edges = _batch_frames([x], edges)
+            pred, in_features, msg = model(batched_state, batched_edges,
+                                           data_id=data_id, return_all=True)
+            x.voltage = (x.voltage.unsqueeze(-1)
+                         + sim.delta_t * pred
+                         + tc.noise_recurrent_level * torch.randn_like(pred)).squeeze(-1)
+            # refresh hidden NGP / visual field for next step ...
+
+        pred_v = x.voltage.unsqueeze(-1)
+        loss = loss + ((pred_v[ids] - y_target[ids])
+                       / (sim.delta_t * time_step)).norm(2)
+
+    loss = loss / time_step
+    return loss, regul_value
+
+----- caller (graph_trainer.py:data_train_gnn) --------------------------------
+
+if tc.recurrent_training and not tc.neural_ODE_training:
+    loss, regul_val = recurrent_loss(model, x_ts, y_ts, edges, ids=visible_ids,
+                                     frame_indices=frame_indices, iter_idx=N,
+                                     config=config, device=device, xnorm=xnorm,
+                                     ynorm=ynorm, regularizer=regularizer,
+                                     has_visual_field=has_visual_field,
+                                     hidden_ids=hidden_ids)
+    loss.backward()
+    if hasattr(tc, 'grad_clip_W') and tc.grad_clip_W > 0 and hasattr(model, 'W'):
+        torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
+    optimizer.step()
+    if dale_enabled and N in dale_checkpoints:
+        enforce_dale_law(model, edges)
+    lr_scheduler.step()
+
+
+================================================================================
+4. EED NATIVE — data_train_eed.py (encode-evolve-decode)
+================================================================================
+
+Architecture: encoder(x) -> z, evolver(z, stim_encoder(stim)) -> dz,
+decoder(z) -> x_hat. BPTT happens in latent space: encode once, chain
+evolver, decode at each step. Reconstruction loss anchors the decoder;
+multi-step latent rollout supervises the evolver.
+
+Key trait: zero feedback from decoded prediction back into encoder during
+the rollout — pure latent dynamics. Whole thing torch.compile'd.
+
+File: src/connectome_gnn/models/data_train_eed.py (line 30, 178)
+
+----- compute_eed_loss (the BPTT-in-latent-space hot path) --------------------
+
+def compute_eed_loss(model, voltage, stimulus, t_indices, dt, rollout_steps):
+    # voltage: (T, N)   stimulus: (T, n_input)   t_indices: (B,)
+    x_t = voltage[t_indices]                                # (B, N)
+
+    z = model.encoder(x_t)                                  # encode once
+    x_recon = model.decoder(z)
+    recon_loss = F.mse_loss(x_recon, x_t)
+
+    evolve_loss = torch.zeros((), device=x_t.device)
+    for k in range(rollout_steps):
+        stim_k  = stimulus[t_indices + k]
+        z_stim  = model.stimulus_encoder(stim_k)
+        z       = z + model.evolver(torch.cat([z, z_stim], dim=1))   # latent step
+        x_pred  = model.decoder(z)
+        target  = voltage[t_indices + k + 1]
+        evolve_loss = evolve_loss + F.mse_loss(x_pred, target)
+    evolve_loss = evolve_loss / rollout_steps
+
+    return recon_loss + evolve_loss, recon_loss, evolve_loss
+
+----- training-loop body ------------------------------------------------------
+
+compute_eed_loss_compiled = torch.compile(
+    compute_eed_loss, fullgraph=True, mode="reduce-overhead"
+)
+
+for epoch in range(n_epochs):
+    for _ in trange(batches_per_epoch):
+        t_indices = torch.randint(0, max_frame + 1, (batch_size,), device=device)
+        optimizer.zero_grad()
+        total_loss, recon_loss, evolve_loss = compute_eed_loss_compiled(
+            model, voltage, stimulus, t_indices, dt, rollout_steps,
+        )
+        total_loss.backward()
+        optimizer.step()
+
+
+================================================================================
+5. GENERIC EULER — data_train_rollout.py (predict_dvdt interface)
+================================================================================
+
+Architecture: ANY model that implements `predict_dvdt(v, stim) -> dvdt`. The
+trainer is fully model-agnostic. Forward = Euler integration with multi-step
+BPTT; loss = mean MSE across the rollout, plus optional group-L1 stim
+sparsity and global L1.
+
+Key trait: cleanest pattern in the repo. One torch.compile'd hot function,
+random t_indices per batch, full-fat BPTT through `rollout_train_steps` Euler
+steps. Validation uses the SAME rollout function, just longer.
+
+File: src/connectome_gnn/models/data_train_rollout.py (line 112, 286)
+
+----- _compute_loss_multistep (the BPTT-through-Euler hot path) ---------------
+
+def _compute_loss_multistep(model, voltage, stimulus, t_indices, dt, rollout_steps,
+                            coeff_stim_sparsity: float = 0.0,
+                            coeff_L1: float = 0.0):
+    x = voltage[t_indices]                                  # (B, N)
+    loss = torch.zeros((), device=x.device)
+    stim_pen = torch.zeros((), device=x.device)
+    for k in range(rollout_steps):
+        stim_k = stimulus[t_indices + k]                    # (B, n_input)
+        dvdt = model.predict_dvdt(x, stim_k)
+        if coeff_stim_sparsity > 0.0:
+            dvdt_zero = model.predict_dvdt(x, torch.zeros_like(stim_k))
+            delta = dvdt - dvdt_zero
+            # Group-L1: per-neuron L2 over batch, then sum over neurons
+            stim_pen = stim_pen + delta.pow(2).mean(dim=0).clamp_min(1e-12).sqrt().sum()
+        x = x + dt * dvdt
+        target = voltage[t_indices + k + 1]
+        loss = loss + F.mse_loss(x, target)
+    loss = loss / rollout_steps
+    if coeff_stim_sparsity > 0.0:
+        loss = loss + coeff_stim_sparsity * (stim_pen / rollout_steps)
+    if coeff_L1 > 0.0:
+        l1 = torch.zeros((), device=x.device)
+        for p in model.parameters():
+            if p.requires_grad:
+                l1 = l1 + p.abs().sum()
+        loss = loss + coeff_L1 * l1
+    return loss
+
+----- training-loop body ------------------------------------------------------
+
+_compute_loss_multistep_compiled = torch.compile(
+    _compute_loss_multistep, fullgraph=True, mode="reduce-overhead"
+)
+
+for epoch in range(n_epochs):
+    for _ in trange(batches_per_epoch):
+        t_indices = torch.randint(0, max_frame + 1, (batch_size,), device=device)
+        optimizer.zero_grad()
+        loss = _compute_loss_multistep_compiled(
+            model, voltage, stimulus, t_indices, dt, rollout_train_steps,
+            coeff_stim_sparsity, coeff_L1,
+        )
+        loss.backward()
+        optimizer.step()
+
+    # Validation: SAME rollout, no_grad, longer (8000 steps), single start
+    with torch.no_grad():
+        mse_curve, div_time, mean_rollout_rmse = val_rollout(
+            model, voltage, stimulus, val_start_idx, dt,
+        )
+
+----- val_rollout (identical body to training, just no_grad and longer) ------
+
+def val_rollout(model, voltage, stimulus, val_start_idx, dt):
+    all_mse = torch.zeros(_VAL_ROLLOUT_LEN, device=voltage.device)
+    v = voltage[val_start_idx].clone()
+    for t in range(_VAL_ROLLOUT_LEN):
+        dvdt = model.predict_dvdt(v, stimulus[val_start_idx + t])
+        v = v + dt * dvdt
+        all_mse[t] = F.mse_loss(v, voltage[val_start_idx + t + 1])
+    mse_np = all_mse.cpu().numpy()
+    above = np.where(mse_np > 1.0)[0]
+    div_time = int(above[0]) if len(above) > 0 else _VAL_ROLLOUT_LEN
+    rollout_rmse_val = float(np.sqrt(mse_np[:max(div_time, 1)].mean()))
+    return mse_np, div_time, rollout_rmse_val
+
+
+================================================================================
+COMPACT COMPARISON TABLE
+================================================================================
+
+                       | 1 ref          | 2 task_gnn        | 3 gnn rec       | 4 eed           | 5 rollout
+--- model type         | 3-block GNN    | conn-locked RNN   | PyG GNN         | encode/evolve   | any predict_dvdt
+--- input coupling     | hard clamp     | additive W_in     | additive (sim)  | latent z_stim   | (model's choice)
+--- state in time      | (N_total, 1) v | (B, N) h          | (N) v           | (B, latent) z   | (B, N) v
+--- batched B          | NO (per-trial) | YES               | YES (PyG bundle)| YES             | YES
+--- time variable      | per-trial tdim | curriculum T_epoch| time_step unroll| rollout_steps   | rollout_steps
+--- c_mask loss        | YES            | no                | no              | no              | no
+--- noise in rollout   | no             | no                | YES             | no              | no
+--- multi-start grad   | no             | no                | YES             | no              | no
+--- torch.compile      | NO             | reduce-overhead   | NO              | reduce-overhead | reduce-overhead
+--- one .backward()    | per trial      | per batch         | per batch       | per batch       | per batch
+--- TBPTT truncation   | no             | no                | no              | no              | no
+--- SIGUSR2 stop       | no             | no                | no              | YES             | YES
+--- profiler hook      | no             | no                | no              | no              | YES
+--- diagnostic metric  | direction_acc  | pi_acc + fwhm     | conn_R2 + many  | div_time + rmse | div_time + rmse
+
+
+================================================================================
+KEY QUESTION FOR THE SECOND READER
+================================================================================
+
+For a new cortex-multitask trainer (Yang tasks, padded T_max=200, multi-rule
+random sampling, c_mask loss), which of these patterns is the right base?
+
+Concretely:
+  - #5 (data_train_rollout) is the cleanest skeleton: model-agnostic interface,
+    full torch.compile, fixed-shape batched matmul over time.
+  - But #5 lacks: c_mask weighting (needed for Yang loss), per-rule eval
+    (direction_acc), and the readout step (cortex has Wout, rollout assumes
+    state == observation).
+  - #1 (reference) has the c_mask + direction_acc + multi-rule sampling but
+    is slow (per-trial loop, no compile, no batch vectorisation).
+  - #2 (current task_gnn) has the batched compile pipeline but no c_mask
+    and the connectome-locked W_rec is a category error for Yang tasks.
+  - #3 (flyvis) is the most sophisticated but tied to (single time series,
+    Pyg message passing, noise injection, hidden NGP) — none of those apply.
+  - #4 (EED) is orthogonal — only relevant if the cortex model should run in
+    a latent space, which Yang tasks do not require.
+
+Suggested recipe (one option to evaluate):
+  1. Take #5's training-loop body and compiled-loss pattern verbatim.
+  2. Replace `predict_dvdt(v, stim) -> dvdt` with
+     `predict_step(h, u_t) -> (h_next, y_t)` so the model owns its readout.
+  3. Add c_mask: `loss = ((y_pred - y_true)**2 * c_mask[t]).mean()` summed
+     over the rollout, divided by rollout length.
+  4. Variable trial length: pad to T_max, use `length` mask (already in data).
+  5. Per-rule eval (direction_acc) from #1's evaluate() function — same loop,
+     no_grad, larger batch.
+
+The reader is asked to either confirm this recipe or propose a better one.

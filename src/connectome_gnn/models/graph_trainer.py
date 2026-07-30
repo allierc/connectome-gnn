@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import time
 import warnings
 
@@ -21,14 +22,14 @@ from tqdm import trange
 
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.log import get_logger
-from connectome_gnn.metrics import compute_dynamics_r2
+from connectome_gnn.metrics import compute_dynamics_r2, fmt_r2_bar
 from connectome_gnn.models.neural_ode_wrapper import (
     debug_check_gradients,
     neural_ode_loss,
 )
 from connectome_gnn.models.recurrent_step import recurrent_loss
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, load_flyvis_data
+from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, find_latest_epoch_checkpoint, load_flyvis_data
 from connectome_gnn.models.utils import (
     ANSI_GREEN,
     ANSI_ORANGE,
@@ -40,6 +41,7 @@ from connectome_gnn.models.utils import (
     _batch_frames,
     _quick_ngp_pearson,
     analyze_data_svd,
+    model_family,
     r2_color,
     set_trainable_parameters,
 )
@@ -47,7 +49,7 @@ from connectome_gnn.plot import (
     plot_jacobian_w_scatter,
     plot_metrics,
     plot_signal_loss,
-    plot_training_flyvis,
+    plot_training_gnn,
     plot_training_linear,
     plot_training_summary_panels,
     render_visual_field_video,
@@ -64,30 +66,7 @@ from connectome_gnn.utils import (
 _logger = get_logger(__name__)
 
 
-def _mem_snapshot(device, N=None):
-    """One-line CPU/GPU memory snapshot for OOM debugging."""
-    try:
-        with open('/proc/self/status') as _f:
-            rss_kb = next(int(_l.split()[1]) for _l in _f if _l.startswith('VmRSS:'))
-        cpu_str = f'CPU RSS={rss_kb / 1024 / 1024:.2f}GB'
-    except Exception:
-        cpu_str = 'CPU RSS=?'
-    gpu_str = 'GPU n/a'
-    try:
-        _dev = torch.device(device) if not isinstance(device, torch.device) else device
-        if _dev.type == 'cuda':
-            alloc = torch.cuda.memory_allocated(_dev) / 1024 ** 3
-            reserved = torch.cuda.memory_reserved(_dev) / 1024 ** 3
-            peak = torch.cuda.max_memory_allocated(_dev) / 1024 ** 3
-            gpu_str = (f'GPU alloc={alloc:.2f}GB reserved={reserved:.2f}GB '
-                       f'peak={peak:.2f}GB')
-    except Exception:
-        pass
-    tag = f' N={N}' if N is not None else ''
-    return f'[mem{tag}] {cpu_str} | {gpu_str}'
-
-
-def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None):
+def data_train(config=None, erase=False, best_model=None, style=None, device=None, log_file=None, resume=False):
     # plt.rcParams['text.usetex'] = False  # LaTeX disabled - use mathtext instead
     # rc('font', **{'family': 'serif', 'serif': ['Times New Roman', 'Liberation Serif', 'DejaVu Serif', 'serif']})
     # matplotlib.rcParams['savefig.pad_inches'] = 0
@@ -112,8 +91,17 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info(f"dataset: {config.dataset}")
     _logger.info(f"{config.description}")
 
+    # Task-data trainer (path_integration etc.). Detected via the presence
+    # of a populated task block — keeps train_subprocess.py / GNN_Main.py
+    # routing transparent for both the LLM agentic loop and direct CLI use.
+    if getattr(config, 'task', None) is not None:
+        data_train_task(config, erase, best_model, device, log_file=log_file, resume=resume)
+        _logger.info("training completed.")
+        return
+
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
-    if 'fly' in config.dataset or _connconstr:
+    _cortex_voltage = 'cortex' in config.dataset
+    if 'fly' in config.dataset or _connconstr or _cortex_voltage:
         model_name = config.graph_model.signal_model_name.lower()
         if 'stimulus' in model_name:
             from connectome_gnn.models.data_train_stimulus import data_train_stimulus
@@ -127,14 +115,40 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
         elif 'rnn' in model_name or 'lstm' in model_name:
             data_train_gnn_RNN(config, erase, best_model, device)
         else:
-            data_train_gnn(config, erase, best_model, device, log_file=log_file)
+            data_train_gnn(config, erase, best_model, device, log_file=log_file, resume=resume)
     else:
         raise ValueError(f"Unknown dataset type: {config.dataset}")
 
     _logger.info("training completed.")
 
 
-def data_train_gnn(config, erase, best_model, device, log_file=None):
+def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
+    """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
+
+    Mutates x.voltage[hidden_ids] in place. injection_active is binary:
+    phase 1 → False, phase 2 → True. The smooth absorption of the new
+    input distribution at the phase 1→2 transition is handled by the
+    LR-damping V-schedule on the GNN param groups, not by ramping the
+    injection magnitude here.
+
+    Phase 1 (injection_active=False): hidden voltages are zero-silenced
+    (identical to the no-NGP baseline). NGP/SIREN still trains via the
+    anchor loss elsewhere in the step, which routes through the spatial
+    NGP position cache — normally primed inside forward_hidden, so it is
+    primed here instead (idempotent) to keep that path populated.
+
+    Phase 2 (injection_active=True): NGP/SIREN forward_hidden predicts the
+    hidden voltages directly, and gradients flow back through injection.
+    """
+    if model.NNR_hidden is not None and injection_active:
+        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+    else:
+        x.voltage[hidden_ids] = 0.0
+        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
+            model._ngp_cache_pos(x)
+
+
+def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
     if torch.cuda.is_available():
         torch.set_float32_matmul_precision('high')
 
@@ -197,7 +211,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     # After subsampling, consecutive frames in x_ts are time_step original steps apart,
     # so the BPTT unroll of time_step steps spans exactly the same physical duration
     # as before, but GPU memory scales with n_frames/time_step instead of n_frames.
-    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
+    # recurrent_full_stimulus (observation-cadence sweep): keep the full 20ms data
+    # so the K-step BPTT unroll can feed the known native-rate stimulus and be
+    # supervised only at the K-th step. In that mode we must NOT subsample.
+    _full_stim = getattr(tc, 'recurrent_full_stimulus', False)
+    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1 and not _full_stim) else 1
     if stride > 1:
         from tqdm import tqdm as _tqdm
         _fields_to_stride = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
@@ -247,7 +265,20 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         OdeParamsCls = get_ode_params_class(signal_model)
     except KeyError:
         OdeParamsCls = FlyVisODEParams
-    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    try:
+        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    except TypeError:
+        # Schema mismatch — on-disk ode_params.pt was saved with a different
+        # dataclass (typical when the same signal_model_name maps to two
+        # different ODE param schemas, e.g. `drosophila_cx` is registered to
+        # both DrosophilaCxODEParams (legacy Hulse-Beiran teacher) and to
+        # the simpler FlyVisODEParams (voltage-recovery flow). Fall back to
+        # FlyVisODEParams which only requires edge_index / W / tau_i / V_i_rest.
+        _logger.info(
+            f'ode_params schema mismatch for {OdeParamsCls.__name__}; '
+            f'falling back to FlyVisODEParams'
+        )
+        ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index
 
@@ -298,21 +329,40 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     torch.save(gt_weights, os.path.join(log_dir, 'gt_weights.pt'))
     print(f"{_G}[TRAIN] saved training_edges.pt: {edges.shape}  gt_weights.pt: {gt_weights.shape}{_X}")
 
-    # Resolve checkpoint path from best_model argument
+    # Resolve checkpoint path. --resume auto-detects the latest completed
+    # per-epoch checkpoint and continues at the next epoch; otherwise an
+    # explicit pretrained_model from config is used (best_model no longer
+    # drives training resume — it stays a test-time epoch selector).
     checkpoint_path = None
-    if best_model and best_model != '' and best_model != 'None':
-        checkpoint_path = f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt"
+    _resumed_epoch = -1
+    if resume:
+        checkpoint_path, _resumed_epoch = find_latest_epoch_checkpoint(log_dir, tc.n_runs)
+        if checkpoint_path is None:
+            _logger.warning('--resume: no per-epoch checkpoint found; starting from epoch 0')
     elif tc.pretrained_model != '':
         checkpoint_path = tc.pretrained_model
 
-    reset_epoch = (tc.pretrained_model != '' and not best_model)
+    reset_epoch = (tc.pretrained_model != '' and not resume)
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
+    if resume and checkpoint_path is not None:
+        start_epoch = _resumed_epoch + 1   # continue at the next epoch
+        _logger.info(f'--resume: loaded {checkpoint_path}; resuming at epoch {start_epoch}')
     _w = model.W if hasattr(model, 'W') else None
     _w_match = _w is not None and _w.shape[0] == config.simulation.n_edges
     _c = _G if _w_match else _R
     print(f"{_c}[TRAIN] model.W={_w.shape if _w is not None else 'N/A'}  "
           f"config.n_edges={config.simulation.n_edges}  "
           f"{'OK' if _w_match else 'MISMATCH'}{_X}")
+
+    # Branch-0 hard Eq-10 sign-lock: register the GT connectome sign on the
+    # model from ode_params.W so messages use |W|·sign_GT. gt_weights is in the
+    # same edge order as model.W (use_gt_edges=True path). No-op otherwise.
+    if getattr(model, 'lock_edge_signs_from_connectome', False):
+        model.set_edge_sign_from_weights(gt_weights)
+        _frac_neg = float((model._edge_sign < 0).float().mean())
+        print(f"{_G}[TRAIN] Eq-10 hard sign-lock ON: registered {tuple(model._edge_sign.shape)} "
+              f"GT signs (frac_neg={_frac_neg:.3f}){_X}")
+        _logger.info(f'Eq-10 hard sign-lock: |W|·sign_GT, frac_neg={_frac_neg:.3f}')
     list_loss = []
 
     # Initialize embedding with equidistant points per cell type
@@ -484,10 +534,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
 
     # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
     if tc.torch_compile:
-        model = torch.compile(model, mode='reduce-overhead', fullgraph=True)
+        # 'reduce-overhead' enables CUDA graphs, which pin static buffers and
+        # conflict with activation checkpointing's recompute-in-backward (the
+        # GNN rollout uses torch.utils.checkpoint to fit memory). Use plain
+        # 'default' mode for checkpointed models — same Triton kernels, no
+        # CUDA-graph memory/capture.
+        _ckpt = bool(getattr(model, 'grad_checkpoint', False))
+        _mode = 'default' if _ckpt else 'reduce-overhead'
+        model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
         regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
         regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
-        logger.info("torch.compile enabled")
+        logger.info(f"torch.compile enabled (mode={_mode}, grad_checkpoint={_ckpt})")
     else:
         logger.info("torch.compile disabled via config (torch_compile: false)")
 
@@ -817,7 +874,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
                                _intermediate_path)
-                if (is_regular_r2 or is_early_r2) and ('linear' in model_name or 'known_ode' in model_name):
+                if (is_regular_r2 or is_early_r2) and model_family(model) == 'linear':
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -831,8 +888,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                elif (is_regular_r2 or is_early_r2) and model_family(model) == 'gnn':
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
@@ -918,10 +975,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
                             _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (injection_active=False), hidden
                         # voltages are zero-silenced so hidden_nnr_pearson
@@ -941,7 +998,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
-                        pbar.write(_mem_snapshot(device, N=N))
                 continue
 
             state_batch = []
@@ -972,23 +1028,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     x.voltage = x.voltage + x.noise
 
                 # Hidden neurons: predict via SIREN/NGP or zero-silence.
-                # injection_active is binary: phase 1 → False (v_h=0, identical
-                # to the no-NGP baseline; NGP still trains via the anchor loss
-                # elsewhere in the step), phase 2 → True (NGP fully injected).
-                # The smooth absorption of the new input distribution at the
-                # phase 1→2 transition is handled by the LR-damping V-schedule
-                # on the GNN param groups, not by ramping injection magnitude.
+                # See _inject_hidden_voltage for the phase 1/2 branching.
                 if has_hidden_neurons:
-                    if model.NNR_hidden is not None and injection_active:
-                        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
-                    else:
-                        x.voltage[hidden_ids] = 0.0
-                        # Phase 1: forward_hidden is skipped, so the spatial NGP
-                        # position cache (normally primed there) stays empty —
-                        # but the anchor-voltage loss below still routes through
-                        # _ngp_query_spatial. Prime it here; it is idempotent.
-                        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
-                            model._ngp_cache_pos(x)
+                    _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
 
                 if tc.time_window > 0:
                     x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
@@ -1227,7 +1269,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 'optimizer_state_dict': optimizer.state_dict()},
                                _intermediate_path)
 
-                if (is_regular_r2 or is_early_r2) and not test_neural_field and '_mlp' in model_name:
+                if (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'mlp':
                     from connectome_gnn.metrics import compute_jacobian_connectivity_r2
                     last_connectivity_r2 = compute_jacobian_connectivity_r2(
                         model, x_ts, ode_params, n_neurons=n_neurons, device=device)
@@ -1240,7 +1282,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and ('linear' in model_name or 'known_ode' in model_name):
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'linear':
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -1254,8 +1296,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
+                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'gnn':
+                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
                         last_hidden_r2 = _h_r2
@@ -1340,10 +1382,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                         bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
                         if ode_params.has_vrest():
                             _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={last_vrest_r2_clean:.3f}({_vr_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
                         if ode_params.has_tau():
                             _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={last_tau_r2_clean:.3f}({_tau_pct:.0f}%){ANSI_RESET}')
+                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
                     if last_hidden_r2 is not None or last_anchor_r2 is not None:
                         # During warmup (injection_active=False), hidden
                         # voltages are zero-silenced so hidden_nnr_pearson
@@ -1363,7 +1405,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                             bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
-                        pbar.write(_mem_snapshot(device, N=N))
 
                 if (has_visual_field) & (N in plot_iterations):
                     field_R2, field_slope = render_visual_field_video(
@@ -1707,14 +1748,45 @@ from connectome_gnn.models.graph_trainer_inr import _generate_inr_video, data_tr
 
 def data_test(config=None, config_file=None, visualize=False, style='color frame', verbose=True, best_model=20, step=15, n_rollout_frames=600,
               ratio=1, run=0, test_mode='', sample_embedding=False, particle_of_interest=1, new_params = None, device=[],
-              rollout_without_noise: bool = False, log_file=None, test_config=None):
+              rollout_without_noise: bool = False, log_file=None, test_config=None,
+              anatomy_voltage: bool = False, anatomy_voltage_type_groups=None):
 
     dataset_name = config.dataset
     _logger.info(f"dataset_name: {dataset_name}")
     _logger.info(f"{config.description}")
 
+    # Task-trainer test dispatch.
+    if getattr(config, 'task', None) is not None:
+        task_type = str(getattr(config.task, 'task_type', '')).lower()
+        if task_type == 'cortex':
+            data_test_cortex_task_gnn(
+                config, best_model=best_model, device=device, log_file=log_file,
+            )
+            return
+        # Path-integration and swim-integration share the same dIPN-/EPG-style
+        # heading-rollout test pipeline; data_test_path_integration_task reads
+        # the matching task sub-block (path_integration or swim_integration)
+        # for dt/T at the call sites that need them.
+        if task_type in ('path_integration', 'swim_integration'):
+            # Place-cell model has a 3+K output (heading+distance + place
+            # logits) the heading test can't parse — route to the dedicated
+            # place test (metrics + MP4 animations).
+            if str(getattr(config.graph_model, 'signal_model_name', '')) \
+                    == 'drosophila_cx_pi_place':
+                data_test_place_task(
+                    config, best_model=best_model, device=device,
+                    log_file=log_file)
+                return
+            data_test_path_integration_task(
+                config, best_model=best_model, device=device, log_file=log_file,
+                anatomy_voltage=anatomy_voltage,
+                anatomy_voltage_type_groups=anatomy_voltage_type_groups,
+            )
+            return
+
     _connconstr = any(x in config.dataset for x in ('drosophila_cx', 'zebrafish_oculomotor', 'larva'))
-    if 'fly' in config.dataset or _connconstr:
+    _cortex_voltage = 'cortex' in config.dataset
+    if 'fly' in config.dataset or _connconstr or _cortex_voltage:
         # Ablation modes (test_ablation_NN) zero out a fraction of model.W
         # before the full rollout, so the saved rollout_bundle reflects the
         # ablated dynamics. They go through the standard data_test_gnn path
@@ -1759,4 +1831,1680 @@ def data_test(config=None, config_file=None, visualize=False, style='color frame
 
 
 # Test functions moved to graph_tester.py
-from connectome_gnn.models.graph_tester import data_test_gnn, data_test_gnn_special
+from connectome_gnn.models.graph_tester import (
+    data_test_cortex_task_gnn,
+    data_test_gnn,
+    data_test_gnn_special,
+    data_test_path_integration_task,
+    data_test_place_task,
+)
+
+
+# ============================================================================
+# Path-integration task trainer (TaskRNN)
+# ============================================================================
+
+def data_train_task(config, erase, best_model, device, log_file=None, resume=False):
+    """Dispatch to the task-specific trainer based on `config.task.task_type`.
+
+    - `path_integration` → CX trainer (TaskRNN sign_locked mode, Hulse aux
+      losses, pi_acc eval, EPG kinograph snapshots).
+    - `swim_integration` → zebrafish dIPN HD trainer (same TaskTrials
+      shape, same eval helpers, dispatched through a dedicated entry
+      point so future swim-specific behaviour stays out of the fly path).
+    - `cortex`           → Yang multitask trainer (TaskRNN free mode,
+      masked-MSE loss, direction_acc eval, 8-panel snapshot).
+    """
+    task_type = str(getattr(config.task, "task_type", "path_integration")).lower()
+    if task_type == "cortex":
+        return _data_train_cortex_task(config, erase, best_model, device, log_file)
+    elif task_type in ("path_integration", "swim_integration"):
+        # One shared trainer for both the Drosophila CX (path_integration)
+        # and the larval-zebrafish dIPN (swim_integration) self-motion tasks:
+        # the TaskTrials on-disk layout and the eval helpers are identical;
+        # the species differences live entirely in the model class + circuit.
+        return _data_train_task_pi(config, erase, best_model, device, log_file, resume=resume)
+    else:
+        raise ValueError(
+            f"data_train_task: unknown task_type {task_type!r}; "
+            f"expected one of {{path_integration, swim_integration, cortex}}"
+        )
+
+
+def _data_train_task_pi(config, erase, best_model, device, log_file=None, resume=False):
+    """Train a TaskRNN/GNN on the self-motion-integration task data — the
+    SINGLE shared trainer for both the Drosophila CX path-integration task
+    (``task_type='path_integration'``) and the larval-zebrafish dIPN
+    swim-integration task (``task_type='swim_integration'``).
+
+    The two species share one trainer because the TaskTrials on-disk layout
+    is byte-identical (stimulus ``[ω, (v_fwd,) cosθ₀·δ, sinθ₀·δ]``, target
+    ``[cosθ, sinθ, ...]``) and the eval helpers
+    (``path_integration_accuracy_from_data``, ``bump_fwhm``,
+    ``_rollout_heading_metrics``, ``_save_training_snapshot``) read only the
+    canonical model attributes (``epg_indices``, ``epg_glom_ix``,
+    ``neuron_types``, ``type_names``) that both ``DrosophilaCxTask*`` and
+    ``ZebrafishHdTask*`` expose. All species differences live in the model
+    class + circuit, not here.
+
+    Mirrors the skeleton of `data_train_gnn`:
+    config → log_dir → data load → model (registry) → optimizer → epoch loop
+    with regulariser coeffs → snapshot/eval cadence → per-epoch checkpoint.
+
+    The task data is a flat per-trial layout under
+    `<dataset>/{train,test}/{stimulus,target,...}.zarr` (produced by
+    `_generate_path_integration_task`). Stimulus is (B, T, 3); target is
+    (B, T, 2) = (cos θ_hd, sin θ_hd).
+
+    Loss = MSE(y_hat, y):
+        tc.coeff_cos_distance · L_cos  (Eq. 10)
+        tc.coeff_norm_floor   · L_norm (Eq. 11, kappa=tc.kappa_norm_floor)
+        tc.coeff_tv_circular  · L_tv   (circular TV on EPG ring)
+        tc.coeff_W_L1         · |S|.sum()
+    """
+    import torch.nn.functional as F
+
+    from connectome_gnn.models.bump_attractor_eval import (
+        _rollout_heading_metrics,
+        _save_training_snapshot,
+        _save_place_snapshot,
+        _save_torus_snapshot,
+        bump_fwhm,
+        path_integration_accuracy_from_data,
+    )
+    from connectome_gnn.models.heading_bins import (
+        convert_cos_sin_input_to_bin_cue_torch,
+        convert_cos_sin_target_to_bin_labels_torch,
+    )
+    from connectome_gnn.zarr_io import load_raw_array
+
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
+    sim = config.simulation
+    tc = config.training
+    model_config = config.graph_model
+
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(tc.seed)
+    np.random.seed(tc.seed)
+    random.seed(tc.seed)
+
+    default_style.apply_globally()
+
+    log_dir, logger = create_log_dir(config, erase)
+    # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
+    # On --resume keep them: snapshots/metrics.log carry over from the
+    # interrupted run and metrics.log is appended below.
+    if not resume:
+        shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
+    kinograph_dir = os.path.join(log_dir, 'tmp_training', 'evolution')
+    os.makedirs(kinograph_dir, exist_ok=True)
+
+    # --- load: trials stay on GPU between iterations ---------------
+    # Refactor: route through TaskTrials.load (one call per split) instead of
+    # four separate load_raw_array calls. The split dir was written by
+    # ZarrTaskTrialsWriter (or legacy _write_trial_zarr — same on-disk
+    # layout), so the loader works on both new and legacy datasets.
+    from connectome_gnn.task_state import TaskTrials
+    root = graphs_data_path(config.dataset)
+    _logger.info(f'loading task data from {root}/(train|test)/...')
+    trials_train = TaskTrials.load(f"{root}/train").to(device)
+    trials_test  = TaskTrials.load(f"{root}/test").to(device)
+    u_train, y_train = trials_train.stimulus, trials_train.target
+    u_test,  y_test  = trials_test.stimulus,  trials_test.target
+    _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)}  '
+                 f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)}')
+
+    # ---- task-mode channel selection (4-ch superset → sub-task) ----------
+    # Generator A always writes the 4-ch input [ω, v_fwd, cosθ0, sinθ0]. The
+    # on-disk target shape depends on task.swim_integration.target_kind:
+    #     scalar_xi   → 3-col [cosθ, sinθ, ξ]                 (legacy default)
+    #     position_2d → 4-col [cosθ, sinθ, x, y]              (true 2D PI)
+    # task_targets selects the sub-task and slices both u and y onto the
+    # active channels. Profiles depend on the on-disk target shape:
+    #
+    #   scalar_xi dataset (target_kind='scalar_xi', y has 3 cols):
+    #     ['rotation']                 → in [0,2,3]    out [0,1]   (3, 2)
+    #     ['translation']              → in [1]         out [2]     (1, 1)
+    #     ['rotation','translation']   → in [0,1,2,3]   out [0,1,2] (4, 3)
+    #
+    #   position_2d dataset (target_kind='position_2d', y has 4 cols):
+    #     ['rotation']                 → in [0,2,3]    out [0,1]    (3, 2)
+    #     ['position_2d']              → in [0,1,2,3]  out [0,1,2,3] (4, 4)
+    #
+    # Legacy 3-ch on-disk datasets (u_train.shape[-1] == 3) pre-date the
+    # 4-ch layout and pass through unchanged (n_in/n_out default to 3/2).
+    # Keyed by (n_in_disk, n_out_disk, sorted_task_targets_tuple). The
+    # propriocep-split layout (5-col disk stim) adds a 3rd input
+    # carrying v_proprio and gets its own (5, ·, ·) entries; the rest
+    # are unchanged.
+    _PROFILE_BY_TARGET = {
+        # scalar_xi (4-col stim, 3-col target):
+        (4, 3, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 3, ("translation",)):             ([1],          [2]),
+        (4, 3, ("rotation", "translation")):  ([0, 1, 2, 3], [0, 1, 2]),
+        # position_2d (4-col stim, 4-col target):
+        (4, 4, ("rotation",)):                ([0, 2, 3],    [0, 1]),
+        (4, 4, ("position_2d",)):             ([0, 1, 2, 3], [0, 1, 2, 3]),
+        # heading-only supervision but KEEP v_fwd in the input (latent
+        # path-integration probe): full 4-ch input, 2-col heading target.
+        # Works on either the scalar_xi (3-col) or position_2d (4-col) disk
+        # target; only heading [0,1] is supervised, the rest is unused GT
+        # available for post-hoc decoding.
+        (4, 3, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
+        (4, 4, ("rotation_vfwd",)):           ([0, 1, 2, 3], [0, 1]),
+        # propriocep-split (5-col stim — col 2 carries v_proprio):
+        (5, 3, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 3, ("translation",)):             ([1, 2],          [2]),
+        (5, 3, ("rotation", "translation")):  ([0, 1, 2, 3, 4], [0, 1, 2]),
+        (5, 4, ("rotation",)):                ([0, 3, 4],       [0, 1]),
+        (5, 4, ("position_2d",)):             ([0, 1, 2, 3, 4], [0, 1, 2, 3]),
+        # place_cells (4-col stim, 5-col target [cosθ, sinθ, ξ, x, y]): the
+        # model (drosophila_cx_pi_place) emits 3 heading+distance cols + K
+        # place logits; the trainer keeps all 5 target cols (heading+distance
+        # supervised directly, (x,y) used to build the place code on the fly).
+        (4, 5, ("place_cells",)):             ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
+        # grid_cells (torus): identical on-disk layout to place_cells; the
+        # model switches to toroidal targets / circular decode via grid_mode.
+        (4, 5, ("grid_cells",)):              ([0, 1, 2, 3], [0, 1, 2, 3, 4]),
+        # rotation_torus: Net1-only, 6-col target [cosθ,sinθ,cosφx,sinφx,
+        # cosφy,sinφy], plain MSE (circular via the cos/sin encoding).
+        (4, 6, ("rotation_torus",)):          ([0, 1, 2, 3], [0, 1, 2, 3, 4, 5]),
+        # conjunction_input: 6-ch stimulus (base 4 + vx, vy)
+        (6, 6, ("rotation_torus",)):          ([0, 1, 2, 3, 4, 5], [0, 1, 2, 3, 4, 5]),
+    }
+    _task_raw = list(getattr(tc, 'task_targets', None) or [])
+    # Canonical key: rotation always before translation; position_2d listed
+    # separately. Sorting is by a fixed enumeration so the key is stable.
+    _RECOGNISED = ("rotation", "translation", "position_2d", "rotation_vfwd",
+                   "place_cells", "grid_cells", "rotation_torus")
+    _task_key = tuple(t for t in _RECOGNISED if t in _task_raw)
+    task_targets_canonical = list(_task_key)
+    if u_train.shape[-1] >= 4 and _task_key:
+        n_in_disk = int(u_train.shape[-1])
+        n_out_disk = int(y_train.shape[-1])
+        _profile_key = (n_in_disk, n_out_disk, _task_key)
+        if _profile_key not in _PROFILE_BY_TARGET:
+            raise ValueError(
+                f"training.task_targets={_task_raw!r} is not a valid "
+                f"projection for an on-disk stimulus with {n_in_disk} "
+                f"cols / target with {n_out_disk} cols. Recognised "
+                f"(n_in, n_out, targets) keys: "
+                f"{sorted(_PROFILE_BY_TARGET.keys())}."
+            )
+        in_cols, out_cols = _PROFILE_BY_TARGET[_profile_key]
+        u_train = u_train[..., in_cols].contiguous()
+        y_train = y_train[..., out_cols].contiguous()
+        u_test  = u_test[...,  in_cols].contiguous()
+        y_test  = y_test[...,  out_cols].contiguous()
+        _logger.info(
+            f"task_targets={task_targets_canonical} (on-disk y has "
+            f"{n_out_disk} cols) → sliced to in_cols={in_cols} "
+            f"out_cols={out_cols}; train u={tuple(u_train.shape)} "
+            f"y={tuple(y_train.shape)}"
+        )
+
+    logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
+                f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
+
+    # --- model build via registry ----------------------------------------
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    _logger.info(f'model {model_config.signal_model_name}: {n_total_params:,} trainable params')
+    logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
+
+    # --- optional: cluster the per-neuron embedding by cell type + freeze ---
+    # embedding_cell_type_init: set each neuron's a_i to its cell type's
+    # equidistant 2-D cluster point (so the embedding is a clean per-type
+    # cluster map); fix_embedding: freeze a (requires_grad off → excluded
+    # from the optimizer). Ported from data_train_gnn so the zebrafish / CX
+    # swim-integration GNN can train on a frozen type-clustered embedding.
+    # Must be set before the optimizer is built (below). Requires
+    # embedding_dim == 2.
+    if getattr(tc, 'embedding_cell_type_init', False) and hasattr(model, 'a'):
+        from connectome_gnn.utils import get_equidistant_points
+        emb_dim = int(getattr(model_config, 'embedding_dim', 0))
+        type_ids = np.asarray(model.neuron_types).astype(int)
+        n_types = int(len(model.type_names))
+        if emb_dim != 2:
+            _logger.warning(
+                f'embedding_cell_type_init requires embedding_dim=2, got '
+                f'{emb_dim} — skipping')
+        else:
+            scale = float(getattr(tc, 'embedding_cell_type_scale', 1.0))
+            ex, ey = get_equidistant_points(n_types)
+            pts = (np.stack([ex, ey], axis=1) * scale).astype(np.float32)
+            with torch.no_grad():
+                model.a.copy_(torch.tensor(
+                    pts[type_ids], dtype=torch.float32, device=device))
+            _logger.info(
+                f'embedding initialised with equidistant points for '
+                f'{n_types} cell types (scale={scale})')
+    if getattr(tc, 'fix_embedding', False) and hasattr(model, 'a'):
+        model.a.requires_grad_(False)
+        _logger.info(
+            'embedding is fixed (requires_grad=False, excluded from optimizer)')
+
+    # --- resume: load the latest completed per-epoch checkpoint ----------
+    # Continue at the next epoch (epoch-boundary granularity). The model
+    # state is loaded here (before torch.compile); the matching optimizer
+    # state is loaded right after the optimizer is built below.
+    start_epoch = 0
+    resume_ckpt = None
+    if resume:
+        ckpt_path, _resumed_epoch = find_latest_epoch_checkpoint(log_dir, tc.n_runs)
+        if ckpt_path is None:
+            _logger.warning('--resume: no per-epoch checkpoint found; starting from epoch 0')
+        else:
+            resume_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+            model.load_state_dict(resume_ckpt['model_state_dict'])
+            start_epoch = _resumed_epoch + 1
+            _logger.info(f'--resume: loaded {ckpt_path}; resuming at epoch {start_epoch + 1}')
+            logger.info(f'resume: loaded {os.path.basename(ckpt_path)}, start_epoch={start_epoch}')
+
+    # --- optimizer + scheduler -------------------------------------------
+    # three named param groups (always built; missing field → tc.lr fallback):
+    #   - "w_rec": recurrent core. S (DrosophilaCxTaskRNN) or W + a + g_phi + f_theta
+    #              (DrosophilaCxTaskGNN). lr starts at tc.lr_W_rec or tc.lr.
+    #              lr_W_rec_schedule drives THIS group exclusively
+    #              (per-epoch trajectory).
+    #   - "w_ED":  encoder/decoder. W_in, W_out, MLP variants, velocity-gate
+    #              scalars (v_pena_l/r, v_penb_l/r). lr = tc.lr_W_ED or tc.lr.
+    #              Constant — schedule does not touch.
+    #   - "other": biases (b, b_out) and anything not in the above. lr = tc.lr.
+    #              Constant — schedule does not touch.
+    lr_W_rec = getattr(tc, 'lr_W_rec', None)
+    lr_W_ED = getattr(tc, 'lr_W_ED', None)
+    # Opt-in: split the per-neuron embedding ``a`` into its own constant-lr
+    # group (``lr_embedding``) instead of riding the schedule-driven w_rec
+    # group. Default False → ``a`` stays in w_rec, so untouched configs are
+    # unchanged. Lets the embedding move at its own rate (e.g. when the
+    # cluster is meant to drift freely with coeff_embedding_cluster=0).
+    _emb_separate = bool(getattr(tc, 'embedding_separate_lr', False))
+
+    def _name_to_group(name: str) -> str:
+        if _emb_separate and name == "a":
+            return "embedding"
+        if name in ("S", "W", "a") or name.startswith(("g_phi.", "f_theta.")):
+            return "w_rec"
+        if (name in ("W_in", "W_out")
+                or name.startswith(("_W_in_mlp.", "_W_out_mlp."))
+                or name in ("v_pena_l", "v_pena_r", "v_penb_l", "v_penb_r")):
+            return "w_ED"
+        return "other"
+
+    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": [], "embedding": []}
+    for _name, _p in model.named_parameters():
+        grouped[_name_to_group(_name)].append(_p)
+
+    _opt_groups = [
+        {"params": grouped["w_rec"],
+         "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
+         "name": "w_rec"},
+        {"params": grouped["w_ED"],
+         "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
+         "name": "w_ED"},
+        {"params": grouped["other"], "lr": tc.lr, "name": "other"},
+    ]
+    if grouped["embedding"]:
+        _opt_groups.append(
+            {"params": grouped["embedding"], "lr": float(tc.lr_embedding),
+             "name": "embedding"})
+    optimizer = torch.optim.Adam(_opt_groups)
+    _emb_log = (f' | embedding lr={float(tc.lr_embedding)} '
+                f'({len(grouped["embedding"])} params, constant)'
+                if grouped["embedding"] else '')
+    _logger.info(
+        f'optimizer groups: '
+        f'w_rec lr={float(lr_W_rec) if lr_W_rec is not None else tc.lr} '
+        f'({len(grouped["w_rec"])} params, schedule-driven) | '
+        f'w_ED lr={float(lr_W_ED) if lr_W_ED is not None else tc.lr} '
+        f'({len(grouped["w_ED"])} params, constant) | '
+        f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
+        + _emb_log
+    )
+    if resume_ckpt is not None and 'optimizer_state_dict' in resume_ckpt:
+        optimizer.load_state_dict(resume_ckpt['optimizer_state_dict'])
+        _logger.info('--resume: restored optimizer state (Adam m/v)')
+    lr_scheduler = build_lr_scheduler(optimizer, config)
+    _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
+
+    # --- regulariser coefficients (cached as Python scalars) -------------
+    coeff_cos = float(tc.coeff_cos_distance)
+    coeff_norm = float(tc.coeff_norm_floor)
+    kappa_norm = float(tc.kappa_norm_floor)
+    coeff_tv = float(tc.coeff_tv_circular)
+    coeff_l1S = float(tc.coeff_W_L1)
+    # place-cell task (model drosophila_cx_pi_place): KL-distribution + aux
+    # position-decode weights, and a flag selecting the place loss branch.
+    is_place = (("place_cells" in task_targets_canonical
+                 or "grid_cells" in task_targets_canonical)
+                and hasattr(model, 'place_per_frame_loss'))
+    # rotation_torus: Net1-only task (no place model); gets the 3-D torus
+    # snapshot instead of the heading kinograph.
+    is_torus = ("rotation_torus" in task_targets_canonical)
+    coeff_place = float(getattr(tc, 'coeff_place', 1.0))
+    coeff_pos = float(getattr(tc, 'coeff_pos', 1.0))
+    coeff_consistency = float(getattr(tc, 'coeff_consistency', 0.0))
+    place_warmup_epochs = int(getattr(tc, 'place_warmup_epochs', 0))
+    last_place_score = float('nan')
+    if is_place and place_warmup_epochs > 0:
+        _logger.info(f'place: Net1 warm-up for {place_warmup_epochs} epoch(s) '
+                     f'(place loss off; heading+distance only), then '
+                     f'coeff_place={coeff_place} coeff_pos={coeff_pos}')
+    coeff_f_diff = float(getattr(tc, 'coeff_f_theta_diff', 0.0))
+    coeff_g_diff = float(getattr(tc, 'coeff_g_phi_diff', 0.0))
+    # Soft embedding-cluster pull: each neuron's a_i toward the centroid of
+    # its cell type (centroid computed on-the-fly from model.a, so the whole
+    # cluster is free to drift during training). Ported from the LossRegular-
+    # iser used by data_train_gnn. Only active when a is learnable.
+    coeff_emb_cluster = float(getattr(tc, 'coeff_embedding_cluster', 0.0))
+    _emb_type_ids = _emb_type_count = None
+    if coeff_emb_cluster > 0 and hasattr(model, 'a'):
+        _emb_type_ids = torch.as_tensor(
+            np.asarray(model.neuron_types).astype(np.int64), device=device)
+        _emb_n_types = int(len(model.type_names))
+        _emb_type_count = torch.bincount(
+            _emb_type_ids, minlength=_emb_n_types).clamp(min=1).float().unsqueeze(-1)
+    grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
+    snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 5))
+    snapshot_n_steps = int(getattr(tc, 'snapshot_n_steps', 1500))
+    snapshot_omega_deg = float(getattr(tc, 'snapshot_omega_deg', 60.0))
+    # Constant v_fwd for the deterministic translation rollout (snapshot
+    # panel f when 'translation' is in task_targets). Default matches the
+    # generator's forward_vel_mean.
+    snapshot_v_fwd = float(getattr(tc, 'snapshot_v_fwd', 1.0))
+    _coeff_tail_log = float(getattr(tc, 'coeff_tail_loss', 0.0))
+    _logger.info(f'losses: cos_distance={coeff_cos}  norm_floor={coeff_norm} (κ={kappa_norm})  '
+                 f'tv_circular={coeff_tv}  W_L1={coeff_l1S}  f_theta_diff={coeff_f_diff}  '
+                 f'g_phi_diff={coeff_g_diff}  tail_loss={_coeff_tail_log}')
+
+    # --- calcium observation supervision (dataset B), optional -----------
+    # `use_calcium` is the single on/off flag (calcium_batch_size > 0). When on,
+    # each task batch is augmented by `calcium_batch_size` real-calcium trials
+    # (dataset B), the heading MSE runs over the combined batch, and the extra
+    # trials' rolled-out voltage is turned into calcium via the GCaMP class
+    # (sim.gcamp_kernel) and matched to the recorded ΔF/F with a scale-invariant
+    # loss weighted by coeff_observation. calcium_batch_size == 0 → byte-equal
+    # to task-only training (nothing below runs).
+    calcium_batch_size = int(getattr(tc, 'calcium_batch_size', 0))
+    coeff_obs = float(getattr(tc, 'coeff_observation', 0.0))
+    use_calcium = calcium_batch_size > 0
+    ca_u = ca_y = ca_target = ca_obs_ix = gcamp = None
+    ca_test_u = ca_test_target = ca_kino_model_ix = ca_kino_obs_ix = None
+    dt_model = float(getattr(model, 'dt', getattr(sim, 'delta_t', 0.01)))
+    n_calc = 0
+    if use_calcium:
+        import zarr as _zarr
+        # Resolve dataset B under the same species folder as dataset A.
+        # `config.dataset` was already prefixed by load_run_config (e.g.
+        # 'zebrafish/...'); `calcium_dataset` is the raw yaml value, so give it
+        # the same prefix when it's a bare name — the yaml points both datasets
+        # by their bare names, exactly like `dataset`.
+        calc_name = getattr(tc, 'calcium_dataset', '') or config.dataset
+        if '/' not in calc_name and '/' in config.dataset:
+            calc_name = config.dataset.rsplit('/', 1)[0] + '/' + calc_name
+        calc_root = graphs_data_path(calc_name)
+        _logger.info(f'loading calcium dataset B from {calc_root}/(train|test)/...')
+        _ct = TaskTrials.load(f"{calc_root}/train").to(device)
+        ca_u, ca_y = _ct.stimulus, _ct.target
+
+        # The calcium dataset's `stimulus.zarr` is rotation-shaped 3-col
+        # [ω, cos θ₀·δ, sin θ₀·δ] (no v_fwd channel) and `target.zarr`
+        # is 2-col [cos θ, sin θ] (no d head). For task_targets that
+        # involve translation, fetch `swim_forward.zarr` (the tail-EMG
+        # forward envelope shown in Fig. 17) and assemble a synthetic-
+        # superset-shaped ca_u / ca_y on the fly so the batch-cat below
+        # matches the synthetic shapes.
+        def _maybe_load_zarr(path):
+            try:
+                return torch.from_numpy(
+                    np.asarray(_zarr.open(path, mode="r"))
+                ).to(device).float()
+            except Exception:
+                return None
+
+        # Build the synthetic superset shape used by the calcium batch.
+        # When the synthetic training data is propriocep-split (5-col
+        # stimulus [ω, v_extero, v_proprio, cosθ₀, sinθ₀]) we need to
+        # match that shape on the calcium side too; the swim_forward
+        # signal is plumbed through BOTH v_extero and v_proprio columns
+        # (same driver, two anatomically distinct ports). Otherwise
+        # the legacy 4-col superset [ω, v_fwd, cosθ₀, sinθ₀] is built.
+        _propriocep_split = bool(getattr(
+            getattr(config.task, "swim_integration", None),
+            "propriocep_split", False))
+        _needs_vfwd = bool(_task_key) and ("translation" in _task_key
+                                            or "position_2d" in _task_key)
+        if _needs_vfwd and ca_u.shape[-1] == 3:
+            swim_fwd = _maybe_load_zarr(f"{calc_root}/train/swim_forward.zarr")
+            if swim_fwd is None:
+                raise RuntimeError(
+                    f"calcium dataset {calc_name} is rotation-shaped (3 stim "
+                    f"channels, no v_fwd) and swim_forward.zarr is missing; "
+                    f"cannot drive a translation/position_2d task_targets "
+                    f"{task_targets_canonical} from it.")
+            # swim_fwd may be (Bc, T) or (Bc, T, 1) — collapse to (Bc, T).
+            if swim_fwd.dim() == 3:
+                swim_fwd = swim_fwd[..., 0]
+            n_super = 5 if _propriocep_split else 4
+            ca_u_super = torch.zeros(
+                (ca_u.shape[0], ca_u.shape[1], n_super),
+                dtype=ca_u.dtype, device=device,
+            )
+            if _propriocep_split:
+                # [ω, v_extero, v_proprio, cos θ₀·δ, sin θ₀·δ]
+                ca_u_super[..., 0] = ca_u[..., 0]          # ω
+                ca_u_super[..., 1] = swim_fwd              # v_extero
+                ca_u_super[..., 2] = swim_fwd              # v_proprio
+                ca_u_super[..., 3] = ca_u[..., 1]          # cos θ₀·δ
+                ca_u_super[..., 4] = ca_u[..., 2]          # sin θ₀·δ
+            else:
+                # [ω, v_fwd, cos θ₀·δ, sin θ₀·δ]
+                ca_u_super[..., 0] = ca_u[..., 0]
+                ca_u_super[..., 1] = swim_fwd
+                ca_u_super[..., 2] = ca_u[..., 1]
+                ca_u_super[..., 3] = ca_u[..., 2]
+            ca_u = ca_u_super
+            # Build the synthetic target matching the synthetic-data
+            # target_kind:
+            #   scalar_xi / both:  3 cols [cos θ, sin θ, d_integrated]
+            #   position_2d:       4 cols [cos θ, sin θ, x, y] where
+            #                      x = cumsum(v_fwd · cos θ)·dt and
+            #                      y = cumsum(v_fwd · sin θ)·dt — the
+            #                      same 2D PI integration the synthetic
+            #                      generator does.
+            dt_ds = float(getattr(config.task.swim_integration, "dt", 0.01))
+            _tgt_kind = str(getattr(getattr(config.task, "swim_integration", None),
+                                     "target_kind", "scalar_xi")).lower()
+            if _tgt_kind == "position_2d":
+                cos_t = ca_y[..., 0]                          # (Bc, T)
+                sin_t = ca_y[..., 1]
+                # Leaky vs cumulative — same recipe as the synthetic
+                # generator (graph_data_generator._integrate_leaky).
+                pos_tau = getattr(
+                    getattr(config.task, "swim_integration", None),
+                    "position_tau_s", None)
+                vx = swim_fwd * cos_t
+                vy = swim_fwd * sin_t
+                if pos_tau is None or float(pos_tau) <= 0.0:
+                    x_pos = torch.cumsum(vx, dim=1) * dt_ds
+                    y_pos = torch.cumsum(vy, dim=1) * dt_ds
+                else:
+                    alpha = max(0.0, min(1.0 - dt_ds / float(pos_tau), 1.0))
+                    x_pos = torch.zeros_like(vx)
+                    y_pos = torch.zeros_like(vy)
+                    for _t in range(1, vx.shape[1]):
+                        x_pos[:, _t] = alpha * x_pos[:, _t - 1] + vx[:, _t] * dt_ds
+                        y_pos[:, _t] = alpha * y_pos[:, _t - 1] + vy[:, _t] * dt_ds
+                ca_y_super = torch.zeros(
+                    (ca_y.shape[0], ca_y.shape[1], 4),
+                    dtype=ca_y.dtype, device=device,
+                )
+                ca_y_super[..., 0] = cos_t
+                ca_y_super[..., 1] = sin_t
+                ca_y_super[..., 2] = x_pos
+                ca_y_super[..., 3] = y_pos
+            else:
+                d_int = torch.cumsum(swim_fwd, dim=1) * dt_ds   # (Bc, T)
+                ca_y_super = torch.zeros(
+                    (ca_y.shape[0], ca_y.shape[1], 3),
+                    dtype=ca_y.dtype, device=device,
+                )
+                ca_y_super[..., 0] = ca_y[..., 0]               # cos θ
+                ca_y_super[..., 1] = ca_y[..., 1]               # sin θ
+                ca_y_super[..., 2] = d_int                       # cumulative d
+            ca_y = ca_y_super
+            _logger.info(
+                f'calcium dataset augmented with swim_forward.zarr '
+                f'(propriocep_split={_propriocep_split}, '
+                f'target_kind={_tgt_kind}) → ca_u '
+                f'{tuple(ca_u.shape)}, ca_y {tuple(ca_y.shape)}')
+
+        # Apply the same task_targets projection to ca_u / ca_y so the
+        # batch-cat shapes match the synthetic batch. Profile is keyed
+        # by (n_in_disk, n_out_disk, task_targets).
+        _prof_key_cal = (ca_u.shape[-1], ca_y.shape[-1], _task_key)
+        if _task_key and _prof_key_cal in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[_prof_key_cal]
+            ca_u = ca_u[..., _ic].contiguous()
+            ca_y = ca_y[..., _oc].contiguous()
+            _logger.info(f'calcium dataset sliced to in_cols={_ic} out_cols={_oc}'
+                          f' (task_targets={task_targets_canonical})')
+        elif _task_key:
+            raise RuntimeError(
+                f"calcium dataset {calc_name} has stimulus.shape[-1]="
+                f"{ca_u.shape[-1]} / target.shape[-1]={ca_y.shape[-1]}; "
+                f"no task_targets projection matches "
+                f"{task_targets_canonical}")
+        ca_target = torch.from_numpy(
+            np.asarray(_zarr.open(f"{calc_root}/train/calcium.zarr", mode="r"))
+        ).to(device)                                       # (Bc_all, T, R)
+        n_calc = ca_u.shape[0]
+        # Per-trial timestamp (start_frame, t0_seconds) — where in the ~600 s
+        # recording each trial was sliced from. ca_t0 [s] lets the loss /
+        # model condition on absolute time so the non-stationary real ΔF/F
+        # (drift across the block, despite periodic ω) can be tracked.
+        # Optional: datasets generated before trial_time.zarr existed fall
+        # back to t0=0 (time-conditioning then a no-op), staying loadable.
+        _tt_path = f"{calc_root}/train/trial_time.zarr"
+        if os.path.isdir(_tt_path):
+            _tt = np.asarray(_zarr.open(_tt_path, mode="r"))
+            ca_t0 = torch.from_numpy(_tt[:, 1].astype(np.float32)).to(device)  # (Bc_all,)
+        else:
+            _logger.warning(f'no trial_time.zarr at {_tt_path}; '
+                            'regenerate dataset B to get per-trial timestamps. '
+                            'Falling back to t0=0 (time-conditioning is a no-op).')
+            ca_t0 = torch.zeros(n_calc, device=device)
+        _cte = TaskTrials.load(f"{calc_root}/test").to(device)
+        ca_test_u = _cte.stimulus
+        # Mirror the same superset-augmentation logic on the test split:
+        # for translation / position_2d tasks the 3-col rotation-shaped
+        # ca_test_u is widened to 4 cols by inserting swim_forward as
+        # col 1, then the standard slicing keeps only the licensed cols.
+        if _needs_vfwd and ca_test_u.shape[-1] == 3:
+            _swim_fwd_t = _maybe_load_zarr(f"{calc_root}/test/swim_forward.zarr")
+            if _swim_fwd_t is not None:
+                if _swim_fwd_t.dim() == 3:
+                    _swim_fwd_t = _swim_fwd_t[..., 0]
+                _ca_test_super = torch.zeros(
+                    (ca_test_u.shape[0], ca_test_u.shape[1], 4),
+                    dtype=ca_test_u.dtype, device=device,
+                )
+                _ca_test_super[..., 0] = ca_test_u[..., 0]
+                _ca_test_super[..., 1] = _swim_fwd_t
+                _ca_test_super[..., 2] = ca_test_u[..., 1]
+                _ca_test_super[..., 3] = ca_test_u[..., 2]
+                ca_test_u = _ca_test_super
+        # Profile keyed by target columns; when we augmented ca_test_u
+        # to the 4-col superset above, the matching target shape is 3
+        # (cos θ, sin θ, d) — same as the train branch.
+        _y_cols_for_profile = (3 if _needs_vfwd and ca_test_u.shape[-1] == 4
+                                else int(_cte.target.shape[-1]))
+        if _task_key and (_y_cols_for_profile, _task_key) in _PROFILE_BY_TARGET:
+            _ic, _oc = _PROFILE_BY_TARGET[(_y_cols_for_profile, _task_key)]
+            ca_test_u = ca_test_u[..., _ic].contiguous()
+        ca_test_target = torch.from_numpy(
+            np.asarray(_zarr.open(f"{calc_root}/test/calcium.zarr", mode="r"))
+        ).to(device)
+        _map = torch.load(f"{calc_root}/calcium_mapping.pt", weights_only=False)
+        ca_obs_ix = _map["model_index"].to(device).long()  # (R,) obs col -> model neuron
+        # Which observed neurons the obs-loss supervises (training.observation_neurons):
+        #   'all'              -> every shared observed neuron (default).
+        #   'exclude_afferent' -> drop the input/afferent neurons (RIPN / pt-IPN),
+        #      supervising only the recurrent bump-pool, via the circuit's
+        #      afferent_subpop_ix model-neuron sets (verified == type RIPN/pt-IPN).
+        # ca_keep_col indexes the R calcium.zarr columns that survive the filter;
+        # ca_obs_ix is reduced to the matching model-neuron indices.
+        obs_neurons_mode = str(getattr(tc, 'observation_neurons', 'all')).lower()
+        ca_keep_col = torch.arange(ca_obs_ix.numel(), device=device)
+        if obs_neurons_mode == 'exclude_afferent':
+            _cname = getattr(getattr(config, 'circuit', None), 'name', None)
+            if _cname is None:
+                _logger.warning('observation_neurons=exclude_afferent but config '
+                                'has no circuit.name; supervising ALL observed neurons.')
+            else:
+                from connectome_gnn.generators.circuits import get_circuit
+                _circ = get_circuit(_cname)
+                _aff = np.unique(np.concatenate(
+                    [np.asarray(_circ.subpops.get(k, []), np.int64) for k in
+                     ('afferent_RIPN_L', 'afferent_RIPN_R',
+                      'afferent_ptIPN_L', 'afferent_ptIPN_R')]
+                    + [np.zeros(0, np.int64)]))
+                _keep = ~np.isin(_map["model_index"].numpy(), _aff)
+                ca_keep_col = torch.from_numpy(np.where(_keep)[0]).to(device).long()
+                ca_obs_ix = _map["model_index"][torch.from_numpy(_keep)].to(device).long()
+        # rastermap-ordered bump-pool rows that are observed (panel h compare):
+        _kmask = _map["kino_obs_index"] >= 0
+        ca_kino_model_ix = _map["kino_model_index"][_kmask].to(device).long()
+        ca_kino_obs_ix = _map["kino_obs_index"][_kmask].to(device).long()
+        from connectome_gnn.models.gcamp import create_gcamp
+        gcamp = create_gcamp(sim.gcamp_kernel)
+        _logger.info(
+            f'calcium obs: dataset={calc_name} train={n_calc} test={ca_test_u.shape[0]} '
+            f'obs_neurons={ca_obs_ix.numel()} ({obs_neurons_mode}) '
+            f'kino_obs={ca_kino_obs_ix.numel()} '
+            f'kernel={sim.gcamp_kernel} dt_in={dt_model} '
+            f'batch={calcium_batch_size} coeff_observation={coeff_obs}')
+        logger.info(f'calcium obs ON: B={calcium_batch_size} coeff={coeff_obs} '
+                    f'kernel={sim.gcamp_kernel} '
+                    f'obs_neurons={ca_obs_ix.numel()} ({obs_neurons_mode})')
+
+    def _zscore_time(x, eps=1e-3):
+        """Per-(trial,neuron) z-score over time → scale+offset invariant."""
+        mu = x.mean(dim=1, keepdim=True)
+        sd = x.std(dim=1, keepdim=True)
+        return (x - mu) / sd.clamp_min(eps)
+
+    # --- training loop ---------------------------------------------------
+    n_trials, T_full = u_train.shape[0], u_train.shape[1]
+    # data_augmentation_loop multiplies iters/epoch by cycling through
+    # additional independent shuffles of the trial pool (DAL=1 is a single
+    # one-pass shuffle, matching the previous behaviour).
+    dal = int(getattr(tc, 'data_augmentation_loop', 1))
+    Niter = max(1, (n_trials // tc.batch_size) * dal)
+    snap_every = max(1, Niter // max(1, snapshots_per_epoch))
+    total_iters = tc.n_epochs * Niter
+    best_loss = float('inf')
+    # On --resume offset the global step so metrics.log iteration numbers stay
+    # continuous with the interrupted run (start_epoch completed epochs done).
+    global_step = start_epoch * Niter
+    n_nan_skips = 0       # cumulative count of skipped optimizer steps
+
+    # per-epoch trial-length curriculum. Slice the first T_epoch frames
+    # from the on-disk T=T_full trials. Empty schedule = use T_full.
+    raw_schedule = list(getattr(tc, 'n_steps_schedule', []) or [])
+    if raw_schedule:
+        if len(raw_schedule) < tc.n_epochs:
+            raw_schedule = raw_schedule + [raw_schedule[-1]] * (tc.n_epochs - len(raw_schedule))
+        n_steps_schedule = [min(int(s), T_full) for s in raw_schedule[:tc.n_epochs]]
+    else:
+        n_steps_schedule = [T_full] * tc.n_epochs
+    _logger.info(f'curriculum n_steps schedule (epochs 1..{tc.n_epochs}): {n_steps_schedule}')
+
+    # per-epoch schedules for the three groups. Each is optional; an empty /
+    # missing field leaves the corresponding group at its initial lr (constant).
+    def _build_lr_schedule(field_name: str):
+        raw = list(getattr(tc, field_name, []) or [])
+        if not raw:
+            return None
+        if len(raw) < tc.n_epochs:
+            raw = raw + [raw[-1]] * (tc.n_epochs - len(raw))
+        sched = [float(x) for x in raw[:tc.n_epochs]]
+        _logger.info(f'{field_name} (epochs 1..{tc.n_epochs}): {sched}')
+        return sched
+
+    lr_W_rec_schedule = _build_lr_schedule('lr_W_rec_schedule')
+    lr_W_ED_schedule = _build_lr_schedule('lr_W_ED_schedule')
+
+    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
+    # On --resume append to the existing metrics so the interrupted run's
+    # history is preserved; otherwise truncate and write a fresh header.
+    if resume and os.path.exists(metrics_log_path):
+        _logger.info('--resume: appending to existing metrics.log')
+    else:
+        with open(metrics_log_path, 'w') as f:
+            f.write('iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,'
+                    'r_roll,rmse_roll_deg,r_roll_1k\n')
+
+    last_pi_acc = float('nan')
+    last_fwhm = float('nan')
+    last_rmse_roll = float('nan')   # deg, rollout at T_epoch
+    last_pearson_roll = float('nan')  # corr at T_epoch
+    last_pearson_roll_1k = float('nan')  # corr at fixed T=1000 (matches plot title)
+    model.train()
+
+    # torch.compile (mirrors data_train_gnn line 451). The recurrent forward
+    # has a Python `for t in range(T)` loop, so each T_epoch in the curriculum
+    # triggers one recompile; iterations within an epoch reuse the cached
+    # graph. fullgraph=True + reduce-overhead matches the flyvis trainer.
+    #
+    # We keep an `eval_model` handle to the un-compiled module: snapshot
+    # rollouts use B=1, T=snapshot_n_steps and bump_fwhm uses fixed
+    # n_trials=64; mode='reduce-overhead' (CUDA Graphs) doesn't tolerate
+    # those varying shapes well and triggers tracer errors. Eval through
+    # the un-compiled forward — small batches, negligible perf cost.
+    eval_model = model
+    # Heading-bin ablation (training.use_heading_bins). The model was built
+    # with n_input=1+K and n_output=K when the flag is on; here we hoist the
+    # flag + K so the inner training loop can swap (cos/sin) layout for
+    # K-bin layout on the fly. eval_model is the un-compiled handle, so the
+    # attributes are always reachable (torch.compile wraps it below).
+    use_bins = bool(getattr(eval_model, 'use_heading_bins', False))
+    K_bins = int(getattr(eval_model, 'n_heading_bins', 64))
+    if use_bins:
+        _logger.info(
+            f'heading-bin ablation ON: K={K_bins} bins, '
+            f'CE loss replaces cos/sin MSE on the heading head'
+        )
+    if getattr(tc, 'torch_compile', True):
+        try:
+            # 'reduce-overhead' (CUDA Graphs) pins a static buffer pool per
+            # input shape and conflicts with activation checkpointing's
+            # recompute-in-backward. The task GNN checkpoints its T-loop
+            # (grad_checkpoint, default True) precisely to bound rollout memory
+            # to O(1) in T, and the n_steps curriculum recompiles every epoch as
+            # T grows — so CUDA Graphs both defeat the checkpoint savings and
+            # accumulate one un-freed pool per T, OOMing at the long-T epochs
+            # (T=500 on an 80 GB A100). Use plain 'default' for checkpointed
+            # models — same Triton kernels, no CUDA-graph capture. Mirrors the
+            # connectivity-recovery compile site above.
+            _ckpt = bool(getattr(eval_model, 'grad_checkpoint', False))
+            _mode = 'default' if _ckpt else 'reduce-overhead'
+            model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
+            logger.info(f'torch.compile enabled (mode={_mode}, '
+                        f'grad_checkpoint={_ckpt}); '
+                        'eval/snapshot forward stays eager via _orig_mod')
+            _logger.info(f'torch.compile enabled (mode={_mode}, eval via _orig_mod)')
+        except Exception as exc:
+            _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
+            logger.info(f'torch.compile failed: {exc}')
+    else:
+        logger.info('torch.compile disabled via config (torch_compile: false)')
+
+    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
+                 f'(n_trials={n_trials}, DAL={dal}); '
+                 f'metrics+snapshot every {snap_every} iters '
+                 f'(~{total_iters // snap_every} snapshots total)')
+
+    # Rolling backup for param-finiteness rollback. Refreshed after every
+    # successful step. If optimizer.step() pushes a param to NaN/Inf (Adam can
+    # do this even with clip_grad_norm, since the clip bounds L2 not the
+    # per-element update), subsequent forwards return NaN and the trainer
+    # loops forever in the NaN-loss skip branch. We restore both model and
+    # optimizer state because Adam's m/v are typically NaN too.
+    last_good_model_state = {
+        k: v.detach().clone() for k, v in eval_model.state_dict().items()
+    }
+    last_good_opt_state = optimizer.state_dict()
+
+    for epoch in range(start_epoch, tc.n_epochs):
+        T_epoch = n_steps_schedule[epoch]
+        # Per-epoch lr replacement for the named groups. Each schedule is
+        # optional and drives only its own group; "other" always stays at lr.
+        for _gname, _gsched in (("w_rec", lr_W_rec_schedule),
+                                ("w_ED", lr_W_ED_schedule)):
+            if _gsched is not None:
+                _lr = _gsched[epoch]
+                for g in optimizer.param_groups:
+                    if g.get("name") == _gname:
+                        g['lr'] = _lr
+                _logger.info(f'epoch {epoch+1}: {_gname} lr -> {_lr}')
+        gen = torch.Generator(device=device).manual_seed(tc.seed + epoch)
+        # Stack `dal` independent shuffles so Niter * batch_size indices
+        # are always covered. DAL=1 reduces to a single randperm pass
+        # (preserves the prior reproducibility contract).
+        perm = torch.cat(
+            [torch.randperm(n_trials, device=device, generator=gen)
+             for _ in range(max(1, dal))],
+            dim=0,
+        )
+        pbar = trange(Niter, ncols=150,
+                      desc=f'epoch {epoch+1} (T={T_epoch})', leave=True)
+        coeff_tail = float(getattr(tc, 'coeff_tail_loss', 0.0))
+        for N in pbar:
+            global_step += 1
+            idx = perm[N * tc.batch_size:(N + 1) * tc.batch_size]
+            # Curriculum slice length: 2*T_epoch (soft tail) or T_epoch (hard).
+            if coeff_tail > 0:
+                T_use = min(2 * T_epoch, u_train.shape[1])
+            else:
+                T_use = T_epoch
+            u = u_train[idx, :T_use]
+            y = y_train[idx, :T_use]
+            n_task = u.shape[0]
+
+            # Append the calcium (dataset B) batch to the SAME forward, so the
+            # heading MSE (first term) is computed over the combined task+calcium
+            # batch and the calcium trials' voltage is available for the
+            # observation loss. ca_c is the recorded ΔF/F target (model grid).
+            ca_c = None
+            if use_calcium:
+                gen_c = torch.Generator(device=device).manual_seed(
+                    tc.seed + 1_000_000 * (epoch + 1) + N)
+                cidx = torch.randint(0, n_calc, (calcium_batch_size,),
+                                     device=device, generator=gen_c)
+                u_in = torch.cat([u, ca_u[cidx, :T_use]], dim=0)
+                y_in = torch.cat([y, ca_y[cidx, :T_use]], dim=0)
+                ca_c = ca_target[cidx, :T_use]                  # (Bc, T_use, R)
+                # Absolute time of every frame in the calcium batch, in seconds
+                # into the recording: t0(trial) + frame_index * dt. Shape
+                # (Bc, T_use). Available for time-conditioning of the obs loss.
+                ca_t_abs = (ca_t0[cidx][:, None]
+                            + torch.arange(T_use, device=device)[None, :] * dt_model)
+            else:
+                u_in, y_in = u, y
+
+            # Heading-bin ablation. The on-disk u_in is (B, T, 3) with the
+            # last two channels carrying the (cos θ₀, sin θ₀) cue impulse at
+            # t=0; convert to (B, T, 1+K) with a K-bin one-hot bump at t=0
+            # before the forward. y_in stays (B, T, 2) on the wire — we map
+            # it to (B, T) bin labels inside the loss.
+            if use_bins:
+                u_in = convert_cos_sin_input_to_bin_cue_torch(u_in, K_bins)
+
+            if is_place:
+                # PI anchor: hand the model the start position (y cols [3,4] at
+                # t=0) so it can seed the place cells. Ignored unless the model
+                # was built with place_anchor=True.
+                y_hat, h_buf = model(u_in, pos0=y_in[:, 0, 3:5])
+            else:
+                y_hat, h_buf = model(u_in)
+
+            # First loss term — task supervision over the WHOLE (task+calcium)
+            # batch. u_train / y_train were already sliced to the active task
+            # channels at load time (see _TASK_PROFILES above), so y_hat and
+            # y_in are in the same column basis here — no per-iter slicing.
+            #   bins off: MSE on cos/sin (Hulse-style heading head).
+            #   bins on : CrossEntropy on K-bin logits, with the cos/sin
+            #             target converted to bin labels on the fly.
+            if is_place:
+                # Place-cell task: per-frame loss = heading+distance MSE +
+                # coeff_place·MSE(tanh place field, Gaussian g_k), with the same
+                # soft-curriculum tail weighting as the MSE branch. The [0,1]
+                # place score (field vs g cosine) feeds the progress bar.
+                # Net1 warm-up: zero the place coeffs for the first
+                # place_warmup_epochs epochs so only heading+distance trains.
+                _warm = epoch < place_warmup_epochs
+                _cp = 0.0 if _warm else coeff_place
+                _cq = 0.0 if _warm else coeff_pos
+                _cc = 0.0 if _warm else coeff_consistency
+                place_pf, _pscore, _ppos = eval_model.place_per_frame_loss(
+                    y_hat, y_in, _cp, _cq, _cc)                 # pf: (B, T_use)
+                last_place_score = float(_pscore)
+                if coeff_tail > 0:
+                    w = torch.ones(T_use, device=u.device)
+                    if T_epoch < T_use:
+                        w[T_epoch:] = coeff_tail
+                    mse = ((place_pf * w[None, :]).sum(dim=-1) / w.sum()).mean()
+                else:
+                    mse = place_pf.mean()
+            elif use_bins:
+                # y_in: (B, T, 2) → (B, T) long. Per-frame CE, then optional
+                # soft-curriculum tail weighting (same shape as the MSE
+                # branch so the rest of the loss assembly is unchanged).
+                y_lbl = convert_cos_sin_target_to_bin_labels_torch(
+                    y_in, K_bins)                                 # (B, T_use)
+                ce_pf = F.cross_entropy(
+                    y_hat.reshape(-1, K_bins),
+                    y_lbl.reshape(-1),
+                    reduction='none',
+                ).view_as(y_lbl)                                  # (B, T_use)
+                if coeff_tail > 0:
+                    w = torch.ones(T_use, device=u.device)
+                    if T_epoch < T_use:
+                        w[T_epoch:] = coeff_tail
+                    mse = ((ce_pf * w[None, :]).sum(dim=-1) / w.sum()).mean()
+                else:
+                    mse = ce_pf.mean()
+            elif coeff_tail > 0:
+                # Soft-curriculum: weight the per-frame MSE = 1 for t < T_epoch
+                # and `coeff_tail_loss` for t >= T_epoch (non-zero gradient on
+                # the post-horizon segment so late activity doesn't collapse).
+                w = torch.ones(T_use, device=u.device)
+                if T_epoch < T_use:
+                    w[T_epoch:] = coeff_tail
+                sq_err = (y_hat - y_in).pow(2).mean(dim=-1)        # (B, T_use)
+                mse = ((sq_err * w[None, :]).sum(dim=-1) / w.sum()).mean()
+            else:
+                mse = F.mse_loss(y_hat, y_in)
+
+            # Observation loss — convert the calcium-batch voltage to calcium via
+            # the GCaMP class (sim.gcamp_kernel), gather the observed neurons, and
+            # match the recorded ΔF/F with a scale+offset-invariant (per-trial,
+            # per-neuron z-scored over time) MSE. Scaled by coeff_observation.
+            if use_calcium and coeff_obs > 0:
+                h_calc = h_buf[n_task:]                          # (Bc, T_use, N)
+                ca_model = gcamp(h_calc, dt_in=dt_model)         # (Bc, T_use, N)
+                # gather the supervised model neurons; ca_keep_col selects the
+                # matching real columns (== arange(R) unless exclude_afferent).
+                ca_model = ca_model.index_select(-1, ca_obs_ix)  # (Bc, T_use, n_sup)
+                ca_c_sup = ca_c.index_select(-1, ca_keep_col)    # (Bc, T_use, n_sup)
+                obs = coeff_obs * F.mse_loss(
+                    _zscore_time(ca_model), _zscore_time(ca_c_sup))
+            else:
+                obs = u.new_zeros(())
+            cosd = (model.loss_cos_distance(coeff_cos)
+                    if coeff_cos > 0 else u.new_zeros(()))
+            norm = (model.loss_norm_floor(coeff_norm, kappa_norm)
+                    if coeff_norm > 0 else u.new_zeros(()))
+            tv = (model.loss_tv_circular(h_buf, coeff_tv)
+                  if coeff_tv > 0 else u.new_zeros(()))
+            l1S = (coeff_l1S * model.S.abs().sum()
+                   if coeff_l1S > 0 else u.new_zeros(()))
+            # f_θ-diff: only the GNN model exposes loss_f_theta_diff; the
+            # sign-locked RNN has no f_θ and the coefficient is a no-op there.
+            f_diff = (model.loss_f_theta_diff(h_buf, coeff_f_diff)
+                      if coeff_f_diff > 0 and hasattr(model, 'loss_f_theta_diff')
+                      else u.new_zeros(()))
+            # g_φ-diff: positive-monotonicity prior on ∂g_φ/∂v. Only GNN
+            # exposes loss_g_phi_diff (the sign-locked RNN has no g_φ).
+            # Most useful with g_phi_positive=false to preserve Dale's law.
+            g_diff = (model.loss_g_phi_diff(h_buf, coeff_g_diff)
+                      if coeff_g_diff > 0 and hasattr(model, 'loss_g_phi_diff')
+                      else u.new_zeros(()))
+            # embedding-cluster pull (only when a is learnable; centroid
+            # computed on-the-fly so the cluster drifts with training).
+            if (coeff_emb_cluster > 0 and hasattr(model, 'a')
+                    and model.a.requires_grad and _emb_type_ids is not None):
+                _a = model.a
+                _sum = _a.new_zeros((_emb_type_count.shape[0], _a.shape[1]))
+                _sum.scatter_add_(
+                    0, _emb_type_ids.unsqueeze(-1).expand(-1, _a.shape[1]), _a)
+                _neuron_means = (_sum / _emb_type_count)[_emb_type_ids]
+                emb_cluster = (_a - _neuron_means).norm(2) * coeff_emb_cluster
+            else:
+                emb_cluster = u.new_zeros(())
+            loss = mse + cosd + norm + tv + l1S + f_diff + g_diff + obs + emb_cluster
+
+            optimizer.zero_grad(set_to_none=True)
+            # NaN guardrail: if the loss itself is non-finite we know the
+            # gradients will be too, so skip backward+step entirely.
+            if not torch.isfinite(loss):
+                n_nan_skips += 1
+                lr_scheduler.step()
+                if n_nan_skips == 1:
+                    # One-shot diagnostic dump on the first NaN to locate
+                    # the source: params (corruption?), input (data issue?),
+                    # y_hat / h_buf (forward divergence — and which T).
+                    _logger.warning(
+                        f'iter {global_step}: FIRST non-finite loss '
+                        f'({loss.item()}); diagnostic dump:'
+                    )
+                    for _name, _p in eval_model.named_parameters():
+                        _logger.warning(
+                            f'  param {_name}: shape={tuple(_p.shape)} '
+                            f'nan={int(torch.isnan(_p).any())} '
+                            f'inf={int(torch.isinf(_p).any())} '
+                            f'max_abs={_p.detach().abs().max().item():.3e}'
+                        )
+                    _logger.warning(
+                        f'  input u: shape={tuple(u.shape)} '
+                        f'nan={int(torch.isnan(u).any())} '
+                        f'inf={int(torch.isinf(u).any())} '
+                        f'max_abs={u.detach().abs().max().item():.3e}'
+                    )
+                    _yh_nan = int(torch.isnan(y_hat).any())
+                    _yh_inf = int(torch.isinf(y_hat).any())
+                    _logger.warning(
+                        f'  y_hat: nan={_yh_nan} inf={_yh_inf} '
+                        f'max_abs={y_hat.detach().abs().max().item():.3e}'
+                    )
+                    _hb_bad = torch.isnan(h_buf) | torch.isinf(h_buf)
+                    if _hb_bad.any():
+                        # Reduce sequentially: (B, T, N) -> (T, N) -> (T,).
+                        _bad_per_t = _hb_bad.any(dim=0).any(dim=1)
+                        _first_t = int(_bad_per_t.nonzero()[0].item())
+                        _h_prev_max = (
+                            h_buf[:, _first_t - 1].abs().max().item()
+                            if _first_t > 0 else float('nan')
+                        )
+                        _logger.warning(
+                            f'  h_buf: first non-finite at t={_first_t} '
+                            f'(of T={h_buf.shape[1]}); '
+                            f'h_buf[t-1].max_abs={_h_prev_max:.3e}'
+                        )
+                    else:
+                        _logger.warning(
+                            f'  h_buf: all finite, '
+                            f'max_abs={h_buf.detach().abs().max().item():.3e}'
+                        )
+                elif n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: non-finite loss '
+                        f'({loss.item()}); skipping step '
+                        f'(total skips={n_nan_skips})'
+                    )
+                continue
+
+            loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            # Post-clip guardrail: skip the step if any parameter gradient
+            # is non-finite (NaN/Inf). Clears the bad grads so the next
+            # backward starts clean, and counts the skip for diagnostics.
+            grads_finite = all(
+                p.grad is None or torch.isfinite(p.grad).all()
+                for p in model.parameters()
+            )
+            if not grads_finite:
+                optimizer.zero_grad(set_to_none=True)
+                n_nan_skips += 1
+                lr_scheduler.step()
+                if n_nan_skips == 1 or n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: non-finite gradient; '
+                        f'skipping step (total skips={n_nan_skips})'
+                    )
+                continue
+            optimizer.step()
+            lr_scheduler.step()
+
+            # Param-finiteness rollback. clip_grad_norm bounds the L2 norm of
+            # the gradients, but Adam can still amplify a single component
+            # past finite range; if any param goes NaN/Inf, every subsequent
+            # forward returns NaN and the NaN-loss guard above traps forever.
+            # Restore from the rolling backup and reset optimizer state.
+            params_finite = all(
+                torch.isfinite(p).all() for p in eval_model.parameters()
+            )
+            if params_finite:
+                last_good_model_state = {
+                    k: v.detach().clone()
+                    for k, v in eval_model.state_dict().items()
+                }
+                last_good_opt_state = optimizer.state_dict()
+            else:
+                eval_model.load_state_dict(last_good_model_state)
+                optimizer.load_state_dict(last_good_opt_state)
+                n_nan_skips += 1
+                if n_nan_skips == 1 or n_nan_skips % 50 == 0:
+                    _logger.warning(
+                        f'iter {global_step}: param NaN after step; '
+                        f'restored model+optimizer from rolling backup '
+                        f'(total skips={n_nan_skips})'
+                    )
+                continue
+
+            # Uniform-in-global-step cadence: fires at gs = 1, snap_every+1,
+            # 2*snap_every+1, ... plus a final one at end-of-training. Avoids
+            # the end-of-epoch / start-of-next-epoch burst the per-epoch
+            # `N % snap_every == 0 or N == Niter - 1` rule used to produce.
+            if (global_step - 1) % snap_every == 0 or global_step == total_iters:
+                with torch.no_grad():
+                    # Eval/snapshot use varying shapes (B=512 for pi_acc,
+                    # B=64/T=T_epoch for fwhm, B=1/T=snapshot_n_steps for the
+                    # rollout) — pass the un-compiled module so we don't
+                    # thrash the CUDA-Graph cache or trip dynamo tracer bugs.
+                    # All four metrics below are heading-only — pi_acc needs a
+                    # cos/sin target column, bump_fwhm and the rollouts build a
+                    # 3-channel [ω, cos, sin] probe input. They're meaningful
+                    # only when the network is trained on rotation. In a pure
+                    # translation run there is no ω in the input and no
+                    # cos/sin in the target, so skip them and write nan.
+                    # Heading is in the target whenever cos/sin lead it —
+                    # rotation, both (rotation+translation), and
+                    # position_2d all have it. Translation-only is the
+                    # one mode where heading isn't supervised.
+                    _has_rotation = ("rotation" in task_targets_canonical
+                                     or "position_2d" in task_targets_canonical
+                                     or "rotation_vfwd" in task_targets_canonical
+                                     or not task_targets_canonical)
+                    if _has_rotation:
+                        # pi_acc and bump_fwhm both assume a 3-channel
+                        # [ω, cos θ₀, sin θ₀] input and a (cos, sin) target,
+                        # which the heading-bin ablation replaces with a
+                        # K-bin one-hot cue / K-bin logit head. Skip them
+                        # in bins mode and let the rollout-based heading
+                        # metrics below (which go through the bins-aware
+                        # _deterministic_sweep_rollout) carry the heading
+                        # accuracy signal.
+                        if use_bins:
+                            last_pi_acc = float('nan')
+                            last_fwhm = float('nan')
+                        else:
+                            last_pi_acc = path_integration_accuracy_from_data(
+                                eval_model, u_test[:512, :T_epoch], y_test[:512, :T_epoch],
+                                warmup=10, batch_size=tc.batch_size,
+                            )
+                            last_fwhm = bump_fwhm(
+                                eval_model, eval_model.epg_indices, eval_model.epg_glom_ix,
+                                n_trials=64, n_steps=T_epoch, device=device,
+                            )
+                        # Primary rollout at the current curriculum horizon —
+                        # tracks training progress at the length actually trained.
+                        last_rmse_roll, last_pearson_roll = _rollout_heading_metrics(
+                            eval_model,
+                            n_steps=T_epoch,
+                            omega_deg_per_s=snapshot_omega_deg,
+                            device=device,
+                        )
+                        # Reference rollout at fixed T=1000 — the evolution plot
+                        # also uses T=1000 for its `heading tracking on snapshot
+                        # rollout` panel, so the second value in r_roll=A (B)
+                        # equals the `r=` printed in that panel's title.
+                        _, last_pearson_roll_1k = _rollout_heading_metrics(
+                            eval_model,
+                            n_steps=1000,
+                            omega_deg_per_s=snapshot_omega_deg,
+                            device=device,
+                        )
+                    else:
+                        last_pi_acc = float('nan')
+                        last_fwhm = float('nan')
+                        last_rmse_roll = float('nan')
+                        last_pearson_roll = float('nan')
+                        last_pearson_roll_1k = float('nan')
+                    # Calcium panel (panel h): roll one held-out real-calcium
+                    # test trial, convert voltage→calcium via the GCaMP class,
+                    # and pair it with the recorded ΔF/F over the bump-pool rows
+                    # (rastermap order) for a real-vs-learned kinograph compare.
+                    # This is the cheap single-10 s peek during training; the
+                    # full ~600 s block reconstruction (60 tiled trials stitched
+                    # + the continuous drift rollout) is produced at eval time by
+                    # graph_tester.data_test_path_integration_task section (e).
+                    calcium_panel = None
+                    if use_calcium:
+                        T_show = min(ca_test_u.shape[1], 1000)
+                        ca_u_in = ca_test_u[:1, :T_show]
+                        if use_bins:
+                            ca_u_in = convert_cos_sin_input_to_bin_cue_torch(
+                                ca_u_in, K_bins)
+                        _, h_one = eval_model(ca_u_in)
+                        ca_learn = gcamp(h_one[0], dt_in=dt_model)   # (T, N)
+                        calcium_panel = dict(
+                            real=ca_test_target[0, :T_show]
+                                .index_select(-1, ca_kino_obs_ix).cpu().numpy(),
+                            learned=ca_learn
+                                .index_select(-1, ca_kino_model_ix).cpu().numpy(),
+                            dt=dt_model)
+                if is_place:
+                    # Place task: render the 4×1 place dashboard instead of the
+                    # heading compass kinograph (which assumes a 3-ch heading
+                    # probe). Net1's heading is still visible in panel (d).
+                    try:
+                        _save_place_snapshot(
+                            eval_model, log_dir, global_step, epoch + 1,
+                            u_test, y_test, device)
+                    except Exception as _e:
+                        _logger.warning(f'place snapshot failed @ step '
+                                        f'{global_step}: {_e}')
+                    # grid runs also get the 3-D torus viz (same folder).
+                    if getattr(eval_model, 'grid_mode', False):
+                        try:
+                            _save_torus_snapshot(
+                                eval_model, log_dir, global_step, epoch + 1,
+                                u_test, y_test, device)
+                        except Exception as _e:
+                            _logger.warning(f'grid torus snapshot failed @ step '
+                                            f'{global_step}: {_e}')
+                elif is_torus:
+                    try:
+                        _save_torus_snapshot(
+                            eval_model, log_dir, global_step, epoch + 1,
+                            u_test, y_test, device)
+                    except Exception as _e:
+                        _logger.warning(f'torus snapshot failed @ step '
+                                        f'{global_step}: {_e}')
+                else:
+                    _save_training_snapshot(
+                        net=eval_model, log_dir=log_dir,
+                        kinograph_dir=kinograph_dir,
+                        global_step=global_step, epoch=epoch + 1,
+                        iter_in_epoch=N + 1,
+                        neuron_types=eval_model.neuron_types,
+                        type_names=eval_model.type_names,
+                        epg_indices=eval_model.epg_indices,
+                        epg_glom_ix=eval_model.epg_glom_ix,
+                        device=device,
+                        snapshot_n_steps=snapshot_n_steps,
+                        snapshot_omega_deg=snapshot_omega_deg,
+                        snapshot_v_fwd=snapshot_v_fwd,
+                        config=config,
+                        u_test=u_test,
+                        y_test=y_test,
+                        calcium_panel=calcium_panel,
+                    )
+                with open(metrics_log_path, 'a') as f:
+                    fwhm_deg = (np.degrees(last_fwhm)
+                                if not np.isnan(last_fwhm) else float('nan'))
+                    f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
+                            f'{mse.item():.6f},{float(cosd):.6f},{float(norm):.6f},'
+                            f'{float(tv):.6f},{float(l1S):.6f},'
+                            f'{last_pi_acc:.6f},{fwhm_deg:.3f},'
+                            f'{last_pearson_roll:.6f},{last_rmse_roll:.3f},'
+                            f'{last_pearson_roll_1k:.6f}\n')
+
+                # --- Memory debug (CPU RSS + GPU alloc/reserved) -----------
+                # try:
+                #     with open('/proc/self/status', 'r') as _sf:
+                #         _rss_kb = next(
+                #             (int(line.split()[1]) for line in _sf
+                #              if line.startswith('VmRSS:')), 0)
+                #     cpu_mb = _rss_kb / 1024.0
+                # except Exception:
+                #     cpu_mb = float('nan')
+                # if torch.cuda.is_available():
+                #     gpu_alloc_mb = torch.cuda.memory_allocated(device) / 1024**2
+                #     gpu_reserved_mb = torch.cuda.memory_reserved(device) / 1024**2
+                #     gpu_peak_mb = torch.cuda.max_memory_allocated(device) / 1024**2
+                #     _logger.info(
+                #         f'[mem] iter={global_step}  '
+                #         f'CPU_RSS={cpu_mb:.0f}MB  '
+                #         f'GPU_alloc={gpu_alloc_mb:.0f}MB  '
+                #         f'GPU_reserved={gpu_reserved_mb:.0f}MB  '
+                #         f'GPU_peak={gpu_peak_mb:.0f}MB'
+                #     )
+                #     torch.cuda.reset_peak_memory_stats(device)
+                # else:
+                #     _logger.info(
+                #         f'[mem] iter={global_step}  CPU_RSS={cpu_mb:.0f}MB'
+                #     )
+
+            if loss.item() < best_loss:
+                best_loss = loss.item()
+
+            # Progress bar: replaced fwhm with deterministic-sweep rollout
+            # metrics. Pearson is colour-coded (red < 0.5, orange < 0.9, green).
+            # Format: r_roll=<T_epoch> (<snapshot_n_steps>). The second value
+            # matches the `r=` printed in the evolution-plot panel title.
+            if np.isnan(last_rmse_roll):
+                rmse_roll_str = 'n/a'
+            else:
+                rmse_roll_str = f'{last_rmse_roll:.1f}°'
+
+            def _fmt_r(r):
+                if np.isnan(r):
+                    return 'n/a'
+                if r >= 0.9:
+                    c = '\033[32m'
+                elif r >= 0.5:
+                    c = '\033[33m'
+                else:
+                    c = '\033[31m'
+                return f'{c}{r:.3f}\033[0m'
+
+            pearson_str = f'{_fmt_r(last_pearson_roll)} ({_fmt_r(last_pearson_roll_1k)})'
+            skips_str = f'  skips={n_nan_skips}' if n_nan_skips > 0 else ''
+            obs_str = f'obs={float(obs):.4f} ' if use_calcium else ''
+            place_str = (f'place={last_place_score:.3f} '
+                         if is_place and not np.isnan(last_place_score) else '')
+            pbar.set_postfix_str(
+                f'loss={loss.item():.4f} '
+                f'{place_str}'
+                f'{obs_str}'
+                f'rmse_roll={rmse_roll_str} '
+                f'r_roll={pearson_str} '
+                f'best={best_loss:.4f}{skips_str}'
+            )
+
+        # Per-epoch checkpoint (matches data_train_gnn's naming). Save the
+        # un-compiled module's state_dict so the file isn't tied to dynamo.
+        ckpt_path = os.path.join(
+            log_dir, 'models',
+            f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+        torch.save({'model_state_dict': eval_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()},
+                   ckpt_path)
+        _logger.info(
+            f'epoch {epoch+1}/{tc.n_epochs} done — last_loss={loss.item():.4f}  '
+            f'best={best_loss:.4f}  pi_acc={last_pi_acc:.4f}  saved {ckpt_path}'
+        )
+
+    # --- Final eval on full test split (full T) -------------------------
+    # pi_acc is heading-only — skip in a pure translation run. The heading-bin
+    # ablation (use_bins) is handled inside path_integration_accuracy_from_data,
+    # which decodes the K-bin logits to (cos,sin) before the cosine metric, so
+    # the bins model reports a real pi_acc here just like the cos/sin models.
+    if ("rotation" in task_targets_canonical
+            or "position_2d" in task_targets_canonical
+            or "rotation_vfwd" in task_targets_canonical
+            or not task_targets_canonical):
+        final_pi = path_integration_accuracy_from_data(
+            eval_model, u_test, y_test, warmup=10, batch_size=tc.batch_size,
+        )
+        _logger.info(f'final test pi_acc: {final_pi:.4f}  '
+                     f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})')
+        logger.info(f'final test pi_acc: {final_pi:.4f}')
+    else:
+        _logger.info(f'final test pi_acc: n/a (task_targets={task_targets_canonical}, '
+                     f'translation-only — heading metric not defined)')
+
+
+# ============================================================================
+# Zebrafish swim-integration task trainer (HD-ring dIPN port)
+# ============================================================================
+
+# Back-compat aliases. The Drosophila CX (path_integration) and larval-
+# zebrafish dIPN (swim_integration) self-motion tasks now share ONE trainer,
+# ``_data_train_task_pi`` (the ``data_train_task`` dispatcher routes both task
+# types to it). These names are retained so any external reference to the
+# old species-specific entry points still resolves.
+_data_train_drosophila_cx_task = _data_train_task_pi
+_data_train_zebrafish_hd_task = _data_train_task_pi
+
+
+# ============================================================================
+# Cortex (Yang 2019) task trainer (TaskRNN, free-W mode)
+# ============================================================================
+
+def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
+    """Train a TaskRNN (free-W mode) on a Yang cortex task (delaygo etc.).
+
+    Data layout under <dataset>/{train,test}/{stimulus,target,c_mask}.zarr
+    (produced by `_generate_cortex_task`):
+        stimulus.zarr  (N, T, N_i)   padded Yang trial.x
+        target.zarr    (N, T, N_o)   padded Yang trial.y    [fixation + ring]
+        c_mask.zarr    (N, T, N_o)   padded Yang c_mask      (Yang lsq loss)
+
+    Loss = mean(c_mask · (y_hat − y)²)
+        + tc.coeff_W_L2    · ‖W_rec‖²
+        + tc.coeff_rate_L2 · mean(σ(h)²)
+
+    Eval (via `cortex_eval.compute_cortex_task_metrics` over N_EVAL test
+    trials): {loss, motor_max, motor_peak_mean, direction_acc}.
+
+    Snapshots at `snapshots_per_epoch` cadence via
+    `cortex_eval.save_cortex_training_snapshot` (8-panel figure mirroring
+    papers/multi-tasks/notebooks/analyze_gnn.ipynb cell 7).
+
+    metrics.log schema (cortex):
+        iteration,epoch,loss,mse,motor_max,motor_peak_mean,direction_acc
+    """
+    import torch.nn.functional as F
+
+    from connectome_gnn.models.cortex_eval import (
+        compute_cortex_task_metrics,
+        save_cortex_matrix_snapshot,
+        save_cortex_training_snapshot,
+    )
+    from connectome_gnn.zarr_io import load_raw_array
+
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+
+    tc = config.training
+    model_config = config.graph_model
+    ct = config.task.cortex
+
+    torch.random.fork_rng(devices=device)
+    torch.random.manual_seed(tc.seed)
+    np.random.seed(tc.seed)
+    random.seed(tc.seed)
+
+    default_style.apply_globally()
+
+    log_dir, logger = create_log_dir(config, erase)
+    # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
+    shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
+    snapshot_dir = os.path.join(log_dir, 'tmp_training', 'cortex_snapshot')
+    matrix_dir = os.path.join(log_dir, 'tmp_training', 'matrix')
+    os.makedirs(snapshot_dir, exist_ok=True)
+    os.makedirs(matrix_dir, exist_ok=True)
+
+    # --- Eager load: trials stay on GPU between iterations ---------------
+    root = graphs_data_path(config.dataset)
+    _logger.info(f'loading task data from {root}/(train|test)/...')
+    u_train  = torch.from_numpy(load_raw_array(f"{root}/train/stimulus.zarr")).to(device)
+    y_train  = torch.from_numpy(load_raw_array(f"{root}/train/target.zarr")).to(device)
+    cm_train = torch.from_numpy(load_raw_array(f"{root}/train/c_mask.zarr")).to(device)
+    u_test   = torch.from_numpy(load_raw_array(f"{root}/test/stimulus.zarr")).to(device)
+    y_test   = torch.from_numpy(load_raw_array(f"{root}/test/target.zarr")).to(device)
+    cm_test  = torch.from_numpy(load_raw_array(f"{root}/test/c_mask.zarr")).to(device)
+    _logger.info(f'task data: train u={tuple(u_train.shape)} y={tuple(y_train.shape)} '
+                 f'cm={tuple(cm_train.shape)}  '
+                 f'test u={tuple(u_test.shape)} y={tuple(y_test.shape)} '
+                 f'cm={tuple(cm_test.shape)}')
+    logger.info(f'train trials: {u_train.shape[0]}  test trials: {u_test.shape[0]}  '
+                f'T: {u_train.shape[1]}  in: {u_train.shape[2]}  out: {y_train.shape[2]}')
+
+    # --- Model build via registry ----------------------------------------
+    model = create_model(model_config.signal_model_name,
+                         aggr_type=model_config.aggr_type,
+                         config=config, device=device)
+    n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    _logger.info(f'model {model_config.signal_model_name} '
+                 f'(W_param={model.W_param}, sigma={model.recurrent_activation_name}): '
+                 f'{n_total_params:,} trainable params')
+    logger.info(f'model: {model_config.signal_model_name}  params: {n_total_params}')
+
+    # --- Optimizer + scheduler -------------------------------------------
+    # Three named param groups (mirrors _data_train_drosophila_cx_task). Missing field
+    # → tc.lr fallback so old single-LR configs still work:
+    #   - "w_rec": recurrent core. _W_rec_free (cortex) — and for forward-
+    #              compat with GNN cortex variants, also W/a/g_phi.*/f_theta.*.
+    #              lr starts at tc.lr_W_rec or tc.lr. lr_W_rec_schedule drives
+    #              THIS group exclusively (per-epoch trajectory).
+    #   - "w_ED":  encoder/decoder. W_in, W_out, _W_in_mlp.*, _W_out_mlp.*.
+    #              lr = tc.lr_W_ED or tc.lr. Constant — schedule does not touch.
+    #   - "other": biases (b, b_out) and anything not in the above. lr = tc.lr.
+    #              Constant.
+    lr_W_rec = getattr(tc, 'lr_W_rec', None)
+    lr_W_ED = getattr(tc, 'lr_W_ED', None)
+
+    def _name_to_group(name: str) -> str:
+        if (name == "_W_rec_free"
+                or name in ("S", "W", "a")
+                or name.startswith(("g_phi.", "f_theta."))):
+            return "w_rec"
+        if (name in ("W_in", "W_out")
+                or name.startswith(("_W_in_mlp.", "_W_out_mlp."))):
+            return "w_ED"
+        return "other"
+
+    grouped: dict[str, list] = {"w_rec": [], "w_ED": [], "other": []}
+    for _name, _p in model.named_parameters():
+        grouped[_name_to_group(_name)].append(_p)
+
+    optimizer = torch.optim.Adam(
+        [
+            {"params": grouped["w_rec"],
+             "lr": float(lr_W_rec) if lr_W_rec is not None else tc.lr,
+             "name": "w_rec"},
+            {"params": grouped["w_ED"],
+             "lr": float(lr_W_ED) if lr_W_ED is not None else tc.lr,
+             "name": "w_ED"},
+            {"params": grouped["other"], "lr": tc.lr, "name": "other"},
+        ]
+    )
+    _logger.info(
+        f'three-group optimizer: '
+        f'w_rec lr={float(lr_W_rec) if lr_W_rec is not None else tc.lr} '
+        f'({len(grouped["w_rec"])} params, schedule-driven) | '
+        f'w_ED lr={float(lr_W_ED) if lr_W_ED is not None else tc.lr} '
+        f'({len(grouped["w_ED"])} params, constant) | '
+        f'other lr={tc.lr} ({len(grouped["other"])} params, constant)'
+    )
+    lr_scheduler = build_lr_scheduler(optimizer, config)
+    _logger.info(f'lr={tc.lr}  lr_scheduler={getattr(tc, "lr_scheduler", "none")}')
+
+    # --- Regulariser coefficients (cached as Python scalars) -------------
+    coeff_W_L2 = float(getattr(tc, 'coeff_W_L2', 0.0))
+    coeff_rate_L2 = float(getattr(tc, 'coeff_rate_L2', 0.0))
+    grad_clip = float(getattr(tc, 'grad_clip_W', 0.0))
+    # Snapshot cadence: prefer absolute `snap_every_iters` (decoupled from
+    # epoch length so DAL doesn't change the snapshot rate). Falls back to
+    # `snapshots_per_epoch` if `snap_every_iters` is 0 (default).
+    snapshots_per_epoch = int(getattr(tc, 'snapshots_per_epoch', 1))
+    snap_every_iters = int(getattr(tc, 'snap_every_iters', 0))
+    _logger.info(f'losses: masked_mse + W_L2={coeff_W_L2}  rate_L2={coeff_rate_L2}  '
+                 f'grad_clip={grad_clip}')
+
+    # --- Training loop ---------------------------------------------------
+    n_trials = u_train.shape[0]
+    # data_augmentation_loop multiplies iters/epoch by sampling batches with
+    # replacement (Yang's reference trainer generates trials on-the-fly each
+    # iter; we approximate that by reusing the pre-generated trial pool).
+    dal = int(getattr(tc, 'data_augmentation_loop', 1))
+    Niter = max(1, (n_trials // tc.batch_size) * dal)
+    if snap_every_iters > 0:
+        snap_every = snap_every_iters
+    else:
+        snap_every = max(1, Niter // max(1, snapshots_per_epoch))
+    rule_name = (ct.rules[0] if getattr(ct, "rules", None) else "cortex")
+    global_step = 0
+
+    # Per-epoch schedules for the named groups (mirrors PI). Each is optional
+    # and drives only its own group; "other" always stays constant at lr.
+    def _build_lr_schedule(field_name: str):
+        raw = list(getattr(tc, field_name, []) or [])
+        if not raw:
+            return None
+        if len(raw) < tc.n_epochs:
+            raw = raw + [raw[-1]] * (tc.n_epochs - len(raw))
+        sched = [float(x) for x in raw[:tc.n_epochs]]
+        _logger.info(f'{field_name} (epochs 1..{tc.n_epochs}): {sched}')
+        return sched
+
+    lr_W_rec_schedule = _build_lr_schedule('lr_W_rec_schedule')
+    lr_W_ED_schedule = _build_lr_schedule('lr_W_ED_schedule')
+
+    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
+    os.makedirs(os.path.dirname(metrics_log_path), exist_ok=True)
+    with open(metrics_log_path, 'w') as f:
+        f.write('iteration,epoch,loss,mse,motor_max,motor_peak_mean,'
+                'r2,direction_acc,r2_filtered,direction_acc_filtered,pct_outliers\n')
+
+    last_metrics = {'loss': float('nan'), 'motor_max': float('nan'),
+                    'motor_peak_mean': float('nan'),
+                    'r2': float('nan'), 'r2_filtered': float('nan'),
+                    'direction_acc': float('nan'),
+                    'direction_acc_filtered': float('nan'),
+                    'pct_outliers': float('nan')}
+    model.train()
+
+    # torch.compile (same pattern as PI trainer; eager fallback for eval).
+    eval_model = model
+    if getattr(tc, 'torch_compile', True):
+        try:
+            # 'reduce-overhead' (CUDA Graphs) pins a static buffer pool per
+            # input shape and conflicts with activation checkpointing's
+            # recompute-in-backward. The task GNN checkpoints its T-loop
+            # (grad_checkpoint, default True) precisely to bound rollout memory
+            # to O(1) in T, and the n_steps curriculum recompiles every epoch as
+            # T grows — so CUDA Graphs both defeat the checkpoint savings and
+            # accumulate one un-freed pool per T, OOMing at the long-T epochs
+            # (T=500 on an 80 GB A100). Use plain 'default' for checkpointed
+            # models — same Triton kernels, no CUDA-graph capture. Mirrors the
+            # connectivity-recovery compile site above.
+            _ckpt = bool(getattr(eval_model, 'grad_checkpoint', False))
+            _mode = 'default' if _ckpt else 'reduce-overhead'
+            model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
+            logger.info(f'torch.compile enabled (mode={_mode}, '
+                        f'grad_checkpoint={_ckpt}); '
+                        'eval/snapshot forward stays eager via _orig_mod')
+            _logger.info(f'torch.compile enabled (mode={_mode}, eval via _orig_mod)')
+        except Exception as exc:
+            _logger.warning(f'torch.compile failed, falling back to eager: {exc}')
+            logger.info(f'torch.compile failed: {exc}')
+    else:
+        logger.info('torch.compile disabled via config (torch_compile: false)')
+
+    n_eval = min(64, u_test.shape[0])
+    total_iters = tc.n_epochs * Niter
+    _logger.info(f'start training: {tc.n_epochs} epochs × {Niter} iters/epoch '
+                 f'= {total_iters} iters  (n_trials={n_trials}, DAL={dal}, '
+                 f'n_eval={n_eval} test trials, snap_every={snap_every} iters '
+                 f'= {total_iters // snap_every} snapshots)')
+
+
+    for epoch in range(tc.n_epochs):
+        # Per-epoch lr replacement for the named groups. Each schedule is
+        # optional and drives only its own group; "other" always stays at lr.
+        for _gname, _gsched in (("w_rec", lr_W_rec_schedule),
+                                ("w_ED", lr_W_ED_schedule)):
+            if _gsched is not None:
+                _lr = _gsched[epoch]
+                for g in optimizer.param_groups:
+                    if g.get("name") == _gname:
+                        g['lr'] = _lr
+                _logger.info(f'epoch {epoch+1}: {_gname} lr -> {_lr}')
+        pbar = trange(
+            Niter, ncols=150,
+            desc=f'cortex/{rule_name} epoch {epoch+1}/{tc.n_epochs}',
+            leave=True,
+        )
+        for N in pbar:
+            global_step += 1
+            # Sample with replacement (DAL > 1 makes one-pass coverage
+            # impossible from a fixed trial pool). For DAL=1 this is
+            # functionally equivalent to the bootstrap of a single pass.
+            idx = torch.randint(0, n_trials, (tc.batch_size,), device=device)
+            u = u_train[idx]
+            y = y_train[idx]
+            cm = cm_train[idx]
+
+            y_hat, h_buf = model(u)
+            sq_err = (y_hat - y) ** 2
+            mse = (sq_err * cm).mean()
+            W_L2 = (coeff_W_L2 * eval_model.W_rec.pow(2).sum()
+                    if coeff_W_L2 > 0 else u.new_zeros(()))
+            rate_L2 = (coeff_rate_L2 * eval_model._sigma(h_buf).pow(2).mean()
+                       if coeff_rate_L2 > 0 else u.new_zeros(()))
+            loss = mse + W_L2 + rate_L2
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            if grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
+            lr_scheduler.step()
+
+            if N % snap_every == 0 or N == Niter - 1:
+                with torch.no_grad():
+                    # Eval on the first n_eval test trials via the un-compiled
+                    # module (varying B between train and eval otherwise
+                    # thrashes the CUDA-Graph cache).
+                    y_eval, _ = eval_model(u_test[:n_eval])
+                    stimuli = [u_test[i] for i in range(n_eval)]
+                    preds = [y_eval[i] for i in range(n_eval)]
+                    targets = [y_test[i] for i in range(n_eval)]
+                    cmasks = [cm_test[i] for i in range(n_eval)]
+                    last_metrics = compute_cortex_task_metrics(preds, targets, cmasks)
+                    snap_path = os.path.join(
+                        snapshot_dir, f'step_{global_step:06d}.png')
+                    try:
+                        save_cortex_training_snapshot(
+                            stimuli, preds, targets, cmasks,
+                            output_path=snap_path, step=global_step,
+                            rule_name=rule_name,
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            f'[cortex_eval] snapshot failed @ step {global_step}: {exc}')
+                    # W_rec matrix view — saved at the same cadence.
+                    matrix_path = os.path.join(
+                        matrix_dir, f'step_{global_step:06d}.png')
+                    try:
+                        save_cortex_matrix_snapshot(
+                            eval_model.W_rec,
+                            output_path=matrix_path, step=global_step,
+                            title_suffix=f'epoch {epoch + 1}/{tc.n_epochs}',
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            f'[cortex_eval] matrix snapshot failed @ step '
+                            f'{global_step}: {exc}')
+                with open(metrics_log_path, 'a') as f:
+                    f.write(f'{global_step},{epoch+1},{loss.item():.6f},'
+                            f'{mse.item():.6f},'
+                            f'{last_metrics["motor_max"]:.6f},'
+                            f'{last_metrics["motor_peak_mean"]:.6f},'
+                            f'{last_metrics.get("r2", float("nan")):.6f},'
+                            f'{last_metrics["direction_acc"]:.6f},'
+                            f'{last_metrics.get("r2_filtered", float("nan")):.6f},'
+                            f'{last_metrics.get("direction_acc_filtered", float("nan")):.6f},'
+                            f'{last_metrics.get("pct_outliers", float("nan")):.4f}\n')
+
+            da = last_metrics["direction_acc"]
+            da_f = last_metrics.get("direction_acc_filtered", float("nan"))
+            r2 = last_metrics.get("r2", float("nan"))
+            r2_f = last_metrics.get("r2_filtered", float("nan"))
+            pct = last_metrics.get("pct_outliers", float("nan"))
+            col_r2 = r2_color(r2_f) if r2_f == r2_f else ""
+            col_da = r2_color(da_f) if da_f == da_f else ""
+            col_pct = ANSI_ORANGE if (pct == pct and pct > 15) else ""
+            pbar.set_postfix_str(
+                f'loss={loss.item():.2e}  '
+                f'{col_r2}R2={r2_f:.3f}{ANSI_RESET} ({r2:.3f})  '
+                f'{col_da}dir_acc={da_f:.2f}{ANSI_RESET} ({da:.2f})  '
+                f'{col_pct}outlier={pct:.0f}%{ANSI_RESET if col_pct else ""}'
+            )
+
+        pbar.close()
+
+        # Per-epoch checkpoint (matches PI trainer's naming).
+        ckpt_path = os.path.join(
+            log_dir, 'models',
+            f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+        os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+        torch.save({'model_state_dict': eval_model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict()},
+                   ckpt_path)
+
+    # --- Final eval on full test split ----------------------------------
+    with torch.no_grad():
+        y_eval, _ = eval_model(u_test)
+        final_preds   = [y_eval[i]  for i in range(u_test.shape[0])]
+        final_targets = [y_test[i]  for i in range(u_test.shape[0])]
+        final_cmasks  = [cm_test[i] for i in range(u_test.shape[0])]
+        final_metrics = compute_cortex_task_metrics(final_preds, final_targets, final_cmasks)
+    _r2_f = final_metrics["r2_filtered"]
+    _da_f = final_metrics["direction_acc_filtered"]
+    _pct = final_metrics["pct_outliers"]
+    _c_r2 = r2_color(_r2_f) if _r2_f == _r2_f else ""
+    _c_da = r2_color(_da_f) if _da_f == _da_f else ""
+    _c_pct = ANSI_ORANGE if (_pct == _pct and _pct > 15) else ""
+    _logger.info(
+        f'final test  '
+        f'{_c_r2}R²={_r2_f:.4f}{ANSI_RESET} ({final_metrics["r2"]:.4f})  '
+        f'{_c_da}dir_acc={_da_f:.4f}{ANSI_RESET} '
+        f'({final_metrics["direction_acc"]:.4f})  '
+        f'{_c_pct}outlier={_pct:.1f}%{ANSI_RESET if _c_pct else ""}  '
+        f'(n_test={u_test.shape[0]}, T={u_test.shape[1]})'
+    )
+    logger.info(f'final test direction_acc: {final_metrics["direction_acc"]:.4f}')
