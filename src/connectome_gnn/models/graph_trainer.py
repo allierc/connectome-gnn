@@ -167,12 +167,23 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     log_dir, logger = create_log_dir(config, erase)
 
     load_fields = determine_load_fields(config)
-    x_ts, y_ts, type_list = load_flyvis_data(
+    x_ts, _ , type_list = load_flyvis_data(
         config.dataset, split='train', fields=load_fields,
         training_selected_neurons=tc.training_selected_neurons,
         selected_neuron_ids=tc.selected_neuron_ids if tc.training_selected_neurons else None,
         measurement_noise_level=sim.measurement_noise_level,
     )
+    # Derivative target from the OBSERVED voltages. The stored y_list holds the
+    # analytic drift f(v[t]) with the process noise stripped out (generator adds
+    # xi_t to v AFTER writing the state), i.e. an oracle no experiment can supply.
+    # The finite difference is what the data actually measures:
+    #   (v[t+1] - v[t]) / dt = f(v[t]) + xi_t/dt
+    _v = x_ts.voltage.numpy()                          # (T, N) float32, CPU
+    y_ts = np.zeros_like(_v)                           # (T, N)
+    y_ts[:-1] = (_v[1:] - _v[:-1]) / sim.delta_t
+    y_ts[-1] = y_ts[-2]                                # last frame has no successor;
+    y_ts = y_ts[..., None]                             # (T, N, 1), matches y_list
+
 
     # get n_neurons and n_frames from data, not config file
     n_neurons = x_ts.n_neurons
