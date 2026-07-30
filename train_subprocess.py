@@ -8,6 +8,30 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+
+def _preset_cublas_workspace(argv):
+    """Set CUBLAS_WORKSPACE_CONFIG before anything imports torch.
+
+    torch.use_deterministic_algorithms(True) refuses to run cuBLAS reductions
+    unless this is set, and cuBLAS reads it when the CUDA context is created —
+    setting it after `import torch` is too late. So peek at the config with
+    plain yaml, before the first torch import in this process.
+    """
+    if '--config' not in argv:
+        return
+    import yaml
+    path = argv[argv.index('--config') + 1]
+    try:
+        with open(path) as f:
+            cfg = yaml.safe_load(f) or {}
+    except OSError:
+        return
+    if (cfg.get('training') or {}).get('deterministic'):
+        os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+
+
+_preset_cublas_workspace(sys.argv)
+
 import matplotlib
 matplotlib.use('Agg')
 import argparse

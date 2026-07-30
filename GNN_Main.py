@@ -2,6 +2,12 @@ import sys
 import os
 import shutil
 
+# cuBLAS reads this when the CUDA context is created, so it has to be set
+# before the first torch import. Harmless when training.deterministic is off
+# (it only fixes the cuBLAS workspace size); required when it is on, or
+# torch.use_deterministic_algorithms(True) refuses to run cuBLAS reductions.
+os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
+
 # Ensure src/ is on the path so connectome_gnn is always importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
