@@ -16,16 +16,23 @@ Output: figures/fig_lstsq_param_recovery_<basename>.{pdf,png}
 Usage:
     python figures/fig_lstsq_param_recovery.py DATA_ROOT [--dt DT]
 
-NOTE: noise-free data only. For noisy SDE data (sigma > 0) recovery is biased
-toward zero — particularly for tau, since the dv/dt column is computed by finite
-differences which amplifies voltage noise by ~1/dt. Two fundamental obstacles:
+NOTE: works for noisy SDE data (sigma > 0) via the tau-divided parametrization.
+The naive system  tau*dv = (I - v) + V_rest + sum_j W_ij ReLU(v_j)  puts the
+finite-difference dv/dt (which amplifies the per-step SDE noise by ~1/dt) into
+the design matrix as a REGRESSOR multiplied by the free parameter tau. That is an
+errors-in-variables setup: OLS attenuates tau toward 0, and the noise lifts the
+structural null-space eigenvalues off the machine-zero floor so the degeneracy
+detector goes blind and the pseudoinverse inverts noise directions.
 
-  1. Errors-in-variables bias: noise enters BOTH A and b (not just b). Standard
-     OLS gives attenuation bias on every coefficient with a noisy regressor;
-     this bias does not vanish with more data.
-  2. Correlated noise across columns: the same SDE noise on v_i(t) appears in
-     dv/dt(t), dv/dt(t-1), and b(t) simultaneously. Vanilla TLS assumes column-
-     wise independent noise and produces wild outputs in this regime.
+Dividing by tau and fitting  dv = alpha*(I - v) + c + sum_j g_j ReLU(v_j)  with
+alpha = 1/tau, c = V_rest/tau, g_j = W_ij/tau moves the noisy dv to the TARGET
+side (coefficient 1.0) and leaves a design matrix whose columns are all clean
+functions of the observed state v[t]. The finite-difference noise then lands on
+the dependent variable — inflating variance but NOT biasing the estimate — so
+plain OLS recovers (alpha, c, g) unbiased and the physical parameters follow from
+tau = 1/alpha, V_rest = c/alpha, W = g/alpha. See solve() for the identifiability
+analysis, which is done in coefficient space and mapped to parameter space via
+the Jacobian of that inverse map.
 """
 
 import argparse
@@ -141,46 +148,66 @@ def solve(
     null_eig_tol: float = 1e-22,
     sloppy_eig_tol: float = 1e-12,
     null_comp_tol: float = 1e-3,
+    subsample: int = 0,
+    seed: int = 0,
 ):
-    """Per-neuron min-norm lstsq + degeneracy flagging.
+    """Per-neuron min-norm lstsq + degeneracy flagging, in the tau-divided
+    (errors-in-variables-safe) parametrization.
 
-    Two-tier classification of directions by relative eigenvalue w/w_max of
-    A_tilde^T A_tilde:
+    subsample / seed — if subsample > 0, solve only a fixed random subset of that
+    many active neurons (reproducible via seed) for fast iteration.
+
+    Fits  dv = alpha*(I - v) + c + sum_j g_j ReLU(v_j)  per neuron, with
+    coefficients phi = (alpha, c, g) = (1/tau, V_rest/tau, W/tau). dv is the
+    TARGET; every design-matrix column is a clean function of v[t], so OLS is
+    unbiased under SDE noise (see module docstring). Physical parameters follow
+    from the inverse map tau = 1/alpha, V_rest = c/alpha, W = g/alpha.
+
+    Identifiability is analyzed in COEFFICIENT space (the honest linear system):
+    two-tier classification of directions by relative eigenvalue w/w_max of
+    R_tilde^T R_tilde:
         w/w_max <= null_eig_tol     -> exact null (numerical zero, structural)
         w/w_max <= sloppy_eig_tol   -> sloppy / weakly identifiable
                                        ("sloppy" in Sethna et al. terminology)
         w/w_max >  sloppy_eig_tol   -> identifiable
 
-    Both null and sloppy directions are zeroed in the pseudoinverse (so the
-    solve doesn't amplify noise on near-null directions) and used to flag
-    degenerate parameters. The flag distinguishes the two: tau_null vs
-    tau_sloppy, etc., letting plots use different colors.
+    Both null and sloppy directions are zeroed in the pseudoinverse and used to
+    flag degenerate parameters. Coefficient-space directions and the Cramer-Rao
+    covariance are pushed to parameter space through the local Jacobian J of the
+    inverse map, so scores/flags/direction-vectors are reported in (tau, V_rest,
+    W) coordinates exactly as before.
 
-    null_comp_tol — min |v_alpha| on a null/sloppy direction (after
-                    normalization) to flag parameter alpha.
+    null_comp_tol — min |v_alpha| on a (parameter-space) null/sloppy direction
+                    (after normalization) to flag parameter alpha.
     """
     N, E, T = data["N"], data["E"], data["T"]
     active_idx = np.where(deg_in > 0)[0]
+    if subsample and subsample < len(active_idx):
+        rng = np.random.default_rng(seed)
+        active_idx = np.sort(rng.choice(active_idx, size=subsample, replace=False))
+        print(f"subsample: solving {subsample} of {int((deg_in > 0).sum())} active neurons (seed={seed})")
 
-    # By default the full (T-1, N) matrices are uploaded to the GPU once. For
-    # large N (e.g. flyvis full eye, ~25 GB per matrix at float64) this OOMs on
-    # a single GPU; --lowmem keeps them on (pinned) host memory and ships only
-    # per-neuron column slices each iteration. Slower per iter but fits.
-    # Storage: float32 (halves memory + bandwidth). Per-neuron design matrix A
+    # alpha = 1/tau below this floor (tau > 1e6) is treated as a null alpha: the
+    # neuron's drive column (I - v) carries no information about the timescale,
+    # so tau/V_rest/W — which all divide by alpha — are jointly unrecoverable and
+    # the inverse-map Jacobian (~1/alpha^2) is ill-defined.
+    ALPHA_FLOOR = 1e-6
+
+    # Storage: float32 (halves memory + bandwidth). Per-neuron design matrix R
     # and target b are upcast to float64 inside the loop, since the eigh /
-    # pseudoinverse step is sensitive to the conditioning of A^T A.
-    dv_d     = torch.from_numpy(data["dv"]).float().to(device)
+    # pseudoinverse step is sensitive to the conditioning of R^T R.
+    dv_d     = torch.from_numpy(data["dv"]).float().to(device)       # target
     relu_v_d = torch.from_numpy(data["relu_v"]).float().to(device)
-    rhs_d    = torch.from_numpy(data["rhs"]).float().to(device)
-    ones_col = -torch.ones(T - 1, 1, device=device, dtype=torch.float64)
+    rhs_d    = torch.from_numpy(data["rhs"]).float().to(device)      # (I - v)
+    ones_col = torch.ones(T - 1, 1, device=device, dtype=torch.float64)
 
     # Preallocate one (T-1, K_max+2) double buffer reused across all iterations.
-    # Column 0 = dv_i, column 1 = -1, columns 2..2+K_i-1 = -ReLU(v_j) for j in
-    # in_src[i]. A is a view into A_buf trimmed to the current K_i+2 width, so
-    # there's no per-iteration allocation for A and no torch.cat call.
+    # Column 0 = (I - v)_i, column 1 = +1, columns 2..2+K_i-1 = ReLU(v_j) for j
+    # in in_src[i]. The target is dv_i. R is a view into R_buf trimmed to the
+    # current K_i+2 width, so there's no per-iteration allocation for R.
     K_max = int(deg_in.max())
-    A_buf = torch.empty(T - 1, K_max + 2, device=device, dtype=torch.float64)
-    A_buf[:, 1:2] = ones_col
+    R_buf = torch.empty(T - 1, K_max + 2, device=device, dtype=torch.float64)
+    R_buf[:, 1:2] = ones_col
 
     tau_lstsq   = np.full(N, np.nan, dtype=np.float64)
     vrest_lstsq = np.full(N, np.nan, dtype=np.float64)
@@ -192,45 +219,42 @@ def solve(
     W_null        = np.zeros(E, dtype=bool)
     W_sloppy      = np.zeros(E, dtype=bool)
     # Cramér–Rao std-error per parameter (in original parameter scale): smaller
-    # = more identifiable. sigma_alpha = sqrt( sum_k v_{k,alpha}^2 / lambda_k ) / s_alpha
-    # where (lambda, V) is the eigendecomposition of A_s^T A_s. Captures both
-    # null directions (huge sigma) and sloppy directions (large sigma) on a
-    # continuous scale. Null lambdas are floored at null_eig_tol*lambda_max so
-    # the sum stays finite; the resulting sigma is then large but not inf.
+    # = more identifiable. Computed as the diagonal of J Cov_phi J^T, where
+    # Cov_phi = diag(1/s) V diag(1/w_floor) V^T diag(1/s) is the coefficient-
+    # space CR covariance (sigma^2 = 1) and J is the Jacobian of the inverse map.
+    # Null lambdas are floored at null_eig_tol*lambda_max so the sum stays finite.
     tau_score   = np.full(N, np.nan, dtype=np.float64)
     vrest_score = np.full(N, np.nan, dtype=np.float64)
     W_score     = np.full(E, np.nan, dtype=np.float64)
 
-    # Per-neuron null/sloppy direction vectors in θ-space (the ORIGINAL
-    # parameter coordinates). Each entry is a (2 + d_i, k_i) float32 tensor
+    # Per-neuron null/sloppy direction vectors in θ-space (the PARAMETER
+    # coordinates tau, V_rest, W). Each entry is a (2 + d_i, k_i) float32 tensor
     # with unit-norm columns; row 0 = τ, row 1 = V_rest, rows 2..2+d_i-1 = W
     # components in the order of in_eidx[i]. Stored sparsely: only neurons
     # with at least one flagged direction get an entry.
     null_dirs:   dict = {}
     sloppy_dirs: dict = {}
 
-    # Neurons with no incoming edges are entirely unidentifiable: tau, V_rest jointly null.
-    no_in = deg_in == 0
-    tau_null[no_in] = True
-    vrest_null[no_in] = True
+    # Neurons with no incoming edges are still fit (K=0: dv = alpha(I-v) + c),
+    # so they are handled inside the loop like any other neuron.
 
     t0 = time.time()
     for i in tqdm(active_idx, desc="lstsq", unit="neuron"):
-        # Fill A_buf in place: copy_ handles the float32 -> float64 cast.
-        # Column 1 (-1) was set once outside the loop and is never touched.
+        # Fill R_buf in place: copy_ handles the float32 -> float64 cast.
+        # Column 1 (+1) was set once outside the loop and is never touched.
         K_i = len(in_src[i])
-        A = A_buf[:, :K_i + 2]
-        A[:, 0:1].copy_(dv_d[:, i:i+1])
-        A[:, 2:].copy_(relu_v_d[:, in_src[i]])
-        A[:, 2:].neg_()
-        b = rhs_d[:, i].double()
+        R = R_buf[:, :K_i + 2]
+        R[:, 0:1].copy_(rhs_d[:, i:i+1])            # (I - v)
+        R[:, 2:].copy_(relu_v_d[:, in_src[i]])      # ReLU(v_j)  (positive)
+        b = dv_d[:, i].double()                     # target = dv
 
-        s = A.norm(dim=0)
+        s = R.norm(dim=0)
         s = torch.where(s > 0, s, torch.ones_like(s))
-        A_s = A / s
+        R_s = R / s
+        inv_s = 1.0 / s
 
-        # Null/sloppy detection always uses A's own Gram (independent of solver).
-        G = A_s.T @ A_s
+        # Null/sloppy detection uses R's own Gram (independent of solver).
+        G = R_s.T @ R_s
         w, V = torch.linalg.eigh(G)
         w_max = w[-1]
         rel = w / w_max
@@ -238,22 +262,49 @@ def solve(
         sloppy_mask = (rel > null_eig_tol) & (rel <= sloppy_eig_tol)
 
         # OLS via column-equilibrated normal equations + pseudoinverse.
-        c = A_s.T @ b
+        rhs_vec = R_s.T @ b
         keep = ~(null_mask | sloppy_mask)
         inv_w = torch.where(keep, 1.0 / w, torch.zeros_like(w))
-        theta_i = (V @ (inv_w * (V.T @ c))) / s
+        phi = (V @ (inv_w * (V.T @ rhs_vec))) * inv_s     # [alpha, c, g...]
 
-        # Cramér–Rao std error in original parameter coordinates.
+        # Coefficient-space Cramér–Rao covariance (sigma^2 = 1):
+        #   Cov_phi = diag(1/s) [ V diag(1/w_floor) V^T ] diag(1/s)
         w_floor = w.clamp_min(null_eig_tol * w_max)
-        sigma_tilde = torch.sqrt((V**2 / w_floor).sum(dim=1))   # in equilibrated space
-        sigma = sigma_tilde / s                                 # back to original scale
+        M = (V / w_floor) @ V.T
+        Cov_phi = inv_s.unsqueeze(1) * M * inv_s.unsqueeze(0)
+
+        alpha = phi[0]
+        if alpha.abs() < ALPHA_FLOOR:
+            # alpha unrecoverable -> whole neuron degenerate. Leave params nan,
+            # flag as null, skip the (ill-defined) Jacobian map.
+            tau_null[i] = True
+            vrest_null[i] = True
+            W_null[in_eidx[i]] = True
+            continue
+
+        inv_a = 1.0 / alpha
+        c_    = phi[1]
+        g     = phi[2:]
+
+        # Physical parameters via the inverse map.
+        tau_lstsq[i]   = float(inv_a)
+        vrest_lstsq[i] = float(c_ * inv_a)
+        W_lstsq[in_eidx[i]] = (g * inv_a).cpu().numpy()
+
+        # Jacobian of (tau, V_rest, W) wrt (alpha, c, g) at the solution:
+        #   tau = 1/alpha ; V_rest = c/alpha ; W_j = g_j/alpha.
+        J = torch.zeros(K_i + 2, K_i + 2, device=device, dtype=torch.float64)
+        J[0, 0] = -inv_a * inv_a
+        J[1, 0] = -c_ * inv_a * inv_a
+        J[1, 1] = inv_a
+        idx = torch.arange(2, K_i + 2, device=device)
+        J[idx, 0]   = -g * inv_a * inv_a
+        J[idx, idx] = inv_a
+
+        # Parameter-space CR std error via the delta method.
+        Cov_theta = J @ Cov_phi @ J.T
+        sigma = torch.sqrt(torch.diagonal(Cov_theta).clamp_min(0.0))
         sg = sigma.cpu().numpy()
-
-        th = theta_i.cpu().numpy()
-
-        tau_lstsq[i]   = th[0]
-        vrest_lstsq[i] = th[1]
-        W_lstsq[in_eidx[i]] = th[2:]
 
         tau_score[i]   = sg[0]
         vrest_score[i] = sg[1]
@@ -262,10 +313,10 @@ def solve(
         def _flag(mask_t, tau_arr, vrest_arr, W_arr, dirs_dict):
             if int(mask_t.sum().item()) == 0:
                 return
-            # Convert eigenvectors of A_s^T A_s back to θ-space (divide by
-            # column norms s) and renormalize each column to unit norm in
-            # θ-space, then store the (2+d_i, k) block for this neuron.
-            V_theta = V[:, mask_t] / s.unsqueeze(1)
+            # eigenvectors -> coefficient space (undo equilibration) -> parameter
+            # space (local Jacobian J) -> unit-norm columns.
+            V_coef  = V[:, mask_t] * inv_s.unsqueeze(1)
+            V_theta = J @ V_coef
             V_theta = V_theta / V_theta.norm(dim=0, keepdim=True).clamp_min(1e-300)
             dirs_dict[int(i)] = V_theta.float().cpu()
 
@@ -457,11 +508,45 @@ def plot(data: dict, out: dict, out_base: Path):
     _add_panel_labels(fig, list(axes), ['a', 'b', 'c'])
 
     out_png = out_base.with_suffix('.png')
-    out_pdf = out_base.with_suffix('.pdf')
     fig.savefig(out_png, dpi=300, bbox_inches="tight")
-    fig.savefig(out_pdf, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {out_png.name}, {out_pdf.name}")
+    print(f"wrote {out_png.name}")
+
+
+def plot_abserror(data: dict, out: dict, out_base: Path):
+    """Absolute recovery error vs ground truth, per parameter (τ, V_rest, W),
+    colored by null/sloppy/identifiable. Companion PNG to the recovery scatter."""
+    fig, axes = plt.subplots(1, 3, figsize=(30, 9), constrained_layout=True)
+    Y_FLOOR = 1e-8   # keep exact recoveries on the log axis
+
+    def _panel(ax, true, pred, null, sloppy, xlabel):
+        err = np.abs(pred - true)
+        fin = np.isfinite(err)
+        y = np.clip(err, Y_FLOOR, None)
+        is_null   = fin & null
+        is_sloppy = fin & sloppy & ~null
+        ok        = fin & ~null & ~sloppy
+        ax.scatter(true[ok],        y[ok],        s=6, alpha=0.3, color='k',
+                   rasterized=True, label='identifiable')
+        ax.scatter(true[is_sloppy], y[is_sloppy], s=8, alpha=0.5, color='orange',
+                   rasterized=True, label='sloppy')
+        ax.scatter(true[is_null],   y[is_null],   s=8, alpha=0.5, color='red',
+                   rasterized=True, label='null')
+        ax.set_yscale('log')
+        ax.set_xlabel(xlabel, fontsize=_AXIS_LABEL_FS)
+        ax.set_ylabel(r'$|\mathrm{error}|$', fontsize=_AXIS_LABEL_FS)
+        ax.tick_params(axis='both', labelsize=_TICK_LABEL_FS)
+        ax.legend(loc='upper right', fontsize=_LEGEND_FS, markerscale=4)
+
+    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],   out["tau_null"],   out["tau_sloppy"],   r'true $\tau$')
+    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"], out["vrest_null"], out["vrest_sloppy"], r'true $V_{rest}$')
+    _panel(axes[2], data["W_true"],     out["W_lstsq"],     out["W_null"],     out["W_sloppy"],     r'true $W_{ij}$')
+    _add_panel_labels(fig, list(axes), ['a', 'b', 'c'])
+
+    out_png = out_base.with_name(f"{out_base.name}_abserr.png")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out_png.name}")
 
 
 def main():
@@ -471,6 +556,9 @@ def main():
                    help="output figure stem (default: figures/fig_lstsq_param_recovery_<basename>)")
     p.add_argument("--mask-out", type=Path, default=None,
                    help="output path for degeneracy mask .pt (default: alongside figure)")
+    p.add_argument("--estimates-out", type=Path, default=None,
+                   help="path to persist the inferred point estimates (tau/V_rest/W, "
+                        "with ground truth) .pt (default: alongside figure; always saved)")
     p.add_argument("--dt", type=float, default=0.020, help="simulation timestep in seconds")
     p.add_argument("--null-eig-tol", type=float, default=1e-22,
                    help="relative eigenvalue cutoff for STRICT null space (red)")
@@ -479,12 +567,24 @@ def main():
                         "weakly identifiable, also zeroed in pseudoinverse")
     p.add_argument("--null-comp-tol", type=float, default=1e-3,
                    help="min |v_alpha| on a null/sloppy direction to flag parameter alpha")
+    p.add_argument("--subsample", type=int, default=1000,
+                   help="solve only this many random active neurons for fast iteration (0 = all)")
+    p.add_argument("--seed", type=int, default=0, help="RNG seed for --subsample")
+    p.add_argument("--class-mask", type=Path, default=None,
+                   help="use the null/sloppy classification from this mask .pt (e.g. the "
+                        "noise-free run's degenerate mask) for the PLOT coloring, instead "
+                        "of the current run's own (noise-inflated) classification. Point "
+                        "estimates still come from this run. Align neurons/edges by using "
+                        "the same --subsample/--seed (or a full run) for both.")
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
     out_base = args.out or REPO / "figures" / f"fig_lstsq_param_recovery_{args.data_root.name}"
     mask_path = args.mask_out or out_base.with_name(
         f"{args.data_root.name}_degenerate_mask.pt"
+    )
+    estimates_path = args.estimates_out or out_base.with_name(
+        f"{args.data_root.name}_estimates.pt"
     )
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     print(f"device: {device}  data_root: {args.data_root}")
@@ -495,8 +595,26 @@ def main():
     out = solve(data, in_src, in_eidx, deg_in, device,
                 null_eig_tol=args.null_eig_tol,
                 sloppy_eig_tol=args.sloppy_eig_tol,
-                null_comp_tol=args.null_comp_tol)
+                null_comp_tol=args.null_comp_tol,
+                subsample=args.subsample,
+                seed=args.seed)
+
+    # Optionally override the plot's null/sloppy coloring with an external
+    # classification (e.g. the noise-free run, where structural degeneracy is
+    # detectable). Point estimates in `out` are untouched.
+    if args.class_mask is not None:
+        cm = torch.load(args.class_mask, map_location="cpu", weights_only=False)
+        _np = lambda x: x.numpy() if hasattr(x, "numpy") else np.asarray(x)
+        out["tau_null"]     = _np(cm["tau_null"])
+        out["tau_sloppy"]   = _np(cm["tau_sloppy"])
+        out["vrest_null"]   = _np(cm["V_rest_null"])
+        out["vrest_sloppy"] = _np(cm["V_rest_sloppy"])
+        out["W_null"]       = _np(cm["W_null"])
+        out["W_sloppy"]     = _np(cm["W_sloppy"])
+        print(f"plot coloring from external classification: {args.class_mask}")
+
     plot(data, out, out_base)
+    plot_abserror(data, out, out_base)
 
     torch.save({
         "tau":           torch.from_numpy(out["tau_null"]   | out["tau_sloppy"]),
@@ -521,6 +639,23 @@ def main():
         "sloppy_dirs": out["sloppy_dirs"],
     }, mask_path)
     print(f"wrote {mask_path}")
+
+    # Persist the inferred point estimates + ground truth so downstream figures
+    # (e.g. cross-noise error scatters) don't have to re-solve. Saved by default.
+    torch.save({
+        "tau_lstsq":    torch.from_numpy(out["tau_lstsq"]),
+        "V_rest_lstsq": torch.from_numpy(out["vrest_lstsq"]),
+        "W_lstsq":      torch.from_numpy(out["W_lstsq"]),
+        "tau_true":     torch.from_numpy(data["tau_true"]),
+        "V_rest_true":  torch.from_numpy(data["vrest_true"]),
+        "W_true":       torch.from_numpy(data["W_true"]),
+        "tau_score":    torch.from_numpy(out["tau_score"]),
+        "V_rest_score": torch.from_numpy(out["vrest_score"]),
+        "W_score":      torch.from_numpy(out["W_score"]),
+        "subsample":    args.subsample,
+        "seed":         args.seed,
+    }, estimates_path)
+    print(f"wrote {estimates_path}")
 
 
 if __name__ == "__main__":
