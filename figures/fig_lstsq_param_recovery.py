@@ -148,9 +148,14 @@ def solve(
     null_eig_tol: float = 1e-22,
     sloppy_eig_tol: float = 1e-12,
     null_comp_tol: float = 1e-3,
+    subsample: int = 0,
+    seed: int = 0,
 ):
     """Per-neuron min-norm lstsq + degeneracy flagging, in the tau-divided
     (errors-in-variables-safe) parametrization.
+
+    subsample / seed — if subsample > 0, solve only a fixed random subset of that
+    many active neurons (reproducible via seed) for fast iteration.
 
     Fits  dv = alpha*(I - v) + c + sum_j g_j ReLU(v_j)  per neuron, with
     coefficients phi = (alpha, c, g) = (1/tau, V_rest/tau, W/tau). dv is the
@@ -177,6 +182,10 @@ def solve(
     """
     N, E, T = data["N"], data["E"], data["T"]
     active_idx = np.where(deg_in > 0)[0]
+    if subsample and subsample < len(active_idx):
+        rng = np.random.default_rng(seed)
+        active_idx = np.sort(rng.choice(active_idx, size=subsample, replace=False))
+        print(f"subsample: solving {subsample} of {int((deg_in > 0).sum())} active neurons (seed={seed})")
 
     # alpha = 1/tau below this floor (tau > 1e6) is treated as a null alpha: the
     # neuron's drive column (I - v) carries no information about the timescale,
@@ -499,11 +508,45 @@ def plot(data: dict, out: dict, out_base: Path):
     _add_panel_labels(fig, list(axes), ['a', 'b', 'c'])
 
     out_png = out_base.with_suffix('.png')
-    out_pdf = out_base.with_suffix('.pdf')
     fig.savefig(out_png, dpi=300, bbox_inches="tight")
-    fig.savefig(out_pdf, bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {out_png.name}, {out_pdf.name}")
+    print(f"wrote {out_png.name}")
+
+
+def plot_abserror(data: dict, out: dict, out_base: Path):
+    """Absolute recovery error vs ground truth, per parameter (τ, V_rest, W),
+    colored by null/sloppy/identifiable. Companion PNG to the recovery scatter."""
+    fig, axes = plt.subplots(1, 3, figsize=(30, 9), constrained_layout=True)
+    Y_FLOOR = 1e-8   # keep exact recoveries on the log axis
+
+    def _panel(ax, true, pred, null, sloppy, xlabel):
+        err = np.abs(pred - true)
+        fin = np.isfinite(err)
+        y = np.clip(err, Y_FLOOR, None)
+        is_null   = fin & null
+        is_sloppy = fin & sloppy & ~null
+        ok        = fin & ~null & ~sloppy
+        ax.scatter(true[ok],        y[ok],        s=6, alpha=0.3, color='k',
+                   rasterized=True, label='identifiable')
+        ax.scatter(true[is_sloppy], y[is_sloppy], s=8, alpha=0.5, color='orange',
+                   rasterized=True, label='sloppy')
+        ax.scatter(true[is_null],   y[is_null],   s=8, alpha=0.5, color='red',
+                   rasterized=True, label='null')
+        ax.set_yscale('log')
+        ax.set_xlabel(xlabel, fontsize=_AXIS_LABEL_FS)
+        ax.set_ylabel(r'$|\mathrm{error}|$', fontsize=_AXIS_LABEL_FS)
+        ax.tick_params(axis='both', labelsize=_TICK_LABEL_FS)
+        ax.legend(loc='upper right', fontsize=_LEGEND_FS, markerscale=4)
+
+    _panel(axes[0], data["tau_true"],   out["tau_lstsq"],   out["tau_null"],   out["tau_sloppy"],   r'true $\tau$')
+    _panel(axes[1], data["vrest_true"], out["vrest_lstsq"], out["vrest_null"], out["vrest_sloppy"], r'true $V_{rest}$')
+    _panel(axes[2], data["W_true"],     out["W_lstsq"],     out["W_null"],     out["W_sloppy"],     r'true $W_{ij}$')
+    _add_panel_labels(fig, list(axes), ['a', 'b', 'c'])
+
+    out_png = out_base.with_name(f"{out_base.name}_abserr.png")
+    fig.savefig(out_png, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {out_png.name}")
 
 
 def main():
@@ -513,6 +556,9 @@ def main():
                    help="output figure stem (default: figures/fig_lstsq_param_recovery_<basename>)")
     p.add_argument("--mask-out", type=Path, default=None,
                    help="output path for degeneracy mask .pt (default: alongside figure)")
+    p.add_argument("--estimates-out", type=Path, default=None,
+                   help="path to persist the inferred point estimates (tau/V_rest/W, "
+                        "with ground truth) .pt (default: alongside figure; always saved)")
     p.add_argument("--dt", type=float, default=0.020, help="simulation timestep in seconds")
     p.add_argument("--null-eig-tol", type=float, default=1e-22,
                    help="relative eigenvalue cutoff for STRICT null space (red)")
@@ -521,12 +567,24 @@ def main():
                         "weakly identifiable, also zeroed in pseudoinverse")
     p.add_argument("--null-comp-tol", type=float, default=1e-3,
                    help="min |v_alpha| on a null/sloppy direction to flag parameter alpha")
+    p.add_argument("--subsample", type=int, default=1000,
+                   help="solve only this many random active neurons for fast iteration (0 = all)")
+    p.add_argument("--seed", type=int, default=0, help="RNG seed for --subsample")
+    p.add_argument("--class-mask", type=Path, default=None,
+                   help="use the null/sloppy classification from this mask .pt (e.g. the "
+                        "noise-free run's degenerate mask) for the PLOT coloring, instead "
+                        "of the current run's own (noise-inflated) classification. Point "
+                        "estimates still come from this run. Align neurons/edges by using "
+                        "the same --subsample/--seed (or a full run) for both.")
     p.add_argument("--cpu", action="store_true", help="force CPU even if CUDA is available")
     args = p.parse_args()
 
     out_base = args.out or REPO / "figures" / f"fig_lstsq_param_recovery_{args.data_root.name}"
     mask_path = args.mask_out or out_base.with_name(
         f"{args.data_root.name}_degenerate_mask.pt"
+    )
+    estimates_path = args.estimates_out or out_base.with_name(
+        f"{args.data_root.name}_estimates.pt"
     )
     device = torch.device("cpu" if args.cpu or not torch.cuda.is_available() else "cuda")
     print(f"device: {device}  data_root: {args.data_root}")
@@ -537,8 +595,26 @@ def main():
     out = solve(data, in_src, in_eidx, deg_in, device,
                 null_eig_tol=args.null_eig_tol,
                 sloppy_eig_tol=args.sloppy_eig_tol,
-                null_comp_tol=args.null_comp_tol)
+                null_comp_tol=args.null_comp_tol,
+                subsample=args.subsample,
+                seed=args.seed)
+
+    # Optionally override the plot's null/sloppy coloring with an external
+    # classification (e.g. the noise-free run, where structural degeneracy is
+    # detectable). Point estimates in `out` are untouched.
+    if args.class_mask is not None:
+        cm = torch.load(args.class_mask, map_location="cpu", weights_only=False)
+        _np = lambda x: x.numpy() if hasattr(x, "numpy") else np.asarray(x)
+        out["tau_null"]     = _np(cm["tau_null"])
+        out["tau_sloppy"]   = _np(cm["tau_sloppy"])
+        out["vrest_null"]   = _np(cm["V_rest_null"])
+        out["vrest_sloppy"] = _np(cm["V_rest_sloppy"])
+        out["W_null"]       = _np(cm["W_null"])
+        out["W_sloppy"]     = _np(cm["W_sloppy"])
+        print(f"plot coloring from external classification: {args.class_mask}")
+
     plot(data, out, out_base)
+    plot_abserror(data, out, out_base)
 
     torch.save({
         "tau":           torch.from_numpy(out["tau_null"]   | out["tau_sloppy"]),
@@ -563,6 +639,23 @@ def main():
         "sloppy_dirs": out["sloppy_dirs"],
     }, mask_path)
     print(f"wrote {mask_path}")
+
+    # Persist the inferred point estimates + ground truth so downstream figures
+    # (e.g. cross-noise error scatters) don't have to re-solve. Saved by default.
+    torch.save({
+        "tau_lstsq":    torch.from_numpy(out["tau_lstsq"]),
+        "V_rest_lstsq": torch.from_numpy(out["vrest_lstsq"]),
+        "W_lstsq":      torch.from_numpy(out["W_lstsq"]),
+        "tau_true":     torch.from_numpy(data["tau_true"]),
+        "V_rest_true":  torch.from_numpy(data["vrest_true"]),
+        "W_true":       torch.from_numpy(data["W_true"]),
+        "tau_score":    torch.from_numpy(out["tau_score"]),
+        "V_rest_score": torch.from_numpy(out["vrest_score"]),
+        "W_score":      torch.from_numpy(out["W_score"]),
+        "subsample":    args.subsample,
+        "seed":         args.seed,
+    }, estimates_path)
+    print(f"wrote {estimates_path}")
 
 
 if __name__ == "__main__":
