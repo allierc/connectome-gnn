@@ -428,11 +428,6 @@ class SimulationConfig(BaseModel):
 
     calcium_type: CalciumType = CalciumType.NONE
     calcium_activation: CalciumActivation = CalciumActivation.SOFTPLUS
-    calcium_tau: float = 0.5  # decay time constant (same units as delta_t)
-    calcium_alpha: float = 1.0  # scale factor to convert [Ca] to fluorescence
-    calcium_beta: float = 0.0  # baseline offset for fluorescence
-    calcium_initial: float = 0.0  # initial calcium concentration
-    calcium_noise_level: float = 0.0  # optional Gaussian noise added to [Ca] updates
     noise_model_level: float = 0.0  # process noise added during dynamics simulation
     measurement_noise_level: float = 0.0  # observation noise saved separately in noise.zarr
     # Stationary AR(1) coefficient on measurement noise: 0 = i.i.d. (default),
@@ -467,10 +462,6 @@ class SimulationConfig(BaseModel):
     # first-order-in-observables assumption. adapt_g==0 disables it entirely.
     adapt_g: float = 0.0
     adapt_tau_ms: float = 200.0
-    calcium_saturation_kd: float = 1.0  # for nonlinear saturation models
-    calcium_num_compartments: int = 1
-    calcium_down_sample: int = 1  # down-sample [Ca] time series by this factor
-    save_calcium: bool = False  # whether to save calcium/fluorescence in zarr output
 
     pos_init: str = "uniform"
     dpos_init: float = 0
@@ -1191,29 +1182,6 @@ class TrainingConfig(BaseModel):
     # Cueva & Wei 2018). False = no anchor (legacy behaviour). Eval/test/MP4
     # honour the same flag via the model so train/eval stay consistent.
     place_anchor: bool = False
-    # --- calcium observation supervision (zebrafish ZAPBench; optional) ------
-    # Number of real-calcium trials (dataset B, produced by
-    # generators/make_calcium_dataset.py) appended to each task batch. 0
-    # disables the whole observation branch — byte-equal to task-only training.
-    # This is the single on/off flag (`use_calcium = calcium_batch_size > 0`).
-    calcium_batch_size: int = 0
-    # Dataset-B name (a TaskTrials dir with an extra calcium.zarr +
-    # calcium_mapping.pt). Empty → reuse the task `dataset`. Unused when
-    # calcium_batch_size == 0.
-    calcium_dataset: str = ""
-    # Scale of the scale-invariant calcium observation loss relative to the
-    # heading MSE (the first loss term). The voltage→calcium model is chosen by
-    # `simulation.gcamp_kernel`.
-    coeff_observation: float = 0.0
-    # Which shared observed neurons the observation loss supervises:
-    #   'all'              — every observed neuron mapped into the model
-    #                        (bump-pool + afferent RIPN/pt-IPN). Default.
-    #   'exclude_afferent' — drop the input/afferent neurons (the circuit's
-    #                        afferent_subpop_ix: RIPN + pt-IPN) and supervise
-    #                        only the recurrent bump-pool, so the calcium loss
-    #                        constrains the network's internal dynamics rather
-    #                        than the externally-driven inputs.
-    observation_neurons: str = "all"
     # Task mode for the swim-integration task — selects which sub-task the
     # network is trained on and projects the 4-ch / 3-col on-disk superset
     # onto the matching input / target sub-channels:
