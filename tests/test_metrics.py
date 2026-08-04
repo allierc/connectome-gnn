@@ -11,7 +11,7 @@ from connectome_gnn.metrics import (
     _vectorized_linspace,
     compute_activity_stats,
     compute_r_squared_NSE,
-    compute_r_squared_filtered,
+    recovery_param_metrics,
     derive_tau,
     derive_vrest,
 )
@@ -64,22 +64,29 @@ class TestComputeRSquared:
         assert slope == pytest.approx(-3.0, abs=1e-6)
 
 
-class TestComputeRSquaredFiltered:
+class TestRecoveryParamMetrics:
     def test_outlier_removal(self):
         true = np.linspace(0, 1, 50)
         learned = true.copy()
         learned[0] = 100.0  # outlier
-        r2, slope, mask = compute_r_squared_filtered(true, learned, outlier_threshold=5.0)
-        assert mask[0] == False  # outlier removed
-        assert mask[1:].all()
-        assert r2 == pytest.approx(1.0, abs=1e-4)
+        m = recovery_param_metrics(true, learned, outlier_thresh=5.0)
+        assert m['inlier_mask'][0] == False  # outlier removed
+        assert m['inlier_mask'][1:].all()
+        assert m['n_outliers'] == 1
+        assert m['r2_clean'] == pytest.approx(1.0, abs=1e-4)
+        # Full-sample R² is dragged down by the single huge outlier.
+        assert m['r2'] < m['r2_clean']
 
     def test_no_outliers(self):
         true = np.linspace(0, 1, 30)
-        learned = true * 2.0
-        r2, slope, mask = compute_r_squared_filtered(true, learned, outlier_threshold=100.0)
-        assert mask.all()
-        assert r2 == pytest.approx(1.0, abs=1e-6)
+        learned = true.copy()  # identity-line NSE: exact match, not a rescaling
+        m = recovery_param_metrics(true, learned, outlier_thresh=100.0)
+        assert m['inlier_mask'].all()
+        assert m['n_outliers'] == 0
+        assert m['r2'] == pytest.approx(1.0, abs=1e-6)
+        assert m['r2_clean'] == pytest.approx(1.0, abs=1e-6)
+        # Full-sample and inlier agree exactly when nothing is filtered.
+        assert m['r2'] == pytest.approx(m['r2_clean'], abs=1e-9)
 
 
 # ------------------------------------------------------------------ #

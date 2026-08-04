@@ -37,7 +37,6 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_dynamics_r2,
     compute_grad_msg,
     compute_r_squared_NSE,
-    compute_r_squared_filtered,
     derive_tau,
     derive_vrest,
     extract_f_theta_slopes,
