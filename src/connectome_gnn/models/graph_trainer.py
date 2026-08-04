@@ -82,13 +82,12 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
 
     seed = config.training.seed
 
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
     if config.training.deterministic:
         from connectome_gnn.utils import set_deterministic
         set_deterministic(seed)
-    else:
-        torch.manual_seed(seed)
-        np.random.seed(seed)
-        random.seed(seed)
 
     # torch.autograd.set_detect_anomaly(True)
 
