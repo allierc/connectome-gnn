@@ -103,7 +103,8 @@ if __name__ == '__main__':
             _mlog = os.path.join(_rl, 'tmp_training', 'metrics.log')
             if os.path.exists(_mtxt) and os.path.exists(_mlog):
                 _keys = ('W_structure_r', 'W_zscored_R2', 'W_corrected_R2',
-                         'W_corrected_slope', 'rollout_pearson', 'clustering_accuracy')
+                         'W_corrected_no_outliers_R2', 'W_corrected_no_outliers_slope',
+                         'rollout_pearson', 'clustering_accuracy')
                 _vals = {}
                 with open(_mtxt) as _f:
                     for _ln in _f:

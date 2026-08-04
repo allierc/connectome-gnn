@@ -20,8 +20,10 @@ N_NEURONS = 13741
 
 # metrics.txt key -> output column
 KEYS = {
-    "W_corrected_R2": "R2_W",
-    "W_corrected_slope": "slope_W",
+    "W_corrected_no_outliers_R2": "R2_W",
+    "W_corrected_R2": "R2_W_full",
+    "W_corrected_no_outliers_slope": "slope_W",
+    "W_corrected_n_outliers": "W_n_out",
     "W_structure_r": "W_struct_r",
     "W_zscored_R2": "W_zscored_R2",
     "tau_R2": "R2_tau_full",

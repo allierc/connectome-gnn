@@ -77,7 +77,8 @@ DEFERRED = {
 }
 
 WANT = [
-    "W_corrected_R2", "W_corrected_slope", "rollout_pearson", "rollout_RMSE",
+    "W_corrected_no_outliers_R2", "W_corrected_R2", "W_corrected_no_outliers_slope",
+    "rollout_pearson", "rollout_RMSE",
     "tau_R2", "tau_no_outliers_R2", "tau_n_outliers",
     "V_rest_R2", "V_rest_no_outliers_R2", "V_rest_n_outliers",
     "clustering_accuracy",
@@ -185,8 +186,8 @@ def write_outputs(done: dict[str, dict[str, str]], submitted: set[str]) -> None:
     for cfg, m in sorted(done.items(), key=lambda kv: (RUNS[kv[0]][0], kv[0])):
         _, arm, model = RUNS[cfg]
         lines.append(
-            f"| {arm} | {model} | {m.get('W_corrected_R2','')} | "
-            f"{m.get('W_corrected_slope','')} | {m.get('rollout_pearson','')} | "
+            f"| {arm} | {model} | {m.get('W_corrected_no_outliers_R2','')} | "
+            f"{m.get('W_corrected_no_outliers_slope','')} | {m.get('rollout_pearson','')} | "
             f"{m.get('tau_no_outliers_R2','')} | {m.get('V_rest_no_outliers_R2','')} | "
             f"{m.get('clustering_accuracy','')} |"
         )
@@ -216,7 +217,7 @@ def main() -> int:
             if not m:
                 continue  # marker present but metrics not flushed yet
             done[cfg] = m
-            log(f"  DONE {cfg}: R2_W={m.get('W_corrected_R2','?')} "
+            log(f"  DONE {cfg}: R2_W={m.get('W_corrected_no_outliers_R2','?')} "
                 f"rollout_r={m.get('rollout_pearson','?')}")
 
         submit_deferred(submitted)

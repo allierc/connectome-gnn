@@ -36,16 +36,6 @@ _ANSI_BLUE = '\033[94m'
 _ANSI_WHITE = '\033[97m'
 _ANSI_RESET = '\033[0m'
 
-# Per-parameter outlier thresholds for the recovery scatters / R² / metrics.
-# Fixed by neurips.tex eq:outlier_threshold (|theta_hat - theta| > delta), held
-# constant across all conditions so outlier counts are comparable across tables.
-# Single source of truth for BOTH the linear and GNN plot paths so the figure,
-# console, and metrics.txt can't drift apart (they used to: V_rest figure 0.1 vs
-# console 0.2).
-DELTA_TAU = 0.1
-DELTA_VREST = 0.2
-
-
 def _r2_color(val):
     """Red < 0.3, orange < 0.7, green >= 0.7."""
     if val < 0.3: return _ANSI_RED
@@ -70,8 +60,10 @@ from connectome_gnn.metrics import (
     recovery_param_metrics,
     r2_scatter_text,
     compute_r_squared_NSE,
-    compute_r_squared_filtered,
     compute_all_corrected_weights,
+    W_OUTLIER_THRESH,
+    TAU_OUTLIER_THRESH,
+    VREST_OUTLIER_THRESH,
     compute_activity_stats,
     extract_g_phi_slopes,
     extract_f_theta_slopes,
@@ -84,6 +76,15 @@ from connectome_gnn.metrics import (
     _build_g_phi_features,
     _build_f_theta_features,
 )
+
+# Per-parameter outlier thresholds for the recovery scatters / R² / metrics.
+# Fixed by neurips.tex eq:outlier_threshold (|theta_hat - theta| > delta), held
+# constant across all conditions so outlier counts are comparable across tables.
+# Aliased from metrics.py — the single source of truth for BOTH the linear and
+# GNN plot paths so the figure, console, and metrics.txt can't drift apart.
+DELTA_TAU = TAU_OUTLIER_THRESH
+DELTA_VREST = VREST_OUTLIER_THRESH
+
 from connectome_gnn.plot import _plot_curves_fast
 from connectome_gnn.generators.ode_params import load_edge_index, load_weights
 from connectome_gnn.utils import (
@@ -442,7 +443,11 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # --- Plot 2: Raw W comparison ---
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt_w_np, learned_weights, c=mc, s=0.1, alpha=0.1)
-    r_squared_W, slope_W = compute_r_squared_NSE(gt_w_np, learned_weights)
+    # Full-sample + outlier-filtered R² together, so the plot, console and
+    # metrics.txt can't disagree — matches the GNN path (plot_synaptic).
+    _wm_lin = recovery_param_metrics(gt_w_np, learned_weights, W_OUTLIER_THRESH)
+    r_squared_W, slope_W = _wm_lin['r2_clean'], _wm_lin['slope_clean']
+    r_squared_W_full, n_w_outliers = _wm_lin['r2'], _wm_lin['n_outliers']
     plt.text(0.05, 0.95, f'R²: {r_squared_W:.3f}\nslope: {slope_W:.2f}',
              transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
     plt.xlabel(r'true $W_{ij}$', fontsize=48)
@@ -792,6 +797,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # --- Write R² to log file ---
     if log_file:
         log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
+        log_file.write(f"connectivity_full_sample_R2: {r_squared_W_full:.4f}\n")
         log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
         log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
         log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
@@ -1236,7 +1242,8 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         n_neuron_types=sim.n_neuron_types, device=device,
         log_dir=log_dir, dataset_name=config.dataset, logger=logger,
         index_to_name=INDEX_TO_NAME,
-        r_squared=r_squared_W, slope_corrected=slope_W,
+        r_squared=r_squared_W, r_squared_full=r_squared_W_full,
+        n_w_outliers=n_w_outliers, slope_corrected=slope_W,
         r_squared_tau=r_squared_tau, r_squared_V_rest=r_squared_V_rest)
 
 
@@ -2111,9 +2118,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _tw_c = true_weights
             _lw_c = learned_weights
 
-            # Outlier removal + R² via metrics
-            r_squared, slope_corrected, mask = compute_r_squared_filtered(
-                _tw_c, _lw_c, outlier_threshold=5.0)
+            # Full-sample + outlier-filtered R² together, so the plot, console
+            # and metrics.txt can't disagree — same pattern as tau/V_rest below.
+            _wm = recovery_param_metrics(_tw_c, _lw_c, W_OUTLIER_THRESH)
+            r_squared        = _wm['r2_clean']   # headline (matches today's published number)
+            r_squared_full   = _wm['r2']         # full-sample (reviewer-requested addition)
+            n_w_outliers     = _wm['n_outliers']
+            slope_corrected  = _wm['slope_clean']
+            mask             = _wm['inlier_mask']
             residuals = _lw_c - _tw_c
             true_in = _tw_c[mask]
             learned_in = _lw_c[mask]
@@ -2123,10 +2135,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             r_squared_visible = None
             if visible_edge_mask is not None and visible_edge_mask.shape[0] == _tw_c.shape[0]:
                 try:
-                    r_squared_visible, _ = compute_r_squared_filtered(
-                        _tw_c[visible_edge_mask],
-                        _lw_c[visible_edge_mask],
-                        outlier_threshold=5.0)[:2]
+                    r_squared_visible = recovery_param_metrics(
+                        _tw_c[visible_edge_mask], _lw_c[visible_edge_mask],
+                        W_OUTLIER_THRESH)['r2_clean']
                 except Exception:
                     r_squared_visible = None
 
@@ -2203,8 +2214,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     corrected_W_true_tau, nan=0.0, posinf=0.0, neginf=0.0)
 
                 learned_weights_tt = to_numpy(corrected_W_true_tau.squeeze())
-                r_squared_tt, slope_tt, mask_tt = compute_r_squared_filtered(
-                    _tw_c, learned_weights_tt, outlier_threshold=5.0)
+                _wm_tt = recovery_param_metrics(_tw_c, learned_weights_tt, W_OUTLIER_THRESH)
+                r_squared_tt, slope_tt, mask_tt = _wm_tt['r2_clean'], _wm_tt['slope_clean'], _wm_tt['inlier_mask']
                 true_in_tt = _tw_c[mask_tt]
                 learned_in_tt = learned_weights_tt[mask_tt]
 
@@ -3113,6 +3124,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 logger=logger,
                 index_to_name=index_to_name,
                 r_squared=r_squared,
+                r_squared_full=r_squared_full,
+                n_w_outliers=n_w_outliers,
                 slope_corrected=slope_corrected,
                 r_squared_tau=r_squared_tau,
                 r_squared_V_rest=r_squared_V_rest,
@@ -3293,7 +3306,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_taus, gt_V_Rest,
                                        learned_weights, learned_tau, learned_V_rest, type_list, n_frames, dimension,
                                        n_neuron_types, device, log_dir, dataset_name, logger, index_to_name,
-                                       r_squared=None, slope_corrected=None, r_squared_tau=None, r_squared_V_rest=None,
+                                       r_squared=None, r_squared_full=None, n_w_outliers=None,
+                                       slope_corrected=None, r_squared_tau=None, r_squared_V_rest=None,
                                        ode_params=None):
 
     print('stratified analysis by neuron type...')
@@ -3385,8 +3399,15 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
     if r_squared is not None:
         with open(metrics_path, 'a') as mf:
-            mf.write(f"W_corrected_R2: {r_squared:.4f}\n")
-            mf.write(f"W_corrected_slope: {slope_corrected:.4f}\n")
+            # Naming matches tau/V_rest: the bare _R2 key is full-sample, the
+            # _no_outliers_R2 key is the outlier-filtered headline number
+            # that's actually reported in the paper.
+            if r_squared_full is not None:
+                mf.write(f"W_corrected_R2: {r_squared_full:.4f}\n")
+            mf.write(f"W_corrected_no_outliers_R2: {r_squared:.4f}\n")
+            mf.write(f"W_corrected_no_outliers_slope: {slope_corrected:.4f}\n")
+            if n_w_outliers is not None:
+                mf.write(f"W_corrected_n_outliers: {n_w_outliers}\n")
             if "tau" in panels:
                 mf.write(f"tau_R2: {r_squared_tau:.4f}\n")
             if "vrest" in panels:

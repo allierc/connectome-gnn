@@ -82,7 +82,8 @@ def _fold_dir(output_root, base, suffix, fold_i):
 
 def _aggregate(output_root, base, suffix, n_folds):
     """Per-condition mean across folds (no +-SD, matching the submitted table)."""
-    one, roll, W_R2 = [], [], []
+    one, roll = [], []
+    W_in,   W_full,   W_out   = [], [], []
     tau_in, tau_full, tau_out = [], [], []
     V_in,   V_full,   V_out   = [], [], []
     n_present = 0
@@ -94,7 +95,9 @@ def _aggregate(output_root, base, suffix, n_folds):
         one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
         roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
         m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
-        W_R2.append(m.get('W_corrected_R2',        float('nan')))
+        W_in.append(    m.get('W_corrected_no_outliers_R2', float('nan')))
+        W_full.append(  m.get('W_corrected_R2',             float('nan')))
+        W_out.append(   m.get('W_corrected_n_outliers',     float('nan')))
         tau_in.append(  m.get('tau_no_outliers_R2',    float('nan')))
         tau_full.append(m.get('tau_R2',                float('nan')))
         tau_out.append( m.get('tau_n_outliers',        float('nan')))
@@ -108,7 +111,9 @@ def _aggregate(output_root, base, suffix, n_folds):
         'n_present': n_present,
         'one':       _m(one),
         'roll':      _m(roll),
-        'W_R2':      _m(W_R2),
+        'W_in':      _m(W_in),
+        'W_full':    _m(W_full),
+        'W_out':     _m(W_out),
         'tau_in':    _m(tau_in),
         'tau_full':  _m(tau_full),
         'tau_out':   _m(tau_out),
@@ -157,7 +162,7 @@ def _row(model_label, condition, n_neurons, n_edges, eye_map, s):
     return (
         f'{model_label:<24} & {condition:<28} & {neurons_s:<10} & {edges_s:<14} & {eye_map}\n'
         f'  & {_fmt_simple(s["one"])} & {_fmt_simple(s["roll"])}\n'
-        f'  & {_fmt_simple(s["W_R2"])}\n'
+        f'  & {_fmt_R2_full(s["W_in"],   s["W_full"],   s["W_out"],   n_neurons)}\n'
         f'  & {_fmt_R2_full(s["tau_in"], s["tau_full"], s["tau_out"], n_neurons)}\n'
         f'  & {_fmt_R2_full(s["V_in"],   s["V_full"],   s["V_out"],   n_neurons)} \\\\'
     )
