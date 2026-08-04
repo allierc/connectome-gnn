@@ -67,21 +67,21 @@ import yaml
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SOURCE_CFG = 'flyvis_noise_free_blank50_unified_cv00'   # published, READ ONLY
-TEST_STEM = 'flyvis_noise_free_blank50_dettest'
+SOURCE_CFG_DEFAULT = 'flyvis_noise_free_blank50_unified_cv00'   # published, READ ONLY
 
 _G, _O, _R, _DIM = '\033[92m', '\033[38;5;208m', '\033[0m', '\033[2m'
 
 
-def emit_config(output_root, arm, n_iter, batch_size, no_compile):
-    """Write the dettest YAML for one arm, derived from the published cv00."""
-    src = os.path.join(output_root, 'config', 'fly', f'{SOURCE_CFG}.yaml')
+def emit_config(output_root, arm, n_iter, batch_size, no_compile, source_cfg):
+    """Write the dettest YAML for one arm, derived from source_cfg."""
+    test_stem = f'{source_cfg}_dettest'
+    src = os.path.join(output_root, 'config', 'fly', f'{source_cfg}.yaml')
     assert os.path.isfile(src), f'source config missing: {src}'
     with open(src) as f:
         cfg = yaml.safe_load(f)
 
-    name = f'{TEST_STEM}_{arm}'
-    assert name != SOURCE_CFG
+    name = f'{test_stem}_{arm}'
+    assert name != source_cfg
     # Niter = n_frames * DAL // batch_size * 0.2  (graph_trainer ~line 605).
     # Solve for the DAL that lands nearest the requested iteration count.
     n_frames = cfg['simulation']['n_frames']
@@ -93,7 +93,7 @@ def emit_config(output_root, arm, n_iter, batch_size, no_compile):
         cfg['training']['torch_compile'] = False
     cfg['config_file'] = f'fly/{name}'
     cfg['description'] = (f'Determinism probe ({arm}). Derived from '
-                          f'{SOURCE_CFG}.yaml, DAL={dal} for a short run.')
+                          f'{source_cfg}.yaml, DAL={dal} for a short run.')
     dst = os.path.join(output_root, 'config', 'fly', f'{name}.yaml')
     with open(dst, 'w') as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
@@ -149,6 +149,10 @@ def main():
     p.add_argument('--n-iter', dest='n_iter', type=int, default=6400,
                    help='Approximate training iterations per run; DAL is '
                         'solved to hit it. Default 6400 (~2 min).')
+    p.add_argument('--source-config', dest='source_cfg',
+                   default=SOURCE_CFG_DEFAULT,
+                   help='config/fly/<name>.yaml to derive the dettest arms '
+                        f'from (read-only). Default: {SOURCE_CFG_DEFAULT}.')
     p.add_argument('--batch-size', dest='batch_size', type=int, default=4,
                    help='As published. Default 4.')
     p.add_argument('--gpu', type=int, default=0,
@@ -171,7 +175,7 @@ def main():
 
     print('=' * 74)
     print('Determinism probe — same config, same seed, same GPU, N runs')
-    print(f'  source config : {SOURCE_CFG} (read-only)')
+    print(f'  source config : {args.source_cfg} (read-only)')
     print(f'  arms          : {args.arms}   runs/arm: {args.runs}')
     print(f'  target iters  : ~{args.n_iter:,}   batch {args.batch_size}   '
           f'GPU {args.gpu}')
@@ -180,7 +184,8 @@ def main():
     results = {}
     for arm in args.arms:
         cfg_path, name, niter = emit_config(
-            output_root, arm, args.n_iter, args.batch_size, args.no_compile)
+            output_root, arm, args.n_iter, args.batch_size, args.no_compile,
+            args.source_cfg)
         print(f'\n--- arm {arm}  (deterministic={arm == "on"}, '
               f'Niter={niter:,})\n    {cfg_path}')
         runs = []
