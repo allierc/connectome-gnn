@@ -1,20 +1,23 @@
 """FULL-SAMPLE twin of aggregate_blank50_tables.py (rebuttal / NeurIPS review).
 
 Reviewer request (W3 / meta-review point 2, Question 2): report the parameter
-recovery R^2 for tau_hat and V_rest_hat over *all* neurons, not only the
-inlier set left after the residual filter (neurips.tex eq:outlier_threshold,
-delta_tau=0.1 / delta_Vrest=0.2). Negative values are expected and are meant to
-be reported.
+recovery R^2 for tau_hat, V_rest_hat and W_hat over *all* neurons/edges, not
+only the inlier set left after the residual filter (neurips.tex
+eq:outlier_threshold, delta_tau=0.1 / delta_Vrest=0.2 / delta_W=5.0).
+Negative values are expected and are meant to be reported.
 
 This script does NOT retrain or re-run anything and does NOT touch the submitted
-scripts. The full-sample statistic is *already computed and stored* per fold:
+scripts. The full-sample statistic is *already computed and stored* per fold,
+via metrics.recovery_param_metrics (the single function computing both the
+full-sample and inlier R^2 together for all three quantities):
 
     results/metrics.txt:
-        tau_R2              <- compute_r_squared_NSE(gt_tau,   learned_tau)   [ALL neurons]
-        V_rest_R2           <- compute_r_squared_NSE(gt_vrest, learned_vrest) [ALL neurons]
-        tau_no_outliers_R2  <- same NSE restricted to |theta_hat-theta|<=delta [inlier set]
-        V_rest_no_outliers_R2
-        tau_n_outliers / V_rest_n_outliers  (excluded counts)
+        tau_R2 / V_rest_R2 / W_corrected_R2
+            <- compute_r_squared_NSE(gt, learned)   [ALL neurons/edges]
+        tau_no_outliers_R2 / V_rest_no_outliers_R2 / W_corrected_no_outliers_R2
+            <- same NSE restricted to the inlier set (headline number)
+        tau_n_outliers / V_rest_n_outliers / W_corrected_n_outliers
+            (excluded counts)
 
 tau_R2 / V_rest_R2 are exactly Supp. Eq. 23 (identity-line Nash-Sutcliffe,
 metrics.compute_r_squared_NSE = 1 - mean((gt-hat)^2)/var(gt)) with N = all
@@ -148,9 +151,12 @@ def _fold_dir(output_root, base, suffix, fold_i):
 
 
 def _aggregate(output_root, base, suffix, n_folds):
-    """Per-(base,suffix) mean+-SD across folds. Adds full-sample tau/V_rest R^2
-    (tau_R2 / V_rest_R2) next to the inlier values used by the submitted table."""
-    one, roll, W_R2, cl = [], [], [], []
+    """Per-(base,suffix) mean+-SD across folds. Adds full-sample R^2 for W,
+    tau and V_rest (the bare _R2 keys) next to the inlier values used by the
+    submitted table (the _no_outliers_R2 keys) — same convention for all three
+    now that W_corrected_R2 was made full-sample to match tau/V_rest."""
+    one, roll, cl = [], [], []
+    W_in,   W_full,   W_out   = [], [], []
     tau_in, tau_full, tau_out = [], [], []
     V_in,   V_full,   V_out   = [], [], []
     for i in range(n_folds):
@@ -160,8 +166,10 @@ def _aggregate(output_root, base, suffix, n_folds):
         one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
         roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
         m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
-        W_R2.append(m.get('W_corrected_R2',        float('nan')))
         cl.append(  m.get('clustering_accuracy',   float('nan')))
+        W_in.append(    m.get('W_corrected_no_outliers_R2', float('nan')))
+        W_full.append(  m.get('W_corrected_R2',             float('nan')))
+        W_out.append(   m.get('W_corrected_n_outliers',     float('nan')))
         tau_in.append(  m.get('tau_no_outliers_R2',    float('nan')))
         tau_full.append(m.get('tau_R2',                float('nan')))
         tau_out.append( m.get('tau_n_outliers',        float('nan')))
@@ -171,8 +179,10 @@ def _aggregate(output_root, base, suffix, n_folds):
     return {
         'one_r':    _mean_sd(one),
         'roll_r':   _mean_sd(roll),
-        'W_R2':     _mean_sd(W_R2),
         'cluster':  _mean_sd(cl),
+        'W_in':     _mean_sd(W_in),
+        'W_full':   _mean_sd(W_full),
+        'W_out':    _mean_sd(W_out)[0],
         'tau_in':   _mean_sd(tau_in),
         'tau_full': _mean_sd(tau_full),
         'tau_out':  _mean_sd(tau_out)[0],
@@ -277,7 +287,7 @@ def _emit_table1(output_root, n_folds):
         lines.append(
             f'{model:<10} & {label:<11} & ${sigma}$\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
-            f'  & {_fmt(*s["W_R2"])}\n'
+            f'  & {_fmt_R2_full(s["W_in"], s["W_full"], s["W_out"], _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt_R2_full(s["tau_in"], s["tau_full"], s["tau_out"], _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt_R2_full(s["V_in"],   s["V_full"],   s["V_out"],   _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt(*s["cluster"])} \\\\'
@@ -306,7 +316,7 @@ def _emit_condition_table(output_root, n_folds, suffix, bases, out_name, header)
         lines.append(
             f'{label:<24} & ${sigma}$ & ${gamma}$ & ${edges}$\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
-            f'  & {_fmt(*s["W_R2"])}\n'
+            f'  & {_fmt_R2_full(s["W_in"], s["W_full"], s["W_out"], _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt_R2_full(s["tau_in"], s["tau_full"], s["tau_out"], _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt_R2_full(s["V_in"],   s["V_full"],   s["V_out"],   _N_NEURONS_BLANK50)}\n'
             f'  & {_fmt(*s["cluster"])} \\\\'

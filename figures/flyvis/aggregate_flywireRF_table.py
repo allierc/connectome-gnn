@@ -96,7 +96,7 @@ def _aggregate(output_root, base, suffix, n_folds):
         one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
         roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
         m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
-        W_R2.append(m.get('W_corrected_R2',         float('nan')))
+        W_R2.append(m.get('W_corrected_no_outliers_R2', float('nan')))
         tau_R2_full.append(m.get('tau_R2',                  float('nan')))
         tau_R2_corr.append(m.get('tau_no_outliers_R2',      float('nan')))
         tau_n_out.append(   m.get('tau_n_outliers',         float('nan')))
