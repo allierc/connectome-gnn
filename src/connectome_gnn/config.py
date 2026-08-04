@@ -1013,6 +1013,10 @@ class TrainingConfig(BaseModel):
 
     n_runs: int = 2
     seed: Annotated[int, Field(ge=0, lt=2**32)] = 42
+    # Bitwise-reproducible training. Off by default: it changes the arithmetic,
+    # so an existing run's numbers are NOT recoverable by switching it on --
+    # it only makes future runs repeatable. See utils.set_deterministic.
+    deterministic: bool = False
     clamp: float = 0
     pred_limit: float = 1.0e10
 

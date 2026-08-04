@@ -366,6 +366,46 @@ def set_device(device: str = 'auto') -> str:
     return device
 
 
+def set_deterministic(seed: int) -> None:
+    """Make training bitwise-reproducible across runs at a fixed seed.
+
+    Seeding alone is not enough. The message-passing aggregation in
+    NeuralGNN.message_and_aggregate is
+
+        msg.scatter_add_(0, dst.unsqueeze(1).expand_as(edge_msg), edge_msg)
+
+    and ``scatter_add_`` on CUDA accumulates through atomics: 434k edges land
+    on 13.7k nodes, so every node sums ~32 floats in whatever order the
+    hardware happens to schedule. Float addition is not associative, so the
+    same call returns a different answer each time. Measured at flyvis scale,
+    8 identical calls give 8 distinct results with max |delta| 5.7e-06 — tiny
+    per step, but it is fed back through 1.6M optimizer steps and the
+    trajectories separate.
+
+    ``use_deterministic_algorithms(True)`` swaps in a sort-based scatter with a
+    fixed reduction order. That op gets ~26x slower (13.7 -> 361 us at flyvis
+    scale) but it is a sliver of a ~10 ms iteration, so the run-level cost is
+    small.
+
+    CUBLAS_WORKSPACE_CONFIG must be set before the CUDA context is created, so
+    the entry points set it at import time; this function only checks it and
+    warns, since setting it here would be silently too late.
+
+    Note this does NOT reproduce a run made without it — the arithmetic
+    differs. It makes runs from here on repeatable.
+    """
+    if os.environ.get('CUBLAS_WORKSPACE_CONFIG') not in (':4096:8', ':16:8'):
+        print('\033[93m[determinism] CUBLAS_WORKSPACE_CONFIG unset — cuBLAS '
+              'reductions may still vary. Set it to :4096:8 before torch '
+              'initialises CUDA.\033[0m')
+
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False          # autotuning picks by timing
+    torch.use_deterministic_algorithms(True)
+    print(f'\033[92m[determinism] deterministic algorithms ON, seed={seed}\033[0m')
+
+
 def choose_boundary_values(bc_name):
     def identity(x):
         return x
