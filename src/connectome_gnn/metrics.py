@@ -1256,7 +1256,15 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
     if was_training:
         model.train()
 
-    grad_msg = torch.stack(grad_list).median(dim=0).values  # (N,)
+    # Median on CPU: torch.median on CUDA also returns tie-break indices, which
+    # have no deterministic implementation, so under
+    # use_deterministic_algorithms(True) the GPU call raises. Only .values is
+    # used here and the values themselves are well-defined, so the reduction
+    # moves to CPU rather than being excused with warn_only. This is a
+    # diagnostic path (weight correction for the R^2 checkpoint), a few frames
+    # x n_neurons, so the transfer is not on the training hot path -- but it
+    # does feed W_corrected_R2, which is why it must not be left nondeterministic.
+    grad_msg = torch.stack(grad_list).cpu().median(dim=0).values.to(device)  # (N,)
 
     # 5. Corrected weights using model-specific g_phi correction
     corrected_W = compute_corrected_weights(
