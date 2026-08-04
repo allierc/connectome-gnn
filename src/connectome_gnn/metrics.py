@@ -348,12 +348,16 @@ def compute_r_squared_identity_line(true: np.ndarray, learned: np.ndarray) -> tu
         return float('nan'), float('nan')
     
 
-def compute_r_squared_NSE(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
+def _r2_slope_identity(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
     """Identity-line R² (Nash-Sutcliffe efficiency) and calibration slope.
 
     R² = 1 - mean((true - learned)²) / var(true)
     Penalizes both noise and scale/bias errors. Range: (-inf, 1].
     Slope from learned ≈ a·true + b diagnoses scale miscalibration when R² is low.
+
+    Private — recovery_param_metrics() is the single public entry point for
+    R² anywhere in this codebase; nothing outside this module should call
+    this directly.
     """
     try:
         a = np.asarray(true).ravel()
@@ -407,7 +411,8 @@ def r2_scatter_text(true: np.ndarray, learned: np.ndarray, clean_r2: float = Non
     tail = '' if n is None else f'\nN: {n}'
     if is_degenerate_gt(true):
         return f'{label}: N/A (const GT)\nMAE: {recovery_mae(true, learned):.3g}{tail}'
-    r2, slope = compute_r_squared_NSE(true, learned)
+    _m = recovery_param_metrics(true, learned)
+    r2, slope = _m['r2'], _m['slope']
     if clean_r2 is not None:
         return f'{label}: {clean_r2:.2f} ({r2:.2f})\nslope: {slope:.2f}{tail}'
     return f'{label}: {r2:.2f}\nslope: {slope:.2f}{tail}'
@@ -421,12 +426,15 @@ def fmt_r2_bar(val) -> str:
     return f'{val:.3f}'
 
 
-def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float) -> dict:
-    """All recovery metrics for one per-neuron parameter (tau, V_rest), computed
-    ONCE so the scatter, console line and metrics.txt can't disagree.
+def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float = None) -> dict:
+    """All recovery metrics for a parameter (W, tau, V_rest, ...) — the single
+    public entry point for R² anywhere in this codebase, computed ONCE so the
+    scatter, console line and metrics.txt can't disagree.
 
     Outlier rule: ``|learned - true| > outlier_thresh`` (the neurips.tex
-    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2).
+    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2 / delta_W=1.0).
+    With ``outlier_thresh=None`` (default) nothing is filtered — ``r2_clean``
+    equals ``r2`` — for callers that just want the plain full-sample R²/slope.
 
     Returns a dict with: ``r2``/``slope`` (full identity-line NSE),
     ``r2_clean``/``slope_clean`` (inliers only; NaN if <2 inliers),
@@ -437,13 +445,16 @@ def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: 
     learned = np.asarray(learned).ravel()
     n = min(gt.size, learned.size)
     gt, learned = gt[:n], learned[:n]
-    r2, slope = compute_r_squared_NSE(gt, learned)
-    out_mask = np.abs(learned - gt) > outlier_thresh
+    r2, slope = _r2_slope_identity(gt, learned)
+    if outlier_thresh is None:
+        out_mask = np.zeros(gt.shape, dtype=bool)
+    else:
+        out_mask = np.abs(learned - gt) > outlier_thresh
     in_mask = ~out_mask
     n_out = int(out_mask.sum())
     n_tot = int(gt.size)
     if int(in_mask.sum()) >= 2:
-        r2_clean, slope_clean = compute_r_squared_NSE(gt[in_mask], learned[in_mask])
+        r2_clean, slope_clean = _r2_slope_identity(gt[in_mask], learned[in_mask])
     else:
         r2_clean, slope_clean = float('nan'), float('nan')
     if n_tot:
@@ -873,7 +884,7 @@ def compute_f_theta_centering_loss(
 # so the live training metrics agree with the post-training data_plot summary.
 TAU_OUTLIER_THRESH = 0.1
 VREST_OUTLIER_THRESH = 0.2
-W_OUTLIER_THRESH = 5.0
+W_OUTLIER_THRESH = 1.0
 
 
 _DYNAMICS_R2_EMPTY = {
@@ -1046,7 +1057,7 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
     J_np = to_numpy(J_mean)
 
     try:
-        conn_r2, _ = compute_r_squared_NSE(W_dense_gt.flatten(), J_np.flatten())
+        conn_r2 = recovery_param_metrics(W_dense_gt.flatten(), J_np.flatten())['r2']
     except Exception:
         conn_r2 = 0.0
 

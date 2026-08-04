@@ -36,7 +36,6 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_corrected_weights,
     compute_dynamics_r2,
     compute_grad_msg,
-    compute_r_squared_NSE,
     derive_tau,
     derive_vrest,
     extract_f_theta_slopes,
@@ -370,20 +369,14 @@ def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
         scatter_size: scatter point size (default 0.5).
         outlier_threshold: if set, remove points with |residual| > threshold.
     """
-    if outlier_threshold is not None:
-        # Same mask+NSE math as recovery_param_metrics's r2_clean/slope_clean,
-        # so this plot's number can't drift from metrics.txt's headline value.
-        m = recovery_param_metrics(gt_weights, learned_weights, outlier_threshold)
-        r_squared, slope = m['r2_clean'], m['slope_clean']
-        mask = m['inlier_mask']
-        true_in = gt_weights[mask]
-        learned_in = learned_weights[mask]
-        mc_in = mc[mask] if mc is not None else None
-    else:
-        true_in = gt_weights
-        learned_in = learned_weights
-        mc_in = mc
-        r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
+    # recovery_param_metrics is the single entry point for R² everywhere;
+    # outlier_threshold=None means "don't filter" (r2_clean == r2).
+    m = recovery_param_metrics(gt_weights, learned_weights, outlier_threshold)
+    r_squared, slope = m['r2_clean'], m['slope_clean']
+    mask = m['inlier_mask']
+    true_in = gt_weights[mask]
+    learned_in = learned_weights[mask]
+    mc_in = mc[mask] if mc is not None else None
 
     scatter_color = mc_in if mc_in is not None else 'k'
     ax.scatter(true_in, learned_in, s=scatter_size, c=scatter_color, alpha=0.04)
