@@ -102,8 +102,9 @@ def _collect_fold(fold_dir):
         'roll_r':     roll_p['pearson'],
         'roll_r_sd':  roll_p['pearson_sd'],
         'roll_rmse':  roll_p['rmse'],
-        'W_R2':              m.get('W_corrected_R2',         float('nan')),
-        'W_slope':            m.get('W_corrected_slope',     float('nan')),
+        'W_R2':              m.get('W_corrected_no_outliers_R2', float('nan')),
+        'W_R2_full':         m.get('W_corrected_R2',             float('nan')),
+        'W_slope':           m.get('W_corrected_no_outliers_slope', float('nan')),
         # Stored as raw fractions; multiply by 100 for the % display columns.
         'W_rel_err_med_pct':  100.0 * m['W_rel_err_median'] if 'W_rel_err_median' in m else float('nan'),
         'W_rel_err_iqr_pct':  100.0 * m['W_rel_err_iqr']    if 'W_rel_err_iqr'    in m else float('nan'),

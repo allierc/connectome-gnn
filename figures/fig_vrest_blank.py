@@ -57,7 +57,7 @@ REPO = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, os.path.join(REPO, 'src'))
 
 from connectome_gnn.config import NeuralGraphConfig
-from connectome_gnn.metrics import compute_r_squared_NSE, get_model_W
+from connectome_gnn.metrics import recovery_param_metrics, get_model_W
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
 from connectome_gnn.utils import (
@@ -285,7 +285,8 @@ axes = [fig.add_subplot(_gs[1, i]) for i in range(4)]
 scatter_axes = []
 for ax, (config_name, output_root, title) in zip(axes[:2], CONFIGS):
     gt, learned = load_vrest(config_name, output_root)
-    r2, slope   = compute_r_squared_NSE(gt, learned)
+    _m = recovery_param_metrics(gt, learned)
+    r2, slope   = _m['r2'], _m['slope']
     n           = len(gt)
 
     ax.scatter(gt, learned, c='k', s=0.5, alpha=0.3)

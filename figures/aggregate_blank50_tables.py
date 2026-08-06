@@ -264,8 +264,10 @@ def _aggregate(output_root, base, suffix, n_folds):
        - 'one_r', 'roll_r', 'W_R2', 'tau_R2', 'V_R2', 'cluster' map to
          (mean, sd) tuples across folds
        - 'tau_out', 'V_out' map to count_mean (mean across folds of n_outliers)
-       Uses the latest nominal R² metrics: W_corrected_R2 for W,
-       tau_no_outliers_R2 / V_rest_no_outliers_R2 for tau / V_rest.
+       Uses the latest nominal R² metrics: W_corrected_no_outliers_R2 for W,
+       tau_no_outliers_R2 / V_rest_no_outliers_R2 for tau / V_rest — all three
+       are the outlier-filtered headline number now that W_corrected_R2 is
+       full-sample (matching the tau/V_rest _R2 vs _no_outliers_R2 convention).
        NaN signals no folds had that metric."""
     one, roll = [], []
     W_R2 = []
@@ -279,7 +281,7 @@ def _aggregate(output_root, base, suffix, n_folds):
         one.append(_parse_pearson(os.path.join(fd, 'results_test.log')))
         roll.append(_parse_pearson(os.path.join(fd, 'results_rollout.log')))
         m = _parse_metrics_txt(os.path.join(fd, 'results', 'metrics.txt'))
-        W_R2.append(m.get('W_corrected_R2',         float('nan')))
+        W_R2.append(m.get('W_corrected_no_outliers_R2', float('nan')))
         tau_R2.append(m.get('tau_no_outliers_R2',   float('nan')))
         tau_out.append(m.get('tau_n_outliers',      float('nan')))
         V_R2.append(m.get('V_rest_no_outliers_R2',  float('nan')))

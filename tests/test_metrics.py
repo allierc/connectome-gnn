@@ -10,8 +10,7 @@ from connectome_gnn.metrics import (
     _vectorized_linear_fit,
     _vectorized_linspace,
     compute_activity_stats,
-    compute_r_squared_NSE,
-    compute_r_squared_filtered,
+    recovery_param_metrics,
     derive_tau,
     derive_vrest,
 )
@@ -37,49 +36,63 @@ class TestConstants:
 # ------------------------------------------------------------------ #
 
 class TestComputeRSquared:
-    def test_perfect_linear_fit(self):
-        true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        learned = 2.0 * true + 1.0
-        r2, slope = compute_r_squared_NSE(true, learned)
-        assert r2 == pytest.approx(1.0, abs=1e-6)
-        assert slope == pytest.approx(2.0, abs=1e-6)
-
-    def test_noisy_fit_high_r2(self, sample_1d_arrays):
-        true, learned = sample_1d_arrays
-        r2, slope = compute_r_squared_NSE(true, learned)
-        assert 0.9 < r2 <= 1.0
-        assert slope == pytest.approx(2.0, abs=0.5)
+    """recovery_param_metrics(..., outlier_thresh=None)['r2'/'slope'] is identity-line
+    NSE: it scores learned against true pointwise, so it only rewards a fit that
+    lands ON y=x — a rescaled-but-otherwise-"perfect" linear relationship is
+    punished, not rewarded, unlike a standard regression R²."""
 
     def test_identity_fit(self):
         true = np.linspace(0, 10, 100)
-        r2, slope = compute_r_squared_NSE(true, true)
-        assert r2 == pytest.approx(1.0, abs=1e-6)
-        assert slope == pytest.approx(1.0, abs=1e-6)
+        m = recovery_param_metrics(true, true)
+        assert m['r2'] == pytest.approx(1.0, abs=1e-6)
+        assert m['slope'] == pytest.approx(1.0, abs=1e-6)
+
+    def test_noisy_identity_high_r2(self):
+        rng = np.random.RandomState(0)
+        true = rng.randn(50)
+        learned = true + rng.randn(50) * 0.05  # small noise around y=x
+        m = recovery_param_metrics(true, learned)
+        assert 0.9 < m['r2'] <= 1.0
+        assert m['slope'] == pytest.approx(1.0, abs=0.2)
+
+    def test_rescaled_fit_is_punished(self):
+        true = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        learned = 2.0 * true + 1.0  # slope=2 is recovered correctly...
+        m = recovery_param_metrics(true, learned)
+        assert m['slope'] == pytest.approx(2.0, abs=1e-6)
+        assert m['r2'] < 0  # ...but off the identity line, so R² goes negative
 
     def test_negative_slope(self):
         true = np.array([1.0, 2.0, 3.0, 4.0])
         learned = -3.0 * true + 10.0
-        r2, slope = compute_r_squared_NSE(true, learned)
-        assert r2 == pytest.approx(1.0, abs=1e-6)
-        assert slope == pytest.approx(-3.0, abs=1e-6)
+        m = recovery_param_metrics(true, learned)
+        assert m['slope'] == pytest.approx(-3.0, abs=1e-6)
+        assert m['r2'] < 0
 
 
-class TestComputeRSquaredFiltered:
+class TestRecoveryParamMetrics:
     def test_outlier_removal(self):
         true = np.linspace(0, 1, 50)
         learned = true.copy()
         learned[0] = 100.0  # outlier
-        r2, slope, mask = compute_r_squared_filtered(true, learned, outlier_threshold=5.0)
-        assert mask[0] == False  # outlier removed
-        assert mask[1:].all()
-        assert r2 == pytest.approx(1.0, abs=1e-4)
+        m = recovery_param_metrics(true, learned, outlier_thresh=5.0)
+        assert m['inlier_mask'][0] == False  # outlier removed
+        assert m['inlier_mask'][1:].all()
+        assert m['n_outliers'] == 1
+        assert m['r2_clean'] == pytest.approx(1.0, abs=1e-4)
+        # Full-sample R² is dragged down by the single huge outlier.
+        assert m['r2'] < m['r2_clean']
 
     def test_no_outliers(self):
         true = np.linspace(0, 1, 30)
-        learned = true * 2.0
-        r2, slope, mask = compute_r_squared_filtered(true, learned, outlier_threshold=100.0)
-        assert mask.all()
-        assert r2 == pytest.approx(1.0, abs=1e-6)
+        learned = true.copy()  # identity-line NSE: exact match, not a rescaling
+        m = recovery_param_metrics(true, learned, outlier_thresh=100.0)
+        assert m['inlier_mask'].all()
+        assert m['n_outliers'] == 0
+        assert m['r2'] == pytest.approx(1.0, abs=1e-6)
+        assert m['r2_clean'] == pytest.approx(1.0, abs=1e-6)
+        # Full-sample and inlier agree exactly when nothing is filtered.
+        assert m['r2'] == pytest.approx(m['r2_clean'], abs=1e-9)
 
 
 # ------------------------------------------------------------------ #

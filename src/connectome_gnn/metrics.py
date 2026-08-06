@@ -348,12 +348,16 @@ def compute_r_squared_identity_line(true: np.ndarray, learned: np.ndarray) -> tu
         return float('nan'), float('nan')
     
 
-def compute_r_squared_NSE(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
+def _r2_slope_identity(true: np.ndarray, learned: np.ndarray) -> tuple[float, float]:
     """Identity-line R² (Nash-Sutcliffe efficiency) and calibration slope.
 
     R² = 1 - mean((true - learned)²) / var(true)
     Penalizes both noise and scale/bias errors. Range: (-inf, 1].
     Slope from learned ≈ a·true + b diagnoses scale miscalibration when R² is low.
+
+    Private — recovery_param_metrics() is the single public entry point for
+    R² anywhere in this codebase; nothing outside this module should call
+    this directly.
     """
     try:
         a = np.asarray(true).ravel()
@@ -371,26 +375,6 @@ def compute_r_squared_NSE(true: np.ndarray, learned: np.ndarray) -> tuple[float,
         return r_squared, slope
     except Exception:
         return float('nan'), float('nan')
-
-
-def compute_r_squared_filtered(true: np.ndarray, learned: np.ndarray, outlier_threshold: float = 5.0) -> tuple[float, float, np.ndarray]:
-    """Compute identity-line R² with outlier removal + diagnostic slope.
-
-    Removes points where |learned - true| > outlier_threshold, then computes
-    R² and slope on the inliers via compute_r_squared (slope from polyfit).
-
-    Returns:
-        r_squared: float.
-        slope: float (np.polyfit on inliers).
-        inlier_mask: (N,) bool array — True for inliers.
-    """
-    residuals = learned - true
-    mask = np.abs(residuals) <= outlier_threshold
-    true_in = true[mask]
-    learned_in = learned[mask]
-
-    r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
-    return r_squared, slope, mask
 
 
 def is_degenerate_gt(true: np.ndarray, rel_eps: float = 1e-4) -> bool:
@@ -427,7 +411,8 @@ def r2_scatter_text(true: np.ndarray, learned: np.ndarray, clean_r2: float = Non
     tail = '' if n is None else f'\nN: {n}'
     if is_degenerate_gt(true):
         return f'{label}: N/A (const GT)\nMAE: {recovery_mae(true, learned):.3g}{tail}'
-    r2, slope = compute_r_squared_NSE(true, learned)
+    _m = recovery_param_metrics(true, learned)
+    r2, slope = _m['r2'], _m['slope']
     if clean_r2 is not None:
         return f'{label}: {clean_r2:.2f} ({r2:.2f})\nslope: {slope:.2f}{tail}'
     return f'{label}: {r2:.2f}\nslope: {slope:.2f}{tail}'
@@ -441,12 +426,15 @@ def fmt_r2_bar(val) -> str:
     return f'{val:.3f}'
 
 
-def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float) -> dict:
-    """All recovery metrics for one per-neuron parameter (tau, V_rest), computed
-    ONCE so the scatter, console line and metrics.txt can't disagree.
+def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: float = None) -> dict:
+    """All recovery metrics for a parameter (W, tau, V_rest, ...) — the single
+    public entry point for R² anywhere in this codebase, computed ONCE so the
+    scatter, console line and metrics.txt can't disagree.
 
     Outlier rule: ``|learned - true| > outlier_thresh`` (the neurips.tex
-    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2).
+    eq:outlier_threshold band, delta_tau=0.1 / delta_Vrest=0.2 / delta_W=1.0).
+    With ``outlier_thresh=None`` (default) nothing is filtered — ``r2_clean``
+    equals ``r2`` — for callers that just want the plain full-sample R²/slope.
 
     Returns a dict with: ``r2``/``slope`` (full identity-line NSE),
     ``r2_clean``/``slope_clean`` (inliers only; NaN if <2 inliers),
@@ -457,13 +445,16 @@ def recovery_param_metrics(gt: np.ndarray, learned: np.ndarray, outlier_thresh: 
     learned = np.asarray(learned).ravel()
     n = min(gt.size, learned.size)
     gt, learned = gt[:n], learned[:n]
-    r2, slope = compute_r_squared_NSE(gt, learned)
-    out_mask = np.abs(learned - gt) > outlier_thresh
+    r2, slope = _r2_slope_identity(gt, learned)
+    if outlier_thresh is None:
+        out_mask = np.zeros(gt.shape, dtype=bool)
+    else:
+        out_mask = np.abs(learned - gt) > outlier_thresh
     in_mask = ~out_mask
     n_out = int(out_mask.sum())
     n_tot = int(gt.size)
     if int(in_mask.sum()) >= 2:
-        r2_clean, slope_clean = compute_r_squared_NSE(gt[in_mask], learned[in_mask])
+        r2_clean, slope_clean = _r2_slope_identity(gt[in_mask], learned[in_mask])
     else:
         r2_clean, slope_clean = float('nan'), float('nan')
     if n_tot:
@@ -888,41 +879,12 @@ def compute_f_theta_centering_loss(
 #  Dynamics R² (V_rest and tau)
 # ------------------------------------------------------------------ #
 
-# Outlier thresholds — must match GNN_PlotFigure.py (lines 422 and 539) so
-# the live training metrics agree with the post-training data_plot summary.
+# Outlier thresholds — the single source of truth for all three recovered
+# parameters. GNN_PlotFigure.py imports these rather than redefining them,
+# so the live training metrics agree with the post-training data_plot summary.
 TAU_OUTLIER_THRESH = 0.1
 VREST_OUTLIER_THRESH = 0.2
-
-
-def _r2_with_outliers(gt, learned, thresh):
-    """Return (r2_all, r2_clean, n_out, n_total) for one parameter array.
-
-    Outlier mask: |learned - gt| > thresh (same rule as data_plot).
-    r2_all   : R² over every neuron.
-    r2_clean : R² over inliers only (NaN if <2 inliers).
-    """
-    gt_arr  = np.asarray(gt).ravel()
-    lrn_arr = np.asarray(learned).ravel()
-    n_total = int(gt_arr.size)
-    if n_total == 0:
-        return 0.0, float('nan'), 0, 0
-
-    try:
-        r2_all, _ = compute_r_squared_NSE(gt_arr, lrn_arr)
-    except Exception:
-        r2_all = 0.0
-
-    out_mask = np.abs(lrn_arr - gt_arr) > thresh
-    n_out = int(out_mask.sum())
-    inl_mask = ~out_mask
-    if int(inl_mask.sum()) >= 2:
-        try:
-            r2_clean, _ = compute_r_squared_NSE(gt_arr[inl_mask], lrn_arr[inl_mask])
-        except Exception:
-            r2_clean = float('nan')
-    else:
-        r2_clean = float('nan')
-    return float(r2_all), float(r2_clean), n_out, n_total
+W_OUTLIER_THRESH = 1.0
 
 
 _DYNAMICS_R2_EMPTY = {
@@ -983,21 +945,21 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
         gt_tau = ode_params.gt_tau(n_neurons)
         if gt_tau is not None:
             learned_tau = ode_params.derive_tau(slopes, n_neurons)
-            tr2, tr2c, ntout, ntot = _r2_with_outliers(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
-            out['tau_r2']        = tr2
-            out['tau_r2_clean']  = tr2c
-            out['n_out_tau']     = ntout
-            out['n_total_tau']   = ntot
+            tm = recovery_param_metrics(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
+            out['tau_r2']        = tm['r2']
+            out['tau_r2_clean']  = tm['r2_clean']
+            out['n_out_tau']     = tm['n_outliers']
+            out['n_total_tau']   = tm['n_total']
 
     if ode_params.has_vrest():
         gt_vrest = ode_params.gt_vrest(n_neurons)
         if gt_vrest is not None:
             learned_vrest = ode_params.derive_vrest(slopes, offsets, n_neurons)
-            vr2, vr2c, nvout, nvtot = _r2_with_outliers(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
-            out['vrest_r2']        = vr2
-            out['vrest_r2_clean']  = vr2c
-            out['n_out_vrest']     = nvout
-            out['n_total_vrest']   = nvtot
+            vm = recovery_param_metrics(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
+            out['vrest_r2']        = vm['r2']
+            out['vrest_r2_clean']  = vm['r2_clean']
+            out['n_out_vrest']     = vm['n_outliers']
+            out['n_total_vrest']   = vm['n_total']
 
     return out
 
@@ -1032,26 +994,30 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
         try:
             learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
             gt_vrest = to_numpy(ode_params.V_i_rest[:n_neurons])
-            vr2, vr2c, nvout, nvtot = _r2_with_outliers(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
-            out['vrest_r2']        = vr2
-            out['vrest_r2_clean']  = vr2c
-            out['n_out_vrest']     = nvout
-            out['n_total_vrest']   = nvtot
+            vm = recovery_param_metrics(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
+            out['vrest_r2']        = vm['r2']
+            out['vrest_r2_clean']  = vm['r2_clean']
+            out['n_out_vrest']     = vm['n_outliers']
+            out['n_total_vrest']   = vm['n_total']
         except Exception:
             pass
     if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
         try:
             learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
             gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
-            tr2, tr2c, ntout, ntot = _r2_with_outliers(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
-            out['tau_r2']        = tr2
-            out['tau_r2_clean']  = tr2c
-            out['n_out_tau']     = ntout
-            out['n_total_tau']   = ntot
+            tm = recovery_param_metrics(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
+            out['tau_r2']        = tm['r2']
+            out['tau_r2_clean']  = tm['r2_clean']
+            out['n_out_tau']     = tm['n_outliers']
+            out['n_total_tau']   = tm['n_total']
         except Exception:
             pass
     try:
-        conn_r2, _ = compute_r_squared_NSE(gt_weights, learned_W)
+        # Filtered (matches plot_training_linear's scatter annotation, and
+        # the GNN training-time connectivity_r2 convention). Previously this
+        # was the full-sample R² of the raw weights, which silently disagreed
+        # with what the accompanying plot showed.
+        conn_r2 = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)['r2_clean']
     except Exception:
         pass
 
@@ -1091,7 +1057,7 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
     J_np = to_numpy(J_mean)
 
     try:
-        conn_r2, _ = compute_r_squared_NSE(W_dense_gt.flatten(), J_np.flatten())
+        conn_r2 = recovery_param_metrics(W_dense_gt.flatten(), J_np.flatten())['r2']
     except Exception:
         conn_r2 = 0.0
 
