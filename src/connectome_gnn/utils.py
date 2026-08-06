@@ -395,16 +395,11 @@ def set_deterministic(seed: int) -> None:
     Note this does NOT reproduce a run made without it — the arithmetic
     differs. It makes runs from here on repeatable.
     """
-    import random as _random
-
     if os.environ.get('CUBLAS_WORKSPACE_CONFIG') not in (':4096:8', ':16:8'):
         print('\033[93m[determinism] CUBLAS_WORKSPACE_CONFIG unset — cuBLAS '
               'reductions may still vary. Set it to :4096:8 before torch '
               'initialises CUDA.\033[0m')
 
-    _random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False          # autotuning picks by timing
