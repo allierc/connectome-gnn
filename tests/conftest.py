@@ -30,15 +30,6 @@ def torch_generator():
 # --------------- Tier 1 fixtures ---------------
 
 @pytest.fixture
-def sample_1d_arrays(rng):
-    """Matched pair of 1D float64 arrays, length 50, for R^2 / fitting tests."""
-    true = rng.randn(50).astype(np.float64)
-    noise = rng.randn(50).astype(np.float64) * 0.1
-    learned = 2.0 * true + 0.5 + noise  # slope~2, offset~0.5, high R^2
-    return true, learned
-
-
-@pytest.fixture
 def sample_2d_tensors():
     """(N, n_pts) torch tensors for vectorized linear fit tests."""
     torch.manual_seed(0)

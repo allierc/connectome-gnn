@@ -40,7 +40,7 @@ from connectome_gnn.utils import (
 )
 from connectome_gnn.metrics import (
     compute_activity_stats,
-    compute_r_squared_NSE,
+    recovery_param_metrics,
     _build_f_theta_features,
 )
 from connectome_gnn.generators.ode_params import get_ode_params_class
@@ -344,7 +344,8 @@ def analyze(log_dir, device):
 
     for name, vrest_hat in results.items():
         if gt_vrest is not None:
-            r2, slope = compute_r_squared_NSE(gt_vrest, vrest_hat)
+            _m = recovery_param_metrics(gt_vrest, vrest_hat)
+            r2, slope = _m['r2'], _m['slope']
         else:
             r2, slope = float('nan'), float('nan')
         summary[name] = {'R2': float(r2), 'slope': float(slope),

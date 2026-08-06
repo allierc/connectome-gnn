@@ -36,13 +36,13 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_corrected_weights,
     compute_dynamics_r2,
     compute_grad_msg,
-    compute_r_squared_NSE,
-    compute_r_squared_filtered,
     derive_tau,
     derive_vrest,
     extract_f_theta_slopes,
     extract_g_phi_slopes,
     get_model_W,
+    recovery_param_metrics,
+    W_OUTLIER_THRESH,
 )
 from connectome_gnn.utils import to_numpy, qualitative_colors
 
@@ -369,18 +369,14 @@ def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
         scatter_size: scatter point size (default 0.5).
         outlier_threshold: if set, remove points with |residual| > threshold.
     """
-    if outlier_threshold is not None:
-        residuals = learned_weights - gt_weights
-        mask = np.abs(residuals) <= outlier_threshold
-        true_in = gt_weights[mask]
-        learned_in = learned_weights[mask]
-        mc_in = mc[mask] if mc is not None else None
-    else:
-        true_in = gt_weights
-        learned_in = learned_weights
-        mc_in = mc
-
-    r_squared, slope = compute_r_squared_NSE(true_in, learned_in)
+    # recovery_param_metrics is the single entry point for R² everywhere;
+    # outlier_threshold=None means "don't filter" (r2_clean == r2).
+    m = recovery_param_metrics(gt_weights, learned_weights, outlier_threshold)
+    r_squared, slope = m['r2_clean'], m['slope_clean']
+    mask = m['inlier_mask']
+    true_in = gt_weights[mask]
+    learned_in = learned_weights[mask]
+    mc_in = mc[mask] if mc is not None else None
 
     scatter_color = mc_in if mc_in is not None else 'k'
     ax.scatter(true_in, learned_in, s=scatter_size, c=scatter_color, alpha=0.04)
@@ -416,7 +412,7 @@ def plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
 
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_weight_scatter(ax, gt_weights=gt_W, learned_weights=learned_at_edges,
-                        corrected=False, outlier_threshold=5)
+                        corrected=False, outlier_threshold=W_OUTLIER_THRESH)
     ax.set_xlabel('true $W$', fontsize=24)
     ax.set_ylabel('Jacobian $\\partial F / \\partial v$', fontsize=24)
     plt.tight_layout()
@@ -424,65 +420,6 @@ def plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
     plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
                 dpi=87, bbox_inches='tight', pad_inches=0)
     plt.close()
-
-
-def plot_tau(ax, slopes_f_theta, gt_taus, n_neurons, mc=None):
-    """Plot learned tau vs ground truth tau.
-
-    Args:
-        ax: matplotlib Axes.
-        slopes_f_theta: (N,) numpy array of f_theta slopes.
-        gt_taus: (N,) tensor/array of ground truth taus.
-        n_neurons: number of neurons.
-        mc: color for scatter points.
-    """
-    learned_tau = np.where(slopes_f_theta != 0, 1.0 / -slopes_f_theta, 1.0)
-    learned_tau = learned_tau[:n_neurons]
-    learned_tau = np.clip(learned_tau, 0, 1)
-    gt_taus_np = to_numpy(gt_taus[:n_neurons]) if torch.is_tensor(gt_taus) else np.asarray(gt_taus[:n_neurons])
-
-    r_squared, slope = compute_r_squared_NSE(gt_taus_np, learned_tau)
-
-    ax.scatter(gt_taus_np, learned_tau, c=mc, s=1, alpha=0.25)
-    ax.text(0.05, 0.95,
-            r2_scatter_text(gt_taus_np, learned_tau, label='$R^2$', n=len(gt_taus_np)),
-            transform=ax.transAxes, verticalalignment='top', fontsize=24)
-    ax.set_xlabel(r'true $\tau$', fontsize=32)
-    ax.set_ylabel(r'learned $\tau$', fontsize=32)
-    ax.set_xlim([0, 0.35])
-    ax.set_ylim([0, 0.35])
-    ax.tick_params(axis='both', which='major', labelsize=24)
-
-    return r_squared
-
-
-def plot_vrest(ax, slopes_f_theta, offsets_f_theta, gt_V_rest, n_neurons, mc=None):
-    """Plot learned V_rest vs ground truth V_rest.
-
-    Args:
-        ax: matplotlib Axes.
-        slopes_f_theta: (N,) numpy array of f_theta slopes.
-        offsets_f_theta: (N,) numpy array of f_theta offsets.
-        gt_V_rest: (N,) tensor/array of ground truth V_rest.
-        n_neurons: number of neurons.
-        mc: color for scatter points.
-    """
-    learned_V_rest = np.where(slopes_f_theta != 0, -offsets_f_theta / slopes_f_theta, 1.0)
-    gt_vr_np = to_numpy(gt_V_rest[:n_neurons]) if torch.is_tensor(gt_V_rest) else np.asarray(gt_V_rest[:n_neurons])
-
-    r_squared, slope = compute_r_squared_NSE(gt_vr_np, learned_V_rest)
-
-    ax.scatter(gt_vr_np, learned_V_rest, c=mc, s=1, alpha=0.25)
-    ax.text(0.05, 0.95,
-            r2_scatter_text(gt_vr_np, learned_V_rest, label='$R^2$', n=len(gt_vr_np)),
-            transform=ax.transAxes, verticalalignment='top', fontsize=24)
-    ax.set_xlabel(r'true $V_{rest}$', fontsize=32)
-    ax.set_ylabel(r'learned $V_{rest}$', fontsize=32)
-    ax.set_xlim([-0.05, 0.9])
-    ax.set_ylim([-0.05, 0.9])
-    ax.tick_params(axis='both', which='major', labelsize=24)
-
-    return r_squared
 
 
 # ================================================================== #
@@ -2729,7 +2666,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         gt_weights=_gt_w,
         learned_weights=raw_W,
         corrected=False,
-        outlier_threshold=5,
+        outlier_threshold=W_OUTLIER_THRESH,
     )
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
@@ -2763,7 +2700,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         corrected=True,
         xlim=[-1, 2],
         ylim=[-1, 2],
-        outlier_threshold=5,
+        outlier_threshold=W_OUTLIER_THRESH,
     )
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/matrix/comparison_{epoch}_{N}.png",
@@ -2786,7 +2723,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
             corrected=True,
             xlim=[-1, 2],
             ylim=[-1, 2],
-            outlier_threshold=5,
+            outlier_threshold=W_OUTLIER_THRESH,
         )
         plt.close(_fig)
     else:
@@ -2921,7 +2858,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
         gt_weights=to_numpy(gt_weights),
         learned_weights=to_numpy(get_model_W(model).squeeze()),
         corrected=False,
-        outlier_threshold=5,
+        outlier_threshold=W_OUTLIER_THRESH,
     )
     plt.tight_layout()
     os.makedirs(f"{log_dir}/tmp_training/matrix", exist_ok=True)

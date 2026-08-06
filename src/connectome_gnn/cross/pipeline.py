@@ -204,9 +204,9 @@ def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]',
 
         [plot   ] slot S  R²W=0.99  R²Vr=0.94(3.3%)  R²τ=0.99(0.0%)  cluster=0.92
 
-    R²W   = W_corrected_R2 (nominal)
-    R²Vr  = V_rest_no_outliers_R2  (out% = V_rest_n_outliers / n_neurons)
-    R²τ   = tau_no_outliers_R2     (out% = tau_n_outliers     / n_neurons)
+    R²W   = W_corrected_no_outliers_R2 (out% = W_corrected_n_outliers / n_neurons)
+    R²Vr  = V_rest_no_outliers_R2      (out% = V_rest_n_outliers      / n_neurons)
+    R²τ   = tau_no_outliers_R2         (out% = tau_n_outliers         / n_neurons)
     cluster = clustering_accuracy
     """
     vals = _read_plot_metrics(yt_log_dir)
@@ -229,7 +229,8 @@ def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]',
         pct = 100.0 * n_out / n_neurons
         return f'{col}{r2_no:.2f}({pct:.1f}%){_ANSI_RESET}'
 
-    w_r2  = vals.get('W_corrected_R2')
+    w_r2  = vals.get('W_corrected_no_outliers_R2')
+    w_n   = vals.get('W_corrected_n_outliers')
     tau_n   = vals.get('tau_n_outliers')
     tau_r2  = vals.get('tau_no_outliers_R2')
     vr_n    = vals.get('V_rest_n_outliers')
@@ -239,7 +240,7 @@ def print_plot_metrics_summary(yt_log_dir, slot=None, prefix='  [plot   ]',
     slot_str = f' slot {slot}' if slot is not None else ''
     print(
         f'{prefix}{slot_str}  '
-        f'R²W={_c(w_r2)}  '
+        f'R²W={_fmt_R2_out(w_r2, w_n)}  '
         f'R²Vr={_fmt_R2_out(vr_r2, vr_n)}  '
         f'R²τ={_fmt_R2_out(tau_r2, tau_n)}  '
         f'cluster={_c(cl)}'
