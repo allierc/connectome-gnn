@@ -223,7 +223,29 @@ figure scripts. A new task mode added in one place does not error elsewhere;
 it silently mis-slices columns. Any new mode has to be added to all of them,
 or the analysis figures will quietly describe the wrong variable.
 
-## 4. What has to be decided next
+## 4. Progress, 11 August 2026
+
+Opened the branch `feat/oculomotor` and put the zebrafish configs back under
+version control — 254 of them had been absent from every worktree since the
+`config/zebrafish` bind-mount was commented out of `devcontainer.json`, which
+left no figure script able to resolve a run config. Traced how the 917-cell
+heading-direction circuit was actually built (the colleagues' pickle, not the
+neuPrint query the filenames suggest) and wrote that up as
+`HOWTO_add_oculomotor_circuit.md`, since the same five inputs are needed
+again here. Read the new `Oculomotor_sortedData_081126.pkl`: 2949 cells, 42
+types, 5 keys, no per-cell ordering variable; confirmed its matrix
+orientation empirically rather than assuming it. Selected the sub-circuit in
+two steps — first the 244-cell INTG/AMN/AIN core, then 285 cells once AF5 was
+added, which gave the pool the afferent stage it had been missing.
+Introduced `CellTypeSpec` so each type's pool, Dale sign, L/R split and role
+live in the config where they can be reviewed, rather than in hardcoded
+prefix tuples inside the loader. Rendered the two-panel connectivity figure
+above, and wrote this note.
+
+Nothing has been trained, and no connectome CSVs exist yet. The five
+decisions below are what stand between this document and a first run.
+
+## 5. What has to be decided next
 
 1. **The AF5 combination rule** (§1.3) — AND, OR or XOR. Blocks the input model.
 2. **Whether `OMN` joins the pool** (§1.5) — decides whether `AIN` -> medial
