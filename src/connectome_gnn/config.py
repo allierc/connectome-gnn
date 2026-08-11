@@ -1755,6 +1755,25 @@ class CircuitConfig(BaseModel):
 
     name: Optional[str] = None
 
+    cell_types: Optional[List[str]] = None
+    """Cell-type keep-list restricting the source reconstruction to the pool
+    this circuit models. Entries are matched against the ``type`` column of
+    the connectome's ``neurons.csv`` **verbatim** — they are exact type
+    strings, not prefixes, so ``INTG_ipsi_m`` selects that subtype alone while
+    ``INTG`` selects nothing.
+
+    Read by the circuit builder when it converts a source reconstruction into
+    the cached CSV pair. Until now that keep-list was hardcoded in the
+    converter script (``CELLTYPES`` in
+    ``figures/zebrafish/build_connectome_HD_IPN12_943_from_pickle.py``), which
+    meant the 917-cell HD pool could not be re-scoped without editing python.
+    Naming it here makes "which neurons are in the circuit" a config value,
+    consistent with the rule that class attributes carry dispatch and configs
+    carry tunable values.
+
+    ``None`` (default) keeps the legacy behaviour: the pool is whatever the
+    cached connectome directory already contains."""
+
 
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
