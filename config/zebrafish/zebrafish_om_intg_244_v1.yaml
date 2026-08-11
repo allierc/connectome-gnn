@@ -1,0 +1,86 @@
+description: >-
+  Oculomotor velocity-to-position integrator, 244 cells drawn from the
+  colleagues' Oculomotor_sortedData_081126.pkl reconstruction (2949 cells,
+  42 types). circuit.cell_types restricts the pool to the integrator core
+  plus its motor output: the four INTG subtypes (117 cells) that form the
+  recurrent integrator, the abducens motor neurons AMN (92) and the abducens
+  internuclear neurons AIN (35).
+
+  NOT YET RUNNABLE — this file is the circuit SPEC, not a trained recipe.
+  Three things do not exist yet and must be built in order:
+    1. the cached connectome CSVs at simulation.connconstr_datapath, written
+       by an oculomotor sibling of
+       figures/zebrafish/build_connectome_HD_IPN12_943_from_pickle.py that
+       reads circuit.cell_types instead of a hardcoded CELLTYPES list;
+    2. the circuit registry entry `circuit.name`, plus the E/I prefix set
+       (which of these 6 types are inhibitory) — see
+       docs/HOWTO_add_oculomotor_circuit.md §2 input #2;
+    3. the task dataset `dataset`, once the eye-position target is defined.
+  graph_model below is copied verbatim from the HD baseline
+  zebrafish_hd_si_ipn_917_v1_selfmotion_rotation.yaml so the file validates;
+  velocity_gate is HD-specific (omega -> ARTR, v_fwd -> pt-IPN1) and has no
+  meaning for this pool until the afferent taxonomy is declared.
+
+  Named zebrafish_om_* deliberately: utils.py routes any config whose name
+  starts with `zebrafish_oculomotor` into the SEPARATE zebrafish_oculomotor
+  biomodel folder (the 609-cell Goldman/Beiran inverse-problem lineage).
+
+dataset: zebrafish_om_intg_244_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_OCULO_244
+  seed: 47006
+circuit:
+  name: zebrafish_OM_INTG_244_v1
+  # Exact `type` strings from the pickle, not prefixes. Cell counts as of
+  # Oculomotor_sortedData_081126.pkl: 38 + 27 + 34 + 18 + 92 + 35 = 244.
+  cell_types:
+  - INTG_ipsi_m
+  - INTG_ipsi_i
+  - INTG_contra_m
+  - INTG_contra_i
+  - AMN
+  - AIN
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_artr_ptipn1
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_bg: black
+  anatomy_voltage_downsample: 10
+training:
+  device: auto
+  seed: 547506
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - rotation
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    seed: 0
