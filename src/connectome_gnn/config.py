@@ -1738,6 +1738,68 @@ class TaskConfig(BaseModel):
         return self
 
 
+class CellTypeSpec(BaseModel):
+    """One cell type's role in a circuit: which pool it belongs to, its Dale
+    sign, whether it splits L/R, and what drives it or what it drives.
+
+    This is the biological contract a circuit builder needs and that no EM
+    reconstruction carries. The zebrafish HD circuit encodes the same
+    information implicitly and unwritably — the inhibitory set is a tuple of
+    string prefixes (``_ZHD_INH_PREFIXES``), the afferent set is another
+    tuple, and the readout pool is a positional slice. Naming the four
+    properties per type makes them reviewable by the circuit owner and
+    diffable, instead of spread across three hardcoded tuples in two modules.
+
+    A bare string is accepted wherever a spec is expected and upgrades to
+    ``CellTypeSpec(name=<string>)`` with every annotation left unknown, so a
+    keep-list-only config stays valid.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    """Exact ``type`` string as it appears in the connectome's neurons.csv —
+    matched verbatim, never as a prefix."""
+
+    role: Optional[Literal["afferent", "recurrent", "output"]] = None
+    """Which pool this type joins. ``afferent`` = the encoder injects input
+    here; ``recurrent`` = the integrator/attractor substrate; ``output`` =
+    the decoder reads here. Mirrors the encoder/readout symmetry described in
+    docs/HOWTO_add_zebrafish_circuit.md §B3."""
+
+    sign: Optional[Literal["E", "I"]] = None
+    """Dale sign of this type's OUTGOING weights. ``I`` types have their
+    presynaptic column forced negative by the loader. ``None`` = unassigned,
+    which the builder must treat as an error rather than silently
+    excitatory — an unsigned type is a missing biological input, not a
+    default."""
+
+    lateralized: bool = True
+    """When True the type is split into ``<name>_L`` / ``<name>_R`` subpops by
+    the ``Hemi`` column, so a bilateral gate can address the two sides
+    independently. Set False for types that are reconstructed in one
+    hemisphere only, or that the model should treat as a single pool."""
+
+    trigger: Optional[str] = None
+    """Afferent types only: what stimulus drives this population, in prose.
+    Free text on purpose — it records the circuit owner's claim, including
+    its uncertainty, rather than forcing a premature formalisation."""
+
+    function: Optional[str] = None
+    """What this type computes (recurrent) or drives (output), in prose."""
+
+    effector: Optional[str] = None
+    """Output types only: the muscle this population innervates, as a key of
+    the extraocular plant in ``Plexus/prototype/eye`` (``LR`` lateral rectus,
+    ``MR`` medial rectus, ``SR``/``IR``/``SO``/``IO``). Consumed when the
+    readout is coupled to the soft-body eye rather than to an abstract
+    scalar position."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_bare_name(cls, v):
+        return {"name": v} if isinstance(v, str) else v
+
+
 class CircuitConfig(BaseModel):
     """Optional named-circuit selector — sister of TaskConfig.
 
@@ -1755,12 +1817,16 @@ class CircuitConfig(BaseModel):
 
     name: Optional[str] = None
 
-    cell_types: Optional[List[str]] = None
+    cell_types: Optional[List[CellTypeSpec]] = None
     """Cell-type keep-list restricting the source reconstruction to the pool
     this circuit models. Entries are matched against the ``type`` column of
     the connectome's ``neurons.csv`` **verbatim** — they are exact type
     strings, not prefixes, so ``INTG_ipsi_m`` selects that subtype alone while
     ``INTG`` selects nothing.
+
+    Each entry is a :class:`CellTypeSpec` carrying the type's pool, Dale sign,
+    L/R split and role annotations; a bare string is accepted and upgrades to
+    a spec with the annotations left unknown.
 
     Read by the circuit builder when it converts a source reconstruction into
     the cached CSV pair. Until now that keep-list was hardcoded in the
@@ -1773,6 +1839,20 @@ class CircuitConfig(BaseModel):
 
     ``None`` (default) keeps the legacy behaviour: the pool is whatever the
     cached connectome directory already contains."""
+
+    @property
+    def cell_type_names(self) -> List[str]:
+        """The keep-list as plain strings, in declaration order."""
+        return [c.name for c in (self.cell_types or [])]
+
+    def types_by_role(self, role: str) -> List[str]:
+        """Names of the declared types in one pool ('afferent' / 'recurrent'
+        / 'output'). Empty when nothing is annotated."""
+        return [c.name for c in (self.cell_types or []) if c.role == role]
+
+    def inhibitory_types(self) -> List[str]:
+        """Names of the types whose outgoing weights are Dale-flipped."""
+        return [c.name for c in (self.cell_types or []) if c.sign == "I"]
 
 
 class NeuralGraphConfig(BaseModel):

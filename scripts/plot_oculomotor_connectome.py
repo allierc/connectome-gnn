@@ -160,6 +160,97 @@ def build_figure(W, families, family_order, out_path, *, title_note=""):
     print(f"[fig] wrote {out_path}")
 
 
+_ROLE_PALETTE = {
+    ("afferent", "E"):  ["#1f6feb", "#56b4e9"],   # blues
+    ("recurrent", "E"): ["#2ea043", "#009e73"],   # greens
+    ("recurrent", "I"): ["#cf222e", "#d55e00"],   # reds
+    ("output", "E"):    ["#8957e5", "#cc79a7"],   # purples
+    ("output", "I"):    ["#6a3d9a", "#a6761d"],
+}
+_ROLE_ORDER = ("afferent", "recurrent", "output")
+
+
+def _spec_colours(specs):
+    """One colour per declared type, shaded by (role, sign) so the palette
+    itself carries the biology: blues in, greens excitatory recurrent, reds
+    inhibitory recurrent, purples out."""
+    used, out = {}, {}
+    for s in specs:
+        key = (s.role, s.sign)
+        pool = _ROLE_PALETTE.get(key, ["#666666", "#999999"])
+        k = used.get(key, 0)
+        out[s.name] = pool[k % len(pool)]
+        used[key] = k + 1
+    return out
+
+
+def build_pair_figure(A, types, hemi, specs, families, family_order, out_path):
+    """(a) the whole reconstruction, (b) the sub-circuit this config selects.
+
+    Panel (b) orders cells afferent -> recurrent -> output, and within a type
+    left hemisphere before right, so the L/R block structure of the gate is
+    visible directly in the matrix.
+    """
+    import fig_2_connectome as ref
+
+    names = [s.name for s in specs]
+    role_rank = {s.name: _ROLE_ORDER.index(s.role or "recurrent")
+                 for s in specs}
+    type_rank = {n: i for i, n in enumerate(names)}
+    sel = np.where(np.isin(types, names))[0]
+    # Pre-sort by (role, declaration order, hemisphere); the renderer's
+    # stable argsort over the block key then preserves this within-block.
+    key = [(role_rank[types[i]], type_rank[types[i]],
+            0 if str(hemi[i]).lower().startswith("l") else 1) for i in sel]
+    sel = sel[np.lexsort((
+        [k[2] for k in key], [k[1] for k in key], [k[0] for k in key]))]
+    sub = A[np.ix_(sel, sel)].T                      # W[post, pre]
+    sub_types = types[sel]
+    block_order = sorted(names, key=lambda n: (role_rank[n], type_rank[n]))
+    colours = _spec_colours(specs)
+
+    fig, axes = plt.subplots(1, 2, figsize=(19, 9.2))
+
+    ref.PARTITION_ORDER = list(family_order)
+    ref.PARTITION_COLOR = {f: _PALETTE[i % len(_PALETTE)]
+                           for i, f in enumerate(family_order)}
+    ref._panel_partition_matrix(axes[0], A.T, families)
+    keep = {f for f in family_order
+            if (families == f).sum() >= 0.02 * families.size}
+    axes[0].set_xticklabels([t.get_text() if t.get_text() in keep else ""
+                             for t in axes[0].get_xticklabels()],
+                            rotation=30, ha="right")
+    axes[0].tick_params(labelsize=7)
+
+    ref.PARTITION_ORDER = block_order
+    ref.PARTITION_COLOR = colours
+    ref._panel_partition_matrix(axes[1], sub, sub_types)
+    axes[1].tick_params(labelsize=8)
+    axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=30, ha="right")
+
+    for ax, letter in zip(axes, "ab"):
+        ax.text(-0.02, 1.02, letter, transform=ax.transAxes, fontsize=15,
+                fontweight="bold", va="bottom", ha="right")
+    axes[0].text(1.0, 1.02, f"all {A.shape[0]} cells, {len(set(types))} types",
+                 transform=axes[0].transAxes, fontsize=9, va="bottom",
+                 ha="right", color="0.35")
+    axes[1].text(1.0, 1.02,
+                 f"{sel.size} cells, {len(names)} types, "
+                 f"{int((sub > 0).sum())} edges",
+                 transform=axes[1].transAxes, fontsize=9, va="bottom",
+                 ha="right", color="0.35")
+
+    lab = {s.name: f"{s.name} — {s.role}, {s.sign}"
+           + (f" → {s.effector}" if s.effector else "")
+           for s in specs}
+    axes[1].legend(
+        handles=[Patch(facecolor=colours[n], label=lab[n]) for n in block_order],
+        loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2,
+        frameon=False, fontsize=9)
+    fig.savefig(out_path, dpi=170, bbox_inches="tight")
+    print(f"[fig] wrote {out_path}")
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -175,6 +266,10 @@ def main():
     p.add_argument("--family-order", nargs="+", default=None,
                    help="explicit block order (families omitted are appended "
                         "in descending size)")
+    p.add_argument("--config", default=None,
+                   help="a circuit yaml with circuit.cell_types; switches to "
+                        "the two-panel figure (whole reconstruction + the "
+                        "sub-circuit that config selects)")
     args = p.parse_args()
 
     d, types, hemi, body = load_pickle(args.pkl)
@@ -207,6 +302,28 @@ def main():
         order = by_size
     print(f"[data] {len(order)} display families: "
           + ", ".join(f"{f}({int((families == f).sum())})" for f in order))
+
+    if args.config:
+        sys.path.insert(0, os.path.join(_REPO, "src"))
+        from connectome_gnn.config import NeuralGraphConfig
+        cfg = NeuralGraphConfig.from_yaml(args.config)
+        specs = cfg.circuit.cell_types or []
+        if not specs:
+            sys.exit(f"{args.config} declares no circuit.cell_types")
+        missing = [s.name for s in specs if s.name not in set(types)]
+        if missing:
+            sys.exit(f"cell_types absent from the reconstruction: {missing}")
+        n_sel = int(np.isin(types, [s.name for s in specs]).sum())
+        print(f"[cfg] {cfg.circuit.name}: {len(specs)} types, {n_sel} cells "
+              f"| afferent={cfg.circuit.types_by_role('afferent')} "
+              f"recurrent={cfg.circuit.types_by_role('recurrent')} "
+              f"output={cfg.circuit.types_by_role('output')} "
+              f"inhibitory={cfg.circuit.inhibitory_types()}")
+        unsigned = [s.name for s in specs if s.sign is None]
+        if unsigned:
+            print(f"[warn] no Dale sign declared for: {unsigned}")
+        build_pair_figure(A, types, hemi, specs, families, order, args.out)
+        return
 
     note = (f"N={N}, {len(set(types))} types, "
             f"{int((A > 0).sum())} edges, weight={args.weights}")
