@@ -61,10 +61,17 @@ _HEMI2SIDE = {"Left": "L", "Right": "R", "left": "L", "right": "R"}
 def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     p = argparse.ArgumentParser(description=__doc__)
+    # The pickle now ships next to the CSVs it generates, so the default no
+    # longer depends on the read-only GraphData bind-mount (which exists only
+    # under /workspace/connectome-gnn, not in the cx worktree). The mount path
+    # stays as a fallback for checkouts predating the in-repo copy.
+    _pkl_local = os.path.join(here, "zebrafish_connectome_HD_IPN_917",
+                              "IPN_sortedData_060826.pkl")
+    _pkl_mount = ("/workspace/connectome-gnn/graphs_data/remote/zebrafish/"
+                  "IPN_sortedData_060826.pkl")
     p.add_argument(
         "--pkl",
-        default="/workspace/connectome-gnn/graphs_data/remote/zebrafish/"
-                "IPN_sortedData_060826.pkl")
+        default=_pkl_local if os.path.isfile(_pkl_local) else _pkl_mount)
     p.add_argument(
         "--soma_ref",
         default=os.path.join(here, "zebrafish_connectome_HD_IPN12",
