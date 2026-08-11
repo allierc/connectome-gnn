@@ -96,6 +96,19 @@ def parse(lines):
             out.extend(buf)
             out.append("\\end{lstlisting}")
             continue
+        # figure: a line that is nothing but ![caption](path). Must be tested
+        # before the link rule in inline(), which would otherwise strip the
+        # path and leave "!caption" as prose.
+        m = re.match(r"!\[(.*)\]\((.*?)\)\s*$", ln.strip())
+        if m:
+            cap, src = m.group(1), m.group(2)
+            out.append(r"\begin{figure}[H]\centering")
+            out.append(r"\includegraphics[width=\textwidth]{%s}" % src)
+            if cap.strip():
+                out.append(r"\caption*{\small %s}" % inline(cap))
+            out.append(r"\end{figure}")
+            i += 1
+            continue
         # headers
         m = re.match(r"(#{1,4})\s+(.*)", ln)
         if m:
@@ -183,6 +196,9 @@ PREAMBLE = r"""\documentclass[10pt]{article}
 \usepackage[margin=2.3cm]{geometry}
 \usepackage{booktabs}
 \usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{amssymb,amsmath}

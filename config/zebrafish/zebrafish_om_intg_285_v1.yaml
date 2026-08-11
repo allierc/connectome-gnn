@@ -1,0 +1,161 @@
+description: >-
+  Oculomotor velocity-to-position integrator WITH its afferent input, 285
+  cells from Oculomotor_sortedData_081126.pkl. Extends
+  zebrafish_om_intg_244_v1 by the two AF5 arborization-field populations,
+  which give the pool an anatomically defined input stage it previously
+  lacked.
+
+  Pool (8 of the 42 types, 285 cells):
+    afferent   AF5_ipsi (29), AF5_contra (12)                        =  41
+    recurrent  INTG_ipsi_m (38), INTG_ipsi_i (27),
+               INTG_contra_m (34), INTG_contra_i (18)                = 117
+    output     AMN (92), AIN (35)                                    = 127
+
+  AF5 reads as afferent in the measured wiring, not by assumption: it sends
+  88.2% of its outgoing weight into the INTG/AMN/AIN core and receives
+  1/178th as much back (6.89e5 out vs 3.87e3 in). Both AF5 types are
+  L/R balanced (ipsi 15/14, contra 6/6), so a bilateral input gate is
+  expressible — unlike RGC_AF7, which is reconstructed in the left
+  hemisphere only (804 L / 0 R).
+
+  Subgraph: 5013 edges among the 285 cells, density 6.2% (the full
+  2949-cell graph is 0.51%).
+
+  STILL NOT RUNNABLE — same three gaps as the 244-cell spec:
+    1. cached connectome CSVs at simulation.connconstr_datapath;
+    2. the circuit registry entry + the E/I prefix set (which of these 8
+       types are inhibitory — see docs/HOWTO_add_oculomotor_circuit.md §2);
+    3. the task dataset.
+  The task itself may need no new code: target_kind=scalar_xi with a leak
+  xi_tau_s, projected by training.task_targets=[translation], is already a
+  1-in [velocity] / 1-out [position = int v dt] leaky integrator. What is
+  missing is the neuron binding — graph_model.velocity_gate must route the
+  input to the AF5 subpops and the readout must read AMN/AIN, neither of
+  which the HD-specific gate below can express yet.
+
+dataset: zebrafish_om_intg_285_task
+simulation:
+  params:
+  - - 1.0
+  connconstr_datapath: figures/zebrafish/zebrafish_connectome_OCULO_285
+  seed: 47006
+circuit:
+  name: zebrafish_OM_INTG_285_v1
+  # Exact `type` strings from the pickle, not prefixes.
+  # 29 + 12 + 38 + 27 + 34 + 18 + 92 + 35 = 285.
+  # Roles, signs and triggers below are the CIRCUIT OWNER'S claims, not
+  # anything derivable from the EM reconstruction.
+  cell_types:
+
+  # --- afferent: pretectal arborization field 5 (optokinetic input) --------
+  - name: AF5_ipsi
+    role: afferent
+    sign: E
+    lateralized: true
+    trigger: >-
+      L pool driven by rightward-eye motion that is leftward AND/OR forward;
+      R pool driven by leftward-eye motion that is rightward AND/OR forward.
+      The combination rule (and / or / xor) is UNRESOLVED — treat as an open
+      parameter of the input model, not a settled fact.
+    function: optokinetic velocity drive into the integrator
+
+  - name: AF5_contra
+    role: afferent
+    sign: E
+    lateralized: true
+    trigger: >-
+      L pool driven by rightward-eye motion that is rightward AND/OR backward;
+      R pool driven by leftward-eye motion that is leftward AND/OR backward.
+      Combination rule UNRESOLVED, as for AF5_ipsi.
+    function: optokinetic velocity drive into the integrator, opposite sense
+
+  # --- recurrent: the velocity-to-position integrator ---------------------
+  # The E/I split is by projection laterality: ipsi excitatory, contra
+  # inhibitory. That is the standard integrator motif — mutual inhibition
+  # across the midline between two ipsilaterally-excitatory half-integrators.
+  - name: INTG_ipsi_m
+    role: recurrent
+    sign: E
+    lateralized: true
+    function: integrates eye velocity to eye position
+
+  - name: INTG_ipsi_i
+    role: recurrent
+    sign: E
+    lateralized: true
+    function: integrates eye velocity to eye position
+
+  - name: INTG_contra_m
+    role: recurrent
+    sign: I
+    lateralized: true
+    function: integrates eye velocity to eye position
+
+  - name: INTG_contra_i
+    role: recurrent
+    sign: I
+    lateralized: true
+    function: integrates eye velocity to eye position
+
+  # --- output: motor drive to the horizontal recti ------------------------
+  # Modelling simplification stated by the circuit owner: only the HORIZONTAL
+  # pair is modelled, and AIN is treated as driving the medial rectus
+  # directly. Anatomically AIN (abducens internuclear) projects to the
+  # contralateral OMN motor neurons, which are NOT in this pool — so the
+  # AIN -> medial-rectus arrow here collapses a two-synapse pathway into one.
+  - name: AMN
+    role: output
+    sign: E
+    lateralized: true
+    function: motor drive, pulls the muscle
+    effector: LR
+
+  - name: AIN
+    role: output
+    sign: E
+    lateralized: true
+    function: motor drive, pulls the muscle (via OMN in vivo; collapsed here)
+    effector: MR
+graph_model:
+  signal_model_name: zebrafish_hd_si
+  aggr_type: add
+  input_proj: matrix
+  output_proj: matrix
+  velocity_gate: pen_artr_ptipn1
+  lock_edge_signs: true
+  hidden_dim: 128
+  n_layers: 3
+  MLP_activation: relu
+  output_from_dipn_only: true
+plotting:
+  anatomy_voltage_elev: 90.0
+  anatomy_voltage_azim: -85.5
+  anatomy_voltage_bg: black
+  anatomy_voltage_downsample: 10
+training:
+  device: auto
+  seed: 547506
+  n_runs: 1
+  n_epochs: 10
+  batch_size: 64
+  data_augmentation_loop: 10
+  lr: 0.002
+  lr_W_ED: 0.0025
+  grad_clip_W: 2.5
+  noise_recurrent_level: 0.03
+  snapshots_per_epoch: 5
+  coeff_tail_loss: 0.035
+  torch_compile: false
+  w_init_mode: w_con
+  task_targets:
+  - translation
+task:
+  task_type: swim_integration
+  task_only: true
+  swim_integration:
+    target_kind: scalar_xi
+    n_trials_train: 100000
+    n_trials_test: 10000
+    n_steps: 1000
+    dt: 0.01
+    seed: 0
