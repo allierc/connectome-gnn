@@ -61,6 +61,7 @@ Four independent switches, in `trajectory.py`:
 | `motion` | `continue`, `stop_and_go` | constant travel, or move/pause alternation with raised-cosine ramps |
 | `speed` | `slow`, `middle`, `fast` | 0.15, 0.40, 0.90 grid units per second |
 | `angle` | `low`, `sharp` | 5–35° or 80–160° turns at the waypoints |
+| `start` | `center`, `random` | first waypoint at the origin, or anywhere in the middle |
 
 `shape` and `angle` decide the **path**; `speed` and `motion` decide the
 **schedule** along it. Generation is therefore two-stage — lay down the path,
@@ -121,6 +122,65 @@ on the error strip.
 Add a controller by writing a function and decorating it with
 `@register("name", [knobs...])`; it appears in the selector with its sliders.
 
+## Open loop: velocity only (`openloop.py`)
+
+`app.py` hands every controller the retinal error, so it can always correct.
+`openloop.py` removes that. The controller gets the target's **velocity** and
+its **initial position** — the centre, on every trial — and nothing else. It
+must reconstruct position by integrating, with no reference to check itself
+against. This is the configuration the oculomotor note describes, and the
+question is how long the integral stays usable.
+
+```bash
+python prototype/dot_tracking/openloop.py                    # sweep, table, figure
+python prototype/dot_tracking/openloop.py --n-seeds 40 --duration 30
+```
+
+The metric is a survival time: `t_lose`, the first moment
+`|target - gaze|` exceeds the `FOV = 0.6` radius. Four integrator failure
+modes are separated because each grows differently — and the growth law is
+readable off a single trace, so a real circuit's drift can be *classified*,
+not merely measured.
+
+| controller | error grows | default |
+|---|---|---|
+| `perfect` | numerical zero | — |
+| `gain` | linearly with **displacement** | k = 0.5 |
+| `leaky` | saturating; gaze sags to centre | tau = 2 s |
+| `noisy` | as sqrt(t): a random walk | sigma = 0.15 |
+
+Two results worth keeping.
+
+**A gain error is self-limiting in a bounded arena.** Integration is linear,
+so the error is exactly `(1-k)` times the *displacement from the start*, not
+the path length. The target gets a median 1.16 grid units from the centre
+before the walls turn it around, so `|1-k|` must exceed **0.52** before the
+dot can ever leave the field of view. A realistic 5 % miscalibration is
+invisible here. In a bounded workspace, gain calibration is not what loses
+the target — leak and noise are.
+
+**Slower targets need a longer integrator.** Median `t_lose` against tau, on
+a low-angle curve:
+
+| tau (s) | 0.25 | 0.5 | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|---|---|
+| slow | 4.3 | 4.5 | 5.0 | 5.9 | 11.1 | never | never |
+| middle | 1.8 | 2.0 | 2.5 | 9.5 | never | never | never |
+| fast | 0.9 | 1.2 | 5.3 | never | never | never | never |
+
+Fast targets survive at tau = 2 s while slow ones still need tau = 8 s. That
+inversion is not a bug: `dg/dt = -g/tau + v` is a *high-pass* on target
+position, so the leak attenuates exactly the low-frequency excursions a slow
+target makes. A leaky integrator loses a slow drift long before it loses a
+brisk one — which is the opposite of the intuition that fast targets are
+harder, and it is a testable prediction about the circuit.
+
+Panels **e**/**f** of `openloop.png` show one trial's target path and, below
+it in red, the trajectory actually reconstructed: the leak shrinks it toward
+the centre, so the reconstruction is a scaled-down, centre-biased copy of the
+truth. **g**/**h** put the two against time, where the moment of separation
+is visible per axis.
+
 ## Using it headlessly
 
 `trajectory.py` and `followers.py` have no web dependency:
@@ -140,7 +200,7 @@ python prototype/dot_tracking/trajectory.py --shape curve --angle sharp --json t
 ## Where this is going
 
 The controller is the part to replace. The intended sequence is: hand-written
-baselines (here), then an optimised controller, then the 285-cell oculomotor
-circuit of `config/zebrafish/zebrafish_om_intg_285_v1.yaml` driving the stick,
+baselines (here, closed and open loop), then an optimised controller, then the
+285-cell oculomotor circuit of `config/zebrafish/zebrafish_om_intg_285_v1.yaml` driving the stick,
 with the retinal error as its afferent input — which is what AF5 carries — and
 `AMN`/`AIN` rates as the horizontal command.
