@@ -478,6 +478,51 @@ therefore the natural robustness test, and it is the one place a sign-locked
 connectome-constrained `W` might behave quite differently from a freely
 learned one.
 
+### 4.5 How the recurrent models are trained
+
+Worth stating precisely, because two of the choices are what make the task
+learnable at all and a third is a known omission.
+
+The hidden state starts at `h = 0` for every neuron on every trial, never
+learned and never carried between trials. That is why the corpus is
+centre-started: `h = 0` has to *mean* "eye centred", so that the initial
+condition and the task agree. The loss is a plain mean squared error over
+**every timestep and both output channels** — dense supervision from t=0, not
+an endpoint loss.
+
+The horizon grows during training, always as a prefix from t=0 rather than a
+sliding window:
+
+| epochs | horizon | |
+|---|---|---|
+| 0-62 | 120 steps | 2.0 s |
+| 63-124 | 240 steps | 4.0 s |
+| 125-186 | 360 steps | 6.0 s |
+| 187-249 | 480 steps | 8.0 s |
+
+Each stage re-runs from `h = 0` and truncates; there is no truncated BPTT and
+no carried state. Gradients flow through the whole unroll — 480 sequential
+steps at the last stage, no detach — with Adam at 2e-3 decayed by cosine to
+zero, gradient-norm clipping at 1.0, batch 128, so 29 updates per epoch and
+7250 in total.
+
+The curriculum is not a refinement, it is the reason this trains. At the full
+8 s horizon from a cold start the gradient of the integral is exactly what
+defeated the discrete RNN; beginning at 2 s makes the 8 s case reachable. It
+is the same device as `n_steps_schedule` in the heading-direction configs.
+
+**What is missing is tail weighting.** Early timesteps, where the integral is
+small and nearly free, currently count as much as late ones, so the loss
+under-rewards precisely the long-horizon accuracy the exercise is about. The
+heading-direction configs carry `coeff_tail_loss` for this reason and this
+prototype does not; adding it is the obvious next attempt at the residual gap
+to exact integration.
+
+One reassurance about the horizon. The models are tested at the 480 steps
+they were trained on, but the hold-and-decay time-constant probe runs 1200
+steps — 2.5 times anything seen in training — and the integration holds.
+Whatever the network learned, it is not a fit to the trial length.
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
