@@ -132,12 +132,18 @@ against. This is the configuration the oculomotor note describes, and the
 question is how long the integral stays usable.
 
 ```bash
-python prototype/dot_tracking/openloop.py                    # sweep, table, figure
-python prototype/dot_tracking/openloop.py --n-seeds 40 --duration 30
+python prototype/dot_tracking/openloop.py            # browser GUI, like app.py
+python prototype/dot_tracking/openloop.py --sweep    # batch: table + openloop.png
 ```
 
+The GUI defaults to an 8 s trial on a slow target, with a duration selector
+(4 / 8 / 16 / 30 s); both apps carry that selector. Short and slow is the
+setting that shows the phenomenon: `leaky` loses the target at a median 5.9 s
+in every trial and ends 0.72 units adrift, so a quarter of the trial is pure
+drift.
+
 The metric is a survival time: `t_lose`, the first moment
-`|target - gaze|` exceeds the `FOV = 0.6` radius. Four integrator failure
+`|target - gaze|` exceeds the `FOV = 0.6` radius. The integrator failure
 modes are separated because each grows differently — and the growth law is
 readable off a single trace, so a real circuit's drift can be *classified*,
 not merely measured.
@@ -145,9 +151,8 @@ not merely measured.
 | controller | error grows | default |
 |---|---|---|
 | `perfect` | numerical zero | — |
-| `gain` | linearly with **displacement** | k = 0.5 |
+| `gain` | with **displacement**, capped by the arena | k = 0.5 |
 | `leaky` | saturating; gaze sags to centre | tau = 2 s |
-| `noisy` | as sqrt(t): a random walk | sigma = 0.15 |
 
 Two results worth keeping.
 
