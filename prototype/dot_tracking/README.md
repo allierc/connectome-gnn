@@ -41,6 +41,12 @@ for free. When the stick hits the gate the box outlines in red and the sample
 counts toward `stick saturated`: the controller is demanding more speed than
 the stick can deliver, which is a different failure from simply aiming badly.
 
+The drawn deflection carries a display gain (`--joy-view-gain`, default 3),
+because a well-tuned controller spends most of its time well inside the gate
+and the raw trace barely leaves the centre. The magnification is on the
+drawing only — the reported speed and the saturation statistic both come from
+the unscaled command.
+
 The alternative convention — stick deflection as absolute gaze *position* —
 is a different plant with different failure modes, and would be worth trying
 if rate control turns out not to match the biology.
@@ -65,22 +71,55 @@ the usual artefact of animating a spline directly.
 Headings reflect off the walls at `|x|, |y| = 0.95`, so the dot stays visible
 without the path piling into a corner.
 
-## Followers
+## Controllers
 
-In `followers.py`, one function each, registered by name:
+In `followers.py`, one function each, registered with its parameter spec so
+the web UI builds a slider per knob automatically.
 
-- `fixed` — gaze pinned at the origin. The do-nothing baseline: the retinal
-  error *is* the target, which sets the scale everything else is measured
-  against.
-- `lag` — first-order pursuit, `dg/dt = (target - g) / tau`, `tau = 0.18 s`.
-  One knob, no prediction, no saccades: the simplest thing that could work.
+**The plant is an integrator.** The stick commands gaze *velocity*, so gaze
+position is its integral. That one fact sets the character of everything
+here: proportional feedback alone already closes the loop with first-order
+dynamics, `dg/dt = Kp e`, of time constant `1/Kp`. No explicit smoothing is
+needed anywhere — the plant supplies it.
 
-On a fast, sharp-angle, curved target these separate cleanly — mean `|error|`
-0.10 for `lag` against 0.62 for `fixed`, a factor of 6 — and `lag` saturates
-the stick on 0.2 % of samples, at the sharpest turns only.
+| controller | knobs (low – high) | what it is |
+|---|---|---|
+| `fixed` | — | gaze pinned at the origin; the do-nothing baseline |
+| `pid` | P 0–20, I 0–30, D 0–2 | textbook PID on retinal error, with clamping anti-windup |
+| `pursuit` | P 0–20, feedforward 0–1.5, delay 0–250 ms | velocity feedforward + feedback, both on delayed sensory input |
+
+`pid` with I = D = 0 is pure proportional feedback, so P = 5.5 is a 0.18 s
+pursuit latency. I removes the standing error that P alone leaves during
+constant-velocity travel, at the cost of overshoot after a stop; D
+anticipates, and amplifies every sharp corner.
+
+`pursuit` is the biologically shaped one. Pure feedback *cannot* track a
+moving target without a standing error, because the error is what generates
+the command — the eye has to fall behind in order to keep moving. Real smooth
+pursuit solves this with a velocity-matching feedforward term, so
+feedforward near 1 keeps up with a constant-velocity target and P only mops
+up the residual. The delay is why this is not trivial: every biological loop
+runs 60–130 ms behind the world, so the controller steers by where the target
+*was*.
+
+On one fast, sharp-angle, curved target (seed 11), mean `|error|`:
+
+| controller | mean \|error\| | stick saturated |
+|---|---|---|
+| `fixed` | 0.493 | 0 % |
+| `pid`, P 5.5 | 0.111 | 0.4 % |
+| `pid`, P 5.5 I 10 D 0.1 | 0.114 | 0.3 % |
+| `pursuit`, delay 80 ms | **0.088** | 1.0 % |
+| `pursuit`, delay 240 ms | 0.280 | 28.7 % |
+
+Two things worth reading off that table. Feedforward beats the best pure
+feedback, as the theory says it must. And tripling the delay at fixed gain
+costs a factor of three in error and pins the stick against its gate a
+quarter of the time — the loop has gone unstable, which is visible as ringing
+on the error strip.
 
 Add a controller by writing a function and decorating it with
-`@register("name")`; it appears in the web selector automatically.
+`@register("name", [knobs...])`; it appears in the selector with its sliders.
 
 ## Using it headlessly
 
@@ -90,7 +129,7 @@ Add a controller by writing a function and decorating it with
 from trajectory import generate
 from followers import apply
 tr = generate(shape="curve", angle="sharp", speed="fast", seed=1)
-res = apply("lag", tr["t"], tr["x"], tr["y"])
+res = apply("pursuit", tr["t"], tr["x"], tr["y"], kp=4, kff=0.9, delay_ms=80)
 print(res["err_mean"], res["joy_sat"])
 ```
 
