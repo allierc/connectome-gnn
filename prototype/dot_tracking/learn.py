@@ -251,17 +251,18 @@ class CTRNN(nn.Module):
         return float(self.log_tau.exp().median())
 
 
-def make(name, dt):
+def make(name, dt, hidden=None):
     if name == "intlin":
         return IntLin(dt)
+    kw = {} if hidden is None else {"hidden": hidden}
     if name == "mlp":
-        return Windowed(dt)
+        return Windowed(dt, **kw)
     if name == "rnn":
-        return Recurrent(dt, cell="rnn")
+        return Recurrent(dt, cell="rnn", **kw)
     if name == "gru":
-        return Recurrent(dt, cell="gru")
+        return Recurrent(dt, cell="gru", **kw)
     if name == "ctrnn":
-        return CTRNN(dt)
+        return CTRNN(dt, **kw)
     raise ValueError(f"unknown model {name!r}")
 
 
@@ -272,7 +273,7 @@ MODELS = ["intlin", "mlp", "rnn", "ctrnn", "gru"]
 # training
 # --------------------------------------------------------------------------
 def train(name, Utr, Ytr, Uva, Yva, dt, epochs, batch, lr, device,
-          curriculum=True):
+          curriculum=True, hidden=None, cosine=True):
     """BPTT with a horizon curriculum.
 
     Short horizons first: the gradient of a long integral through a recurrent
@@ -281,8 +282,13 @@ def train(name, Utr, Ytr, Uva, Yva, dt, epochs, batch, lr, device,
     device the heading-direction configs use (`n_steps_schedule`).
     """
     torch.manual_seed(0)
-    model = make(name, dt).to(device)
+    model = make(name, dt, hidden).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
+    # Cosine decay. With a constant lr the late epochs bounce around a
+    # minimum they never settle into — visible as a val curve that stops
+    # improving while train keeps twitching.
+    sch = (torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+           if cosine else None)
     T = Utr.shape[1]
     n = Utr.shape[0]
     sched = ([max(60, int(T * f)) for f in (0.25, 0.5, 0.75, 1.0)]
@@ -311,6 +317,8 @@ def train(name, Utr, Ytr, Uva, Yva, dt, epochs, batch, lr, device,
             best = va
             best_state = {k: v.detach().clone()
                           for k, v in model.state_dict().items()}
+        if sch is not None:
+            sch.step()
         if ep % max(1, epochs // 8) == 0 or ep == epochs - 1:
             print(f"  [{name}] ep {ep:3d}  horizon {h:4d}  "
                   f"train {tot / n:.5f}  val {va:.5f}")
@@ -398,6 +406,10 @@ def main():
     p.add_argument("--eval", action="store_true",
                    help="score existing checkpoints without training")
     p.add_argument("--rebuild", action="store_true")
+    p.add_argument("--hidden", type=int, default=None,
+                   help="override the core width")
+    p.add_argument("--tag", default="", help="suffix for the checkpoint name")
+    p.add_argument("--no-cosine", action="store_true")
     a = p.parse_args()
 
     os.makedirs(DATA, exist_ok=True); os.makedirs(CKPT, exist_ok=True)
@@ -418,20 +430,22 @@ def main():
 
     report = {}
     for name in a.models:
-        path = os.path.join(CKPT, f"{name}.pt")
+        path = os.path.join(CKPT, f"{name}{a.tag}.pt")
         if a.eval:
             if not os.path.isfile(path):
                 print(f"  [{name}] no checkpoint, skipped")
                 continue
             blob = torch.load(path, map_location=dev, weights_only=False)
-            model = make(name, a.dt).to(dev)
+            model = make(name, a.dt, a.hidden).to(dev)
             model.load_state_dict(blob["state_dict"])
         else:
             print(f"\n[train] {name}")
             model, _ = train(name, Utr, Ytr, Uva, Yva, a.dt, a.epochs,
-                             a.batch, a.lr, dev)
+                             a.batch, a.lr, dev, hidden=a.hidden,
+                             cosine=not a.no_cosine)
             torch.save({"state_dict": model.state_dict(), "model": name,
-                        "dt": a.dt, "duration": a.duration}, path)
+                        "dt": a.dt, "duration": a.duration,
+                        "hidden": a.hidden}, path)
             print(f"  [{name}] saved {path}")
         m = evaluate(model, Ute, Yte, Cte, a.dt, dev)
         m.update(tau_probe(model, a.dt, dev))
