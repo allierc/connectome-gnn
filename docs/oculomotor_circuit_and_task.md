@@ -177,6 +177,75 @@ So the saccadic regime is reachable by reparameterising the existing
 generator rather than writing a new one; what is missing is anatomy for the
 input, not code.
 
+### 2.4 The open-loop problem
+
+Coarsely: the circuit is asked to keep a moving target centred on the fovea
+while being told only how fast the target is moving, never where it is. That
+is the situation the anatomy puts it in. AF5 is a motion-sensitive
+arborization field — it reports optokinetic *velocity* — and nothing in the
+selected 285-cell pool reports absolute target position. A controller with
+position feedback can always correct, so its errors do not accumulate; a
+controller given velocity alone must reconstruct position by integration and
+has nothing to check the result against. Drift is therefore not a failure of
+the circuit but a property of the problem, and the meaningful question is not
+whether the target is held but for how long.
+
+More specifically, write the target position `p(t)`, the gaze `g(t)`, and the
+retinal error `e = p - g`. Every trial starts foveated at the centre,
+`g(0) = p(0) = 0`. The plant is a rate control: the motor command sets gaze
+*velocity*, so gaze position is its integral. The ideal controller is then
+
+    dg/dt = v(t) ,        v = dp/dt        ->    e(t) = 0 for all t
+
+and tracking is exact. The interesting cases are the three ways a biological
+integrator departs from it, each of which produces a different growth law for
+`|e|` — which is what makes them separable from a single measured trace.
+
+**Gain.** If the velocity-to-position conversion is miscalibrated by a factor
+`k`,
+
+    dg/dt = k v(t)     ->    e(t) = (1 - k) [p(t) - p(0)]
+
+The error is proportional to the *displacement* from the start, not to the
+distance travelled, because integration is linear. In a bounded workspace
+displacement is capped by the arena, so this error is self-limiting: in our
+geometry the target reaches a median 1.16 units from the centre, and `|1-k|`
+must exceed 0.52 before the target can leave a 0.6-unit fovea at all. A
+realistic miscalibration of a few percent is invisible. Gain is not what
+loses the target.
+
+**Leak.** A real integrator is imperfect and relaxes toward its rest state
+with a time constant `tau`:
+
+    dg/dt = -g/tau + v(t)
+
+In the frequency domain this is a *high-pass* on target position, corner
+frequency `1/tau`. Sustained excursions are under-represented, so the error
+saturates rather than growing without bound, and gaze is a shrunken,
+centre-biased copy of the truth. The counterintuitive consequence is that
+*slow* targets are lost first, because their motion is exactly the
+low-frequency content the leak removes. Measured: at `tau = 2 s` a fast
+target is never lost within 20 s while a slow one goes at 5.9 s, and the slow
+case needs `tau >= 8 s` to survive. `tau` is the quantity the INTG pool
+exists to make long, and this is the curve that says how long is long enough.
+
+**Noise.** If the integrated velocity carries a white perturbation of
+intensity `sigma`,
+
+    dg/dt = v(t) + sigma * xi(t) ,   <xi(t) xi(t')> = delta(t - t')
+
+the error is a random walk: `std[e(T)] = sigma sqrt(T)` per axis, unbounded
+but with zero mean. It is the only one of the three that cannot be corrected
+by better calibration and the only one that averages away across trials, so
+it is invisible to any analysis that pools trials before measuring drift.
+
+Three growth laws — bounded-linear, saturating, and square-root — over one
+shared quantity. A drift trace measured from the real circuit can therefore
+be *classified*, not merely reported, which is the point of setting the
+problem up this way. `prototype/dot_tracking/openloop.py` implements all four
+controllers and measures the survival time `t_lose`, the first moment
+`|e|` exceeds the fovea.
+
 ## 3. The training dataset
 
 ### 3.1 Where it comes from
