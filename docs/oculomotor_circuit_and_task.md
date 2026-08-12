@@ -13,9 +13,18 @@ Source reconstruction: `Oculomotor_sortedData_081126.pkl`, 2949 cells,
 
 ![**The oculomotor reconstruction and the sub-circuit modelled here.** (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. Rows are postsynaptic, columns presynaptic. Regenerate with `python scripts/plot_oculomotor_connectome.py --config config/zebrafish/zebrafish_om_intg_285_v1.yaml --out figures/zebrafish/fig_oculomotor_circuit.png`.](../figures/zebrafish/fig_oculomotor_circuit.png)
 
+![**Figure 1 — the oculomotor circuit.** Twin of Figure 1 of the zebrafish heading-direction paper, rendered through the same code with the content swapped. **(a)** All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. **(b)** The cell bodies alone, same view — the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). **(c)** The computation: an optokinetic velocity signal enters through AF5, the INTG pool integrates it under a continuous-time rate dynamics with mutual inhibition across the midline, and eye position is read out as the push-pull difference of the two motor pools. Regenerate with `python figures/zebrafish/fig_1_oculomotor_overview.py`.](../figures/zebrafish/fig_1_oculomotor_overview.png)
+
 ## 1. The circuit
 
 ### 1.1 Three pools
+
+Anatomy for all 285 cells was fetched from neuprint-fish2 and is shown in
+Figure 1. It had to be keyed on bodyId rather than cell type: the server does
+not carry the reconstruction's type names — `INTG_ipsi_m` is `INTGip1` there,
+`INTG_contra_m` is `INTGco1` — and the two AF5 populations carry no type at
+all, so a type query returns 142 of 285 cells and drops the whole afferent
+stage. All 285 bodyIds resolve.
 
 The 285 cells divide into an input stage, a recurrent integrator and a motor
 output stage.
