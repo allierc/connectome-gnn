@@ -57,6 +57,11 @@ from trajectory import generate                       # noqa: E402
 from followers import JOY_FULL_SCALE                  # noqa: E402
 
 FOV = 0.6                    # field-of-view radius, grid units
+# Display-only magnification of the stick, as in app.py. Larger here (6 vs 3)
+# because the open-loop command is just the target's own velocity — a slow
+# target asks for 0.15 of the 1.6 unit/s full scale, under a tenth of the
+# gate. Saturation is still judged on the UNSCALED command.
+JOY_VIEW_GAIN = 6.0
 
 OPEN_LOOP = {}
 PARAMS = {}
@@ -82,21 +87,28 @@ def defaults(name):
 def _integrate(vx, vy, dt, x0, y0, leak=None):
     """Gaze from a commanded velocity, starting at (x0, y0).
 
+    Returns (gx, gy, ux, uy): the integrator state and the command that drove
+    it. The command is what the JOYSTICK holds — it is deliberately not the
+    gaze velocity, because for a leaky integrator those differ: dg/dt =
+    -g/tau + u, so the leak term moves the gaze without anyone touching the
+    stick. Reporting dg/dt as the stick would blame the hand for the
+    integrator's own imperfection.
+
     The stick saturates at JOY_FULL_SCALE exactly as in the closed-loop app,
     so a controller cannot cheat by commanding an arbitrarily large velocity.
     `leak` is the integrator time constant in seconds; None = perfect.
     """
     n = len(vx)
     gx = np.empty(n); gy = np.empty(n)
+    ux = np.clip(vx, -JOY_FULL_SCALE, JOY_FULL_SCALE)
+    uy = np.clip(vy, -JOY_FULL_SCALE, JOY_FULL_SCALE)
     cx, cy = float(x0), float(y0)
     a = 0.0 if leak is None else dt / float(leak)
     for k in range(n):
         gx[k], gy[k] = cx, cy
-        ux = np.clip(vx[k], -JOY_FULL_SCALE, JOY_FULL_SCALE)
-        uy = np.clip(vy[k], -JOY_FULL_SCALE, JOY_FULL_SCALE)
-        cx += ux * dt - a * cx
-        cy += uy * dt - a * cy
-    return gx, gy
+        cx += ux[k] * dt - a * cx
+        cy += uy[k] * dt - a * cy
+    return gx, gy, ux, uy
 
 
 @register("perfect")
@@ -141,7 +153,7 @@ def run_trial(name, tr, rng, **kw):
     t = np.asarray(tr["t"]); x = np.asarray(tr["x"]); y = np.asarray(tr["y"])
     dt = float(tr["settings"]["dt"])
     vx = np.gradient(x, dt); vy = np.gradient(y, dt)
-    gx, gy = OPEN_LOOP[name](t, vx, vy, x[0], y[0], dt, rng, **kw)
+    gx, gy, ux, uy = OPEN_LOOP[name](t, vx, vy, x[0], y[0], dt, rng, **kw)
     err = np.hypot(x - gx, y - gy)
     lost = np.flatnonzero(err > FOV)
     return {
@@ -199,8 +211,8 @@ def example_trial(cond, name, duration, dt, seed=0, **kw):
     tr = generate(start="center", duration=duration, dt=dt, seed=seed, **cond)
     x = np.asarray(tr["x"]); y = np.asarray(tr["y"])
     vx = np.gradient(x, dt); vy = np.gradient(y, dt)
-    gx, gy = OPEN_LOOP[name](np.asarray(tr["t"]), vx, vy, x[0], y[0], dt,
-                             np.random.default_rng(9000 + seed), **kw)
+    gx, gy, _, _ = OPEN_LOOP[name](np.asarray(tr["t"]), vx, vy, x[0], y[0],
+                                   dt, np.random.default_rng(9000 + seed), **kw)
     return {"t": np.asarray(tr["t"]), "x": x, "y": y, "gx": gx, "gy": gy,
             "name": name}
 
@@ -317,7 +329,7 @@ PAGE = r"""<!doctype html>
   body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45
          -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
          -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:1460px; margin:0 auto; padding:26px 22px 40px; }
+  .wrap { max-width:1080px; margin:0 auto; padding:26px 22px 40px; }
   h1 { font-size:15px; font-weight:600; letter-spacing:.14em;
        text-transform:uppercase; margin:0 0 6px; }
   .sub { font-size:12px; color:var(--dim); margin:0 0 22px; }
@@ -372,14 +384,19 @@ to integrate &mdash; and nothing tells it when the integral has gone wrong.</p>
     <div class="cap">where the target is, if you believe the integral</div>
     <canvas id="strip" width="286" height="86"></canvas>
     <div class="cap">|drift| over time</div></div>
-  <div class="panel"><canvas id="xy" width="286" height="200"></canvas>
+  <div class="panel"><canvas id="joy" width="240" height="240"></canvas>
+    <div class="cap">joystick &mdash; command into the integrator (&times;__JOYGAIN__)</div></div>
+</div>
+<div class="row" style="margin-top:22px">
+  <div class="panel"><canvas id="xy" width="470" height="190"></canvas>
     <div class="cap">x(t) &mdash; target vs <i>computed</i></div></div>
-  <div class="panel"><canvas id="yt" width="286" height="200"></canvas>
+  <div class="panel"><canvas id="yt" width="470" height="190"></canvas>
     <div class="cap">y(t) &mdash; target vs <i>computed</i></div></div>
 </div>
 <div class="stats" id="stats"></div>
 </div><script>
 const SPEC=__SPEC__, CTRL=__CTRL__, PARAMS=__PARAMS__, FOV=__FOV__;
+const JOYGAIN=__JOYGAIN__;
 // Short trials on a slow target by default: with a leaky integrator the
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
@@ -442,6 +459,7 @@ const R=document.getElementById("retina").getContext("2d");
 const S=document.getElementById("strip").getContext("2d");
 const X=document.getElementById("xy").getContext("2d");
 const Y=document.getElementById("yt").getContext("2d");
+const J=document.getElementById("joy").getContext("2d");
 const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 
@@ -511,7 +529,7 @@ function drawStrip(){
 }
 
 function axis(ctx,tgt,cmp_){
-  const w=286,h=200; ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
+  const w=470,h=190; ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
   ctx.strokeStyle="#242424"; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
   const yy=v=>h/2-v*(h/2-6);
@@ -519,6 +537,31 @@ function axis(ctx,tgt,cmp_){
     for(let i=0;i<=k;i++){ const px=i/(a.length-1)*w;
       i?ctx.lineTo(px,yy(a[i])):ctx.moveTo(px,yy(a[i])); } ctx.stroke(); };
   line(tgt,"#d8d8d8",1.6); line(cmp_,"#e5484d",1.6);
+}
+
+function drawJoy(){
+  const n=240,c=n/2,r=c-15;
+  J.fillStyle="#000"; J.fillRect(0,0,n,n);
+  J.fillStyle="#fff"; J.fillRect(c-r,c-r,2*r,2*r);
+  J.strokeStyle="#c9c9c9"; J.lineWidth=1;
+  J.beginPath(); J.moveTo(c-r,c); J.lineTo(c+r,c);
+  J.moveTo(c,c-r); J.lineTo(c,c+r); J.stroke();
+  // View gain only. The command is the velocity fed INTO the integrator, not
+  // the gaze velocity: for a leaky integrator the leak moves the gaze with
+  // the stick untouched, and blaming that on the hand would be wrong.
+  const jx=Math.max(-1,Math.min(1,TR.jx[k]*JOYGAIN));
+  const jy=Math.max(-1,Math.min(1,TR.jy[k]*JOYGAIN));
+  const px=c+jx*r, py=c-jy*r;
+  J.strokeStyle="#e5484d"; J.lineWidth=6; J.lineCap="round";
+  J.beginPath(); J.moveTo(c,c); J.lineTo(px,py); J.stroke();
+  J.fillStyle="#e5484d"; J.beginPath(); J.arc(px,py,12,0,7); J.fill();
+  J.fillStyle="#222"; J.beginPath(); J.arc(c,c,3.5,0,7); J.fill();
+  const sat=Math.abs(TR.jx[k])>=1||Math.abs(TR.jy[k])>=1;
+  const sp=Math.hypot(TR.jx[k],TR.jy[k])*TR.joy_full_scale;
+  J.fillStyle="#111"; J.font="600 11px sans-serif";
+  J.fillText(sp.toFixed(2)+" u/s"+(sat?"   SATURATED":""), c-r+8, c+r-9);
+  if(sat){ J.strokeStyle="#e5484d"; J.lineWidth=2;
+           J.strokeRect(c-r+1,c-r+1,2*r-2,2*r-2); }
 }
 
 function stats(){
@@ -533,7 +576,7 @@ function stats(){
     ` of the time &nbsp;&middot;&nbsp; seed <b>${TR.settings.seed}</b>`;
 }
 
-function frame(){ drawWorld(); drawRetina(); drawStrip();
+function frame(){ drawWorld(); drawRetina(); drawStrip(); drawJoy();
   axis(X,TR.x,TR.gx); axis(Y,TR.y,TR.gy); stats();
   k=(k+1)%TR.t.length; }
 
@@ -572,7 +615,8 @@ class Handler(BaseHTTPRequestHandler):
             page = (PAGE.replace("__SPEC__", json.dumps(SPEC))
                         .replace("__CTRL__", json.dumps(list(OPEN_LOOP)))
                         .replace("__PARAMS__", json.dumps(PARAMS))
-                        .replace("__FOV__", str(FOV)))
+                        .replace("__FOV__", str(FOV))
+                        .replace("__JOYGAIN__", str(JOY_VIEW_GAIN)))
             return self._send(page, "text/html; charset=utf-8")
         if u.path == "/api/trace":
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -592,10 +636,11 @@ class Handler(BaseHTTPRequestHandler):
                 x = np.asarray(tr["x"]); y = np.asarray(tr["y"])
                 dt = float(tr["settings"]["dt"])
                 vx = np.gradient(x, dt); vy = np.gradient(y, dt)
-                gx, gy = OPEN_LOOP[name](np.asarray(tr["t"]), vx, vy,
-                                         x[0], y[0], dt,
-                                         np.random.default_rng(
-                                             tr["settings"]["seed"]), **kn)
+                gx, gy, ux, uy = OPEN_LOOP[name](
+                    np.asarray(tr["t"]), vx, vy, x[0], y[0], dt,
+                    np.random.default_rng(tr["settings"]["seed"]), **kn)
+                jx = np.clip(ux / JOY_FULL_SCALE, -1.0, 1.0)
+                jy = np.clip(uy / JOY_FULL_SCALE, -1.0, 1.0)
                 ex, ey = x - gx, y - gy
                 err = np.hypot(ex, ey)
                 lost = np.flatnonzero(err > FOV)
@@ -606,6 +651,10 @@ class Handler(BaseHTTPRequestHandler):
                     "err_end": float(err[-1]),
                     "t_lose": (float(tr["t"][int(lost[0])])
                                if lost.size else None),
+                    "jx": jx.tolist(), "jy": jy.tolist(),
+                    "joy_sat": float(np.mean((np.abs(jx) >= 1.0)
+                                             | (np.abs(jy) >= 1.0))),
+                    "joy_full_scale": JOY_FULL_SCALE,
                     "controller": name, "params": kn,
                 })
             except Exception as e:
