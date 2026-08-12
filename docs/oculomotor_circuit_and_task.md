@@ -426,6 +426,49 @@ interface. The properly fitted member of that family is `intlin`, which
 learns its own decay and lands at `tau = 9.5 s`. Read the analytic rows as
 "how bad is this specific defect", never as "how good is this method".
 
+### 4.4 Where the integration actually lives
+
+The trained `ctrnn` was audited, because a mean drift of 0.007 over 8 s from
+velocity alone is the kind of number that is usually a bug. It is not: the
+train and test seeds are disjoint by construction (0 overlap, verified), the
+one-sample look-ahead in the central-difference velocity is worth only 13 %
+(0.0071 against 0.0080 with a strictly causal backward difference), and the
+model was never trained at the horizon its time constant is probed at.
+
+What the audit did turn up is the interesting part. Every neuron in the
+trained network leaks, and leaks fast:
+
+    learned tau per neuron :  min 0.57 s   median 0.74 s   max 0.96 s
+    learned |W|            :  mean 0.035   max 0.267   (initialised at ZERO)
+
+A hold-and-decay probe on the same network returns an effectively infinite
+time constant over 20 s. So the integration is not in the cellular time
+constants at all — a 0.74 s membrane cannot hold anything for 20 s. It is
+built by the recurrent matrix, which started at exactly zero and was learned:
+positive feedback through `W` cancels the per-neuron leak, giving a network
+time constant more than 27 times the neuronal one.
+
+This is the classical oculomotor-integrator result arrived at from the other
+direction. Real neural integrators hold eye position for tens of seconds
+using neurons whose membrane time constants are of order 100 ms, and the
+integration is a **network** property produced by recurrent feedback rather
+than a cellular one. An optimiser given free choice of both — per-neuron
+`tau` and recurrent `W` — put the integration in the network and left the
+neurons leaky. It was not obliged to; the per-neuron time constants were
+learnable and could have grown instead.
+
+Two consequences for stage 2. First, the quantity to measure on the
+constrained circuit is not any neuron's time constant but the **feedback gain
+the connectome can support** — whether the measured INTG wiring, once
+sign-locked, can supply enough recurrent excitation to cancel a leak it does
+not control. Second, this solution is known to be fragile: a line attractor
+built from tuned positive feedback requires the gain finely balanced against
+the leak, and a few percent of detuning collapses or destabilises the
+integrator. Perturbing `W` and re-measuring the effective time constant is
+therefore the natural robustness test, and it is the one place a sign-locked
+connectome-constrained `W` might behave quite differently from a freely
+learned one.
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
