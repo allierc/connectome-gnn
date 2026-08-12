@@ -242,9 +242,11 @@ it is invisible to any analysis that pools trials before measuring drift.
 Three growth laws — bounded-linear, saturating, and square-root — over one
 shared quantity. A drift trace measured from the real circuit can therefore
 be *classified*, not merely reported, which is the point of setting the
-problem up this way. `prototype/dot_tracking/openloop.py` implements all four
-controllers and measures the survival time `t_lose`, the first moment
-`|e|` exceeds the fovea.
+problem up this way. `prototype/dot_tracking/openloop.py` implements the gain
+and leak cases and measures the survival time `t_lose`, the first moment
+`|e|` exceeds the fovea; the noise case is stated here for completeness but
+is not in the prototype, since a zero-mean drift is better measured against
+recorded data than against a simulation of itself.
 
 ## 3. The training dataset
 

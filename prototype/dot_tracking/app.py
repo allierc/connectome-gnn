@@ -36,7 +36,7 @@ from followers import FOLLOWERS, PARAMS, apply          # noqa: E402
 PAGE = r"""<!doctype html>
 <html><head><meta charset="utf-8"><title>dot tracking</title>
 <style>
-  :root { --fg:#fff; --bg:#000; --dim:#8a8a8a; }
+  :root { --fg:#fff; --bg:#000; --dim:#fff; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45
          -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -62,7 +62,7 @@ PAGE = r"""<!doctype html>
   .knob .kl b { color:var(--fg); font-weight:600;
                 font-variant-numeric:tabular-nums; }
   .knob .ends { display:flex; justify-content:space-between; font-size:9px;
-                color:#666; font-variant-numeric:tabular-nums; }
+                color:var(--fg); font-variant-numeric:tabular-nums; }
   input[type=range] { -webkit-appearance:none; appearance:none; width:100%;
                       height:1px; background:var(--fg); outline:none; margin:6px 0; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;
@@ -97,8 +97,9 @@ PAGE = r"""<!doctype html>
 </div><script>
 const SPEC=__SPEC__, FOLLOWERS=__FOLLOWERS__, PARAMS=__PARAMS__;
 const JOYGAIN=__JOYGAIN__;
-const sel={shape:"curve",motion:"continue",speed:"middle",angle:"low",
-           follower:"pursuit"};
+const DURATIONS=["4","8","16","30"];
+const sel={start:"random",shape:"curve",motion:"continue",speed:"middle",
+           angle:"low",follower:"pursuit",duration:"16"};
 const knob={};                       // current parameter values
 let TR=null, k=0, timer=null, pending=null;
 
@@ -108,7 +109,8 @@ function group(name,opts,onpick){
   const l=document.createElement("div"); l.className="label"; l.textContent=name;
   const s=document.createElement("div"); s.className="seg";
   opts.forEach(o=>{
-    const b=document.createElement("button"); b.textContent=o.replace(/_/g," ");
+    const b=document.createElement("button");
+    b.textContent=(name==="duration"?o+" s":o.replace(/_/g," "));
     b.setAttribute("aria-pressed", sel[name]===o);
     b.onclick=()=>{ sel[name]=o;
       [...s.children].forEach(c=>c.setAttribute("aria-pressed",c===b));
@@ -118,6 +120,7 @@ function group(name,opts,onpick){
   g.append(l,s); C.appendChild(g); return s;
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
+group("duration",DURATIONS);
 group("follower",FOLLOWERS,buildKnobs);
 const gx=document.createElement("div"); gx.className="group";
 gx.innerHTML='<div class="label">&nbsp;</div>';
@@ -193,7 +196,7 @@ function drawRetina(){
   R.fillStyle=inside?"#fff":"#777";
   R.beginPath(); R.arc(Math.max(5,Math.min(n-5,px)),Math.max(5,Math.min(n-5,py)),
                        inside?8:5,0,7); R.fill();
-  if(!inside){ R.fillStyle="#999"; R.font="10px sans-serif";
+  if(!inside){ R.fillStyle="#fff"; R.font="10px sans-serif";
     R.fillText("outside field of view",8,n-8); }
 }
 
@@ -293,6 +296,7 @@ class Handler(BaseHTTPRequestHandler):
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             try:
                 tr = generate(
+                    start=q.get("start", "random"),
                     shape=q.get("shape", "curve"),
                     motion=q.get("motion", "continue"),
                     speed=q.get("speed", "middle"),

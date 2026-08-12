@@ -19,17 +19,17 @@ where that point is, as a survival time:
 
     t_lose = the first time |target - gaze| exceeds FOV (0.6 grid units)
 
-Four failure modes of an integrator are separated, because each leaves a
+The failure modes of an integrator are separated, because each leaves a
 different signature in how the error grows:
 
     perfect   exact integration           error stays at numerical zero
-    gain      integrates k*v, k != 1      error grows LINEARLY with path length
+    gain      integrates k*v, k != 1      error grows with DISPLACEMENT, and
+                                          is capped by the arena
     leaky     dg/dt = -g/tau + v          error saturates; gaze sags to centre
-    noisy     integrates v + white noise  error grows as sqrt(t): a random walk
 
-Those three growth laws — linear, saturating, square-root — are the point.
-They are distinguishable from a single error trace, so a real circuit's drift
-can be classified rather than merely measured.
+The two growth laws — bounded-linear and saturating — are the point. They are
+distinguishable from a single error trace, so a real circuit's drift can be
+classified rather than merely measured.
 
 Usage::
 
@@ -136,26 +136,6 @@ def leaky(t, vx, vy, x0, y0, dt, rng, tau=2.0, **kw):
     return _integrate(vx, vy, dt, x0, y0, leak=tau)
 
 
-@register("noisy", [_knob("sigma", "velocity noise (grid units / sqrt s)", 0.0, 0.5, 0.15, 0.005)])
-def noisy(t, vx, vy, x0, y0, dt, rng, sigma=0.15, **kw):
-    """Integrates v plus white velocity noise, scaled so that sigma is the
-    drift in GRID UNITS PER SQRT(SECOND).
-
-    The per-sample noise is sigma/sqrt(dt), which makes the integrated random
-    walk independent of the sampling rate and gives the drift a closed form:
-    its standard deviation after T seconds is exactly sigma*sqrt(T), per axis.
-    So sigma = 0.15 puts the typical drift at the 0.6 field-of-view radius
-    after 16 s. Parameterising it any other way makes the answer depend on dt,
-    which is a property of the simulation and not of the circuit.
-
-    Growth as sqrt(t) is slower than a gain error at first but unbounded, and
-    it is the only one of the four with zero mean error — the drift has no
-    systematic direction, so averaging across trials hides it entirely.
-    """
-    nz = rng.normal(0.0, sigma / np.sqrt(dt), size=(2, len(vx)))
-    return _integrate(vx + nz[0], vy + nz[1], dt, x0, y0)
-
-
 def run_trial(name, tr, rng, **kw):
     """Run one controller on one trajectory; return error and survival time."""
     t = np.asarray(tr["t"]); x = np.asarray(tr["x"]); y = np.asarray(tr["y"])
@@ -228,8 +208,7 @@ def example_trial(cond, name, duration, dt, seed=0, **kw):
 def figure(res, conditions, n_seeds, duration, dt, out_path, tau_sweep=None,
            taus=None, example=None):
     names = list(OPEN_LOOP)
-    col = {"perfect": "#111111", "gain": "#cf222e",
-           "leaky": "#1f6feb", "noisy": "#d29922"}
+    col = {"perfect": "#111111", "gain": "#cf222e", "leaky": "#1f6feb"}
     ref = tuple(conditions[0].items())
     t = np.arange(int(round(duration / dt))) * dt
 
@@ -264,8 +243,7 @@ def figure(res, conditions, n_seeds, duration, dt, out_path, tau_sweep=None,
     for nm in names:
         med = np.median(res[(ref, nm)]["err"], axis=0)
         ax[0, 1].loglog(t[1:], np.maximum(med[1:], 1e-6), color=col[nm], lw=1.8)
-    for slope, lab, off in ((1.0, "linear (gain)", 0.30),
-                            (0.5, "sqrt t (noise)", 0.06)):
+    for slope, lab, off in ((1.0, "linear (gain)", 0.30),):
         ax[0, 1].loglog(t[1:], off * (t[1:] / t[-1]) ** slope, color="0.6",
                         ls=":", lw=1)
         ax[0, 1].text(t[-1], off, f"  {lab}", fontsize=8, color="0.5",
@@ -334,7 +312,7 @@ def figure(res, conditions, n_seeds, duration, dt, out_path, tau_sweep=None,
 PAGE = r"""<!doctype html>
 <html><head><meta charset="utf-8"><title>open-loop tracking</title>
 <style>
-  :root { --fg:#fff; --bg:#000; --dim:#8a8a8a; --red:#e5484d; }
+  :root { --fg:#fff; --bg:#000; --dim:#fff; --red:#e5484d; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45
          -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -361,7 +339,7 @@ PAGE = r"""<!doctype html>
   .knob .kl b { color:var(--fg); font-weight:600;
                 font-variant-numeric:tabular-nums; }
   .knob .ends { display:flex; justify-content:space-between; font-size:9px;
-                color:#666; font-variant-numeric:tabular-nums; }
+                color:var(--fg); font-variant-numeric:tabular-nums; }
   input[type=range] { -webkit-appearance:none; appearance:none; width:100%;
                       height:1px; background:var(--fg); outline:none; margin:6px 0; }
   input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;
@@ -525,7 +503,7 @@ function drawStrip(){
     const lx=TR.t_lose/TR.settings.duration*w;
     S.strokeStyle="#e5484d"; S.lineWidth=1; S.setLineDash([2,2]);
     S.beginPath(); S.moveTo(lx,0); S.lineTo(lx,h); S.stroke(); S.setLineDash([]);
-    S.fillStyle="#e5484d"; S.font="10px sans-serif";
+    S.fillStyle="#fff"; S.font="10px sans-serif";
     S.fillText(TR.t_lose.toFixed(1)+"s",Math.min(lx+4,w-34),11);
   }
   S.strokeStyle="#888"; S.lineWidth=1; const cx=k/(TR.err.length-1)*w;
