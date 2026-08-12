@@ -57,11 +57,13 @@ from trajectory import generate                       # noqa: E402
 from followers import JOY_FULL_SCALE                  # noqa: E402
 
 FOV = 0.6                    # field-of-view radius, grid units
-# Display-only magnification of the stick, as in app.py. Larger here (6 vs 3)
-# because the open-loop command is just the target's own velocity — a slow
-# target asks for 0.15 of the 1.6 unit/s full scale, under a tenth of the
-# gate. Saturation is still judged on the UNSCALED command.
-JOY_VIEW_GAIN = 6.0
+# Display-only magnification of the stick. The open-loop command is just the
+# target's own velocity, so a slow target asks for only 0.15 of the 1.6 u/s
+# full scale; some magnification is needed for the course to be legible, but
+# 6x overstated it and the stick swung to the gate on ordinary motion. 2.5x
+# keeps a fast target near half deflection. Saturation is still judged on the
+# UNSCALED command, so this never changes what counts as saturated.
+JOY_VIEW_GAIN = 2.5
 
 OPEN_LOOP = {}
 PARAMS = {}
@@ -769,6 +771,7 @@ def serve(host, port):
 
 
 def main():
+    global JOY_VIEW_GAIN
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -777,12 +780,15 @@ def main():
                         "serving the GUI")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--joy-view-gain", type=float, default=JOY_VIEW_GAIN,
+                   help="display magnification of the stick deflection")
     p.add_argument("--n-seeds", type=int, default=24)
     p.add_argument("--duration", type=float, default=20.0)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
     p.add_argument("--out", default=os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "openloop.png"))
     a = p.parse_args()
+    JOY_VIEW_GAIN = a.joy_view_gain
     if not a.sweep:
         return serve(a.host, a.port)
 

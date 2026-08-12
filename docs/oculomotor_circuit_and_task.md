@@ -364,8 +364,8 @@ shared 960-trial test set, mean |drift| in grid units:
 | controller | mean drift | never lost | tau_e |
 |---|---|---|---|
 | `perfect` (analytic ideal) | 0.004 | 100 % | — |
+| **`ctrnn`** | **0.007** | 100 % | inf |
 | `gru` | 0.009 | 100 % | inf |
-| **`ctrnn`** | **0.014** | 100 % | inf |
 | `intlin` (fitted leaky integrator) | 0.090 | 100 % | 9.5 s |
 | `gain`, k = 0.5 | 0.225 | 98 % | — |
 | `leaky`, tau = 2 s | 0.284 | 67 % | — |
@@ -374,12 +374,32 @@ shared 960-trial test set, mean |drift| in grid units:
 
 Four things follow.
 
-**The ceiling is 0.014.** `ctrnn` is the continuous-time rate network
+**The ceiling is 0.007, and it is the evaluation's floor rather than the
+model's.** `ctrnn` is the continuous-time rate network
 `tau dh/dt = -h + W r + W_in u` — the same equation as `zebrafish_hd_si`,
-with the sign-lock and the connectome removed. It reaches within a factor of
-3 of the analytic ideal and never loses the target. That is the number the
-285-cell constrained circuit should be compared against, and the gap it
-opens will be the cost of the anatomy.
+with the sign-lock and the connectome removed. Trained to convergence it
+reaches 0.0074, against 0.0041 for exact analytic integration. The residual
+is not a modelling shortfall: the dataset defines velocity by central
+difference while the target is an Euler sum, and that mismatch alone is
+~0.007 on a fast sharp trajectory. The network has reached the numerical
+floor of its own scoring.
+
+Which lever moved it is worth recording, because three of the four did
+nothing. Training length with a cosine schedule took 0.0144 to 0.0074, a
+factor of two. Widening the core from 64 to 192 neurons — nine times the
+recurrent parameters — gave 0.0072, i.e. nothing. More data would give
+nothing either: train and validation MSE are equal to five decimal places
+(0.00004 each), so the model was never overfitting and the corpus was never
+the constraint. The binding constraint was optimisation, exactly as it was
+for the discrete RNN, only there it was fatal and here it was a factor of
+two.
+
+That 0.007 is the number the 285-cell constrained circuit should be compared
+against. And the comparison is not speculative: the heading-direction work
+in `zebrafish.tex` already trains this same equation under sign-lock on a
+917-cell measured connectome and reaches r_theta = 0.998 with a precision
+horizon beyond 60 s. The constrained form is known to train. What stage 2
+measures is not whether it can be done but what it costs.
 
 **Memory is the bottleneck, and the failure is quantitative.** The windowed
 MLP has no state and can only reconstruct displacement within its 0.5 s
