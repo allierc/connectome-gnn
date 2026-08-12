@@ -402,8 +402,12 @@ to integrate &mdash; and nothing tells it when the integral has gone wrong.</p>
 <div class="stats" id="stats"></div>
 </div><script>
 const SPEC=__SPEC__, CTRL=__CTRL__, PARAMS=__PARAMS__, FOV=__FOV__;
-const sel={start:"center",shape:"curve",motion:"continue",speed:"middle",
-           angle:"low",controller:"leaky"};
+// Short trials on a slow target by default: with a leaky integrator the
+// drift is the thing to watch, and a slow target is both easier to follow by
+// eye and — because the leak is a high-pass — lost sooner.
+const DURATIONS=["4","8","16","30"];
+const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
+           angle:"low",controller:"leaky",duration:"8"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
@@ -412,7 +416,8 @@ function group(name,opts,onpick){
   const l=document.createElement("div"); l.className="label"; l.textContent=name;
   const s=document.createElement("div"); s.className="seg";
   opts.forEach(o=>{
-    const b=document.createElement("button"); b.textContent=o.replace(/_/g," ");
+    const b=document.createElement("button");
+    b.textContent=(name==="duration"?o+" s":o.replace(/_/g," "));
     b.setAttribute("aria-pressed", sel[name]===o);
     b.onclick=()=>{ sel[name]=o;
       [...s.children].forEach(c=>c.setAttribute("aria-pressed",c===b));
@@ -422,6 +427,7 @@ function group(name,opts,onpick){
   g.append(l,s); C.appendChild(g); return s;
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
+group("duration",DURATIONS);
 group("controller",CTRL,buildKnobs);
 const gx0=document.createElement("div"); gx0.className="group";
 gx0.innerHTML='<div class="label">&nbsp;</div>';
@@ -599,7 +605,7 @@ class Handler(BaseHTTPRequestHandler):
                     motion=q.get("motion", "continue"),
                     speed=q.get("speed", "middle"),
                     angle=q.get("angle", "low"),
-                    duration=float(q.get("duration", 20.0)),
+                    duration=float(q.get("duration", 8.0)),
                     seed=int(q["seed"]) if q.get("seed") else None,
                 )
                 name = q.get("controller", "leaky")
