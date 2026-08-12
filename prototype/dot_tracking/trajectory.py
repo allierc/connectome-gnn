@@ -34,6 +34,7 @@ import numpy as np
 
 # --- the four switches ------------------------------------------------------
 SPEC = {
+    "start":  ["center", "random"],
     "shape":  ["segment", "curve"],
     "motion": ["continue", "stop_and_go"],
     "speed":  ["slow", "middle", "fast"],
@@ -52,12 +53,18 @@ STOP_S = (0.30, 0.80)
 RAMP_S = 0.12
 
 
-def _waypoints(rng, angle, need_len):
+def _waypoints(rng, angle, need_len, start="random"):
     """Random walk of headings, reflected at the walls, until the polyline is
-    at least `need_len` long. Returns (M, 2)."""
+    at least `need_len` long. Returns (M, 2).
+
+    ``start='center'`` pins the first waypoint at the origin, which is what an
+    open-loop experiment needs: the controller is handed the initial position
+    and must integrate from there, so every trial has to begin at a known,
+    identical place for the drift to be comparable across seeds."""
     lo, hi = np.deg2rad(TURN_DEG[angle])
     step = STEP_LEN[angle]
-    p = rng.uniform(-0.55, 0.55, size=2)
+    p = (np.zeros(2) if start == "center"
+         else rng.uniform(-0.55, 0.55, size=2))
     heading = rng.uniform(0.0, 2.0 * np.pi)
     pts, acc = [p.copy()], 0.0
     while acc < need_len:
@@ -117,10 +124,10 @@ def _speed_profile(rng, motion, v, n, dt):
 
 
 def generate(shape="curve", motion="continue", speed="middle", angle="low",
-             duration=20.0, dt=1.0 / 60.0, seed=None):
+             duration=20.0, dt=1.0 / 60.0, seed=None, start="random"):
     """Return a dict with t, x, y, speed and the settings that produced them."""
     for k, v in (("shape", shape), ("motion", motion),
-                 ("speed", speed), ("angle", angle)):
+                 ("speed", speed), ("angle", angle), ("start", start)):
         if v not in SPEC[k]:
             raise ValueError(f"{k}={v!r} not in {SPEC[k]}")
     seed = int(np.random.SeedSequence().entropy % 2**31) if seed is None \
@@ -132,7 +139,7 @@ def generate(shape="curve", motion="continue", speed="middle", angle="low",
     sp = _speed_profile(rng, motion, v, n, dt)
     need = float(sp.sum() * dt) * 1.15 + 1.0      # margin for spline stretch
 
-    path = _waypoints(rng, angle, need)
+    path = _waypoints(rng, angle, need, start=start)
     if shape == "curve":
         path = _catmull_rom(path)
 
@@ -149,8 +156,8 @@ def generate(shape="curve", motion="continue", speed="middle", angle="low",
         "y": y.tolist(),
         "speed": sp.tolist(),
         "settings": {"shape": shape, "motion": motion, "speed": speed,
-                     "angle": angle, "duration": duration, "dt": dt,
-                     "seed": seed},
+                     "angle": angle, "start": start, "duration": duration,
+                     "dt": dt, "seed": seed},
         "path_len": float(s_path[-1]),
         "n_waypoints": int(len(path)),
     }
@@ -166,7 +173,8 @@ def main():
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--json", default=None, help="write the trace here")
     a = p.parse_args()
-    tr = generate(a.shape, a.motion, a.speed, a.angle, a.duration, a.dt, a.seed)
+    tr = generate(a.shape, a.motion, a.speed, a.angle, a.duration, a.dt,
+                  a.seed, a.start)
     print(f"{tr['settings']}\n  samples={len(tr['t'])}  "
           f"path_len={tr['path_len']:.2f}  waypoints={tr['n_waypoints']}  "
           f"x in [{min(tr['x']):.2f},{max(tr['x']):.2f}]  "
