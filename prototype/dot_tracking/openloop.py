@@ -317,7 +317,7 @@ PAGE = r"""<!doctype html>
   body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.45
          -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
          -webkit-font-smoothing:antialiased; }
-  .wrap { max-width:1180px; margin:0 auto; padding:26px 22px 40px; }
+  .wrap { max-width:1460px; margin:0 auto; padding:26px 22px 40px; }
   h1 { font-size:15px; font-weight:600; letter-spacing:.14em;
        text-transform:uppercase; margin:0 0 6px; }
   .sub { font-size:12px; color:var(--dim); margin:0 0 22px; }
@@ -348,7 +348,7 @@ PAGE = r"""<!doctype html>
   input[type=range]::-moz-range-thumb { width:13px; height:13px;
     background:var(--fg); border:1px solid var(--fg); cursor:pointer;
     border-radius:0; }
-  .row { display:flex; gap:26px; align-items:flex-start; flex-wrap:wrap; }
+  .row { display:flex; gap:22px; align-items:flex-start; flex-wrap:wrap; }
   .panel { display:flex; flex-direction:column; gap:8px; }
   canvas { display:block; background:var(--bg); border:1px solid var(--fg); }
   .cap { font-size:10px; letter-spacing:.16em; text-transform:uppercase;
@@ -366,16 +366,16 @@ to integrate &mdash; and nothing tells it when the integral has gone wrong.</p>
 <div class="controls" id="controls"></div>
 <div class="knobs" id="knobs"></div>
 <div class="row">
-  <div class="panel"><canvas id="world" width="460" height="460"></canvas>
+  <div class="panel"><canvas id="world" width="430" height="430"></canvas>
     <div class="cap">world &mdash; target, and <i>computed</i></div></div>
-  <div class="panel"><canvas id="retina" width="300" height="300"></canvas>
+  <div class="panel"><canvas id="retina" width="286" height="286"></canvas>
     <div class="cap">where the target is, if you believe the integral</div>
-    <canvas id="strip" width="300" height="90"></canvas>
+    <canvas id="strip" width="286" height="86"></canvas>
     <div class="cap">|drift| over time</div></div>
-  <div class="panel"><canvas id="xy" width="300" height="200"></canvas>
-    <div class="cap">x(t) &mdash; target vs <i>computed</i></div>
-    <canvas id="yt" width="300" height="200"></canvas>
-    <div class="cap">y(t)</div></div>
+  <div class="panel"><canvas id="xy" width="286" height="200"></canvas>
+    <div class="cap">x(t) &mdash; target vs <i>computed</i></div></div>
+  <div class="panel"><canvas id="yt" width="286" height="200"></canvas>
+    <div class="cap">y(t) &mdash; target vs <i>computed</i></div></div>
 </div>
 <div class="stats" id="stats"></div>
 </div><script>
@@ -446,7 +446,7 @@ const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 
 function drawWorld(){
-  const n=460; W.fillStyle="#000"; W.fillRect(0,0,n,n);
+  const n=430; W.fillStyle="#000"; W.fillRect(0,0,n,n);
   W.strokeStyle="#1c1c1c"; W.lineWidth=1;
   for(let i=1;i<4;i++){ const p=Math.round(i*n/4)+.5;
     W.beginPath(); W.moveTo(p,0); W.lineTo(p,n); W.moveTo(0,p); W.lineTo(n,p); W.stroke(); }
@@ -474,7 +474,7 @@ function drawWorld(){
 }
 
 function drawRetina(){
-  const n=300,c=n/2; R.fillStyle="#000"; R.fillRect(0,0,n,n);
+  const n=286,c=n/2; R.fillStyle="#000"; R.fillRect(0,0,n,n);
   R.strokeStyle="#242424"; R.lineWidth=1;
   [0.33,0.66,1.0].forEach(f=>{ R.beginPath(); R.arc(c,c,f*(c-2),0,7); R.stroke(); });
   R.strokeStyle="#e5484d"; R.lineWidth=1.2;
@@ -490,7 +490,7 @@ function drawRetina(){
 }
 
 function drawStrip(){
-  const w=300,h=90; S.fillStyle="#000"; S.fillRect(0,0,w,h);
+  const w=286,h=86; S.fillStyle="#000"; S.fillRect(0,0,w,h);
   const mx=Math.max(FOV*1.2,Math.max(...TR.err));
   S.strokeStyle="#555"; const yf=h-2-(FOV/mx)*(h-8);
   S.setLineDash([3,3]); S.beginPath(); S.moveTo(0,yf); S.lineTo(w,yf); S.stroke();
@@ -511,7 +511,7 @@ function drawStrip(){
 }
 
 function axis(ctx,tgt,cmp_){
-  const w=300,h=200; ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
+  const w=286,h=200; ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
   ctx.strokeStyle="#242424"; ctx.lineWidth=1;
   ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
   const yy=v=>h/2-v*(h/2-6);
