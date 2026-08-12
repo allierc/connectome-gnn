@@ -294,7 +294,66 @@ figure scripts. A new task mode added in one place does not error elsewhere;
 it silently mis-slices columns. Any new mode has to be added to all of them,
 or the analysis figures will quietly describe the wrong variable.
 
-## 4. Progress, 11 August 2026
+## 4. Next step: learning the controller
+
+The task is **supervised, not reinforcement**, and it is worth being explicit
+about why, because the instinct to reach for RL here is strong and wrong. In
+open loop the correct output is known in closed form at every timestep —
+given the velocity stream, the target eye position is its integral — so the
+teacher is dense rather than sparse. And the environment does not react to
+the agent: the dot moves the same way whatever the eye does. With no feedback
+loop and no unknown to explore, this is sequence-to-sequence regression
+trained by backpropagation through time. RL would recover the same gradient
+information with far more variance and no compensating benefit.
+
+Closed loop does introduce a loop, but not a reason to change method: the
+plant is `gaze = integral of command`, which is differentiable, so one simply
+backpropagates through it. RL earns its place only where the objective stops
+being differentiable — driving the MPM soft-body eye of `Plexus/prototype/eye`
+without backpropagating through the simulator, or choosing *when* to make a
+catch-up saccade, which is a discrete decision rather than a continuous
+command. Smooth pursuit is regression; saccade timing is a policy.
+
+### 4.1 Two stages, in this order
+
+**Stage 1, in the prototype, with no biology in the way.** Generate a corpus
+of trajectories with `trajectory.py`, and train a small unconstrained
+recurrent network — free `W_rec`, no Dale, no connectome — on exactly the
+task `openloop.py` measures. The point is not the model; it is the
+calibration. It answers how many trials the task needs, what training horizon
+is required, and what integrator time constant is reachable at all when
+nothing anatomical constrains the solution. That number is the ceiling.
+
+**Stage 2, the synaptic solution.** Replace the free recurrent matrix with
+the 285-cell sign-locked `W_rec`, keeping the same data, loss and curriculum,
+and keep the encoder and decoder small: the encoder maps the velocity signal
+onto the AF5 afferents, the decoder reads AMN/AIN. The gap between stage 1
+and stage 2 is then interpretable as the cost of the anatomy, rather than as
+an unexplained training failure — which is exactly the comparison that cannot
+be made if the constrained model is trained first and alone.
+
+### 4.2 Four things that will bite
+
+1. **Credit assignment over the horizon.** Gradients through an integrator
+   across thousands of steps. The heading-direction configs handle this with
+   a step-count curriculum (`n_steps_schedule`, 100 -> 800) and a tail-weighted
+   loss (`coeff_tail_loss`); expect to need both.
+2. **`tau` is not identifiable from short trials.** On an 8 s trial a 20 s
+   time constant and a perfect integrator are indistinguishable. If `tau` is
+   the scientific quantity, the training horizon has to approach it, or the
+   protocol needs an explicit hold-and-decay probe: drive, then stop, and
+   watch the decay.
+3. **Degeneracy.** Many recurrent matrices integrate. Sign-lock, Dale and
+   spectral normalisation are what select among them, and the residual
+   degeneracy is the same identifiability problem the zebrafish
+   heading-direction work already documents.
+4. **Signed position on non-negative rates.** AMN and AIN are motor pools
+   with rates bounded below by zero, so eye position must be carried as a
+   push-pull difference (lateral minus medial rectus) rather than by a free
+   linear readout. That is what the horizontal pair physically is, and
+   building it in is cheaper than hoping the decoder discovers it.
+
+## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
 version control — 254 of them had been absent from every worktree since the
@@ -316,7 +375,7 @@ above, and wrote this note.
 Nothing has been trained, and no connectome CSVs exist yet. The five
 decisions below are what stand between this document and a first run.
 
-## 5. What has to be decided next
+## 6. What has to be decided next
 
 1. **The AF5 combination rule** (§1.3) — AND, OR or XOR. Blocks the input model.
 2. **Whether `OMN` joins the pool** (§1.5) — decides whether `AIN` -> medial
