@@ -148,6 +148,76 @@ def leaky(t, vx, vy, x0, y0, dt, rng, tau=2.0, **kw):
     return _integrate(vx, vy, dt, x0, y0, leak=tau)
 
 
+# --------------------------------------------------------------------------
+# trained models (learn.py) exposed as controllers
+# --------------------------------------------------------------------------
+CKPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+_ML_CACHE = {}
+SCORES = {}
+
+
+def _load_scores():
+    """Read learn.py's report.json so the selector can show each controller's
+    test score. Scored on one shared test split — hand-written and learned
+    controllers alike — so the numbers are comparable."""
+    p = os.path.join(CKPT_DIR, "report.json")
+    if os.path.isfile(p):
+        try:
+            with open(p) as f:
+                SCORES.update(json.load(f))
+        except Exception:
+            pass
+    return SCORES
+
+
+def _ml_predict(name, t, vx, vy, x0, y0, dt, rng, **kw):
+    """Run a trained checkpoint. The network predicts POSITION directly, so
+    the equivalent stick command is the derivative of its own output — unlike
+    the analytic controllers, it has no separately identifiable input to an
+    internal integrator."""
+    import torch
+    if name not in _ML_CACHE:
+        import learn
+        blob = torch.load(os.path.join(CKPT_DIR, f"{name}.pt"),
+                          map_location="cpu", weights_only=False)
+        m = learn.make(name, float(blob.get("dt", dt)))
+        m.load_state_dict(blob["state_dict"])
+        m.eval()
+        _ML_CACHE[name] = m
+    m = _ML_CACHE[name]
+    with torch.no_grad():
+        u = torch.tensor(np.stack([vx, vy], -1)[None], dtype=torch.float32)
+        p = m(u)[0].numpy()
+    gx = p[:, 0] + (x0 - p[0, 0])          # anchor on the known start
+    gy = p[:, 1] + (y0 - p[0, 1])
+    ux = np.clip(np.gradient(gx, dt), -JOY_FULL_SCALE, JOY_FULL_SCALE)
+    uy = np.clip(np.gradient(gy, dt), -JOY_FULL_SCALE, JOY_FULL_SCALE)
+    return gx, gy, ux, uy
+
+
+def register_trained():
+    """One controller per checkpoint in models/, named `ml:<model>`."""
+    if not os.path.isdir(CKPT_DIR):
+        return
+    for f in sorted(os.listdir(CKPT_DIR)):
+        if not f.endswith(".pt"):
+            continue
+        base = f[:-3]
+        OPEN_LOOP[f"ml:{base}"] = (
+            lambda t, vx, vy, x0, y0, dt, rng, _b=base, **kw:
+            _ml_predict(_b, t, vx, vy, x0, y0, dt, rng, **kw))
+        PARAMS[f"ml:{base}"] = []
+
+
+def label_for(name):
+    """`gru (0.009)` — the controller and its mean |drift| on the test set."""
+    key = name[3:] if name.startswith("ml:") else name
+    s = SCORES.get(key)
+    if not s:
+        return name
+    return f"{name} ({s['err_mean']:.3f})"
+
+
 def run_trial(name, tr, rng, **kw):
     """Run one controller on one trajectory; return error and survival time."""
     t = np.asarray(tr["t"]); x = np.asarray(tr["x"]); y = np.asarray(tr["y"])
@@ -374,7 +444,10 @@ PAGE = r"""<!doctype html>
 <h1>open loop &mdash; velocity only</h1>
 <p class="sub">The controller is given the target's velocity and its starting
 position at the centre. It never sees where the target actually is, so it has
-to integrate &mdash; and nothing tells it when the integral has gone wrong.</p>
+to integrate &mdash; and nothing tells it when the integral has gone wrong.
+The number after each controller is its mean |drift| on the shared test set:
+lower is better, and it is the same measurement for the hand-written and the
+learned ones.</p>
 <div class="controls" id="controls"></div>
 <div class="knobs" id="knobs"></div>
 <div class="row">
@@ -395,8 +468,9 @@ to integrate &mdash; and nothing tells it when the integral has gone wrong.</p>
 </div>
 <div class="stats" id="stats"></div>
 </div><script>
-const SPEC=__SPEC__, CTRL=__CTRL__, PARAMS=__PARAMS__, FOV=__FOV__;
-const JOYGAIN=__JOYGAIN__;
+const SPEC=__SPEC__, CTRL_A=__CTRL_A__, CTRL_M=__CTRL_M__;
+const PARAMS=__PARAMS__, FOV=__FOV__;
+const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 // Short trials on a slow target by default: with a leaky integrator the
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
@@ -406,24 +480,37 @@ const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
-function group(name,opts,onpick){
+function group(name,opts,onpick,key){
+  key=key||name;
   const g=document.createElement("div"); g.className="group";
   const l=document.createElement("div"); l.className="label"; l.textContent=name;
   const s=document.createElement("div"); s.className="seg";
   opts.forEach(o=>{
     const b=document.createElement("button");
-    b.textContent=(name==="duration"?o+" s":o.replace(/_/g," "));
-    b.setAttribute("aria-pressed", sel[name]===o);
-    b.onclick=()=>{ sel[name]=o;
-      [...s.children].forEach(c=>c.setAttribute("aria-pressed",c===b));
+    b.textContent=(name==="duration" ? o+" s"
+                  : key==="controller" ? (LABELS[o]||o)
+                  : o.replace(/_/g," "));
+    b.setAttribute("aria-pressed", sel[key]===o);
+    b.onclick=()=>{ sel[key]=o;
+      // Controller selection is shared across the analytic and learned
+      // groups, so clear both rather than only this one.
+      const pool=(key==="controller")?CTRLBTN:[...s.children];
+      pool.forEach(c=>c.setAttribute("aria-pressed",c===b));
       if(onpick) onpick(o); load(); };
+    if(key==="controller") CTRLBTN.push(b);
     s.appendChild(b);
   });
   g.append(l,s); C.appendChild(g); return s;
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
-group("controller",CTRL,buildKnobs);
+// Two groups, one shared selection: the analytic controllers are lesion
+// models with hand-set defects, the learned ones are fitted. Mixing them in
+// one strip invited reading the analytic rows as competitors, which they are
+// not — fitted, gain and leak collapse onto `perfect`.
+const CTRLBTN=[];
+group("analytic",CTRL_A,buildKnobs,"controller");
+group("learned",CTRL_M,buildKnobs,"controller");
 const gx0=document.createElement("div"); gx0.className="group";
 gx0.innerHTML='<div class="label">&nbsp;</div>';
 const sx0=document.createElement("div"); sx0.className="seg";
@@ -613,7 +700,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             from trajectory import SPEC
             page = (PAGE.replace("__SPEC__", json.dumps(SPEC))
-                        .replace("__CTRL__", json.dumps(list(OPEN_LOOP)))
+                        .replace("__CTRL_A__", json.dumps(
+                            [n for n in OPEN_LOOP if not n.startswith("ml:")]))
+                        .replace("__CTRL_M__", json.dumps(
+                            [n for n in OPEN_LOOP if n.startswith("ml:")]))
+                        .replace("__LABELS__", json.dumps(
+                            {n: label_for(n) for n in OPEN_LOOP}))
                         .replace("__PARAMS__", json.dumps(PARAMS))
                         .replace("__FOV__", str(FOV))
                         .replace("__JOYGAIN__", str(JOY_VIEW_GAIN)))
@@ -665,9 +757,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(host, port):
+    register_trained()
+    _load_scores()
     srv = ThreadingHTTPServer((host, port), Handler)
     print(f"open-loop tracking -> http://localhost:{port}   (ctrl-c to stop)")
-    print(f"  controllers: {list(OPEN_LOOP)}")
+    print("  controllers: " + ", ".join(label_for(n) for n in OPEN_LOOP))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

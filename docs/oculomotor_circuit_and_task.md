@@ -353,6 +353,59 @@ be made if the constrained model is trained first and alone.
    linear readout. That is what the horizontal pair physically is, and
    building it in is cheaper than hoping the decoder discovers it.
 
+### 4.3 Stage 1, measured
+
+The calibration has been run. A balanced corpus of 5160 centre-started
+trajectories — every combination of the four switches, 24 conditions, 8 s at
+60 Hz, seeds disjoint across splits — and five learners with the same
+interface: linear encoder, swappable core, linear decoder. Scored on one
+shared 960-trial test set, mean |drift| in grid units:
+
+| controller | mean drift | never lost | tau_e |
+|---|---|---|---|
+| `perfect` (analytic ideal) | 0.004 | 100 % | — |
+| `gru` | 0.009 | 100 % | inf |
+| **`ctrnn`** | **0.014** | 100 % | inf |
+| `intlin` (fitted leaky integrator) | 0.090 | 100 % | 9.5 s |
+| `gain`, k = 0.5 | 0.225 | 98 % | — |
+| `leaky`, tau = 2 s | 0.284 | 67 % | — |
+| `mlp` (windowed, memoryless) | 0.392 | 25 % | 0.48 s |
+| `rnn` (discrete tanh) | 0.424 | 27 % | 0.40 s |
+
+Four things follow.
+
+**The ceiling is 0.014.** `ctrnn` is the continuous-time rate network
+`tau dh/dt = -h + W r + W_in u` — the same equation as `zebrafish_hd_si`,
+with the sign-lock and the connectome removed. It reaches within a factor of
+3 of the analytic ideal and never loses the target. That is the number the
+285-cell constrained circuit should be compared against, and the gap it
+opens will be the cost of the anatomy.
+
+**Memory is the bottleneck, and the failure is quantitative.** The windowed
+MLP has no state and can only reconstruct displacement within its 0.5 s
+window. Its measured decay constant is **0.48 s** — its window, recovered
+from a hold-and-decay probe it was never trained on. A memoryless model does
+not approximately fail here; it fails by exactly the amount its architecture
+predicts.
+
+**A discrete tanh RNN cannot learn this, and that is an optimisation result,
+not a capacity one.** It plateaus at 0.42 whether trained for 40 or 250
+epochs, and identity-initialising the recurrent matrix does not rescue it.
+The gradient of an 8 s integral through a contracting discrete map vanishes.
+The continuous-time form fixes it because with `dt/tau` small the update is
+near-identity by construction. This matters for stage 2: had we used the
+discrete form as the stand-in, we would have concluded that the task was
+hard, when the difficulty was in the parameterisation.
+
+**The analytic controllers are lesions, not competitors.** Their gain and
+time constant are not free choices to be tuned for a fair fight — fitted,
+they go to `k = 1` and `tau -> infinity`, which is just `perfect` again,
+because the task's ideal solution *is* a perfect integrator. `gain = 0.5` and
+`tau = 2 s` are deliberate defects, chosen so the drift is visible in the
+interface. The properly fitted member of that family is `intlin`, which
+learns its own decay and lands at `tau = 9.5 s`. Read the analytic rows as
+"how bad is this specific defect", never as "how good is this method".
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
