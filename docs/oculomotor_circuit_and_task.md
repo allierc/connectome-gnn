@@ -525,6 +525,9 @@ Whatever the network learned, it is not a fit to the trial length.
 
 ### 4.6 The eye plant, reduced to something differentiable
 
+![**The eye plant: geometry and symbols.** **(a)** The globe seen down the corneal axis with the six extraocular muscles at their true insertions, drawn from `eye_anatomy.MUSCLES` — the same table the MPM uses to shape the straps, so this is the model's own geometry. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the plant but receive no command. **(b)** Every symbol of the equations below and of section 4.7, in the order the signal meets them. Regenerate with `python fit_plant.py` and `python fig_eye_schematic.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_schematic.png)
+
+
 The circuit's output is muscle drive, not eye position, so at some point the
 mechanics has to be in the loop. The MPM eye of `Plexus/prototype/eye` cannot
 be: its grid scatter is in-place and a single trial costs far more than the
@@ -534,22 +537,41 @@ identified from the probe runs already in that prototype's `archive/`
 
 Command-to-gaze is plainly nonlinear — activation saturates, and the two
 horizontal muscles are not mirror images. That does not force a nonlinear
-ODE. The system is **Hammerstein**: a static nonlinearity followed by linear
-dynamics,
+ODE. The system is **Hammerstein**: a static nonlinearity $\Phi$ followed by
+linear mechanics, with $u_{\mathrm{cmd}}$ the signed command (positive for
+lateral rectus, negative for medial) and $\gamma$ the horizontal gaze in
+degrees,
 
-    u  ->  f(u)  ->  [ linear mechanics ]  ->  gaze
+```math
+u_{\mathrm{cmd}}\;\longrightarrow\;\Phi(u_{\mathrm{cmd}})\;\longrightarrow\;
+\big[\;\text{linear mechanics}\;\big]\;\longrightarrow\;\gamma
+```
 
-with `u` the signed command (+ for lateral rectus, - for medial). The two
-factors are identified separately, which is what keeps the fit honest: `f` is
-read straight off the plateaus of the step responses, absorbing the
-force-activation curve and the geometric saturation of a globe that can only
-rotate so far, and the dynamics are then fitted from `f(u)` to gaze so the
-ODE never has to bend around the saturation.
+The two factors are identified separately, which is what keeps the fit
+honest. $\Phi$ is read straight off the plateaus of the step responses,
+absorbing the force-activation curve and the geometric saturation of a globe
+that can only rotate so far,
 
-Two candidate mechanics were fitted and compared rather than assumed:
+```math
+\Phi(u)\;=\;\sum_{k=1}^{3}\beta_k\,u^{k},
+\qquad
+\beta \;\text{ fitted to }\; \big\{\,(u,\ \gamma_\infty)\,\big\}\ \text{at each hold}
+```
 
-    order 1:   tau y' + y = f(u)                      (viscosity + spring)
-    order 2:   y'' + 2 zeta w y' + w^2 y = w^2 f(u)   (+ globe inertia)
+and the mechanics are then fitted from $\Phi(u_{\mathrm{cmd}})$ to $\gamma$,
+so the ODE never has to bend around the saturation. Two candidate mechanics
+were compared rather than assumed:
+
+```math
+\text{order 1:}\quad \tau\,\dot\gamma + \gamma \;=\; \Phi(u_{\mathrm{cmd}})
+\qquad\qquad \text{(viscosity + elastic restoring force)}
+```
+
+```math
+\text{order 2:}\quad \ddot\gamma + 2\zeta\omega_n\,\dot\gamma + \omega_n^{2}\,\gamma
+\;=\; \omega_n^{2}\,\Phi(u_{\mathrm{cmd}})
+\qquad \text{(+ globe inertia)}
+```
 
 ![**The eye plant.** Left: the static nonlinearity, plateau gaze against held command. Middle: one lateral-rectus and one medial-rectus probe, MPM solid, first-order dotted, second-order dashed — the first-order plant cannot overshoot, and the eye does. Right: RMS error per plant variant, first order against second.](../figures/zebrafish/fig_eye_plant_fit.png)
 
@@ -595,10 +617,9 @@ because those come from the transients; the static gain is not.
 
 ### 4.7 The whole model in one notation
 
-![**The eye, and the symbols.** **(a)** The globe seen down the corneal axis with the six extraocular muscles at their true insertions, drawn from `eye_anatomy.MUSCLES` — the same table the MPM uses to shape the straps, so this is the model's own geometry. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the plant but receive no command. **(b)** Every symbol of the equations below, in the order the signal meets them. Regenerate with `python fit_plant.py` and `python fig_eye_schematic.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_schematic.png)
 
-
-Written in the formalism of `neurips.tex`, so the oculomotor circuit and the
+Written in the formalism of `neurips.tex`, with the symbols laid out in
+the figure of section 4.6, so the oculomotor circuit and the
 flyvis work can be read side by side. There $v_i(t)$ is the membrane voltage
 of neuron $i$, $\tau_i$ its time constant, $\mathcal{N}_i$ its presynaptic
 partners, $W_{ij}$ the connectome weight and $I_i(t)$ the external drive; a
