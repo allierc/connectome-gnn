@@ -60,9 +60,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import learn                                          # noqa: E402
 
-PLANT_NPZ = "/workspace/Plexus/prototype/eye/plant.npz"
+PLANT_NPZ = {"h": "/workspace/Plexus/prototype/eye/plant.npz",
+             "v": "/workspace/Plexus/prototype/eye/plant_v.npz"}
 DEFAULT_VARIANT = "eye_p3a_length"
-DEG_PER_UNIT = 15.0     # grid units -> degrees; +-0.95 grid stays in range
+BOUND = 0.95            # the arena half-width the target is clamped to
 
 
 class EyePlant(nn.Module):
@@ -106,18 +107,18 @@ class CTRNNEye(nn.Module):
     result is attributable to the plant and not to the network.
     """
 
-    def __init__(self, dt, plant=None, hidden=64, tau0=0.5):
+    def __init__(self, dt, plants=None, hidden=64, tau0=0.5):
         super().__init__()
         self.dt = dt
-        self.plant = plant
+        self.plants = plants                     # {"h": EyePlant, "v": EyePlant}
         self.log_tau = nn.Parameter(torch.full((hidden,), float(np.log(tau0))))
         self.W = nn.Parameter(torch.zeros(hidden, hidden))
-        self.enc = nn.Linear(1, hidden)
-        self.mot = nn.Linear(hidden, 2)          # -> LR, MR drives
+        self.enc = nn.Linear(2, hidden)          # (vx, vy)
+        self.mot = nn.Linear(hidden, 4)          # -> LR, MR, SR, IR
         with torch.no_grad():
             self.enc.weight.mul_(0.5)
 
-    def forward(self, u):                        # u: (B, T, 1) velocity
+    def forward(self, u):                        # u: (B, T, 2) velocity
         alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)
         B, T, _ = u.shape
         h = torch.zeros(B, self.W.shape[0], device=u.device, dtype=u.dtype)
@@ -128,16 +129,16 @@ class CTRNNEye(nn.Module):
             rates.append(r)
             h = h + alpha * (-h + r @ self.W.T + drive[:, t])
         R = torch.stack(rates, 1)
-        m = nn.functional.softplus(self.mot(R))   # motor pools are >= 0
-        cmd = m[..., 0] - m[..., 1]               # push-pull, LR - MR
-        if self.plant is None:
-            return cmd * DEG_PER_UNIT, m          # control: command is gaze
-        return self.plant(cmd), m
+        m = nn.functional.softplus(self.mot(R))   # four pools, all >= 0
+        cmd_h = m[..., 0] - m[..., 1]             # LR - MR
+        cmd_v = m[..., 2] - m[..., 3]             # SR - IR
+        if self.plants is None:
+            return torch.stack([cmd_h, cmd_v], -1), m
+        return torch.stack([self.plants["h"](cmd_h),
+                            self.plants["v"](cmd_v)], -1), m
 
 
-def load_plant(variant, dt):
-    z = np.load(PLANT_NPZ, allow_pickle=False)
-    V = json.loads(str(z["variants"]))
+def _variant_entry(V, variant):
     if variant == "ideal_linear":
         # Same mechanics and same full-scale travel as p3a_length, but a
         # MONOTONE static curve. This is the control that decides whether the
@@ -145,17 +146,36 @@ def load_plant(variant, dt):
         # controller simply has not learned yet: only Phi differs.
         ref = V["eye_p3a_length"]
         span = float(sum(ref["coef"]))
-        v = dict(coef=[span, 0.0, 0.0], order=2, theta=ref["theta"],
-                 rms=float("nan"))
-    else:
-        v = V[variant]
-    if int(v["order"]) != 2:
-        raise SystemExit(f"{variant} was fitted at order {v['order']}")
-    wn, zeta = np.exp(np.asarray(v["theta"]))
-    f = lambda u: sum(c * u ** (i + 1) for i, c in enumerate(v["coef"]))
-    print(f"[plant] {variant}: wn={wn:.2f} rad/s  zeta={zeta:.3f}  "
-          f"range {f(-1.0):+.1f}..{f(+1.0):+.1f} deg  (fit RMS {v['rms']:.2f})")
-    return EyePlant(v["coef"], wn, zeta, dt)
+        return dict(coef=[span, 0.0], order=2, theta=ref["theta"],
+                    rms=float("nan"))
+    return V[variant]
+
+
+def load_plants(variant, dt):
+    """One plant per axis. The horizontal pair is LR/MR, the vertical SR/IR,
+    and they are genuinely different — for eye C the travel is 15.0 deg
+    horizontally against 9.1 vertically — so a single plant cannot serve
+    both."""
+    out, reach = {}, {}
+    for ax, path in PLANT_NPZ.items():
+        V = json.loads(str(np.load(path, allow_pickle=False)["variants"]))
+        v = _variant_entry(V, variant)
+        if int(v["order"]) != 2:
+            raise SystemExit(f"{variant}/{ax} was fitted at order {v['order']}")
+        wn, zeta = np.exp(np.asarray(v["theta"]))
+        f = lambda u, c=v["coef"]: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
+        out[ax] = EyePlant(v["coef"], wn, zeta, dt)
+        reach[ax] = min(abs(f(-1.0)), abs(f(1.0)))
+        print(f"[plant] {variant}/{ax}: wn={wn:.2f} zeta={zeta:.3f}  "
+              f"range {f(-1.0):+.1f}..{f(+1.0):+.1f} deg  reach {reach[ax]:.1f}")
+    # The world must fit inside the SMALLER of the two reaches. Scaling it to
+    # the horizontal alone put the vertical target outside the eye's travel
+    # 40% of the time for eye C — a target it cannot look at, which no
+    # controller can be trained out of.
+    dpu = min(reach.values()) / BOUND
+    print(f"[world] {dpu:.2f} deg/unit  ->  target within +-{dpu*BOUND:.1f} deg "
+          f"on BOTH axes")
+    return out, dpu
 
 
 def main():
@@ -175,20 +195,21 @@ def main():
     a = p.parse_args()
     dev = torch.device(a.device)
 
-    # --- data: UNCHANGED, only projected onto the horizontal axis ---------
+    # --- data: UNCHANGED, now used on both axes ---------------------------
+    plants, dpu = (None, 15.0) if a.no_plant else load_plants(a.variant, a.dt)
+    if plants is not None:
+        plants = {k: v.to(dev) for k, v in plants.items()}
     sp = {}
     for nm, n, s0 in (("train", 150, 0), ("val", 25, 5_000_000),
                       ("test", 40, 9_000_000)):
         u, y, c = learn.load_split(nm, n, a.duration, a.dt, s0)
-        sp[nm] = (torch.as_tensor(u[..., :1]).to(dev),            # vx only
-                  torch.as_tensor(y[..., 0] * DEG_PER_UNIT).to(dev))
+        sp[nm] = (torch.as_tensor(u).to(dev),                     # (vx, vy)
+                  torch.as_tensor(y * dpu).to(dev))               # (x, y) deg
     (Utr, Ytr), (Uva, Yva), (Ute, Yte) = sp["train"], sp["val"], sp["test"]
-    print(f"[data] horizontal only, target scaled x{DEG_PER_UNIT:g} deg/unit; "
+    print(f"[data] both axes, target scaled x{dpu:.2f} deg/unit; "
           f"|target| max {float(Ytr.abs().max()):.1f} deg")
-
-    plant = None if a.no_plant else load_plant(a.variant, a.dt).to(dev)
     torch.manual_seed(0)
-    model = CTRNNEye(a.dt, plant).to(dev)
+    model = CTRNNEye(a.dt, plants).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     T = Utr.shape[1]
@@ -220,35 +241,38 @@ def main():
     model.eval()
     with torch.no_grad():
         pred, m = model(Ute)
-        err = (pred - Yte).abs()
-        cmd = (m[..., 0] - m[..., 1])
+        err = torch.linalg.norm(pred - Yte, dim=-1)      # 2-D radial error
+        err_h = (pred[..., 0] - Yte[..., 0]).abs()
+        err_v = (pred[..., 1] - Yte[..., 1]).abs()
+        cmd = torch.stack([m[..., 0] - m[..., 1], m[..., 2] - m[..., 3]], -1)
     tag = "no plant" if a.no_plant else a.variant
-    json.dump({"variant": tag,
+    json.dump({"variant": tag, "deg_per_unit": float(dpu),
                "gaze_err_mean_deg": float(err.mean()),
+               "gaze_err_h_deg": float(err_h.mean()),
+               "gaze_err_v_deg": float(err_v.mean()),
                "gaze_err_p95_deg": float(err.flatten().kthvalue(
                    int(0.95 * err.numel()))[0]),
                "cmd_abs_mean": float(cmd.abs().mean()),
                "cmd_saturated_frac": float((cmd.abs() >= 1).float().mean()),
-               "deg_per_unit": DEG_PER_UNIT},
+               },
               open(os.path.join(learn.CKPT, "eye_report_"
                                 + ("noplant" if a.no_plant else a.variant)
                                 + ".json"), "w"), indent=2)
-    print(f"\n[{tag}]  test mean |gaze error| {float(err.mean()):.3f} deg"
-          f"   p95 {float(err.flatten().kthvalue(int(0.95*err.numel()))[0]):.3f}"
-          f"   as a fraction of the +-{DEG_PER_UNIT:.0f} deg workspace: "
-          f"{float(err.mean())/DEG_PER_UNIT*100:.1f}%")
-    print(f"   command |LR-MR| mean {float(cmd.abs().mean()):.3f} "
-          f"max {float(cmd.abs().max()):.3f}   saturated "
-          f"{float((cmd.abs() >= 1).float().mean())*100:.1f}% of samples")
-    print(f"   motor pools: LR mean {float(m[...,0].mean()):.3f}, "
-          f"MR mean {float(m[...,1].mean()):.3f}  (both >= 0 by construction)")
+    print(f"\n[{tag}]  2-D gaze error {float(err.mean()):.3f} deg"
+          f"   (h {float(err_h.mean()):.3f}, v {float(err_v.mean()):.3f})"
+          f"   world +-{dpu*BOUND:.1f} deg")
+    print(f"   commands saturated {float((cmd.abs() >= 1).float().mean())*100:.1f}%"
+          f" of samples   |cmd| max {float(cmd.abs().max()):.3f}")
+    print("   motor pools (all >= 0): "
+          + "  ".join(f"{n} {float(m[..., i].mean()):.3f}"
+                      for i, n in enumerate(("LR", "MR", "SR", "IR"))))
     # One checkpoint per eye. A controller trained for one plant is not the
     # controller for another — it has learned that plant's inverse — so the
     # UI must pair each eye with its own network rather than reuse one.
     out = os.path.join(learn.CKPT, "ctrnn_eye_"
                        + ("noplant" if a.no_plant else a.variant) + ".pt")
     torch.save({"state_dict": model.state_dict(), "variant": tag,
-                "dt": a.dt, "deg_per_unit": DEG_PER_UNIT}, out)
+                "dt": a.dt, "deg_per_unit": float(dpu)}, out)
     print(f"   saved {out}")
 
 
