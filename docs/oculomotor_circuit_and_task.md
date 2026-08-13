@@ -523,6 +523,76 @@ they were trained on, but the hold-and-decay time-constant probe runs 1200
 steps — 2.5 times anything seen in training — and the integration holds.
 Whatever the network learned, it is not a fit to the trial length.
 
+### 4.6 The eye plant, reduced to something differentiable
+
+The circuit's output is muscle drive, not eye position, so at some point the
+mechanics has to be in the loop. The MPM eye of `Plexus/prototype/eye` cannot
+be: its grid scatter is in-place and a single trial costs far more than the
+7250 gradient updates of section 4.5. It is replaced by a reduced plant
+identified from the probe runs already in that prototype's `archive/`
+(`fit_plant.py`).
+
+Command-to-gaze is plainly nonlinear — activation saturates, and the two
+horizontal muscles are not mirror images. That does not force a nonlinear
+ODE. The system is **Hammerstein**: a static nonlinearity followed by linear
+dynamics,
+
+    u  ->  f(u)  ->  [ linear mechanics ]  ->  gaze
+
+with `u` the signed command (+ for lateral rectus, - for medial). The two
+factors are identified separately, which is what keeps the fit honest: `f` is
+read straight off the plateaus of the step responses, absorbing the
+force-activation curve and the geometric saturation of a globe that can only
+rotate so far, and the dynamics are then fitted from `f(u)` to gaze so the
+ODE never has to bend around the saturation.
+
+Two candidate mechanics were fitted and compared rather than assumed:
+
+    order 1:   tau y' + y = f(u)                      (viscosity + spring)
+    order 2:   y'' + 2 zeta w y' + w^2 y = w^2 f(u)   (+ globe inertia)
+
+![**The eye plant.** Left: the static nonlinearity, plateau gaze against held command. Middle: one lateral-rectus and one medial-rectus probe, MPM solid, first-order dotted, second-order dashed — the first-order plant cannot overshoot, and the eye does. Right: RMS error per plant variant, first order against second.](../figures/zebrafish/fig_eye_plant_fit.png)
+
+**Second order wins on every variant, by a factor of 3.** RMS error in
+degrees:
+
+| variant | order 1 | order 2 | ratio |
+|---|---|---|---|
+| `baseline_fixmat` | 1.22 | **0.41** | 3.0x |
+| `c_a` | 1.20 | **0.42** | 2.9x |
+| `p3a_length` | 2.58 | **0.62** | 4.2x |
+| `p3b_pulley` | 2.24 | **0.77** | 2.9x |
+| `p3c_drive` | 6.77 | 6.34 | 1.1x |
+
+The reason is visible in the middle panel and is not a matter of degrees of
+freedom: a first-order system is monotone towards its target and *cannot
+overshoot*, while the MPM eye overshoots and rings. Only the inertial term
+can produce that. The one variant where the two orders are indistinguishable,
+`p3c_drive`, is also the one neither fits — 6 degrees of error — which is a
+signal about that run rather than about the model order.
+
+Two things worth recording. First, the archive is **five mechanically
+different eyes**, not repeats of one; a pooled fit gives RMS 5.05 deg and a
+static curve with plateaus at +16, +13 and +3 degrees for the same command.
+Fitted per variant it is 0.41-0.77 deg. Second, and more interesting, the
+*mechanics are nearly invariant across the five*: `w` = 9.5-11.1 rad/s and
+`zeta` = 0.22-0.32 throughout, while the static gain ranges over 14-23 deg of
+travel. The configurations change `f`, not the ODE — which is the Hammerstein
+factorisation earning its keep, and it means one set of dynamics covers the
+sweep.
+
+At `zeta` ~ 0.3 the modelled eye is underdamped and rings at ~1.5 Hz. Real
+oculomotor plants are overdamped, so this is a property of the MPM
+configuration rather than of a fish.
+
+**What is not yet identified is `f` itself.** Each protocol steps straight to
+full activation, so there are only two plateaus per variant, at command -1 and
++1; the curve drawn between them is extrapolation, not measurement. Before
+this plant goes into a training loop it needs a staircase protocol holding
+intermediate levels (0.2 / 0.4 / 0.6 / 0.8, both directions, held longer than
+about 0.5 s given `w` ~ 10 rad/s). The dynamics are already well determined,
+because those come from the transients; the static gain is not.
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
