@@ -1,0 +1,10 @@
+{
+  "variant": "eye_p3c_drive",
+  "deg_per_unit": 5.325223076614121,
+  "gaze_err_mean_deg": 0.1005096286535263,
+  "gaze_err_h_deg": 0.05246488004922867,
+  "gaze_err_v_deg": 0.07357613742351532,
+  "gaze_err_p95_deg": 0.32042577862739563,
+  "cmd_abs_mean": 0.19268369674682617,
+  "cmd_saturated_frac": 0.0
+}
