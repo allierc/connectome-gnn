@@ -85,6 +85,21 @@ def parse(lines):
         i = j + 1
     while i < n:
         ln = lines[i].rstrip("\n")
+        # display-math fence: ```math ... ``` passes through as a real LaTeX
+        # environment rather than verbatim, so the note can carry equations
+        # in the same notation as the papers instead of ASCII pseudo-maths.
+        if ln.strip().startswith("```math"):
+            buf = []
+            i += 1
+            while i < n and not lines[i].strip().startswith("```"):
+                buf.append(lines[i].rstrip("\n")); i += 1
+            i += 1
+            body = "\n".join(buf)
+            env = "align" if "\\\\" in body else "equation"
+            out.append(f"\\begin{{{env}*}}")
+            out.append(body)
+            out.append(f"\\end{{{env}*}}")
+            continue
         # code fence
         if ln.strip().startswith("```"):
             buf = []
@@ -202,6 +217,7 @@ PREAMBLE = r"""\documentclass[10pt]{article}
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{amssymb,amsmath}
+\usepackage{bm}
 \usepackage{parskip}
 %% Long file paths in \texttt{} are single unbreakable words and overflow the
 %% margin; [htt] lets them hyphenate like prose. (%% is doubled because this
