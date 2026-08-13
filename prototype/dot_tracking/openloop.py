@@ -604,28 +604,10 @@ learned ones.</p>
 <div class="controls" id="controls"></div>
 <div class="knobs" id="knobs"></div>
 <div class="row">
-  <div class="panel"><canvas id="world" width="430" height="430"></canvas>
+  <div class="panel"><canvas id="world" width="620" height="620"></canvas>
     <div class="cap" id="worldcap">world &mdash; target, and <i>computed</i></div></div>
-  <div class="panel"><canvas id="retina" width="286" height="286"></canvas>
-    <div class="cap">where the target is, if you believe the integral</div>
-    <canvas id="strip" width="286" height="86"></canvas>
-    <div class="cap">|drift| over time</div></div>
-  <div class="panel"><canvas id="joy" width="240" height="240"></canvas>
-    <div class="cap">joystick &mdash; command into the integrator (&times;__JOYGAIN__)</div></div>
-</div>
-<div class="row" style="margin-top:22px">
-  <div class="panel"><canvas id="xy" width="470" height="190"></canvas>
-    <div class="cap">x(t) &mdash; target vs <i>computed</i></div></div>
-  <div class="panel"><canvas id="yt" width="470" height="190"></canvas>
-    <div class="cap">y(t) &mdash; target vs <i>computed</i></div></div>
-</div>
-<div class="row" id="plantrow" style="margin-top:22px; display:none">
-  <div class="panel"><canvas id="phi" width="300" height="250"></canvas>
-    <div class="cap">&Phi; &mdash; command to gaze (red = slope &lt; 0)</div></div>
-  <div class="panel"><canvas id="eye" width="250" height="250"></canvas>
-    <div class="cap">the eye</div></div>
-  <div class="panel"><canvas id="gz" width="600" height="250"></canvas>
-    <div class="cap">gaze vs target eccentricity (deg)</div></div>
+  <div class="panel"><canvas id="eye" width="360" height="360"></canvas>
+    <div class="cap" id="eyecap">the eye, seen from in front</div></div>
 </div>
 <div class="stats" id="stats"></div>
 </div><script>
@@ -638,9 +620,9 @@ const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 const DURATIONS=["4","8","16","30"];
 const WORLDS=["auto","3","7","15"];
 const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__, PLANTLAB=__PLANTLAB__;
-const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
-           angle:"low",controller:"leaky",duration:"8",plant:"none",
-           world:"auto"};
+const sel={start:"center",shape:"curve",motion:"stop_and_go",speed:"slow",
+           angle:"low",controller:"leaky",duration:"8",
+           plant:"eye_p3a_length",world:"auto"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
@@ -713,14 +695,7 @@ function buildKnobs(name){
 buildKnobs(sel.controller);
 
 const W=document.getElementById("world").getContext("2d");
-const R=document.getElementById("retina").getContext("2d");
-const S=document.getElementById("strip").getContext("2d");
-const X=document.getElementById("xy").getContext("2d");
-const Y=document.getElementById("yt").getContext("2d");
-const J=document.getElementById("joy").getContext("2d");
-const PH=document.getElementById("phi").getContext("2d");
 const EY=document.getElementById("eye").getContext("2d");
-const GZ=document.getElementById("gz").getContext("2d");
 const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 // With an eye attached the world panel is drawn in DEGREES over a fixed
@@ -733,7 +708,7 @@ function wPx(v,size){ return TR.deg_per_unit
   ? degPx(v*TR.deg_per_unit,size) : toPx(v,size); }
 
 function drawWorld(){
-  const n=430; W.fillStyle="#000"; W.fillRect(0,0,n,n);
+  const n=620; W.fillStyle="#000"; W.fillRect(0,0,n,n);
   W.strokeStyle="#1c1c1c"; W.lineWidth=1;
   for(let i=1;i<4;i++){ const p=Math.round(i*n/4)+.5;
     W.beginPath(); W.moveTo(p,0); W.lineTo(p,n); W.moveTo(0,p); W.lineTo(n,p); W.stroke(); }
@@ -794,141 +769,39 @@ function drawWorld(){
   W.beginPath(); W.arc(cx,cy,15,0,7); W.stroke();
 }
 
-function drawRetina(){
-  const n=286,c=n/2; R.fillStyle="#000"; R.fillRect(0,0,n,n);
-  R.strokeStyle="#242424"; R.lineWidth=1;
-  [0.33,0.66,1.0].forEach(f=>{ R.beginPath(); R.arc(c,c,f*(c-2),0,7); R.stroke(); });
-  R.strokeStyle="#e5484d"; R.lineWidth=1.2;
-  R.beginPath(); R.moveTo(c-10,c); R.lineTo(c+10,c);
-  R.moveTo(c,c-10); R.lineTo(c,c+10); R.stroke();
-  const px=c+TR.ex[k]/FOV*(c-2), py=c-TR.ey[k]/FOV*(c-2);
-  const inside=TR.err[k]<=FOV;
-  R.fillStyle=inside?"#fff":"#777";
-  R.beginPath(); R.arc(Math.max(5,Math.min(n-5,px)),Math.max(5,Math.min(n-5,py)),
-                       inside?8:5,0,7); R.fill();
-  if(!inside){ R.fillStyle="#e5484d"; R.font="600 11px sans-serif";
-    R.fillText("LOST — drift exceeds the field of view",8,n-9); }
-}
-
-function drawStrip(){
-  const w=286,h=86; S.fillStyle="#000"; S.fillRect(0,0,w,h);
-  const mx=Math.max(FOV*1.2,Math.max(...TR.err));
-  S.strokeStyle="#555"; const yf=h-2-(FOV/mx)*(h-8);
-  S.setLineDash([3,3]); S.beginPath(); S.moveTo(0,yf); S.lineTo(w,yf); S.stroke();
-  S.setLineDash([]);
-  S.strokeStyle="#e5484d"; S.lineWidth=1.6; S.beginPath();
-  for(let i=0;i<TR.err.length;i++){
-    const px=i/(TR.err.length-1)*w, py=h-2-(TR.err[i]/mx)*(h-8);
-    i?S.lineTo(px,py):S.moveTo(px,py); } S.stroke();
-  if(TR.t_lose!==null){
-    const lx=TR.t_lose/TR.settings.duration*w;
-    S.strokeStyle="#e5484d"; S.lineWidth=1; S.setLineDash([2,2]);
-    S.beginPath(); S.moveTo(lx,0); S.lineTo(lx,h); S.stroke(); S.setLineDash([]);
-    S.fillStyle="#fff"; S.font="10px sans-serif";
-    S.fillText(TR.t_lose.toFixed(1)+"s",Math.min(lx+4,w-34),11);
-  }
-  S.strokeStyle="#888"; S.lineWidth=1; const cx=k/(TR.err.length-1)*w;
-  S.beginPath(); S.moveTo(cx,0); S.lineTo(cx,h); S.stroke();
-}
-
-function axis(ctx,tgt,cmp_){
-  const w=470,h=190; ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
-  ctx.strokeStyle="#242424"; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
-  const yy=v=>h/2-v*(h/2-6);
-  const line=(a,col,lw)=>{ ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.beginPath();
-    for(let i=0;i<=k;i++){ const px=i/(a.length-1)*w;
-      i?ctx.lineTo(px,yy(a[i])):ctx.moveTo(px,yy(a[i])); } ctx.stroke(); };
-  line(tgt,"#d8d8d8",1.6); line(cmp_,"#e5484d",1.6);
-}
-
-function drawJoy(){
-  const n=240,c=n/2,r=c-15;
-  J.fillStyle="#000"; J.fillRect(0,0,n,n);
-  J.fillStyle="#fff"; J.fillRect(c-r,c-r,2*r,2*r);
-  J.strokeStyle="#c9c9c9"; J.lineWidth=1;
-  J.beginPath(); J.moveTo(c-r,c); J.lineTo(c+r,c);
-  J.moveTo(c,c-r); J.lineTo(c,c+r); J.stroke();
-  // View gain only. The command is the velocity fed INTO the integrator, not
-  // the gaze velocity: for a leaky integrator the leak moves the gaze with
-  // the stick untouched, and blaming that on the hand would be wrong.
-  const jx=Math.max(-1,Math.min(1,TR.jx[k]*JOYGAIN));
-  const jy=Math.max(-1,Math.min(1,TR.jy[k]*JOYGAIN));
-  const px=c+jx*r, py=c-jy*r;
-  J.strokeStyle="#e5484d"; J.lineWidth=6; J.lineCap="round";
-  J.beginPath(); J.moveTo(c,c); J.lineTo(px,py); J.stroke();
-  J.fillStyle="#e5484d"; J.beginPath(); J.arc(px,py,12,0,7); J.fill();
-  J.fillStyle="#222"; J.beginPath(); J.arc(c,c,3.5,0,7); J.fill();
-  const sat=Math.abs(TR.jx[k])>=1||Math.abs(TR.jy[k])>=1;
-  const sp=Math.hypot(TR.jx[k],TR.jy[k])*TR.joy_full_scale;
-  J.fillStyle="#111"; J.font="600 11px sans-serif";
-  J.fillText(sp.toFixed(2)+" u/s"+(sat?"   SATURATED":""), c-r+8, c+r-9);
-  if(sat){ J.strokeStyle="#e5484d"; J.lineWidth=2;
-           J.strokeRect(c-r+1,c-r+1,2*r-2,2*r-2); }
-}
-
-function drawPhi(){
-  const w=300,h=250,pad=30; PH.fillStyle="#000"; PH.fillRect(0,0,w,h);
-  const F=TR.phi_f, U=TR.phi_u, NEG=TR.phi_neg;
-  const fmax=Math.max(...F.map(Math.abs))*1.1;
-  const X=u=>pad+(u+1)/2*(w-pad-8), Y=f=>h/2-f/fmax*(h/2-pad*0.6);
-  PH.strokeStyle="#333"; PH.beginPath();
-  PH.moveTo(pad,h/2); PH.lineTo(w-8,h/2); PH.moveTo(X(0),8); PH.lineTo(X(0),h-8);
-  PH.stroke();
-  // the curve, red wherever the slope is negative -> not invertible there
-  for(let i=1;i<U.length;i++){
-    PH.strokeStyle = (NEG[i]||NEG[i-1]) ? "#e5484d" : "#fff";
-    PH.lineWidth = (NEG[i]||NEG[i-1]) ? 3.0 : 1.8;
-    PH.beginPath(); PH.moveTo(X(U[i-1]),Y(F[i-1])); PH.lineTo(X(U[i]),Y(F[i])); PH.stroke();
-  }
-  const u=Math.max(-1,Math.min(1,TR.u_cmd[k]));
-  let j=0; for(let i=1;i<U.length;i++) if(Math.abs(U[i]-u)<Math.abs(U[j]-u)) j=i;
-  PH.fillStyle = NEG[j] ? "#e5484d" : "#4da3ff";
-  PH.beginPath(); PH.arc(X(u),Y(F[j]),6,0,7); PH.fill();
-  PH.fillStyle="#fff"; PH.font="10px sans-serif";
-  PH.fillText("u",w-16,h/2-6); PH.fillText("deg",X(0)+5,14);
-  if(TR.phi_neg_frac>0){ PH.fillStyle="#e5484d";
-    PH.fillText("not invertible over "+(TR.phi_neg_frac*100).toFixed(0)+"%",pad,h-8); }
-}
-
 function drawEye(){
-  const n=250,c=n/2,R=72; EY.fillStyle="#000"; EY.fillRect(0,0,n,n);
-  const g=TR.gaze_deg[k], t=TR.target_deg[k];
-  // target eccentricity, as a mark on the orbit
-  const ta=t*Math.PI/180;
-  EY.strokeStyle="#888"; EY.lineWidth=1;
-  EY.beginPath(); EY.arc(c,c,R+26,0,7); EY.stroke();
-  EY.fillStyle="#fff";
-  EY.beginPath(); EY.arc(c+Math.sin(ta)*(R+26),c-Math.cos(ta)*(R+26),5,0,7); EY.fill();
-  // globe, rotated by the gaze the plant actually produced
-  const ga=g*Math.PI/180;
-  EY.fillStyle="#1b2129"; EY.strokeStyle="#fff"; EY.lineWidth=1.4;
+  const n=360,c=n/2,R=118;
+  EY.fillStyle="#000"; EY.fillRect(0,0,n,n);
+  if(!TR.plant){ EY.fillStyle="#666"; EY.font="12px sans-serif";
+    EY.fillText("no eye selected",14,24); return; }
+  // Gaze in degrees maps to a displacement of the pupil across the face of
+  // the globe: the eye rotates, so the pupil sweeps a circle of radius R and
+  // its projection is R*sin(angle). Drawn at the eye's OWN scale, not the
+  // world's, so the panel shows what the mechanics did rather than how close
+  // that was to the target.
+  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*TR.deg_per_unit;
+  const px=c+Math.sin(gh*Math.PI/180)*R, py=c-Math.sin(gv*Math.PI/180)*R;
+  // sclera
+  EY.fillStyle="#eef2f6"; EY.strokeStyle="#fff"; EY.lineWidth=1.5;
   EY.beginPath(); EY.arc(c,c,R,0,7); EY.fill(); EY.stroke();
-  const px=c+Math.sin(ga)*R*0.62, py=c-Math.cos(ga)*R*0.62;
-  EY.fillStyle="#cfd8e3"; EY.beginPath(); EY.arc(px,py,R*0.34,0,7); EY.fill();
-  EY.fillStyle="#111"; EY.beginPath(); EY.arc(px,py,R*0.14,0,7); EY.fill();
-  EY.strokeStyle="#4da3ff"; EY.lineWidth=2;
-  EY.beginPath(); EY.moveTo(c,c); EY.lineTo(c+Math.sin(ga)*R,c-Math.cos(ga)*R); EY.stroke();
-  EY.fillStyle="#fff"; EY.font="11px sans-serif";
-  EY.fillText("gaze "+g.toFixed(1)+"\u00b0",8,16);
-  EY.fillStyle="#888"; EY.fillText("target "+t.toFixed(1)+"\u00b0",8,32);
-}
-
-function drawGaze(){
-  const w=600,h=250,pad=26; GZ.fillStyle="#000"; GZ.fillRect(0,0,w,h);
-  const A=TR.target_deg, B=TR.gaze_deg;
-  const m=Math.max(...A.map(Math.abs),...B.map(Math.abs))*1.1||1;
-  const Y=v=>h/2-v/m*(h/2-pad*0.5);
-  GZ.strokeStyle="#333"; GZ.beginPath(); GZ.moveTo(0,h/2); GZ.lineTo(w,h/2); GZ.stroke();
-  const line=(a,col,lw)=>{ GZ.strokeStyle=col; GZ.lineWidth=lw; GZ.beginPath();
-    for(let i=0;i<=k;i++){ const px=i/(a.length-1)*w;
-      i?GZ.lineTo(px,Y(a[i])):GZ.moveTo(px,Y(a[i])); } GZ.stroke(); };
-  line(A,"#d8d8d8",1.8); line(B,"#4da3ff",1.8);
-  GZ.fillStyle="#fff"; GZ.font="11px sans-serif";
-  GZ.fillText("target",8,16); GZ.fillStyle="#4da3ff"; GZ.fillText("gaze (after the eye)",58,16);
-  GZ.fillStyle="#888";
-  GZ.fillText("mean |error| "+TR.gaze_err_mean.toFixed(2)+"\u00b0"
-    +"   world "+TR.deg_per_unit.toFixed(1)+"\u00b0/unit",8,h-8);
+  // where the target would put it, for comparison
+  const th=TR.target_deg[k], tv=TR.y[k]*TR.deg_per_unit;
+  const tx=c+Math.sin(th*Math.PI/180)*R, ty=c-Math.sin(tv*Math.PI/180)*R;
+  EY.strokeStyle="#9aa4b2"; EY.lineWidth=1.5; EY.setLineDash([3,3]);
+  EY.beginPath(); EY.arc(tx,ty,26,0,7); EY.stroke(); EY.setLineDash([]);
+  // iris + the black pupil
+  EY.fillStyle="#7c93ad"; EY.beginPath(); EY.arc(px,py,40,0,7); EY.fill();
+  EY.fillStyle="#000"; EY.beginPath(); EY.arc(px,py,19,0,7); EY.fill();
+  EY.fillStyle="#ffffff"; EY.globalAlpha=0.55;
+  EY.beginPath(); EY.arc(px-7,py-8,5,0,7); EY.fill(); EY.globalAlpha=1;
+  // axes, so left/right and up/down are readable
+  EY.strokeStyle="#333"; EY.lineWidth=1;
+  EY.beginPath(); EY.moveTo(c-R,c); EY.lineTo(c+R,c);
+  EY.moveTo(c,c-R); EY.lineTo(c,c+R); EY.stroke();
+  EY.fillStyle="#8a8a8a"; EY.font="11px sans-serif";
+  EY.fillText("h "+gh.toFixed(1)+"\u00b0",10,20);
+  EY.fillText("v "+gv.toFixed(1)+"\u00b0",10,36);
+  EY.fillStyle="#9aa4b2"; EY.fillText("dashed = where the target is",10,n-12);
 }
 
 function stats(){
@@ -953,14 +826,10 @@ function stats(){
     ` of the time &nbsp;&middot;&nbsp; seed <b>${TR.settings.seed}</b>`;
 }
 
-function frame(){ drawWorld(); drawRetina(); drawStrip(); drawJoy();
-  axis(X,TR.x,TR.gx); axis(Y,TR.y,TR.gy); stats();
-  const on = !!TR.plant;
-  document.getElementById("worldcap").innerHTML = on
+function frame(){ drawWorld(); drawEye(); stats();
+  document.getElementById("worldcap").innerHTML = TR.plant
     ? 'world &mdash; target, <i>computed</i>, and <b style="color:#4da3ff">where the eye points</b>'
     : 'world &mdash; target, and <i>computed</i>';
-  document.getElementById("plantrow").style.display = on ? "flex" : "none";
-  if(on){ drawPhi(); drawEye(); drawGaze(); }
   k=(k+1)%TR.t.length; }
 
 async function load(newseed){
