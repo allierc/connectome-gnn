@@ -778,6 +778,7 @@ function drawWorld(){
   };
   track(TR.x,TR.y,"#5a5a5a","#d8d8d8",2,3.5);
   track(TR.gx,TR.gy,"#7a2226","#e5484d",2,3.5);
+  if(TR.gaze_grid_h) track(TR.gaze_grid_h,TR.gaze_grid_v,"#1d3f5e","#4da3ff",1.5,2.5);
   // the two current positions, and the drift between them
   const tx=wPx(TR.x[k],n),ty=wPx(-TR.y[k],n);
   const cx=wPx(TR.gx[k],n),cy=wPx(-TR.gy[k],n);
@@ -785,6 +786,10 @@ function drawWorld(){
   W.beginPath(); W.moveTo(tx,ty); W.lineTo(cx,cy); W.stroke(); W.setLineDash([]);
   W.fillStyle="#fff"; W.beginPath(); W.arc(tx,ty,7,0,7); W.fill();
   W.fillStyle="#e5484d"; W.beginPath(); W.arc(cx,cy,7,0,7); W.fill();
+  if(TR.gaze_grid_h){
+    const ex_=wPx(TR.gaze_grid_h[k],n), ey_=wPx(-TR.gaze_grid_v[k],n);
+    W.fillStyle="#4da3ff"; W.beginPath(); W.arc(ex_,ey_,6,0,7); W.fill();
+  }
   W.strokeStyle="#e5484d"; W.lineWidth=1.2;
   W.beginPath(); W.arc(cx,cy,15,0,7); W.stroke();
 }
@@ -933,10 +938,10 @@ function stats(){
   // an eye, so it has no inverse model of one and pays a lag it cannot see.
   // Saying so stops that reading as a controller regression.
   const uncomp = TR.plant
-    ? '<br><span style="color:#e5a23c">uncompensated &mdash; this controller '
-      + 'was trained without an eye, so the red trace carries the eye\'s lag. '
-      + 'The number on the eye button is what a controller trained THROUGH '
-      + 'that eye achieves.</span>'
+    ? '<br><span style="color:#e5a23c">red is the controller, blue is the eye '
+      + 'driven by it. This controller was trained without an eye, so the '
+      + 'blue lag is the plant, not a control failure. The number on the eye '
+      + 'button is what a controller trained THROUGH that eye achieves.</span>'
     : "";
   const lost = TR.t_lose===null
     ? 'never lost within '+TR.settings.duration.toFixed(0)+'s'
@@ -952,7 +957,7 @@ function frame(){ drawWorld(); drawRetina(); drawStrip(); drawJoy();
   axis(X,TR.x,TR.gx); axis(Y,TR.y,TR.gy); stats();
   const on = !!TR.plant;
   document.getElementById("worldcap").innerHTML = on
-    ? 'world &mdash; target, and <i>where the eye points</i>'
+    ? 'world &mdash; target, <i>computed</i>, and <b style="color:#4da3ff">where the eye points</b>'
     : 'world &mdash; target, and <i>computed</i>';
   document.getElementById("plantrow").style.display = on ? "flex" : "none";
   if(on){ drawPhi(); drawEye(); drawGaze(); }
@@ -1066,24 +1071,19 @@ class Handler(BaseHTTPRequestHandler):
                     dpu = deg_per_unit(q.get("world", "auto"), pname)
                     tgt = np.asarray(tr["x"]) * dpu
                     pu, pf, pneg = plant_curve(pname, axis="h")
-                    # THE RED TRAJECTORY IS NOW THE EYE, not the integrator.
-                    # Everything downstream — world track, retina, drift strip,
-                    # x(t)/y(t) — reads gx/gy, so writing the gaze back into
-                    # them makes every panel show where the eye actually
-                    # points rather than where the controller believes it is.
-                    gx = gaze_h / dpu
-                    gy = gaze_v / dpu
-                    ex, ey = x - gx, y - gy
-                    err = np.hypot(ex, ey)
-                    lost = np.flatnonzero(err > FOV)
+                    # The world / retina / drift / x(t) / y(t) panels keep
+                    # showing WHAT THE CONTROLLER COMPUTED. None of the
+                    # controllers selectable here was trained through an eye,
+                    # so routing their output through one and calling the
+                    # result "the controller" confuses a plant lag with a
+                    # control failure — which is exactly how it read. The
+                    # eye's response lives in the plant row instead, where it
+                    # is labelled as the eye.
+                    gaze_grid_h = gaze_h / dpu
+                    gaze_grid_v = gaze_v / dpu
                     tr.update({
-                        "gx": gx.tolist(), "gy": gy.tolist(),
-                        "ex": ex.tolist(), "ey": ey.tolist(),
-                        "err": err.tolist(),
-                        "err_mean": float(err.mean()),
-                        "err_end": float(err[-1]),
-                        "t_lose": (float(tr["t"][int(lost[0])])
-                                   if lost.size else None),
+                        "gaze_grid_h": gaze_grid_h.tolist(),
+                        "gaze_grid_v": gaze_grid_v.tolist(),
                         "plant": pname, "gaze_deg": gaze_h.tolist(),
                         "target_deg": tgt.tolist(),
                         "gaze_err": np.abs(gaze_h - tgt).tolist(),
