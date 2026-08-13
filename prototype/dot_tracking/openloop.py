@@ -325,6 +325,52 @@ def _ml_predict(name, t, vx, vy, x0, y0, dt, rng, **kw):
 EYE_CONTROLLER = {}          # plant variant -> controller trained for it
 
 
+def _eye_predict(base, variant, t, vx, vy, x0, y0, dt):
+    """A network trained through one eye, driving that eye.
+
+    learn_eye.py trains a HORIZONTAL model: one velocity channel in, a
+    push-pull muscle command out. Two consequences are handled here rather
+    than hidden.
+
+    The command, not a position, is what the network emits — so the
+    controller's own trace is the command read through the plant's STATIC
+    map, Phi(cmd). The blue trace adds the second-order mechanics on top, and
+    the distance between them is exactly what the dynamics cost.
+
+    The vertical axis reuses the same network, with the command rescaled by
+    the ratio of the two axes' gains. Without that correction the vertical
+    plant, whose travel is smaller, would systematically undershoot; with it
+    the vertical is an approximation whose only justification is that no
+    vertical network has been trained yet.
+    """
+    import torch
+    key = ("eye", base)
+    if key not in _ML_CACHE:
+        import learn_eye
+        blob = torch.load(os.path.join(CKPT_DIR, f"{base}.pt"),
+                          map_location="cpu", weights_only=False)
+        pl = learn_eye.load_plant(variant, float(blob.get("dt", dt)))
+        m = learn_eye.CTRNNEye(float(blob.get("dt", dt)), pl)
+        m.load_state_dict(blob["state_dict"])
+        m.eval()
+        _ML_CACHE[key] = m
+    m = _ML_CACHE[key]
+    P = load_plants()[variant]
+    gh = float(P["h"]["coef"][0]); gv = float(P["v"]["coef"][0])
+    with torch.no_grad():
+        _, mh = m(torch.tensor(vx[None, :, None], dtype=torch.float32))
+        _, mv = m(torch.tensor(vy[None, :, None], dtype=torch.float32))
+    cmd_h = (mh[0, :, 0] - mh[0, :, 1]).numpy()
+    cmd_v = (mv[0, :, 0] - mv[0, :, 1]).numpy() * (gh / max(gv, 1e-6))
+    ux = np.clip(cmd_h, -JOY_FULL_SCALE, JOY_FULL_SCALE)
+    uy = np.clip(cmd_v, -JOY_FULL_SCALE, JOY_FULL_SCALE)
+    # red = the command through the static map only
+    dpu = deg_per_unit("auto", variant)
+    gx = plant_static(P["h"]["coef"], np.clip(cmd_h, -1, 1)) / dpu
+    gy = plant_static(P["v"]["coef"], np.clip(cmd_v, -1, 1)) / dpu
+    return gx, gy, ux, uy
+
+
 def register_trained():
     """One controller per checkpoint in models/, named `ml:<model>`.
 
@@ -339,11 +385,13 @@ def register_trained():
             continue
         base = f[:-3]
         if base.startswith("ctrnn_eye_"):
-            # Trained by learn_eye.py: a 1-D horizontal model whose output is
-            # gaze in degrees, not a 2-D position in arena units. It does not
-            # satisfy this module's controller contract and must not be
-            # offered as one — its score belongs on the EYE button, which is
-            # what it measures.
+            var = base[len("ctrnn_eye_"):]
+            if var in load_plants():
+                OPEN_LOOP[f"eye:{var}"] = (
+                    lambda t, vx, vy, x0, y0, dt, rng, _v=var, _b=base, **kw:
+                    _eye_predict(_b, _v, t, vx, vy, x0, y0, dt))
+                PARAMS[f"eye:{var}"] = []
+                EYE_CONTROLLER[var] = f"eye:{var}"
             continue
         OPEN_LOOP[f"ml:{base}"] = (
             lambda t, vx, vy, x0, y0, dt, rng, _b=base, **kw:
@@ -359,6 +407,12 @@ def label_for(name):
     `ctrnn C`. The doubled "eye" is an artefact of the filename and carries
     no information."""
     key = name[3:] if name.startswith("ml:") else name
+    if name.startswith("eye:"):
+        var = name[4:]
+        sc = EYE_SCORES.get(var) or {}
+        e = sc.get("gaze_err_mean_deg")
+        return (f"ctrnn {EYE_LABEL.get(var, var)}"
+                + (f" ({e:.2f}\u00b0)" if e is not None else ""))
     if key.startswith("ctrnn_eye_"):
         var = key[len("ctrnn_eye_"):]
         lab = EYE_LABEL.get(var, var)
@@ -621,8 +675,9 @@ const DURATIONS=["4","8","16","30"];
 const WORLDS=["auto","3","7","15"];
 const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__, PLANTLAB=__PLANTLAB__;
 const sel={start:"center",shape:"curve",motion:"stop_and_go",speed:"slow",
-           angle:"low",controller:"leaky",duration:"8",
+           angle:"low",controller:"eye:eye_p3a_length",duration:"8",
            plant:"eye_p3a_length",world:"auto"};
+// opened on eye C, so the controller must be the one trained for it
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
@@ -644,8 +699,12 @@ function group(name,opts,onpick,key){
       // groups, so clear both rather than only this one.
       const pool=(key==="controller")?CTRLBTN:[...s.children];
       pool.forEach(c=>c.setAttribute("aria-pressed",c===b));
+      // choosing an eye-blind controller drops the eye
+      if(key==="controller" && !o.startsWith("eye:") && sel.plant!=="none")
+        clearPlant();
       if(onpick) onpick(o); load(); };
     if(key==="controller") CTRLBTN.push(b);
+    if(name==="plant") PLANTBTN.push(b);
     s.appendChild(b);
   });
   g.append(l,s); C.appendChild(g); return s;
@@ -653,15 +712,29 @@ function group(name,opts,onpick,key){
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
 group("world",WORLDS);
-// The eye applies to WHATEVER controller is selected: the score on each eye
-// button is what its own trained network achieves (learn_eye.py), while the
-// panel shows the controller you picked driving that eye uncompensated.
-group("plant",["none"].concat(PLANTS));
+// The two rows are ONE exclusive choice, not a combination. An eye button
+// selects that eye together with the network trained through it; a
+// controller button clears the eye, because none of those controllers has
+// ever seen one. Allowing the cross product produced the misleading pairing
+// — an eye-blind controller driving an eye — that read as a regression.
+group("plant",["none"].concat(PLANTS), p=>{
+  const c = EYECTRL[p];
+  if(p!=="none" && c){ sel.controller=c; markCtrl(c); }
+  if(p==="none" && (sel.controller||"").startsWith("eye:")){
+    sel.controller="perfect"; markCtrl("perfect"); }
+});
+function markCtrl(n){
+  CTRLBTN.forEach(b=>b.setAttribute("aria-pressed",(LABELS[n]||n)===b.textContent));
+}
+function clearPlant(){
+  sel.plant="none";
+  PLANTBTN.forEach(b=>b.setAttribute("aria-pressed", b.textContent==="none"));
+}
 // Two groups, one shared selection: the analytic controllers are lesion
 // models with hand-set defects, the learned ones are fitted. Mixing them in
 // one strip invited reading the analytic rows as competitors, which they are
 // not — fitted, gain and leak collapse onto `perfect`.
-const CTRLBTN=[];
+const CTRLBTN=[], PLANTBTN=[];
 group("analytic",CTRL_A,buildKnobs,"controller");
 group("learned",CTRL_M,buildKnobs,"controller");
 const gx0=document.createElement("div"); gx0.className="group";
@@ -866,14 +939,15 @@ class Handler(BaseHTTPRequestHandler):
             from trajectory import SPEC
             page = (PAGE.replace("__SPEC__", json.dumps(SPEC))
                         .replace("__CTRL_A__", json.dumps(
-                            [n for n in OPEN_LOOP if not n.startswith("ml:")]))
+                            [n for n in OPEN_LOOP
+                             if not n.startswith(("ml:", "eye:"))]))
                         .replace("__CTRL_M__", json.dumps(
                             # per-eye controllers are NOT listed here: the
                             # plant row already selects the eye and its own
                             # network together, so a second set of A-E buttons
                             # would be the same choice twice.
-                            [n for n in OPEN_LOOP if n.startswith("ml:")
-                             and not n.startswith("ml:ctrnn_eye_")]))
+                            [n for n in OPEN_LOOP if n.startswith("ml:")]
+                            + [n for n in OPEN_LOOP if n.startswith("eye:")]))
                         .replace("__LABELS__", json.dumps(
                             {n: label_for(n) for n in OPEN_LOOP}))
                         .replace("__PARAMS__", json.dumps(PARAMS))
