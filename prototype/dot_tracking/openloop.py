@@ -724,53 +724,64 @@ const EY=document.getElementById("eye").getContext("2d");
 const GZ=document.getElementById("gz").getContext("2d");
 const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
+// With an eye attached the world panel is drawn in DEGREES over a fixed
+// window, not in arena units. That is the difference the world selector was
+// missing: rescaling the world then shrinks the trajectory inside a box of
+// constant size, instead of rescaling the box with it and cancelling out.
+const DEGSPAN=18;                       // half-window, degrees
+function degPx(v,size){ return (v/DEGSPAN+1)/2*(size-2)+1; }
+function wPx(v,size){ return TR.deg_per_unit
+  ? degPx(v*TR.deg_per_unit,size) : toPx(v,size); }
 
 function drawWorld(){
   const n=430; W.fillStyle="#000"; W.fillRect(0,0,n,n);
   W.strokeStyle="#1c1c1c"; W.lineWidth=1;
   for(let i=1;i<4;i++){ const p=Math.round(i*n/4)+.5;
     W.beginPath(); W.moveTo(p,0); W.lineTo(p,n); W.moveTo(0,p); W.lineTo(n,p); W.stroke(); }
-  // Degree ruler. The grid is in arena units; what the eye actually has to
-  // deliver is an ANGLE, and the two differ by the world scale — so the axis
-  // is labelled in the units the mechanics works in.
   if(TR.deg_per_unit){
     const d=TR.deg_per_unit;
+    // ruler in degrees, fixed window
     W.fillStyle="#7a7a7a"; W.font="9px sans-serif"; W.textAlign="center";
-    for(let g=-1;g<=1;g+=0.5){
-      const px=toPx(g,n);
-      W.fillText((g*d).toFixed(0)+"\u00b0", px, n-4);
+    for(let g=-15;g<=15;g+=5){
+      const px=degPx(g,n);
+      W.fillText(g+"\u00b0", px, n-4);
       W.strokeStyle="#2a2a2a"; W.beginPath();
       W.moveTo(px,n-14); W.lineTo(px,n-10); W.stroke();
     }
-    W.textAlign="left";
-    W.fillText(d.toFixed(1)+"\u00b0/unit", 5, 12);
-    // What the eye can reach. When the target leaves this box no controller
-    // can follow it — the failure is mechanical, not one of control.
+    // the world the target lives in, at the current scale
+    const wx=degPx(0.95*d,n)-degPx(0,n);
+    W.strokeStyle="#4b5563"; W.lineWidth=1.2;
+    W.strokeRect(degPx(0,n)-wx, degPx(0,n)-wx, 2*wx, 2*wx);
+    W.textAlign="left"; W.fillStyle="#6b7280";
+    W.fillText("world "+d.toFixed(1)+"\u00b0/unit  (\u00b1"
+               +(0.95*d).toFixed(1)+"\u00b0)", 5, 12);
+    // what the eye can reach — when the target leaves this, no controller
+    // can follow it and the failure is mechanical, not one of control
     if(TR.reach_h){
-      const rx=TR.reach_h/d, ry=TR.reach_v/d;
       W.strokeStyle="#8a6d1f"; W.lineWidth=1.2; W.setLineDash([5,4]);
-      W.strokeRect(toPx(-rx,n), toPx(-ry,n), toPx(rx,n)-toPx(-rx,n),
-                   toPx(ry,n)-toPx(-ry,n));
-      W.setLineDash([]);
-      W.fillStyle="#8a6d1f";
-      W.fillText("eye reach", toPx(-rx,n)+4, toPx(-ry,n)+11);
+      W.strokeRect(degPx(-TR.reach_h,n), degPx(-TR.reach_v,n),
+                   degPx(TR.reach_h,n)-degPx(-TR.reach_h,n),
+                   degPx(TR.reach_v,n)-degPx(-TR.reach_v,n));
+      W.setLineDash([]); W.fillStyle="#8a6d1f";
+      W.fillText("eye reach \u00b1"+TR.reach_h.toFixed(1)+"\u00b0",
+                 degPx(-TR.reach_h,n)+4, degPx(-TR.reach_v,n)+11);
     }
   }
   W.lineJoin="round"; W.lineCap="round";
   const track=(ax,ay,dim,bright,lwd,lwb)=>{
     W.strokeStyle=dim; W.lineWidth=lwd; W.beginPath();
-    for(let i=0;i<=k;i++){ const px=toPx(ax[i],n),py=toPx(-ay[i],n);
+    for(let i=0;i<=k;i++){ const px=wPx(ax[i],n),py=wPx(-ay[i],n);
       i?W.lineTo(px,py):W.moveTo(px,py); } W.stroke();
     W.strokeStyle=bright; W.lineWidth=lwb; W.beginPath();
     const s0=Math.max(0,k-TRAIL);
-    for(let i=s0;i<=k;i++){ const px=toPx(ax[i],n),py=toPx(-ay[i],n);
+    for(let i=s0;i<=k;i++){ const px=wPx(ax[i],n),py=wPx(-ay[i],n);
       i===s0?W.moveTo(px,py):W.lineTo(px,py); } W.stroke();
   };
   track(TR.x,TR.y,"#5a5a5a","#d8d8d8",2,3.5);
   track(TR.gx,TR.gy,"#7a2226","#e5484d",2,3.5);
   // the two current positions, and the drift between them
-  const tx=toPx(TR.x[k],n),ty=toPx(-TR.y[k],n);
-  const cx=toPx(TR.gx[k],n),cy=toPx(-TR.gy[k],n);
+  const tx=wPx(TR.x[k],n),ty=wPx(-TR.y[k],n);
+  const cx=wPx(TR.gx[k],n),cy=wPx(-TR.gy[k],n);
   W.strokeStyle="#666"; W.lineWidth=1; W.setLineDash([3,3]);
   W.beginPath(); W.moveTo(tx,ty); W.lineTo(cx,cy); W.stroke(); W.setLineDash([]);
   W.fillStyle="#fff"; W.beginPath(); W.arc(tx,ty,7,0,7); W.fill();
