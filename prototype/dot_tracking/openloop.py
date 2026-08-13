@@ -259,6 +259,49 @@ def plant_static(coef, u):
     return sum(c * u ** (k + 1) for k, c in enumerate(coef))
 
 
+def plant_run_states(name, u_cmd, dt, axis="h"):
+    """As plant_run, but also returns the plant's velocity state.
+
+    A second-order plant has TWO states, position and velocity, and the
+    velocity is the one you cannot see in the world panel — it is what makes
+    the eye overshoot. Exposing it is the difference between watching the
+    eye and watching the mechanics."""
+    p = load_plants()[name][axis]
+    f = plant_static(p["coef"], np.clip(u_cmd, -1.0, 1.0))
+    w2, twz = p["wn"] ** 2, 2.0 * p["zeta"] * p["wn"]
+    g = np.zeros_like(f); vv = np.zeros_like(f); v = 0.0; y = 0.0
+    for k in range(len(f)):
+        g[k] = y; vv[k] = v
+        v += dt * (w2 * (f[k] - y) - twz * v)
+        y += dt * v
+    return g, vv
+
+
+def eye_states(base, variant, vx, vy, dt):
+    """Every state of the coupled system at every timestep, for the monitor:
+    the velocity input, the recurrent rates, the four motor pools, and the
+    two plant states per axis."""
+    import torch
+    key = ("eye", base)
+    if key not in _ML_CACHE:
+        _eye_predict(base, variant, None, vx[:1], vy[:1], 0.0, 0.0, dt)
+    m = _ML_CACHE[key]
+    with torch.no_grad():
+        u = torch.tensor(np.stack([vx, vy], -1)[None], dtype=torch.float32)
+        alpha = (m.dt / m.log_tau.exp()).clamp(1e-4, 1.0)
+        h = torch.zeros(1, m.W.shape[0])
+        drive = m.enc(u)
+        rates = []
+        for t in range(u.shape[1]):
+            r = torch.tanh(h)
+            rates.append(r[0].clone())
+            h = h + alpha * (-h + r @ m.W.T + drive[:, t])
+        R = torch.stack(rates, 0).numpy()
+        pools = torch.nn.functional.softplus(
+            m.mot(torch.tensor(R)[None]))[0].numpy()
+    return R, pools
+
+
 def plant_run(name, u_cmd, dt, axis="h"):
     """Signed command in [-1,1] -> gaze in degrees, on one axis."""
     p = load_plants()[name][axis]
@@ -668,6 +711,10 @@ learned ones.</p>
   <div class="panel"><canvas id="eye" width="360" height="360"></canvas>
     <div class="cap" id="eyecap">the eye, seen from in front</div></div>
 </div>
+<div class="row" style="margin-top:20px">
+  <div class="panel"><canvas id="states" width="620" height="250"></canvas>
+    <div class="cap">signal path &mdash; input, circuit, motor pools, eye state</div></div>
+</div>
 <div class="stats" id="stats"></div>
 </div><script>
 const SPEC=__SPEC__, CTRL_A=__CTRL_A__, CTRL_M=__CTRL_M__;
@@ -777,6 +824,7 @@ buildKnobs(sel.controller);
 
 const W=document.getElementById("world").getContext("2d");
 const EY=document.getElementById("eye").getContext("2d");
+const ST=document.getElementById("states").getContext("2d");
 const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 // With an eye attached the world panel is drawn in DEGREES over a fixed
@@ -885,6 +933,70 @@ function drawEye(){
   EY.fillStyle="#9aa4b2"; EY.fillText("dashed = where the target is",10,n-12);
 }
 
+// Pixel-art state monitor. Every cell is one scalar at this instant, drawn
+// as a hard-edged block: blue for negative, warm for positive, black at
+// zero. Deliberately unsmoothed — the point is to read individual units, not
+// a surface.
+function cmap(v,lo,hi){
+  const t=Math.max(-1,Math.min(1,(v-(lo+hi)/2)/((hi-lo)/2||1)));
+  if(t>=0) return `rgb(${Math.round(20+235*t)},${Math.round(20+150*t)},${Math.round(30+20*t)})`;
+  return `rgb(${Math.round(20-10*t)},${Math.round(20+90*-t)},${Math.round(30+225*-t)})`;
+}
+function cells(x0,y0,vals,cols,px,lo,hi,gap){
+  gap=gap||2;
+  vals.forEach((v,i)=>{
+    const cx=x0+(i%cols)*(px+gap), cy=y0+Math.floor(i/cols)*(px+gap);
+    ST.fillStyle=cmap(v,lo,hi); ST.fillRect(cx,cy,px,px);
+  });
+}
+function lab(x,y,t,col){ ST.fillStyle=col||"#8a8a8a"; ST.font="10px monospace";
+  ST.fillText(t,x,y); }
+
+function drawStates(){
+  const W=620,H=250; ST.fillStyle="#000"; ST.fillRect(0,0,W,H);
+  if(!TR.rates){ lab(14,24,"select an eye to see the circuit state","#666"); return; }
+  const r=TR.rates[k], p=TR.pools[k];
+  const vx=(TR.x[k]-(TR.x[k-1]!==undefined?TR.x[k-1]:TR.x[k]))/TR.settings.dt;
+  const vy=(TR.y[k]-(TR.y[k-1]!==undefined?TR.y[k-1]:TR.y[k]))/TR.settings.dt;
+
+  // 1. input: two cells
+  lab(14,20,"INPUT  v"); cells(14,28,[vx,vy],1,22,-1,1);
+  lab(14,90,"vx"); lab(14,102,"vy");
+
+  // 2. the recurrent core: 64 units as an 8x8 block of rates
+  lab(96,20,"ctRNN  tanh(h)   64 units");
+  cells(96,28,r,8,14,-0.6,0.6);
+  lab(96,158,"each cell one neuron's rate");
+
+  // 3. motor pools: four cells, non-negative
+  lab(300,20,"MOTOR POOLS  >= 0");
+  cells(300,28,p,1,26,0,1.2);
+  ["LR","MR","SR","IR"].forEach((n,i)=>lab(332,46+i*28,n+"  "+p[i].toFixed(2),"#c9c9c9"));
+
+  // 4. the commands and the eye's two states per axis
+  lab(430,20,"EYE  state");
+  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*TR.deg_per_unit;
+  const rows=[["cmd h",TR.u_cmd[k],-1,1],["cmd v",TR.jy?TR.jy[k]:0,-1,1],
+              ["gaze h",gh/15,-1,1],["gaze v",gv/15,-1,1],
+              ["vel h",TR.vel_h[k]/20,-1,1],["vel v",TR.vel_v[k]/20,-1,1]];
+  rows.forEach((rw,i)=>{
+    cells(430,28+i*28,[rw[1]],1,22,rw[2],rw[3]);
+    lab(458,45+i*28,rw[0],"#c9c9c9");
+  });
+  const vals=[TR.u_cmd[k],0,gh,gv,TR.vel_h[k],TR.vel_v[k]];
+  [0,2,3,4,5].forEach(i=>lab(516,45+i*28,
+    (i>=4? vals[i].toFixed(1)+"°/s" : i>=2? vals[i].toFixed(1)+"°" : vals[i].toFixed(2)),"#7a7a7a"));
+
+  // flow arrows
+  ST.strokeStyle="#444"; ST.lineWidth=1;
+  [[62,60,92,60],[236,60,296,60],[352,60,426,60]].forEach(a=>{
+    ST.beginPath(); ST.moveTo(a[0],a[1]); ST.lineTo(a[2],a[3]); ST.stroke();
+    ST.beginPath(); ST.moveTo(a[2],a[3]); ST.lineTo(a[2]-5,a[3]-4);
+    ST.lineTo(a[2]-5,a[3]+4); ST.closePath(); ST.fillStyle="#444"; ST.fill();
+  });
+  lab(14,H-10,"blue negative   black zero   warm positive","#555");
+}
+
 function stats(){
   const inside=TR.err.filter(e=>e<=FOV).length/TR.err.length*100;
   // With an eye attached the red trace is where the EYE points, not what the
@@ -907,7 +1019,7 @@ function stats(){
     ` of the time &nbsp;&middot;&nbsp; seed <b>${TR.settings.seed}</b>`;
 }
 
-function frame(){ drawWorld(); drawEye(); stats();
+function frame(){ drawWorld(); drawEye(); drawStates(); stats();
   document.getElementById("worldcap").innerHTML = TR.plant
     ? 'world &mdash; target, <i>computed</i>, and <b style="color:#4da3ff">where the eye points</b>'
     : 'world &mdash; target, and <i>computed</i>';
@@ -1024,8 +1136,18 @@ class Handler(BaseHTTPRequestHandler):
                     # 1.049 deg that way against 0.048 with the real command.
                     u_cmd = np.clip(ux, -1.0, 1.0)
                     v_cmd = np.clip(uy, -1.0, 1.0)
-                    gaze_h = plant_run(pname, u_cmd, _dt, "h")
-                    gaze_v = plant_run(pname, v_cmd, _dt, "v")
+                    gaze_h, vel_h = plant_run_states(pname, u_cmd, _dt, "h")
+                    gaze_v, vel_v = plant_run_states(pname, v_cmd, _dt, "v")
+                    st = None
+                    if name.startswith("eye:"):
+                        try:
+                            R, pools = eye_states(
+                                "ctrnn_eye_" + name[4:], name[4:],
+                                np.gradient(x, _dt), np.gradient(y, _dt), _dt)
+                            st = {"rates": np.round(R, 3).tolist(),
+                                  "pools": np.round(pools, 3).tolist()}
+                        except Exception as e:
+                            print(f"[states] {type(e).__name__}: {e}")
                     dpu = deg_per_unit(q.get("world", "auto"), pname)
                     tgt = np.asarray(tr["x"]) * dpu
                     pu, pf, pneg = plant_curve(pname, axis="h")
@@ -1050,6 +1172,9 @@ class Handler(BaseHTTPRequestHandler):
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),
                         "deg_per_unit": dpu,
+                        "vel_h": vel_h.tolist(), "vel_v": vel_v.tolist(),
+                        "rates": (st or {}).get("rates"),
+                        "pools": (st or {}).get("pools"),
                         "reach_h": float(min(abs(plant_static(
                             load_plants()[pname]["h"]["coef"], -1.0)),
                             abs(plant_static(
