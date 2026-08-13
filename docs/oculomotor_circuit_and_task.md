@@ -660,16 +660,91 @@ were compared rather than assumed:
 
 ![**The eye plant.** Left: the static nonlinearity, plateau gaze against held command. Middle: one lateral-rectus and one medial-rectus probe, MPM solid, first-order dotted, second-order dashed — the first-order plant cannot overshoot, and the eye does. Right: RMS error per plant variant, first order against second.](../figures/zebrafish/fig_eye_plant_fit.png)
 
+
+#### The five eyes
+
+The archive is a sweep over mechanical configurations, not repeats of one
+globe. They are labelled A-E in the order they were made, and the folders
+`Plexus/prototype/eye/archive/eye_{A..E}/` collect each one's probe runs,
+movies and curves.
+
+| eye | variant | what changed | horizontal travel |
+|---|---|---|---|
+| **A** | `eye_probe_c_a` | soft tissue: sclera Young's 300, tendon 9, bone cap 40 — the softest globe | -10.1 / +3.4 deg |
+| **B** | `eye_probe_baseline_fixmat` | same geometry, materials stiffened to 420 / 45 / 130. The reference eye | -9.7 / +3.2 deg |
+| **C** | `eye_p3a_length` | B with the muscle gap widened 0.020 to 0.042 and strap fraction 0.55 to 0.95 — more contractile length, the largest travel | -14.4 / +15.1 deg |
+| **D** | `eye_p3b_pulley` | C plus a `muscle_sleeve` constraint (k 2500, c 30, free 0.70-0.88): a connective-tissue pulley holding the strap to the globe | -11.4 / +12.2 deg |
+| **E** | `eye_p3c_drive` | D with the drive amplitude raised 60 to 67 | -4.5 / +13.5 deg |
+
+A and B are strongly asymmetric — barely 3 degrees of abduction against 10 of
+adduction — so neither can serve a tracking task whatever its fit quality. C
+is the one to couple to: nearly symmetric and the widest workspace.
+
+#### A correction: there is no steady state in this archive
+
+The first version of this fit used a free cubic and produced a static curve
+whose slope at the origin was **negative** — pulling the lateral rectus would
+rotate the eye medially. That is not a finding about the eye, it is an
+artefact, and it invalidated everything downstream of it.
+
+The cause was mundane. `static_curve` reads plateaus as steady states, but
+for `wn` = 10 rad/s and `zeta` = 0.31 the settling time is
+`4/(zeta*wn)` = 1.28 s, while the holds in these runs last **0.19 s, 1.27 s
+and 0.24 s**. Not one hold in the archive has settled; the two short ones are
+still moving at 70 deg/s when sampled. What I called a static curve was
+measured entirely from transients, and the post-step return — the eye sailing
+back through zero after a full step was released — was being read as "small
+positive command gives negative gaze".
+
+Two changes follow. `Phi` is now **monotone by construction**,
+
+```math
+\Phi(u)=a\,u+b\,u^{2},
+\qquad a=e^{p}>0,
+\qquad b=\tfrac{a}{2}\tanh q
+\;\Longrightarrow\;
+\Phi'(u)=a+2bu>0 \ \ \forall\, u\in[-1,1]
+```
+
+so the fit cannot return a physically impossible curve whatever the data
+does, while the quadratic term still carries the genuine asymmetry between
+abduction and adduction. Every variant now has a positive slope at the origin
+and zero non-monotone fraction. The residuals rise a little — 0.41 to 0.72 deg
+on B — and that increase is the honest cost of refusing to fit transients.
+
+And the identification needs re-running with **holds longer than 1.3 s at
+intermediate levels** (0.2 / 0.4 / 0.6 / 0.8 in both directions). The point is
+no longer that the gain is imprecise: no steady state has been measured at
+all, so the static curve currently rests on nothing but its endpoints and the
+constraint that it must be monotone.
+
+#### Co-contraction is a second input, not a second value of the first
+
+The command is written as one signed scalar, `u = m_LR - m_MR`, which assumes
+reciprocal innervation: one muscle pulls, the other releases. If instead both
+pull — the lateral rectus leading and the medial rectus resisting — the
+difference is unchanged but the **sum** is not, and the sum is not a position
+command at all. Co-contraction raises the stiffness and the damping of the
+plant, so it moves `wn` and `zeta` rather than `Phi`.
+
+A single-input Hammerstein cannot express that. Capturing it needs
+`Phi(m_LR, m_MR)` together with `wn(m_LR+m_MR)`, identified from a probe that
+sweeps the sum as well as the difference. This is not academic for the
+present model: the motor readout already emits two independent non-negative
+drives, so the network is free to co-contract, and the plant will ignore it —
+the capacity is there and its effect is silently discarded.
+
+
 **Second order wins on every variant, by a factor of 3.** RMS error in
 degrees:
 
 | variant | order 1 | order 2 | ratio |
 |---|---|---|---|
-| `baseline_fixmat` | 1.22 | **0.41** | 3.0x |
-| `c_a` | 1.20 | **0.42** | 2.9x |
-| `p3a_length` | 2.58 | **0.62** | 4.2x |
-| `p3b_pulley` | 2.24 | **0.77** | 2.9x |
-| `p3c_drive` | 6.77 | 6.34 | 1.1x |
+| **B** `baseline_fixmat` | 1.22 | **0.41** | 3.0x |
+| **A** `c_a` | 1.20 | **0.42** | 2.9x |
+| **C** `p3a_length` | 2.58 | **0.62** | 4.2x |
+| **D** `p3b_pulley` | 2.24 | **0.77** | 2.9x |
+| **E** `p3c_drive` | 6.77 | 6.34 | 1.1x |
 
 The reason is visible in the middle panel and is not a matter of degrees of
 freedom: a first-order system is monotone towards its target and *cannot
