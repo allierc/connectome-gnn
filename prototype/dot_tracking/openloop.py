@@ -153,7 +153,8 @@ def leaky(t, vx, vy, x0, y0, dt, rng, tau=2.0, **kw):
 # --------------------------------------------------------------------------
 # the eye plant (identified in Plexus/prototype/eye/fit_plant.py)
 # --------------------------------------------------------------------------
-PLANT_NPZ = "/workspace/Plexus/prototype/eye/plant.npz"
+PLANT_NPZ = {"h": "/workspace/Plexus/prototype/eye/plant.npz",
+             "v": "/workspace/Plexus/prototype/eye/plant_v.npz"}
 DEG_PER_UNIT = 15.0          # grid units -> degrees of eccentricity
 PLANTS = {}
 
@@ -167,25 +168,30 @@ def load_plants():
     if PLANTS:
         return PLANTS
     try:
-        z = np.load(PLANT_NPZ, allow_pickle=False)
-        V = json.loads(str(z["variants"]))
+        V = {ax: json.loads(str(np.load(p, allow_pickle=False)["variants"]))
+             for ax, p in PLANT_NPZ.items()}
     except Exception as e:
         print(f"[plant] {type(e).__name__}: {e} — plant panel disabled")
         return PLANTS
-    for k, v in V.items():
-        if int(v["order"]) != 2:
-            continue
-        wn, zeta = np.exp(np.asarray(v["theta"], float))
-        PLANTS[k] = dict(coef=np.asarray(v["coef"], float),
-                         wn=float(wn), zeta=float(zeta), rms=float(v["rms"]))
-    # A linear static curve with the same full-scale travel as p3a_length:
-    # identical mechanics, monotone gain. The comparison isolates Phi.
+    for k in sorted(set(V["h"]) & set(V["v"])):
+        ent = {}
+        for ax in ("h", "v"):
+            v = V[ax][k]
+            if int(v["order"]) != 2:
+                break
+            wn, zeta = np.exp(np.asarray(v["theta"], float))
+            ent[ax] = dict(coef=np.asarray(v["coef"], float), wn=float(wn),
+                           zeta=float(zeta), rms=float(v["rms"]))
+        if len(ent) == 2:
+            PLANTS[k] = ent
+    # Same mechanics, same travel, monotone gain — the control that separates
+    # the eye's dynamics from its static curve.
     ref = PLANTS.get("eye_p3a_length")
     if ref is not None:
-        span = float(sum(c for c in ref["coef"]))          # Phi(1)
-        PLANTS["ideal_linear"] = dict(coef=np.array([span, 0.0, 0.0]),
-                                      wn=ref["wn"], zeta=ref["zeta"],
-                                      rms=float("nan"))
+        PLANTS["ideal_linear"] = {
+            ax: dict(coef=np.array([float(sum(ref[ax]["coef"])), 0.0, 0.0]),
+                     wn=ref[ax]["wn"], zeta=ref[ax]["zeta"], rms=float("nan"))
+            for ax in ("h", "v")}
     return PLANTS
 
 
@@ -193,9 +199,9 @@ def plant_static(coef, u):
     return sum(c * u ** (k + 1) for k, c in enumerate(coef))
 
 
-def plant_run(name, u_cmd, dt):
-    """Signed command in [-1,1] -> horizontal gaze in degrees."""
-    p = load_plants()[name]
+def plant_run(name, u_cmd, dt, axis="h"):
+    """Signed command in [-1,1] -> gaze in degrees, on one axis."""
+    p = load_plants()[name][axis]
     f = plant_static(p["coef"], np.clip(u_cmd, -1.0, 1.0))
     w2, twz = p["wn"] ** 2, 2.0 * p["zeta"] * p["wn"]
     g = np.zeros_like(f); v = 0.0; y = 0.0
@@ -206,10 +212,10 @@ def plant_run(name, u_cmd, dt):
     return g
 
 
-def plant_curve(name, n=201):
+def plant_curve(name, n=201, axis="h"):
     """Phi sampled over the command range, plus where its slope is negative —
     the band in which the plant cannot be inverted."""
-    p = load_plants()[name]
+    p = load_plants()[name][axis]
     u = np.linspace(-1.0, 1.0, n)
     f = plant_static(p["coef"], u)
     d = np.gradient(f, u)
@@ -263,8 +269,16 @@ def _ml_predict(name, t, vx, vy, x0, y0, dt, rng, **kw):
     return gx, gy, ux, uy
 
 
+EYE_CONTROLLER = {}          # plant variant -> controller trained for it
+
+
 def register_trained():
-    """One controller per checkpoint in models/, named `ml:<model>`."""
+    """One controller per checkpoint in models/, named `ml:<model>`.
+
+    Checkpoints called ``ctrnn_eye_<variant>`` are also indexed by the eye
+    they were trained through, because a controller that has learned one
+    plant's inverse is not the controller for another. The UI uses that index
+    to pair a selected eye with its own network instead of reusing one."""
     if not os.path.isdir(CKPT_DIR):
         return
     for f in sorted(os.listdir(CKPT_DIR)):
@@ -275,6 +289,8 @@ def register_trained():
             lambda t, vx, vy, x0, y0, dt, rng, _b=base, **kw:
             _ml_predict(_b, t, vx, vy, x0, y0, dt, rng, **kw))
         PARAMS[f"ml:{base}"] = []
+        if base.startswith("ctrnn_eye_"):
+            EYE_CONTROLLER[base[len("ctrnn_eye_"):]] = f"ml:{base}"
 
 
 def label_for(name):
@@ -520,7 +536,7 @@ learned ones.</p>
 <div class="knobs" id="knobs"></div>
 <div class="row">
   <div class="panel"><canvas id="world" width="430" height="430"></canvas>
-    <div class="cap">world &mdash; target, and <i>computed</i></div></div>
+    <div class="cap" id="worldcap">world &mdash; target, and <i>computed</i></div></div>
   <div class="panel"><canvas id="retina" width="286" height="286"></canvas>
     <div class="cap">where the target is, if you believe the integral</div>
     <canvas id="strip" width="286" height="86"></canvas>
@@ -551,7 +567,7 @@ const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
 const DURATIONS=["4","8","16","30"];
-const PLANTS=__PLANTS__;
+const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__;
 const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
            angle:"low",controller:"leaky",duration:"8",plant:"none"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
@@ -581,7 +597,16 @@ function group(name,opts,onpick,key){
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
-group("plant",["none"].concat(PLANTS));
+group("plant",["none"].concat(PLANTS), p=>{
+  // A controller trained through one eye has learned THAT eye's inverse.
+  // Selecting an eye therefore selects its own network, when one exists.
+  const c=EYECTRL[p];
+  if(c && OPENLOOP_HAS(c)){ sel.controller=c;
+    CTRLBTN.forEach(b=>b.setAttribute("aria-pressed",
+      (LABELS[c]||c)===b.textContent));
+    buildKnobs(c); }
+});
+function OPENLOOP_HAS(n){ return CTRLBTN.some(b=>(LABELS[n]||n)===b.textContent); }
 // Two groups, one shared selection: the analytic controllers are lesion
 // models with hand-set defects, the learned ones are fitted. Mixing them in
 // one strip invited reading the analytic rows as competitors, which they are
@@ -810,6 +835,9 @@ function stats(){
 function frame(){ drawWorld(); drawRetina(); drawStrip(); drawJoy();
   axis(X,TR.x,TR.gx); axis(Y,TR.y,TR.gy); stats();
   const on = !!TR.plant;
+  document.getElementById("worldcap").innerHTML = on
+    ? 'world &mdash; target, and <i>where the eye points</i>'
+    : 'world &mdash; target, and <i>computed</i>';
   document.getElementById("plantrow").style.display = on ? "flex" : "none";
   if(on){ drawPhi(); drawEye(); drawGaze(); }
   k=(k+1)%TR.t.length; }
@@ -856,6 +884,7 @@ class Handler(BaseHTTPRequestHandler):
                         .replace("__PARAMS__", json.dumps(PARAMS))
                         .replace("__FOV__", str(FOV))
                         .replace("__PLANTS__", json.dumps(sorted(load_plants())))
+                        .replace("__EYECTRL__", json.dumps(EYE_CONTROLLER))
                         .replace("__JOYGAIN__", str(JOY_VIEW_GAIN)))
             return self._send(page, "text/html; charset=utf-8")
         if u.path == "/api/trace":
@@ -904,15 +933,35 @@ class Handler(BaseHTTPRequestHandler):
                     # stick. gx is in grid units and the command axis is
                     # [-1, 1], so the two coincide once gx is clipped: full
                     # deflection asks the eye for its full travel.
+                    _dt = float(tr["settings"]["dt"])
                     u_cmd = np.clip(gx, -1.0, 1.0)
-                    gaze = plant_run(pname, u_cmd, float(tr["settings"]["dt"]))
+                    v_cmd = np.clip(gy, -1.0, 1.0)
+                    gaze_h = plant_run(pname, u_cmd, _dt, "h")
+                    gaze_v = plant_run(pname, v_cmd, _dt, "v")
                     tgt = np.asarray(tr["x"]) * DEG_PER_UNIT
-                    pu, pf, pneg = plant_curve(pname)
+                    pu, pf, pneg = plant_curve(pname, axis="h")
+                    # THE RED TRAJECTORY IS NOW THE EYE, not the integrator.
+                    # Everything downstream — world track, retina, drift strip,
+                    # x(t)/y(t) — reads gx/gy, so writing the gaze back into
+                    # them makes every panel show where the eye actually
+                    # points rather than where the controller believes it is.
+                    gx = gaze_h / DEG_PER_UNIT
+                    gy = gaze_v / DEG_PER_UNIT
+                    ex, ey = x - gx, y - gy
+                    err = np.hypot(ex, ey)
+                    lost = np.flatnonzero(err > FOV)
                     tr.update({
-                        "plant": pname, "gaze_deg": gaze.tolist(),
+                        "gx": gx.tolist(), "gy": gy.tolist(),
+                        "ex": ex.tolist(), "ey": ey.tolist(),
+                        "err": err.tolist(),
+                        "err_mean": float(err.mean()),
+                        "err_end": float(err[-1]),
+                        "t_lose": (float(tr["t"][int(lost[0])])
+                                   if lost.size else None),
+                        "plant": pname, "gaze_deg": gaze_h.tolist(),
                         "target_deg": tgt.tolist(),
-                        "gaze_err": np.abs(gaze - tgt).tolist(),
-                        "gaze_err_mean": float(np.abs(gaze - tgt).mean()),
+                        "gaze_err": np.abs(gaze_h - tgt).tolist(),
+                        "gaze_err_mean": float(np.abs(gaze_h - tgt).mean()),
                         "phi_u": pu, "phi_f": pf, "phi_neg": pneg,
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),

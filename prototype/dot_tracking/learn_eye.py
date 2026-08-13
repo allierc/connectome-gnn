@@ -138,7 +138,17 @@ class CTRNNEye(nn.Module):
 def load_plant(variant, dt):
     z = np.load(PLANT_NPZ, allow_pickle=False)
     V = json.loads(str(z["variants"]))
-    v = V[variant]
+    if variant == "ideal_linear":
+        # Same mechanics and same full-scale travel as p3a_length, but a
+        # MONOTONE static curve. This is the control that decides whether the
+        # residual error is Phi's non-invertibility or something a trained
+        # controller simply has not learned yet: only Phi differs.
+        ref = V["eye_p3a_length"]
+        span = float(sum(ref["coef"]))
+        v = dict(coef=[span, 0.0, 0.0], order=2, theta=ref["theta"],
+                 rms=float("nan"))
+    else:
+        v = V[variant]
     if int(v["order"]) != 2:
         raise SystemExit(f"{variant} was fitted at order {v['order']}")
     wn, zeta = np.exp(np.asarray(v["theta"]))
@@ -213,6 +223,16 @@ def main():
         err = (pred - Yte).abs()
         cmd = (m[..., 0] - m[..., 1])
     tag = "no plant" if a.no_plant else a.variant
+    json.dump({"variant": tag,
+               "gaze_err_mean_deg": float(err.mean()),
+               "gaze_err_p95_deg": float(err.flatten().kthvalue(
+                   int(0.95 * err.numel()))[0]),
+               "cmd_abs_mean": float(cmd.abs().mean()),
+               "cmd_saturated_frac": float((cmd.abs() >= 1).float().mean()),
+               "deg_per_unit": DEG_PER_UNIT},
+              open(os.path.join(learn.CKPT, "eye_report_"
+                                + ("noplant" if a.no_plant else a.variant)
+                                + ".json"), "w"), indent=2)
     print(f"\n[{tag}]  test mean |gaze error| {float(err.mean()):.3f} deg"
           f"   p95 {float(err.flatten().kthvalue(int(0.95*err.numel()))[0]):.3f}"
           f"   as a fraction of the +-{DEG_PER_UNIT:.0f} deg workspace: "
@@ -222,7 +242,11 @@ def main():
           f"{float((cmd.abs() >= 1).float().mean())*100:.1f}% of samples")
     print(f"   motor pools: LR mean {float(m[...,0].mean()):.3f}, "
           f"MR mean {float(m[...,1].mean()):.3f}  (both >= 0 by construction)")
-    out = os.path.join(learn.CKPT, f"ctrnn_eye{'_noplant' if a.no_plant else ''}.pt")
+    # One checkpoint per eye. A controller trained for one plant is not the
+    # controller for another — it has learned that plant's inverse — so the
+    # UI must pair each eye with its own network rather than reuse one.
+    out = os.path.join(learn.CKPT, "ctrnn_eye_"
+                       + ("noplant" if a.no_plant else a.variant) + ".pt")
     torch.save({"state_dict": model.state_dict(), "variant": tag,
                 "dt": a.dt, "deg_per_unit": DEG_PER_UNIT}, out)
     print(f"   saved {out}")
