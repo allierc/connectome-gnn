@@ -730,6 +730,32 @@ function drawWorld(){
   W.strokeStyle="#1c1c1c"; W.lineWidth=1;
   for(let i=1;i<4;i++){ const p=Math.round(i*n/4)+.5;
     W.beginPath(); W.moveTo(p,0); W.lineTo(p,n); W.moveTo(0,p); W.lineTo(n,p); W.stroke(); }
+  // Degree ruler. The grid is in arena units; what the eye actually has to
+  // deliver is an ANGLE, and the two differ by the world scale — so the axis
+  // is labelled in the units the mechanics works in.
+  if(TR.deg_per_unit){
+    const d=TR.deg_per_unit;
+    W.fillStyle="#7a7a7a"; W.font="9px sans-serif"; W.textAlign="center";
+    for(let g=-1;g<=1;g+=0.5){
+      const px=toPx(g,n);
+      W.fillText((g*d).toFixed(0)+"\u00b0", px, n-4);
+      W.strokeStyle="#2a2a2a"; W.beginPath();
+      W.moveTo(px,n-14); W.lineTo(px,n-10); W.stroke();
+    }
+    W.textAlign="left";
+    W.fillText(d.toFixed(1)+"\u00b0/unit", 5, 12);
+    // What the eye can reach. When the target leaves this box no controller
+    // can follow it — the failure is mechanical, not one of control.
+    if(TR.reach_h){
+      const rx=TR.reach_h/d, ry=TR.reach_v/d;
+      W.strokeStyle="#8a6d1f"; W.lineWidth=1.2; W.setLineDash([5,4]);
+      W.strokeRect(toPx(-rx,n), toPx(-ry,n), toPx(rx,n)-toPx(-rx,n),
+                   toPx(ry,n)-toPx(-ry,n));
+      W.setLineDash([]);
+      W.fillStyle="#8a6d1f";
+      W.fillText("eye reach", toPx(-rx,n)+4, toPx(-ry,n)+11);
+    }
+  }
   W.lineJoin="round"; W.lineCap="round";
   const track=(ax,ay,dim,bright,lwd,lwb)=>{
     W.strokeStyle=dim; W.lineWidth=lwd; W.beginPath();
@@ -948,7 +974,12 @@ class Handler(BaseHTTPRequestHandler):
                         .replace("__CTRL_A__", json.dumps(
                             [n for n in OPEN_LOOP if not n.startswith("ml:")]))
                         .replace("__CTRL_M__", json.dumps(
-                            [n for n in OPEN_LOOP if n.startswith("ml:")]))
+                            # per-eye controllers are NOT listed here: the
+                            # plant row already selects the eye and its own
+                            # network together, so a second set of A-E buttons
+                            # would be the same choice twice.
+                            [n for n in OPEN_LOOP if n.startswith("ml:")
+                             and not n.startswith("ml:ctrnn_eye_")]))
                         .replace("__LABELS__", json.dumps(
                             {n: label_for(n) for n in OPEN_LOOP}))
                         .replace("__PARAMS__", json.dumps(PARAMS))
@@ -1041,6 +1072,14 @@ class Handler(BaseHTTPRequestHandler):
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),
                         "deg_per_unit": dpu,
+                        "reach_h": float(min(abs(plant_static(
+                            load_plants()[pname]["h"]["coef"], -1.0)),
+                            abs(plant_static(
+                                load_plants()[pname]["h"]["coef"], 1.0)))),
+                        "reach_v": float(min(abs(plant_static(
+                            load_plants()[pname]["v"]["coef"], -1.0)),
+                            abs(plant_static(
+                                load_plants()[pname]["v"]["coef"], 1.0)))),
                     })
             except Exception as e:
                 return self._send(json.dumps({"error": f"{type(e).__name__}: {e}"}),
