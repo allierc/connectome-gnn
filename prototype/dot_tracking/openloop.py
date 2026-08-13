@@ -338,12 +338,17 @@ def register_trained():
         if not f.endswith(".pt"):
             continue
         base = f[:-3]
+        if base.startswith("ctrnn_eye_"):
+            # Trained by learn_eye.py: a 1-D horizontal model whose output is
+            # gaze in degrees, not a 2-D position in arena units. It does not
+            # satisfy this module's controller contract and must not be
+            # offered as one — its score belongs on the EYE button, which is
+            # what it measures.
+            continue
         OPEN_LOOP[f"ml:{base}"] = (
             lambda t, vx, vy, x0, y0, dt, rng, _b=base, **kw:
             _ml_predict(_b, t, vx, vy, x0, y0, dt, rng, **kw))
         PARAMS[f"ml:{base}"] = []
-        if base.startswith("ctrnn_eye_"):
-            EYE_CONTROLLER[base[len("ctrnn_eye_"):]] = f"ml:{base}"
 
 
 def label_for(name):
@@ -666,16 +671,10 @@ function group(name,opts,onpick,key){
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
 group("world",WORLDS);
-group("plant",["none"].concat(PLANTS), p=>{
-  // A controller trained through one eye has learned THAT eye's inverse.
-  // Selecting an eye therefore selects its own network, when one exists.
-  const c=EYECTRL[p];
-  if(c && OPENLOOP_HAS(c)){ sel.controller=c;
-    CTRLBTN.forEach(b=>b.setAttribute("aria-pressed",
-      (LABELS[c]||c)===b.textContent));
-    buildKnobs(c); }
-});
-function OPENLOOP_HAS(n){ return CTRLBTN.some(b=>(LABELS[n]||n)===b.textContent); }
+// The eye applies to WHATEVER controller is selected: the score on each eye
+// button is what its own trained network achieves (learn_eye.py), while the
+// panel shows the controller you picked driving that eye uncompensated.
+group("plant",["none"].concat(PLANTS));
 // Two groups, one shared selection: the analytic controllers are lesion
 // models with hand-set defects, the learned ones are fitted. Mixing them in
 // one strip invited reading the analytic rows as competitors, which they are
