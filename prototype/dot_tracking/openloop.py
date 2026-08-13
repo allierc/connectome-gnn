@@ -157,6 +157,15 @@ PLANT_NPZ = {"h": "/workspace/Plexus/prototype/eye/plant.npz",
              "v": "/workspace/Plexus/prototype/eye/plant_v.npz"}
 DEG_PER_UNIT = 15.0          # grid units -> degrees of eccentricity
 PLANTS = {}
+EYE_SCORES = {}
+# A-E labels, in the order the eyes were made. The raw variant names carry
+# their build history, which is useful in the archive and unreadable in a
+# selector.
+EYE_LABEL = {
+    "eye_probe_c_a": "A", "eye_probe_baseline_fixmat": "B",
+    "eye_p3a_length": "C", "eye_p3b_pulley": "D", "eye_p3c_drive": "E",
+    "ideal_linear": "ideal",
+}
 
 
 def load_plants():
@@ -195,6 +204,31 @@ def load_plants():
     return PLANTS
 
 
+CKPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+
+
+def eye_label(variant):
+    """`C (0.31 deg)` — the eye and how well its own controller does on it.
+
+    The score is the trained network's mean gaze error, so it answers the
+    question a selector should answer: with a controller that has learned
+    THIS eye, how well can the target be held?"""
+    lab = EYE_LABEL.get(variant, variant)
+    if not EYE_SCORES:
+        p = os.path.join(CKPT_DIR, "")
+        for f in sorted(os.listdir(CKPT_DIR)) if os.path.isdir(CKPT_DIR) else []:
+            if f.startswith("eye_report_") and f.endswith(".json"):
+                try:
+                    with open(os.path.join(CKPT_DIR, f)) as fh:
+                        EYE_SCORES[f[len("eye_report_"):-len(".json")]] = json.load(fh)
+                except Exception:
+                    pass
+    sc = EYE_SCORES.get(variant)
+    if sc and "gaze_err_mean_deg" in sc:
+        return f"{lab}  ({sc['gaze_err_mean_deg']:.2f}\u00b0)"
+    return f"{lab}  (untrained)"
+
+
 def plant_static(coef, u):
     return sum(c * u ** (k + 1) for k, c in enumerate(coef))
 
@@ -225,7 +259,6 @@ def plant_curve(name, n=201, axis="h"):
 # --------------------------------------------------------------------------
 # trained models (learn.py) exposed as controllers
 # --------------------------------------------------------------------------
-CKPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 _ML_CACHE = {}
 SCORES = {}
 
@@ -567,7 +600,7 @@ const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
 const DURATIONS=["4","8","16","30"];
-const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__;
+const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__, PLANTLAB=__PLANTLAB__;
 const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
            angle:"low",controller:"leaky",duration:"8",plant:"none"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
@@ -582,6 +615,7 @@ function group(name,opts,onpick,key){
     const b=document.createElement("button");
     b.textContent=(name==="duration" ? o+" s"
                   : key==="controller" ? (LABELS[o]||o)
+                  : name==="plant" ? (o==="none" ? "none" : (PLANTLAB[o]||o))
                   : o.replace(/_/g," "));
     b.setAttribute("aria-pressed", sel[key]===o);
     b.onclick=()=>{ sel[key]=o;
@@ -883,7 +917,11 @@ class Handler(BaseHTTPRequestHandler):
                             {n: label_for(n) for n in OPEN_LOOP}))
                         .replace("__PARAMS__", json.dumps(PARAMS))
                         .replace("__FOV__", str(FOV))
-                        .replace("__PLANTS__", json.dumps(sorted(load_plants())))
+                        .replace("__PLANTS__", json.dumps(
+                            sorted(load_plants(),
+                                   key=lambda v: EYE_LABEL.get(v, v))))
+                        .replace("__PLANTLAB__", json.dumps(
+                            {v: eye_label(v) for v in load_plants()}))
                         .replace("__EYECTRL__", json.dumps(EYE_CONTROLLER))
                         .replace("__JOYGAIN__", str(JOY_VIEW_GAIN)))
             return self._send(page, "text/html; charset=utf-8")
