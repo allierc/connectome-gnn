@@ -151,6 +151,72 @@ def leaky(t, vx, vy, x0, y0, dt, rng, tau=2.0, **kw):
 
 
 # --------------------------------------------------------------------------
+# the eye plant (identified in Plexus/prototype/eye/fit_plant.py)
+# --------------------------------------------------------------------------
+PLANT_NPZ = "/workspace/Plexus/prototype/eye/plant.npz"
+DEG_PER_UNIT = 15.0          # grid units -> degrees of eccentricity
+PLANTS = {}
+
+
+def load_plants():
+    """Every identified variant, plus an `ideal` one with a straight static
+    curve. The ideal exists so the interface can separate two very different
+    failures: the eye's DYNAMICS (lag and ring, which a controller can learn
+    to invert) from its measured STATIC CURVE (which is non-monotone near
+    zero and therefore cannot be inverted at all)."""
+    if PLANTS:
+        return PLANTS
+    try:
+        z = np.load(PLANT_NPZ, allow_pickle=False)
+        V = json.loads(str(z["variants"]))
+    except Exception as e:
+        print(f"[plant] {type(e).__name__}: {e} — plant panel disabled")
+        return PLANTS
+    for k, v in V.items():
+        if int(v["order"]) != 2:
+            continue
+        wn, zeta = np.exp(np.asarray(v["theta"], float))
+        PLANTS[k] = dict(coef=np.asarray(v["coef"], float),
+                         wn=float(wn), zeta=float(zeta), rms=float(v["rms"]))
+    # A linear static curve with the same full-scale travel as p3a_length:
+    # identical mechanics, monotone gain. The comparison isolates Phi.
+    ref = PLANTS.get("eye_p3a_length")
+    if ref is not None:
+        span = float(sum(c for c in ref["coef"]))          # Phi(1)
+        PLANTS["ideal_linear"] = dict(coef=np.array([span, 0.0, 0.0]),
+                                      wn=ref["wn"], zeta=ref["zeta"],
+                                      rms=float("nan"))
+    return PLANTS
+
+
+def plant_static(coef, u):
+    return sum(c * u ** (k + 1) for k, c in enumerate(coef))
+
+
+def plant_run(name, u_cmd, dt):
+    """Signed command in [-1,1] -> horizontal gaze in degrees."""
+    p = load_plants()[name]
+    f = plant_static(p["coef"], np.clip(u_cmd, -1.0, 1.0))
+    w2, twz = p["wn"] ** 2, 2.0 * p["zeta"] * p["wn"]
+    g = np.zeros_like(f); v = 0.0; y = 0.0
+    for k in range(len(f)):
+        g[k] = y
+        v += dt * (w2 * (f[k] - y) - twz * v)
+        y += dt * v
+    return g
+
+
+def plant_curve(name, n=201):
+    """Phi sampled over the command range, plus where its slope is negative —
+    the band in which the plant cannot be inverted."""
+    p = load_plants()[name]
+    u = np.linspace(-1.0, 1.0, n)
+    f = plant_static(p["coef"], u)
+    d = np.gradient(f, u)
+    return u.tolist(), f.tolist(), (d < 0).tolist()
+
+
+# --------------------------------------------------------------------------
 # trained models (learn.py) exposed as controllers
 # --------------------------------------------------------------------------
 CKPT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
@@ -468,6 +534,14 @@ learned ones.</p>
   <div class="panel"><canvas id="yt" width="470" height="190"></canvas>
     <div class="cap">y(t) &mdash; target vs <i>computed</i></div></div>
 </div>
+<div class="row" id="plantrow" style="margin-top:22px; display:none">
+  <div class="panel"><canvas id="phi" width="300" height="250"></canvas>
+    <div class="cap">&Phi; &mdash; command to gaze (red = slope &lt; 0)</div></div>
+  <div class="panel"><canvas id="eye" width="250" height="250"></canvas>
+    <div class="cap">the eye</div></div>
+  <div class="panel"><canvas id="gz" width="600" height="250"></canvas>
+    <div class="cap">gaze vs target eccentricity (deg)</div></div>
+</div>
 <div class="stats" id="stats"></div>
 </div><script>
 const SPEC=__SPEC__, CTRL_A=__CTRL_A__, CTRL_M=__CTRL_M__;
@@ -477,8 +551,9 @@ const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
 const DURATIONS=["4","8","16","30"];
+const PLANTS=__PLANTS__;
 const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
-           angle:"low",controller:"leaky",duration:"8"};
+           angle:"low",controller:"leaky",duration:"8",plant:"none"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
@@ -506,6 +581,7 @@ function group(name,opts,onpick,key){
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
+group("plant",["none"].concat(PLANTS));
 // Two groups, one shared selection: the analytic controllers are lesion
 // models with hand-set defects, the learned ones are fitted. Mixing them in
 // one strip invited reading the analytic rows as competitors, which they are
@@ -549,6 +625,9 @@ const S=document.getElementById("strip").getContext("2d");
 const X=document.getElementById("xy").getContext("2d");
 const Y=document.getElementById("yt").getContext("2d");
 const J=document.getElementById("joy").getContext("2d");
+const PH=document.getElementById("phi").getContext("2d");
+const EY=document.getElementById("eye").getContext("2d");
+const GZ=document.getElementById("gz").getContext("2d");
 const TRAIL=110;
 function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 
@@ -653,6 +732,69 @@ function drawJoy(){
            J.strokeRect(c-r+1,c-r+1,2*r-2,2*r-2); }
 }
 
+function drawPhi(){
+  const w=300,h=250,pad=30; PH.fillStyle="#000"; PH.fillRect(0,0,w,h);
+  const F=TR.phi_f, U=TR.phi_u, NEG=TR.phi_neg;
+  const fmax=Math.max(...F.map(Math.abs))*1.1;
+  const X=u=>pad+(u+1)/2*(w-pad-8), Y=f=>h/2-f/fmax*(h/2-pad*0.6);
+  PH.strokeStyle="#333"; PH.beginPath();
+  PH.moveTo(pad,h/2); PH.lineTo(w-8,h/2); PH.moveTo(X(0),8); PH.lineTo(X(0),h-8);
+  PH.stroke();
+  // the curve, red wherever the slope is negative -> not invertible there
+  for(let i=1;i<U.length;i++){
+    PH.strokeStyle = (NEG[i]||NEG[i-1]) ? "#e5484d" : "#fff";
+    PH.lineWidth = (NEG[i]||NEG[i-1]) ? 3.0 : 1.8;
+    PH.beginPath(); PH.moveTo(X(U[i-1]),Y(F[i-1])); PH.lineTo(X(U[i]),Y(F[i])); PH.stroke();
+  }
+  const u=Math.max(-1,Math.min(1,TR.u_cmd[k]));
+  let j=0; for(let i=1;i<U.length;i++) if(Math.abs(U[i]-u)<Math.abs(U[j]-u)) j=i;
+  PH.fillStyle = NEG[j] ? "#e5484d" : "#4da3ff";
+  PH.beginPath(); PH.arc(X(u),Y(F[j]),6,0,7); PH.fill();
+  PH.fillStyle="#fff"; PH.font="10px sans-serif";
+  PH.fillText("u",w-16,h/2-6); PH.fillText("deg",X(0)+5,14);
+  if(TR.phi_neg_frac>0){ PH.fillStyle="#e5484d";
+    PH.fillText("not invertible over "+(TR.phi_neg_frac*100).toFixed(0)+"%",pad,h-8); }
+}
+
+function drawEye(){
+  const n=250,c=n/2,R=72; EY.fillStyle="#000"; EY.fillRect(0,0,n,n);
+  const g=TR.gaze_deg[k], t=TR.target_deg[k];
+  // target eccentricity, as a mark on the orbit
+  const ta=t*Math.PI/180;
+  EY.strokeStyle="#888"; EY.lineWidth=1;
+  EY.beginPath(); EY.arc(c,c,R+26,0,7); EY.stroke();
+  EY.fillStyle="#fff";
+  EY.beginPath(); EY.arc(c+Math.sin(ta)*(R+26),c-Math.cos(ta)*(R+26),5,0,7); EY.fill();
+  // globe, rotated by the gaze the plant actually produced
+  const ga=g*Math.PI/180;
+  EY.fillStyle="#1b2129"; EY.strokeStyle="#fff"; EY.lineWidth=1.4;
+  EY.beginPath(); EY.arc(c,c,R,0,7); EY.fill(); EY.stroke();
+  const px=c+Math.sin(ga)*R*0.62, py=c-Math.cos(ga)*R*0.62;
+  EY.fillStyle="#cfd8e3"; EY.beginPath(); EY.arc(px,py,R*0.34,0,7); EY.fill();
+  EY.fillStyle="#111"; EY.beginPath(); EY.arc(px,py,R*0.14,0,7); EY.fill();
+  EY.strokeStyle="#4da3ff"; EY.lineWidth=2;
+  EY.beginPath(); EY.moveTo(c,c); EY.lineTo(c+Math.sin(ga)*R,c-Math.cos(ga)*R); EY.stroke();
+  EY.fillStyle="#fff"; EY.font="11px sans-serif";
+  EY.fillText("gaze "+g.toFixed(1)+"\u00b0",8,16);
+  EY.fillStyle="#888"; EY.fillText("target "+t.toFixed(1)+"\u00b0",8,32);
+}
+
+function drawGaze(){
+  const w=600,h=250,pad=26; GZ.fillStyle="#000"; GZ.fillRect(0,0,w,h);
+  const A=TR.target_deg, B=TR.gaze_deg;
+  const m=Math.max(...A.map(Math.abs),...B.map(Math.abs))*1.1||1;
+  const Y=v=>h/2-v/m*(h/2-pad*0.5);
+  GZ.strokeStyle="#333"; GZ.beginPath(); GZ.moveTo(0,h/2); GZ.lineTo(w,h/2); GZ.stroke();
+  const line=(a,col,lw)=>{ GZ.strokeStyle=col; GZ.lineWidth=lw; GZ.beginPath();
+    for(let i=0;i<=k;i++){ const px=i/(a.length-1)*w;
+      i?GZ.lineTo(px,Y(a[i])):GZ.moveTo(px,Y(a[i])); } GZ.stroke(); };
+  line(A,"#d8d8d8",1.8); line(B,"#4da3ff",1.8);
+  GZ.fillStyle="#fff"; GZ.font="11px sans-serif";
+  GZ.fillText("target",8,16); GZ.fillStyle="#4da3ff"; GZ.fillText("gaze (after the eye)",58,16);
+  GZ.fillStyle="#888";
+  GZ.fillText("mean |error| "+TR.gaze_err_mean.toFixed(2)+"\u00b0",8,h-8);
+}
+
 function stats(){
   const inside=TR.err.filter(e=>e<=FOV).length/TR.err.length*100;
   const lost = TR.t_lose===null
@@ -667,6 +809,9 @@ function stats(){
 
 function frame(){ drawWorld(); drawRetina(); drawStrip(); drawJoy();
   axis(X,TR.x,TR.gx); axis(Y,TR.y,TR.gy); stats();
+  const on = !!TR.plant;
+  document.getElementById("plantrow").style.display = on ? "flex" : "none";
+  if(on){ drawPhi(); drawEye(); drawGaze(); }
   k=(k+1)%TR.t.length; }
 
 async function load(newseed){
@@ -710,6 +855,7 @@ class Handler(BaseHTTPRequestHandler):
                             {n: label_for(n) for n in OPEN_LOOP}))
                         .replace("__PARAMS__", json.dumps(PARAMS))
                         .replace("__FOV__", str(FOV))
+                        .replace("__PLANTS__", json.dumps(sorted(load_plants())))
                         .replace("__JOYGAIN__", str(JOY_VIEW_GAIN)))
             return self._send(page, "text/html; charset=utf-8")
         if u.path == "/api/trace":
@@ -751,6 +897,27 @@ class Handler(BaseHTTPRequestHandler):
                     "joy_full_scale": JOY_FULL_SCALE,
                     "controller": name, "params": kn,
                 })
+                pname = q.get("plant", "none")
+                if pname != "none" and pname in load_plants():
+                    # Phi maps command -> POSITION, so the muscle command is
+                    # the controller's position estimate, not its velocity
+                    # stick. gx is in grid units and the command axis is
+                    # [-1, 1], so the two coincide once gx is clipped: full
+                    # deflection asks the eye for its full travel.
+                    u_cmd = np.clip(gx, -1.0, 1.0)
+                    gaze = plant_run(pname, u_cmd, float(tr["settings"]["dt"]))
+                    tgt = np.asarray(tr["x"]) * DEG_PER_UNIT
+                    pu, pf, pneg = plant_curve(pname)
+                    tr.update({
+                        "plant": pname, "gaze_deg": gaze.tolist(),
+                        "target_deg": tgt.tolist(),
+                        "gaze_err": np.abs(gaze - tgt).tolist(),
+                        "gaze_err_mean": float(np.abs(gaze - tgt).mean()),
+                        "phi_u": pu, "phi_f": pf, "phi_neg": pneg,
+                        "phi_neg_frac": float(np.mean(pneg)),
+                        "u_cmd": u_cmd.tolist(),
+                        "deg_per_unit": DEG_PER_UNIT,
+                    })
             except Exception as e:
                 return self._send(json.dumps({"error": f"{type(e).__name__}: {e}"}),
                                   "application/json")
