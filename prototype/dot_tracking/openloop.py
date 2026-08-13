@@ -1015,8 +1015,15 @@ class Handler(BaseHTTPRequestHandler):
                     # [-1, 1], so the two coincide once gx is clipped: full
                     # deflection asks the eye for its full travel.
                     _dt = float(tr["settings"]["dt"])
-                    u_cmd = np.clip(gx, -1.0, 1.0)
-                    v_cmd = np.clip(gy, -1.0, 1.0)
+                    # The MUSCLE COMMAND is what the controller returns in
+                    # ux/uy. gx is a position — for an eye-trained network it
+                    # is already the command passed through Phi — so feeding
+                    # gx back into the plant applies Phi TWICE and the eye
+                    # overshoots by the gain, visibly and from the first
+                    # movement rather than after a stop. Measured on eye C:
+                    # 1.049 deg that way against 0.048 with the real command.
+                    u_cmd = np.clip(ux, -1.0, 1.0)
+                    v_cmd = np.clip(uy, -1.0, 1.0)
                     gaze_h = plant_run(pname, u_cmd, _dt, "h")
                     gaze_v = plant_run(pname, v_cmd, _dt, "v")
                     dpu = deg_per_unit(q.get("world", "auto"), pname)
