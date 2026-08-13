@@ -928,6 +928,16 @@ function drawGaze(){
 
 function stats(){
   const inside=TR.err.filter(e=>e<=FOV).length/TR.err.length*100;
+  // With an eye attached the red trace is where the EYE points, not what the
+  // controller computed. Every controller in these rows was trained without
+  // an eye, so it has no inverse model of one and pays a lag it cannot see.
+  // Saying so stops that reading as a controller regression.
+  const uncomp = TR.plant
+    ? '<br><span style="color:#e5a23c">uncompensated &mdash; this controller '
+      + 'was trained without an eye, so the red trace carries the eye\'s lag. '
+      + 'The number on the eye button is what a controller trained THROUGH '
+      + 'that eye achieves.</span>'
+    : "";
   const lost = TR.t_lose===null
     ? 'never lost within '+TR.settings.duration.toFixed(0)+'s'
     : '<span class="lost">lost after <b>'+TR.t_lose.toFixed(1)+' s</b></span>';
