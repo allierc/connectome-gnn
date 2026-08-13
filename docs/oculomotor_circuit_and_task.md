@@ -718,6 +718,54 @@ no longer that the gain is imprecise: no steady state has been measured at
 all, so the static curve currently rests on nothing but its endpoints and the
 constraint that it must be monotone.
 
+
+#### Coupling the circuit to the eye: what the geometry forces
+
+Driving the eye is not a matter of appending a plant to the readout. Two
+constraints come from the mechanics and neither is negotiable by training.
+
+**Four pools, two antagonist pairs.** The readout emits four non-negative
+motor drives — LR and MR for the horizontal, SR and IR for the vertical —
+and each axis is commanded by a difference:
+
+```math
+u_{\mathrm{h}} = m_{\mathrm{LR}} - m_{\mathrm{MR}},
+\qquad
+u_{\mathrm{v}} = m_{\mathrm{SR}} - m_{\mathrm{IR}},
+\qquad m_\bullet \ge 0
+```
+
+with `u_h` driving the horizontal plant and `u_v` the vertical. A single
+command cannot serve both: the two axes have different static curves and
+different mechanics. Fitted separately from the LR/MR and SR/IR probes, the
+horizontal and vertical plants of eye C differ by more than a factor of
+one and a half in travel.
+
+**The workspace is per axis, and it is the binding constraint.** Reachable
+travel, in degrees:
+
+| eye | horizontal | vertical | usable world |
+|---|---|---|---|
+| A | 3.4 | 4.1 | 3.6 deg/unit |
+| B | 3.4 | 4.1 | 3.6 |
+| C | **15.0** | **9.1** | 9.5 |
+| D | 12.3 | 5.0 | 5.3 |
+| E | 5.1 | 5.9 | 5.3 |
+
+The task can only be scaled to the *smaller* of the two. Scaling it to the
+horizontal instead — which an implementation does by default, because the
+horizontal pair is the one everybody models — puts the vertical target
+outside the eye's travel 40 % of the time on eye C and 60 % on eye D. The
+eye then cannot look where the target is, and the resulting error is
+indistinguishable, in any plot, from a controller that has failed to learn.
+
+That is the transferable point for the connectome model. Before any training
+result is interpreted, the reachable range of each output axis has to be
+compared against the eccentricity the task demands of it. A circuit whose
+motor pools cannot produce the required rotation will look exactly like a
+circuit that cannot compute — and only the first of those is fixed by
+anatomy rather than by optimisation.
+
 #### Co-contraction is a second input, not a second value of the first
 
 The command is written as one signed scalar, `u = m_LR - m_MR`, which assumes
