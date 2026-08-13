@@ -172,10 +172,16 @@ def deg_per_unit(scale, variant=None):
     p = load_plants().get(variant)
     if p is None:
         return DEG_PER_UNIT
-    c = p["h"]["coef"]
-    f = lambda u: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
-    reach = min(abs(f(-1.0)), abs(f(+1.0)))       # the smaller half-travel
-    return float(reach / BOUND)
+    # The world must fit inside the smaller reach of the TWO axes. Sizing it
+    # from the horizontal alone put the vertical target outside the eye's
+    # travel 40% of the time on eye C (60% on D) — a target it cannot look
+    # at, which reads as a controller that cannot track.
+    reach = []
+    for ax in ("h", "v"):
+        c = p[ax]["coef"]
+        f = lambda u, c=c: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
+        reach.append(min(abs(f(-1.0)), abs(f(+1.0))))
+    return float(min(reach) / BOUND)
 PLANTS = {}
 EYE_SCORES = {}
 # A-E labels, in the order the eyes were made. The raw variant names carry
@@ -337,11 +343,11 @@ def _eye_predict(base, variant, t, vx, vy, x0, y0, dt):
     map, Phi(cmd). The blue trace adds the second-order mechanics on top, and
     the distance between them is exactly what the dynamics cost.
 
-    The vertical axis reuses the same network, with the command rescaled by
-    the ratio of the two axes' gains. Without that correction the vertical
-    plant, whose travel is smaller, would systematically undershoot; with it
-    the vertical is an approximation whose only justification is that no
-    vertical network has been trained yet.
+    The network is two-dimensional: two velocity channels in, four motor
+    pools out (LR, MR, SR, IR), one push-pull command per axis, each driving
+    its own plant. The earlier version was horizontal-only and reused the
+    same network for the vertical with a gain-ratio correction, which clipped
+    15% of samples and read on screen as an eye lag it never had.
     """
     import torch
     key = ("eye", base)
@@ -349,19 +355,18 @@ def _eye_predict(base, variant, t, vx, vy, x0, y0, dt):
         import learn_eye
         blob = torch.load(os.path.join(CKPT_DIR, f"{base}.pt"),
                           map_location="cpu", weights_only=False)
-        pl = learn_eye.load_plant(variant, float(blob.get("dt", dt)))
-        m = learn_eye.CTRNNEye(float(blob.get("dt", dt)), pl)
+        pls, _ = learn_eye.load_plants(variant, float(blob.get("dt", dt)))
+        m = learn_eye.CTRNNEye(float(blob.get("dt", dt)), pls)
         m.load_state_dict(blob["state_dict"])
         m.eval()
         _ML_CACHE[key] = m
     m = _ML_CACHE[key]
     P = load_plants()[variant]
-    gh = float(P["h"]["coef"][0]); gv = float(P["v"]["coef"][0])
     with torch.no_grad():
-        _, mh = m(torch.tensor(vx[None, :, None], dtype=torch.float32))
-        _, mv = m(torch.tensor(vy[None, :, None], dtype=torch.float32))
-    cmd_h = (mh[0, :, 0] - mh[0, :, 1]).numpy()
-    cmd_v = (mv[0, :, 0] - mv[0, :, 1]).numpy() * (gh / max(gv, 1e-6))
+        u = torch.tensor(np.stack([vx, vy], -1)[None], dtype=torch.float32)
+        _, mm = m(u)
+    cmd_h = (mm[0, :, 0] - mm[0, :, 1]).numpy()      # LR - MR
+    cmd_v = (mm[0, :, 2] - mm[0, :, 3]).numpy()      # SR - IR
     ux = np.clip(cmd_h, -JOY_FULL_SCALE, JOY_FULL_SCALE)
     uy = np.clip(cmd_v, -JOY_FULL_SCALE, JOY_FULL_SCALE)
     # red = the command through the static map only
