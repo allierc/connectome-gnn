@@ -916,13 +916,13 @@ function drawEye(){
   // where the target would put it, for comparison
   const th=TR.target_deg[k], tv=TR.y[k]*TR.deg_per_unit;
   const tx=c+Math.sin(th*Math.PI/180)*R, ty=c-Math.sin(tv*Math.PI/180)*R;
-  EY.strokeStyle="#9aa4b2"; EY.lineWidth=1.5; EY.setLineDash([3,3]);
-  EY.beginPath(); EY.arc(tx,ty,26,0,7); EY.stroke(); EY.setLineDash([]);
-  // iris + the black pupil
-  EY.fillStyle="#7c93ad"; EY.beginPath(); EY.arc(px,py,40,0,7); EY.fill();
-  EY.fillStyle="#000"; EY.beginPath(); EY.arc(px,py,19,0,7); EY.fill();
+  EY.strokeStyle="#9aa4b2"; EY.lineWidth=1.8; EY.setLineDash([4,3]);
+  EY.beginPath(); EY.arc(tx,ty,38,0,7); EY.stroke(); EY.setLineDash([]);
+  // iris + the black pupil, enlarged so the gaze is legible at a glance
+  EY.fillStyle="#7c93ad"; EY.beginPath(); EY.arc(px,py,60,0,7); EY.fill();
+  EY.fillStyle="#000"; EY.beginPath(); EY.arc(px,py,31,0,7); EY.fill();
   EY.fillStyle="#ffffff"; EY.globalAlpha=0.55;
-  EY.beginPath(); EY.arc(px-7,py-8,5,0,7); EY.fill(); EY.globalAlpha=1;
+  EY.beginPath(); EY.arc(px-11,py-13,8,0,7); EY.fill(); EY.globalAlpha=1;
   // axes, so left/right and up/down are readable
   EY.strokeStyle="#333"; EY.lineWidth=1;
   EY.beginPath(); EY.moveTo(c-R,c); EY.lineTo(c+R,c);
@@ -966,30 +966,46 @@ function drawStates(){
   // 2. the recurrent core: 64 units as an 8x8 block of rates
   lab(96,20,"ctRNN  tanh(h)   64 units");
   cells(96,28,r,8,14,-0.6,0.6);
-  lab(96,158,"each cell one neuron's rate");
 
   // 3. motor pools: four cells, non-negative
   lab(300,20,"MOTOR POOLS  >= 0");
   cells(300,28,p,1,26,0,1.2);
   ["LR","MR","SR","IR"].forEach((n,i)=>lab(332,46+i*28,n+"  "+p[i].toFixed(2),"#c9c9c9"));
 
-  // 4. the commands and the eye's two states per axis
-  lab(430,20,"EYE  state");
+  // 4. Phi per axis, with the operating point riding on the curve. This is
+  // the static map the command is passed through: where the point sits tells
+  // you the instantaneous gain, and the whole curve tells you what the eye
+  // could do if the command went further.
+  const uh=TR.cmd_h[k], uv=TR.cmd_v[k];
   const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*TR.deg_per_unit;
-  const rows=[["cmd h",TR.u_cmd[k],-1,1],["cmd v",TR.jy?TR.jy[k]:0,-1,1],
-              ["gaze h",gh/15,-1,1],["gaze v",gv/15,-1,1],
-              ["vel h",TR.vel_h[k]/20,-1,1],["vel v",TR.vel_v[k]/20,-1,1]];
-  rows.forEach((rw,i)=>{
-    cells(430,28+i*28,[rw[1]],1,22,rw[2],rw[3]);
-    lab(458,45+i*28,rw[0],"#c9c9c9");
+  [["h",TR.phi_u,TR.phi_f,uh,gh,430],["v",TR.phi_u_v,TR.phi_f_v,uv,gv,530]]
+   .forEach(([ax,U,F,uu,gg,x0])=>{
+    const w=88,h=110,y0=30;
+    ST.strokeStyle="#222"; ST.strokeRect(x0,y0,w,h);
+    const fmax=Math.max(...F.map(Math.abs))||1;
+    const X=u=>x0+(u+1)/2*w, Y=f=>y0+h/2-f/fmax*(h/2-4);
+    ST.strokeStyle="#333"; ST.beginPath();
+    ST.moveTo(x0,Y(0)); ST.lineTo(x0+w,Y(0));
+    ST.moveTo(X(0),y0); ST.lineTo(X(0),y0+h); ST.stroke();
+    ST.strokeStyle="#e8e8e8"; ST.lineWidth=1.4; ST.beginPath();
+    for(let i=0;i<U.length;i++){ const px=X(U[i]),py=Y(F[i]);
+      i?ST.lineTo(px,py):ST.moveTo(px,py); } ST.stroke();
+    // the operating point, and its projections onto both axes
+    const px=X(uu), py=Y(gg);
+    ST.strokeStyle="#4da3ff"; ST.setLineDash([2,2]); ST.lineWidth=1;
+    ST.beginPath(); ST.moveTo(px,Y(0)); ST.lineTo(px,py);
+    ST.lineTo(X(-1),py); ST.stroke(); ST.setLineDash([]);
+    ST.fillStyle="#e5484d"; ST.beginPath(); ST.arc(px,py,4,0,7); ST.fill();
+    lab(x0,y0-6,"\u03a6 "+ax+"   u="+uu.toFixed(2));
+    lab(x0,y0+h+13,"\u03a6(u) = "+gg.toFixed(1)+"\u00b0","#c9c9c9");
+    lab(x0,y0+h+25,"slope "+((F[Math.min(U.length-1,Math.max(1,
+      Math.round((uu+1)/2*(U.length-1))))]-F[Math.max(0,Math.round((uu+1)/2*(U.length-1))-1)])
+      /((U[1]-U[0])||1)).toFixed(1)+"\u00b0/unit","#7a7a7a");
   });
-  const vals=[TR.u_cmd[k],0,gh,gv,TR.vel_h[k],TR.vel_v[k]];
-  [0,2,3,4,5].forEach(i=>lab(516,45+i*28,
-    (i>=4? vals[i].toFixed(1)+"°/s" : i>=2? vals[i].toFixed(1)+"°" : vals[i].toFixed(2)),"#7a7a7a"));
 
   // flow arrows
   ST.strokeStyle="#444"; ST.lineWidth=1;
-  [[62,60,92,60],[236,60,296,60],[352,60,426,60]].forEach(a=>{
+  [[62,60,92,60],[236,60,296,60],[386,60,424,60]].forEach(a=>{
     ST.beginPath(); ST.moveTo(a[0],a[1]); ST.lineTo(a[2],a[3]); ST.stroke();
     ST.beginPath(); ST.moveTo(a[2],a[3]); ST.lineTo(a[2]-5,a[3]-4);
     ST.lineTo(a[2]-5,a[3]+4); ST.closePath(); ST.fillStyle="#444"; ST.fill();
@@ -1151,6 +1167,7 @@ class Handler(BaseHTTPRequestHandler):
                     dpu = deg_per_unit(q.get("world", "auto"), pname)
                     tgt = np.asarray(tr["x"]) * dpu
                     pu, pf, pneg = plant_curve(pname, axis="h")
+                    pu_v, pf_v, pneg_v = plant_curve(pname, axis="v")
                     # The world / retina / drift / x(t) / y(t) panels keep
                     # showing WHAT THE CONTROLLER COMPUTED. None of the
                     # controllers selectable here was trained through an eye,
@@ -1169,6 +1186,8 @@ class Handler(BaseHTTPRequestHandler):
                         "gaze_err": np.abs(gaze_h - tgt).tolist(),
                         "gaze_err_mean": float(np.abs(gaze_h - tgt).mean()),
                         "phi_u": pu, "phi_f": pf, "phi_neg": pneg,
+                        "phi_u_v": pu_v, "phi_f_v": pf_v,
+                        "cmd_h": u_cmd.tolist(), "cmd_v": v_cmd.tolist(),
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),
                         "deg_per_unit": dpu,
