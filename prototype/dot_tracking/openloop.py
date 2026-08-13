@@ -681,6 +681,10 @@ const sel={start:"center",shape:"curve",motion:"stop_and_go",speed:"slow",
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
+// Declared before ANY group() call: group() pushes into them, and a `const`
+// referenced before its declaration is a ReferenceError, not undefined — the
+// whole script dies and every row after the failure silently never renders.
+const CTRLBTN=[], PLANTBTN=[];
 function group(name,opts,onpick,key){
   key=key||name;
   const g=document.createElement("div"); g.className="group";
@@ -734,7 +738,6 @@ function clearPlant(){
 // models with hand-set defects, the learned ones are fitted. Mixing them in
 // one strip invited reading the analytic rows as competitors, which they are
 // not — fitted, gain and leak collapse onto `perfect`.
-const CTRLBTN=[], PLANTBTN=[];
 group("analytic",CTRL_A,buildKnobs,"controller");
 group("learned",CTRL_M,buildKnobs,"controller");
 const gx0=document.createElement("div"); gx0.className="group";
