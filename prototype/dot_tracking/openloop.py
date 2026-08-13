@@ -156,6 +156,26 @@ def leaky(t, vx, vy, x0, y0, dt, rng, tau=2.0, **kw):
 PLANT_NPZ = {"h": "/workspace/Plexus/prototype/eye/plant.npz",
              "v": "/workspace/Plexus/prototype/eye/plant_v.npz"}
 DEG_PER_UNIT = 15.0          # grid units -> degrees of eccentricity
+BOUND = 0.95                 # the arena half-width the target is clamped to
+
+
+def deg_per_unit(scale, variant=None):
+    """Grid units -> degrees. `auto` shrinks the world until the WHOLE arena
+    is inside the chosen eye's reachable travel.
+
+    Without it the target routinely sits outside the eye's range and the eye
+    saturates against its own mechanics — a workspace failure that looks like
+    a tracking failure. Eye A reaches only +3.4 deg of abduction, so a world
+    scaled for eye C asks it for something no controller can deliver."""
+    if scale != "auto":
+        return float(scale)
+    p = load_plants().get(variant)
+    if p is None:
+        return DEG_PER_UNIT
+    c = p["h"]["coef"]
+    f = lambda u: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
+    reach = min(abs(f(-1.0)), abs(f(+1.0)))       # the smaller half-travel
+    return float(reach / BOUND)
 PLANTS = {}
 EYE_SCORES = {}
 # A-E labels, in the order the eyes were made. The raw variant names carry
@@ -327,12 +347,23 @@ def register_trained():
 
 
 def label_for(name):
-    """`gru (0.009)` — the controller and its mean |drift| on the test set."""
+    """`gru (0.009)` — the controller and its mean |drift| on the test set.
+
+    Controllers trained through an eye are named after the eye they inverted,
+    not after the checkpoint file: `ctrnn_eye_eye_p3a_length` reads as
+    `ctrnn C`. The doubled "eye" is an artefact of the filename and carries
+    no information."""
     key = name[3:] if name.startswith("ml:") else name
+    if key.startswith("ctrnn_eye_"):
+        var = key[len("ctrnn_eye_"):]
+        lab = EYE_LABEL.get(var, var)
+        sc = EYE_SCORES.get(var) or {}
+        e = sc.get("gaze_err_mean_deg")
+        return f"ctrnn {lab}" + (f" ({e:.2f}\u00b0)" if e is not None else "")
     s = SCORES.get(key)
     if not s:
         return name
-    return f"{name} ({s['err_mean']:.3f})"
+    return f"{key} ({s['err_mean']:.3f})"
 
 
 def run_trial(name, tr, rng, **kw):
@@ -600,9 +631,11 @@ const JOYGAIN=__JOYGAIN__, LABELS=__LABELS__;
 // drift is the thing to watch, and a slow target is both easier to follow by
 // eye and — because the leak is a high-pass — lost sooner.
 const DURATIONS=["4","8","16","30"];
+const WORLDS=["auto","3","7","15"];
 const PLANTS=__PLANTS__, EYECTRL=__EYECTRL__, PLANTLAB=__PLANTLAB__;
 const sel={start:"center",shape:"curve",motion:"continue",speed:"slow",
-           angle:"low",controller:"leaky",duration:"8",plant:"none"};
+           angle:"low",controller:"leaky",duration:"8",plant:"none",
+           world:"auto"};
 const knob={}; let TR=null,k=0,timer=null,pending=null;
 
 const C=document.getElementById("controls"),K=document.getElementById("knobs");
@@ -613,7 +646,8 @@ function group(name,opts,onpick,key){
   const s=document.createElement("div"); s.className="seg";
   opts.forEach(o=>{
     const b=document.createElement("button");
-    b.textContent=(name==="duration" ? o+" s"
+    b.textContent=(name==="world" ? (o==="auto"?"auto":o+"\u00b0/unit")
+                  : name==="duration" ? o+" s"
                   : key==="controller" ? (LABELS[o]||o)
                   : name==="plant" ? (o==="none" ? "none" : (PLANTLAB[o]||o))
                   : o.replace(/_/g," "));
@@ -631,6 +665,7 @@ function group(name,opts,onpick,key){
 }
 Object.entries(SPEC).forEach(([n,v])=>group(n,v));
 group("duration",DURATIONS);
+group("world",WORLDS);
 group("plant",["none"].concat(PLANTS), p=>{
   // A controller trained through one eye has learned THAT eye's inverse.
   // Selecting an eye therefore selects its own network, when one exists.
@@ -851,7 +886,8 @@ function drawGaze(){
   GZ.fillStyle="#fff"; GZ.font="11px sans-serif";
   GZ.fillText("target",8,16); GZ.fillStyle="#4da3ff"; GZ.fillText("gaze (after the eye)",58,16);
   GZ.fillStyle="#888";
-  GZ.fillText("mean |error| "+TR.gaze_err_mean.toFixed(2)+"\u00b0",8,h-8);
+  GZ.fillText("mean |error| "+TR.gaze_err_mean.toFixed(2)+"\u00b0"
+    +"   world "+TR.deg_per_unit.toFixed(1)+"\u00b0/unit",8,h-8);
 }
 
 function stats(){
@@ -976,15 +1012,16 @@ class Handler(BaseHTTPRequestHandler):
                     v_cmd = np.clip(gy, -1.0, 1.0)
                     gaze_h = plant_run(pname, u_cmd, _dt, "h")
                     gaze_v = plant_run(pname, v_cmd, _dt, "v")
-                    tgt = np.asarray(tr["x"]) * DEG_PER_UNIT
+                    dpu = deg_per_unit(q.get("world", "auto"), pname)
+                    tgt = np.asarray(tr["x"]) * dpu
                     pu, pf, pneg = plant_curve(pname, axis="h")
                     # THE RED TRAJECTORY IS NOW THE EYE, not the integrator.
                     # Everything downstream — world track, retina, drift strip,
                     # x(t)/y(t) — reads gx/gy, so writing the gaze back into
                     # them makes every panel show where the eye actually
                     # points rather than where the controller believes it is.
-                    gx = gaze_h / DEG_PER_UNIT
-                    gy = gaze_v / DEG_PER_UNIT
+                    gx = gaze_h / dpu
+                    gy = gaze_v / dpu
                     ex, ey = x - gx, y - gy
                     err = np.hypot(ex, ey)
                     lost = np.flatnonzero(err > FOV)
@@ -1003,7 +1040,7 @@ class Handler(BaseHTTPRequestHandler):
                         "phi_u": pu, "phi_f": pf, "phi_neg": pneg,
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),
-                        "deg_per_unit": DEG_PER_UNIT,
+                        "deg_per_unit": dpu,
                     })
             except Exception as e:
                 return self._send(json.dumps({"error": f"{type(e).__name__}: {e}"}),
