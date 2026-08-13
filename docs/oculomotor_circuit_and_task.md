@@ -593,6 +593,92 @@ intermediate levels (0.2 / 0.4 / 0.6 / 0.8, both directions, held longer than
 about 0.5 s given `w` ~ 10 rad/s). The dynamics are already well determined,
 because those come from the transients; the static gain is not.
 
+### 4.7 The whole model in one notation
+
+![**The eye, and the symbols.** **(a)** The globe seen down the corneal axis with the six extraocular muscles at their true insertions, drawn from `eye_anatomy.MUSCLES` — the same table the MPM uses to shape the straps, so this is the model's own geometry. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the plant but receive no command. **(b)** Every symbol of the equations below, in the order the signal meets them. Regenerate with `python fit_plant.py` and `python fig_eye_schematic.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_schematic.png)
+
+
+Written in the formalism of `neurips.tex`, so the oculomotor circuit and the
+flyvis work can be read side by side. There $v_i(t)$ is the membrane voltage
+of neuron $i$, $\tau_i$ its time constant, $\mathcal{N}_i$ its presynaptic
+partners, $W_{ij}$ the connectome weight and $I_i(t)$ the external drive; a
+hat marks a learned quantity.
+
+**Circuit.** The $N=285$ neurons obey the same rate equation as
+Eq. (1) of `neurips.tex`, with the drive restricted to the afferent pool:
+
+```math
+\tau_i\frac{d v_i(t)}{dt} \;=\; -\,v_i(t) \;+\; V_i^{\mathrm{rest}}
+\;+\!\!\sum_{j\in\mathcal{N}_i}\!\! \hat{W}_{ij}\,\mathrm{ReLU}\big(v_j(t)\big)
+\;+\; I_i(t) \;+\; \sigma\,\xi_i(t)
+```
+
+**Sign lock.** Only the magnitudes are learned; the signs are the measured
+Dale assignment of section 1.4, so $\hat{W}$ never leaves the connectome's
+sign pattern:
+
+```math
+\hat{W}_{ij} \;=\; \big|\hat{S}_{ij}\big|\;\mathrm{sign}\big(W^{\mathrm{con}}_{ij}\big),
+\qquad
+\mathrm{sign}\big(W^{\mathrm{con}}_{ij}\big)=
+\begin{cases}
+-1, & j\in\mathcal{I} \quad(\text{INTG contra})\\[2pt]
++1, & \text{otherwise}
+\end{cases}
+```
+
+**Input.** The optokinetic velocity $u(t)$ enters only through the AF5
+afferents $\mathcal{A}$, which is what makes this a connectome-constrained
+model rather than a network with a free input layer:
+
+```math
+I_i(t) \;=\; \hat{w}^{\mathrm{in}}_i\, u(t)\; \mathbb{1}\!\left[i\in\mathcal{A}\right],
+\qquad \mathcal{A}=\mathcal{A}_{\mathrm{AF5}}^{L}\cup\mathcal{A}_{\mathrm{AF5}}^{R}
+```
+
+**Motor readout.** The two motor pools $\mathcal{M}_{\mathrm{LR}}$ (AMN) and
+$\mathcal{M}_{\mathrm{MR}}$ (AIN) are read as non-negative rates and the
+command is their difference, so the push-pull is structural rather than
+fitted:
+
+```math
+m_{\mathrm{LR}}(t)=\!\!\sum_{i\in\mathcal{M}_{\mathrm{LR}}}\!\!\hat{c}_i\,\mathrm{ReLU}\big(v_i(t)\big),
+\quad
+m_{\mathrm{MR}}(t)=\!\!\sum_{i\in\mathcal{M}_{\mathrm{MR}}}\!\!\hat{c}_i\,\mathrm{ReLU}\big(v_i(t)\big),
+\quad
+u_{\mathrm{cmd}}(t)=m_{\mathrm{LR}}(t)-m_{\mathrm{MR}}(t)
+```
+
+**Plant.** The command drives the measured eye, a static nonlinearity
+$\Phi$ followed by second-order mechanics, with $\beta$, $\omega_n$ and
+$\zeta$ identified in section 4.6 and held fixed — the body is measured, not
+learned:
+
+```math
+\Phi(u)=\sum_{k=1}^{3}\beta_k\,u^{k},
+\qquad
+\frac{d^{2}\gamma}{dt^{2}}+2\zeta\omega_n\frac{d\gamma}{dt}+\omega_n^{2}\,\gamma
+\;=\;\omega_n^{2}\,\Phi\big(u_{\mathrm{cmd}}(t)\big)
+```
+
+**Objective.** Supervision is on the gaze $\gamma(t)$ against the target
+eccentricity $\gamma^{\star}(t)$, in the same summed form as
+Eq. (3) of `neurips.tex`:
+
+```math
+\mathcal{L}_{\mathrm{pred}}=\sum_{t}\big\|\gamma(t)-\gamma^{\star}(t)\big\|_2
+```
+
+Two differences from the flyvis setting are worth naming. There the
+supervision is on $dv_i/dt$ of *every* neuron, because the simulator provides
+the full state; here it is on a single scalar at the far end of a plant, so
+the circuit is constrained only through its behavioural consequence. And
+there $\hat{W}$ is what is being recovered from activity, whereas here
+$\hat{W}$ is fixed in sign by the connectome and only its magnitudes,
+$\hat{w}^{\mathrm{in}}$ and $\hat{c}$ are free. The oculomotor problem is
+thus the better-posed of the two: fewer unknowns, but a much narrower
+observation.
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
