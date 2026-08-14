@@ -165,30 +165,6 @@ time constant over which eye position leaks back to centre. A perfect integrator
 integrator is finite, and measuring what $\tau$ the connectome-constrained
 circuit can support is the point of the exercise.
 
-### 2.2 It needs no new task code
-
-This is already a mode of the existing swim-integration generator. Setting
-
-```
-task.swim_integration.target_kind: scalar_xi
-task.swim_integration.xi_tau_s:    <the leak>
-training.task_targets:             [translation]
-```
-
-yields a **1-input / 1-output** problem: the input channel is the velocity
-drive, the target is `xi = integral of v dt` with leak `xi_tau_s`. The
-`_integrate_leaky` helper in `graph_data_generator.py` implements exactly the
-equation above (forward Euler, `alpha = 1 - dt/tau`), and `tau <= 0` recovers
-the perfect integrator.
-
-What the existing machinery does **not** provide is the neuron binding:
-which cells the input enters and which cells the readout reads. In the
-heading circuit both are hardwired to the HD taxonomy — the encoder through
-`graph_model.velocity_gate`, the decoder through `output_from_dipn_only` and
-a positional `[:n_bump]` slice. Redirecting them to the AF5 afferents and the
-AMN/AIN outputs is the real work, and it is Procedure B in
-`HOWTO_add_zebrafish_circuit.md`.
-
 ### 2.3 Saccades versus optokinetic drive
 
 The two natural stimulus regimes differ, and the choice interacts with §1.6:
@@ -333,16 +309,7 @@ assignment exist. That is the cheapest next step on this branch.
 `training.task_targets` then projects the on-disk superset down to the
 columns a given run trains on, so one dataset serves several sub-tasks.
 
-### 3.3 A caution about the column layout
-
-The mapping from `task_targets` to input/output dimensions is duplicated
-across **13 files** — `_TT_DIMS` in both the RNN and GNN model classes, and
-`_PROFILE_BY_TARGET` in `graph_trainer`, `graph_tester`, `plot_cx` and six
-figure scripts. A new task mode added in one place does not error elsewhere;
-it silently mis-slices columns. Any new mode has to be added to all of them,
-or the analysis figures will quietly describe the wrong variable.
-
-## 4. Next step: learning the controller
+## 4. Learning the controller
 
 The task is **supervised, not reinforcement**, and it is worth being explicit
 about why, because the instinct to reach for RL here is strong and wrong. In
@@ -1352,3 +1319,51 @@ decisions below are what stand between this document and a first run.
    `LR`/`MR` pair coupled to the soft-body plant.
 5. **The target leak `xi_tau_s`** — a free parameter, or the quantity to be
    fitted against recorded eye position.
+
+## 7. The eye plant: why eye F cannot yet do the task
+
+Eye F is the MPM plant rebuilt from measured zebrafish anatomy — the six muscle
+attachments, the globe's flattening and each strap's width traced off the camera
+lucida in Tulenko & Currie (2020, fig 12.1A, after Easter & Nicola 1996), rather
+than from the mammalian textbook the earlier eyes A–E assumed. The anatomy is now
+right and **the eye still cannot do the task**: driving each muscle alone to full
+command and holding it past settling gives a horizontal span of **7.9°** against
+the 25° the tracking task needs, and 6.3° vertical against 10°.
+
+Three families of parameter were swept on the lateral rectus to find out why —
+LR because it is the abductor, the muscle this circuit drives, and the one that
+sets the horizontal span. Every cell below is a *settled* measurement: the command
+is held 2.0 s, which is 1.5 settling times, and the pose is averaged over the last
+quarter with its peak-to-peak recorded beside it.
+
+![**Eye F: three families of MPM parameter swept on the lateral rectus.** **(a)** The plant, three-quarter view, with LR — the muscle every sweep drove — in blue and the other five greyed. **(b)** Strap geometry: the clearance `gap` at which the muscle rides off the sclera. Travel *falls* as it is raised; eye C's value of 0.042, which spans 30°, makes F three times worse. **(c)** Material: active stress `A` and passive stiffness `E` swept together on eye A, cells that crushed the globe removed. Travel is a function of the *ratio* — two cells at A/E = 0.25 with different absolute values give 3.96° and 3.91° — and above A/E ≈ 0.3 the strap collapses on itself and the globe's radius drops 80%. **(d)** Suspension and antagonists: orbital fat 4000 → 250, socket 5000 → 500, and the tonic of the five undriven muscles 0.14 → 0.02. Loosening all three at once buys 16%. The socket contributes exactly nothing — 6.104° in every cell. **(e)** The reason, from the same runs. Regenerate with `python fig_eyeF_sweeps.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eyeF_material_sweeps.png)
+
+**What was swept, and what it gave.** *Geometry:* the sclera stand-off, 0.0161 →
+0.080. This was the obvious suspect — the muscle and the globe are separate bodies
+that couple only through the shared MLS-MPM grid, so a strap lying hard against the
+sclera is welded along its whole arc of contact and drags the surface instead of
+winding the globe round. It is also the parameter that separates eye B from eye C.
+It is not the answer: travel *falls* monotonically, 6.11° → 1.08°. The B → C gain
+came from the strap *fraction* moving with it, 0.55 → 0.95, and F already runs 1.0.
+*Material:* active stress and stiffness together, 12 cells. Travel depends only on
+A/E, cleanly — and it saturates near A/E ≈ 0.3, above which the muscle collapses
+rather than pulls. F ships at 0.28, already at that edge. *Suspension:* fat, socket,
+and the resting pull of the five muscles that are not being driven. 6.10° → 7.06°
+with all three relaxed simultaneously.
+
+**Why none of them works.** LR shortens by **31% of its rest length** and its moment
+arm is **107 µm**, larger than the mammalian plant's 69. If that shortening pulled
+the insertion round that arm the globe would turn 34.6°. It turns 6.1°. So **82% of
+the contraction is absorbed inside the muscle**: the measured fish straps are 10–20 µm
+wide against the mammalian model's 34, and a strap that slender buckles rather than
+transmits. That is a mechanical property of the model, not of the fish — the animal's
+muscle has an internal architecture the MPM strap does not.
+
+**Consequences for this document.** First, the span gate in the characterisation
+protocol is not a formality: characterising F now would produce an exact description
+of a plant that cannot express the task. The levers left are anti-buckling — the
+`muscle_sleeve` that eyes D and E used and F has switched off — and cross-section.
+Second, **torsion is not negligible and the two-axis model of §4.6 needs revisiting**:
+at full command LR produces 3.86° of torsion against 6.17° of horizontal, and IO
+produces -11.08°. Both were measured on the same settled staircase runs, and the raw
+`curves.npz` for all six muscles are kept under `Plexus/prototype/eye/archive/eye_F/`.
