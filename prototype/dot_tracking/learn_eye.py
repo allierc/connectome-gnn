@@ -168,13 +168,14 @@ def load_plants(variant, dt):
         reach[ax] = min(abs(f(-1.0)), abs(f(1.0)))
         print(f"[plant] {variant}/{ax}: wn={wn:.2f} zeta={zeta:.3f}  "
               f"range {f(-1.0):+.1f}..{f(+1.0):+.1f} deg  reach {reach[ax]:.1f}")
-    # The world must fit inside the SMALLER of the two reaches. Scaling it to
-    # the horizontal alone put the vertical target outside the eye's travel
-    # 40% of the time for eye C — a target it cannot look at, which no
-    # controller can be trained out of.
-    dpu = min(reach.values()) / BOUND
-    print(f"[world] {dpu:.2f} deg/unit  ->  target within +-{dpu*BOUND:.1f} deg "
-          f"on BOTH axes")
+    # ANISOTROPIC: each axis scaled to its OWN reach. A square world has to
+    # take the smaller of the two, which for eye C throws away 40% of the
+    # horizontal range to accommodate the vertical. The eye's travel is not
+    # square — a laterally-placed eye moves far more horizontally than
+    # vertically — so neither should the task be.
+    dpu = {ax: reach[ax] / BOUND for ax in reach}
+    print(f"[world] {dpu['h']:.2f} deg/unit horizontal (+-{dpu['h']*BOUND:.1f} deg), "
+          f"{dpu['v']:.2f} vertical (+-{dpu['v']*BOUND:.1f} deg)")
     return out, dpu
 
 
@@ -196,7 +197,9 @@ def main():
     dev = torch.device(a.device)
 
     # --- data: UNCHANGED, now used on both axes ---------------------------
-    plants, dpu = (None, 15.0) if a.no_plant else load_plants(a.variant, a.dt)
+    plants, dpu = ((None, {"h": 15.0, "v": 15.0}) if a.no_plant
+                   else load_plants(a.variant, a.dt))
+    scale = np.array([dpu["h"], dpu["v"]], dtype=np.float32)
     if plants is not None:
         plants = {k: v.to(dev) for k, v in plants.items()}
     sp = {}
@@ -204,10 +207,11 @@ def main():
                       ("test", 40, 9_000_000)):
         u, y, c = learn.load_split(nm, n, a.duration, a.dt, s0)
         sp[nm] = (torch.as_tensor(u).to(dev),                     # (vx, vy)
-                  torch.as_tensor(y * dpu).to(dev))               # (x, y) deg
+                  torch.as_tensor(y * scale).to(dev))            # (x, y) deg
     (Utr, Ytr), (Uva, Yva), (Ute, Yte) = sp["train"], sp["val"], sp["test"]
-    print(f"[data] both axes, target scaled x{dpu:.2f} deg/unit; "
-          f"|target| max {float(Ytr.abs().max()):.1f} deg")
+    print(f"[data] anisotropic world: h x{dpu['h']:.2f}, v x{dpu['v']:.2f} deg/unit; "
+          f"|target| max h {float(Ytr[...,0].abs().max()):.1f}, "
+          f"v {float(Ytr[...,1].abs().max()):.1f} deg")
     torch.manual_seed(0)
     model = CTRNNEye(a.dt, plants).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
@@ -246,7 +250,9 @@ def main():
         err_v = (pred[..., 1] - Yte[..., 1]).abs()
         cmd = torch.stack([m[..., 0] - m[..., 1], m[..., 2] - m[..., 3]], -1)
     tag = "no plant" if a.no_plant else a.variant
-    json.dump({"variant": tag, "deg_per_unit": float(dpu),
+    json.dump({"variant": tag, "deg_per_unit": float(dpu["h"]),
+               "deg_per_unit_h": float(dpu["h"]),
+               "deg_per_unit_v": float(dpu["v"]),
                "gaze_err_mean_deg": float(err.mean()),
                "gaze_err_h_deg": float(err_h.mean()),
                "gaze_err_v_deg": float(err_v.mean()),
@@ -260,7 +266,7 @@ def main():
                                 + ".json"), "w"), indent=2)
     print(f"\n[{tag}]  2-D gaze error {float(err.mean()):.3f} deg"
           f"   (h {float(err_h.mean()):.3f}, v {float(err_v.mean()):.3f})"
-          f"   world +-{dpu*BOUND:.1f} deg")
+          f"   world +-{dpu['h']*BOUND:.1f}/{dpu['v']*BOUND:.1f} deg")
     print(f"   commands saturated {float((cmd.abs() >= 1).float().mean())*100:.1f}%"
           f" of samples   |cmd| max {float(cmd.abs().max()):.3f}")
     print("   motor pools (all >= 0): "
@@ -272,7 +278,8 @@ def main():
     out = os.path.join(learn.CKPT, "ctrnn_eye_"
                        + ("noplant" if a.no_plant else a.variant) + ".pt")
     torch.save({"state_dict": model.state_dict(), "variant": tag,
-                "dt": a.dt, "deg_per_unit": float(dpu)}, out)
+                "dt": a.dt, "deg_per_unit_h": float(dpu["h"]),
+                "deg_per_unit_v": float(dpu["v"])}, out)
     print(f"   saved {out}")
 
 

@@ -159,29 +159,22 @@ DEG_PER_UNIT = 15.0          # grid units -> degrees of eccentricity
 BOUND = 0.95                 # the arena half-width the target is clamped to
 
 
-def deg_per_unit(scale, variant=None):
-    """Grid units -> degrees. `auto` shrinks the world until the WHOLE arena
-    is inside the chosen eye's reachable travel.
+def deg_per_unit(scale, variant=None, axis="h"):
+    """Grid units -> degrees, PER AXIS.
 
-    Without it the target routinely sits outside the eye's range and the eye
-    saturates against its own mechanics — a workspace failure that looks like
-    a tracking failure. Eye A reaches only +3.4 deg of abduction, so a world
-    scaled for eye C asks it for something no controller can deliver."""
+    `auto` scales each axis to its own reach. The eye's travel is not square —
+    a laterally-placed eye moves far more horizontally than vertically, 15.0
+    against 9.1 deg on eye C — so a square world has to take the smaller of
+    the two and throws away 40% of the horizontal range. Scaling per axis
+    uses all of both."""
     if scale != "auto":
         return float(scale)
     p = load_plants().get(variant)
     if p is None:
         return DEG_PER_UNIT
-    # The world must fit inside the smaller reach of the TWO axes. Sizing it
-    # from the horizontal alone put the vertical target outside the eye's
-    # travel 40% of the time on eye C (60% on D) — a target it cannot look
-    # at, which reads as a controller that cannot track.
-    reach = []
-    for ax in ("h", "v"):
-        c = p[ax]["coef"]
-        f = lambda u, c=c: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
-        reach.append(min(abs(f(-1.0)), abs(f(+1.0))))
-    return float(min(reach) / BOUND)
+    c = p[axis]["coef"]
+    f = lambda u: sum(ci * u ** (i + 1) for i, ci in enumerate(c))
+    return float(min(abs(f(-1.0)), abs(f(+1.0))) / BOUND)
 PLANTS = {}
 EYE_SCORES = {}
 # A-E labels, in the order the eyes were made. The raw variant names carry
@@ -413,9 +406,8 @@ def _eye_predict(base, variant, t, vx, vy, x0, y0, dt):
     ux = np.clip(cmd_h, -JOY_FULL_SCALE, JOY_FULL_SCALE)
     uy = np.clip(cmd_v, -JOY_FULL_SCALE, JOY_FULL_SCALE)
     # red = the command through the static map only
-    dpu = deg_per_unit("auto", variant)
-    gx = plant_static(P["h"]["coef"], np.clip(cmd_h, -1, 1)) / dpu
-    gy = plant_static(P["v"]["coef"], np.clip(cmd_v, -1, 1)) / dpu
+    gx = plant_static(P["h"]["coef"], np.clip(cmd_h, -1, 1)) / deg_per_unit("auto", variant, "h")
+    gy = plant_static(P["v"]["coef"], np.clip(cmd_v, -1, 1)) / deg_per_unit("auto", variant, "v")
     return gx, gy, ux, uy
 
 
@@ -833,8 +825,9 @@ function toPx(v,size){ return (v+1)/2*(size-2)+1; }
 // constant size, instead of rescaling the box with it and cancelling out.
 const DEGSPAN=18;                       // half-window, degrees
 function degPx(v,size){ return (v/DEGSPAN+1)/2*(size-2)+1; }
-function wPx(v,size){ return TR.deg_per_unit
-  ? degPx(v*TR.deg_per_unit,size) : toPx(v,size); }
+function wPx(v,size,ax){ return TR.deg_per_unit
+  ? degPx(v*(ax==="v"?(TR.deg_per_unit_v||TR.deg_per_unit):TR.deg_per_unit),size)
+  : toPx(v,size); }
 
 function drawWorld(){
   const n=620; W.fillStyle="#000"; W.fillRect(0,0,n,n);
@@ -852,12 +845,13 @@ function drawWorld(){
       W.moveTo(px,n-14); W.lineTo(px,n-10); W.stroke();
     }
     // the world the target lives in, at the current scale
-    const wx=degPx(0.95*d,n)-degPx(0,n);
+    const dv=TR.deg_per_unit_v||d;
+    const wx=degPx(0.95*d,n)-degPx(0,n), wy=degPx(0.95*dv,n)-degPx(0,n);
     W.strokeStyle="#4b5563"; W.lineWidth=1.2;
-    W.strokeRect(degPx(0,n)-wx, degPx(0,n)-wx, 2*wx, 2*wx);
+    W.strokeRect(degPx(0,n)-wx, degPx(0,n)-wy, 2*wx, 2*wy);
     W.textAlign="left"; W.fillStyle="#6b7280";
-    W.fillText("world "+d.toFixed(1)+"\u00b0/unit  (\u00b1"
-               +(0.95*d).toFixed(1)+"\u00b0)", 5, 12);
+    W.fillText("world \u00b1"+(0.95*d).toFixed(1)+"\u00b0 h / \u00b1"
+               +(0.95*dv).toFixed(1)+"\u00b0 v", 5, 12);
     // what the eye can reach — when the target leaves this, no controller
     // can follow it and the failure is mechanical, not one of control
     if(TR.reach_h){
@@ -873,25 +867,25 @@ function drawWorld(){
   W.lineJoin="round"; W.lineCap="round";
   const track=(ax,ay,dim,bright,lwd,lwb)=>{
     W.strokeStyle=dim; W.lineWidth=lwd; W.beginPath();
-    for(let i=0;i<=k;i++){ const px=wPx(ax[i],n),py=wPx(-ay[i],n);
+    for(let i=0;i<=k;i++){ const px=wPx(ax[i],n,"h"),py=wPx(-ay[i],n,"v");
       i?W.lineTo(px,py):W.moveTo(px,py); } W.stroke();
     W.strokeStyle=bright; W.lineWidth=lwb; W.beginPath();
     const s0=Math.max(0,k-TRAIL);
-    for(let i=s0;i<=k;i++){ const px=wPx(ax[i],n),py=wPx(-ay[i],n);
+    for(let i=s0;i<=k;i++){ const px=wPx(ax[i],n,"h"),py=wPx(-ay[i],n,"v");
       i===s0?W.moveTo(px,py):W.lineTo(px,py); } W.stroke();
   };
   track(TR.x,TR.y,"#5a5a5a","#d8d8d8",2,3.5);
   track(TR.gx,TR.gy,"#7a2226","#e5484d",2,3.5);
   if(TR.gaze_grid_h) track(TR.gaze_grid_h,TR.gaze_grid_v,"#1d3f5e","#4da3ff",1.5,2.5);
   // the two current positions, and the drift between them
-  const tx=wPx(TR.x[k],n),ty=wPx(-TR.y[k],n);
-  const cx=wPx(TR.gx[k],n),cy=wPx(-TR.gy[k],n);
+  const tx=wPx(TR.x[k],n,"h"),ty=wPx(-TR.y[k],n,"v");
+  const cx=wPx(TR.gx[k],n,"h"),cy=wPx(-TR.gy[k],n,"v");
   W.strokeStyle="#666"; W.lineWidth=1; W.setLineDash([3,3]);
   W.beginPath(); W.moveTo(tx,ty); W.lineTo(cx,cy); W.stroke(); W.setLineDash([]);
   W.fillStyle="#fff"; W.beginPath(); W.arc(tx,ty,7,0,7); W.fill();
   W.fillStyle="#e5484d"; W.beginPath(); W.arc(cx,cy,7,0,7); W.fill();
   if(TR.gaze_grid_h){
-    const ex_=wPx(TR.gaze_grid_h[k],n), ey_=wPx(-TR.gaze_grid_v[k],n);
+    const ex_=wPx(TR.gaze_grid_h[k],n,"h"), ey_=wPx(-TR.gaze_grid_v[k],n,"v");
     W.fillStyle="#4da3ff"; W.beginPath(); W.arc(ex_,ey_,6,0,7); W.fill();
   }
   W.strokeStyle="#e5484d"; W.lineWidth=1.2;
@@ -908,13 +902,13 @@ function drawEye(){
   // its projection is R*sin(angle). Drawn at the eye's OWN scale, not the
   // world's, so the panel shows what the mechanics did rather than how close
   // that was to the target.
-  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*TR.deg_per_unit;
+  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*(TR.deg_per_unit_v||TR.deg_per_unit);
   const px=c+Math.sin(gh*Math.PI/180)*R, py=c-Math.sin(gv*Math.PI/180)*R;
   // sclera
   EY.fillStyle="#eef2f6"; EY.strokeStyle="#fff"; EY.lineWidth=1.5;
   EY.beginPath(); EY.arc(c,c,R,0,7); EY.fill(); EY.stroke();
   // where the target would put it, for comparison
-  const th=TR.target_deg[k], tv=TR.y[k]*TR.deg_per_unit;
+  const th=TR.target_deg[k], tv=TR.y[k]*(TR.deg_per_unit_v||TR.deg_per_unit);
   const tx=c+Math.sin(th*Math.PI/180)*R, ty=c-Math.sin(tv*Math.PI/180)*R;
   EY.strokeStyle="#9aa4b2"; EY.lineWidth=1.8; EY.setLineDash([4,3]);
   EY.beginPath(); EY.arc(tx,ty,38,0,7); EY.stroke(); EY.setLineDash([]);
@@ -977,7 +971,7 @@ function drawStates(){
   // you the instantaneous gain, and the whole curve tells you what the eye
   // could do if the command went further.
   const uh=TR.cmd_h[k], uv=TR.cmd_v[k];
-  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*TR.deg_per_unit;
+  const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*(TR.deg_per_unit_v||TR.deg_per_unit);
   [["h",TR.phi_u,TR.phi_f,uh,gh,430],["v",TR.phi_u_v,TR.phi_f_v,uv,gv,530]]
    .forEach(([ax,U,F,uu,gg,x0])=>{
     const w=88,h=110,y0=30;
@@ -1164,7 +1158,9 @@ class Handler(BaseHTTPRequestHandler):
                                   "pools": np.round(pools, 3).tolist()}
                         except Exception as e:
                             print(f"[states] {type(e).__name__}: {e}")
-                    dpu = deg_per_unit(q.get("world", "auto"), pname)
+                    wsel = q.get("world", "auto")
+                    dpu = deg_per_unit(wsel, pname, "h")
+                    dpv = deg_per_unit(wsel, pname, "v")
                     tgt = np.asarray(tr["x"]) * dpu
                     pu, pf, pneg = plant_curve(pname, axis="h")
                     pu_v, pf_v, pneg_v = plant_curve(pname, axis="v")
@@ -1177,7 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
                     # eye's response lives in the plant row instead, where it
                     # is labelled as the eye.
                     gaze_grid_h = gaze_h / dpu
-                    gaze_grid_v = gaze_v / dpu
+                    gaze_grid_v = gaze_v / dpv
                     tr.update({
                         "gaze_grid_h": gaze_grid_h.tolist(),
                         "gaze_grid_v": gaze_grid_v.tolist(),
@@ -1190,7 +1186,7 @@ class Handler(BaseHTTPRequestHandler):
                         "cmd_h": u_cmd.tolist(), "cmd_v": v_cmd.tolist(),
                         "phi_neg_frac": float(np.mean(pneg)),
                         "u_cmd": u_cmd.tolist(),
-                        "deg_per_unit": dpu,
+                        "deg_per_unit": dpu, "deg_per_unit_v": dpv,
                         "vel_h": vel_h.tolist(), "vel_v": vel_v.tolist(),
                         "rates": (st or {}).get("rates"),
                         "pools": (st or {}).get("pools"),
