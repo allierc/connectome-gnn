@@ -1203,6 +1203,102 @@ first, and they are the criteria eye G will be judged by without anything in
 this section changing.
 
 
+### 4.9 Which simulator, now that there are meshes
+
+**The question.** A colleague is segmenting the six extraocular muscles and
+the globe from imaging, so for the first time we will have real anatomy rather
+than a hand-built approximation of it. Something has to consume those meshes
+and turn them into a moving eye. The realistic candidates are MuJoCo, the
+material-point simulator already in `Plexus/prototype/eye`, and a
+reimplementation of that simulator on NVIDIA's Warp.
+
+**The answer, first.** Keep the material-point simulator. MuJoCo is faster,
+more mature and — importantly — already differentiable, which would remove
+the need for the fitted surrogate of section 4.8 entirely. But it cannot
+represent tissue that both deforms a lot and has different stiffness in
+different places, and that is precisely what a per-muscle segmentation is for.
+The medium-term move is to port the material-point simulator to Warp, which
+keeps the physics and adds the differentiability.
+
+**What the choice turns on.** Not speed, and not accuracy in the abstract. It
+turns on what a segmented mesh is *for*. If the meshes are only there to fix
+where each muscle attaches and which way it pulls, a rigid globe with six
+cables wrapped around it uses all of that and runs a hundred times faster. If
+the meshes are there because the muscle belly, the tendon and the sclera
+behave differently and deform substantially while pulling, then the mesh is
+tissue, and only a simulator that carries material properties through the
+volume can use it. The second is the stated intent, so it decides the
+question.
+
+| | mesh becomes | different materials | large deformation | gradients | speed |
+|---|---|---|---|---|---|
+| MuJoCo, rigid globe + cable muscles | attachment points, wrap surfaces | not applicable | not applicable | yes (MJX / MuJoCo-Warp) | very fast |
+| MuJoCo, deformable bodies (`flex`) | tetrahedral volume | one per body | **no — small strain only** | yes | slow at high resolution |
+| our material-point simulator | particles filling the volume | per particle | yes | **no** | slow |
+| material-point on Warp | particles filling the volume | per particle | yes | yes, and batched | fast |
+
+**MuJoCo with a rigid globe** is the strongest option we are turning down, so
+it is worth being clear about what is being given up. It has a muscle model
+built in — the standard force-length-velocity relation, the same curve our
+thirty single-muscle holds exist to measure — so stage 1 of the protocol would
+simply not be needed. Its cables can be routed through wrap surfaces, which is
+a direct implementation of the connective-tissue pulleys Demer and colleagues
+established are real, and which eye D imitated with a sleeve constraint. And
+MuJoCo-Warp reports speedups of seventy to a hundred times with gradients
+available, so the eye could sit inside the training loop and be
+backpropagated through, rather than being replaced by a fitted stand-in. The
+cost is that the globe is rigid and the muscles are one-dimensional cables:
+the segmentation contributes geometry and nothing else, and every distinction
+between sclera, tendon and muscle belly is discarded on import.
+
+**MuJoCo's deformable bodies** are the obvious way to keep the tissue, and
+they do not work here. Each deformable body carries a single stiffness and a
+single Poisson ratio, so sclera, tendon and bone cap — 300, 9 and 40 in eye A
+— need three separate bodies fastened together, which MuJoCo supports poorly.
+More decisively, the deformation model is only valid for *small* strains, and
+warns that tetrahedra can invert under large load. A rectus muscle shortening
+by a third is not a small strain. This is a limitation of the method, not of
+the implementation, so it will not be fixed by a newer version.
+
+**The material-point method** has the opposite profile, and it is the reason
+the prototype uses it. Material properties are carried by the particles, so
+every particle can differ and a mesh can be filled directly without being
+converted to tetrahedra first; and large deformation is the case the method
+was invented for, with no mesh to tangle. What it costs is everything section
+4.7 already documents: the grid scatter overwrites its own memory, so the
+simulator cannot be differentiated, and it is far too slow to sit inside seven
+thousand gradient updates. That is the entire reason the surrogate exists.
+
+**The material-point method on Warp** removes that cost without giving up
+anything above. Warp is a way of writing GPU code in Python with automatic
+differentiation built in, and material-point solvers written on it are
+public: `warp-mpm`, used in the PhysGaussian work, interoperates directly
+with PyTorch; GeoWarp is a differentiable implicit solver built specifically
+to fit material parameters by gradient descent; Rewarped runs many
+deformable simulations in parallel and returns gradients for all of them,
+which is the form training actually needs, since a batch is a hundred and
+twenty-eight trials at once. Per-particle stiffness is the natural
+representation there — an array indexed by particle, with the gradient
+flowing back into it. Two honest caveats: this is a port rather than a
+setting, and GeoWarp demonstrates fitting one scalar parameter and describes
+spatially varying parameters as a generalisation rather than a result.
+
+**The plan, and the measurement that would change it.** Near term, nothing
+changes: the material-point eye and the fitted surrogate of section 4.8, which
+work today and depend on no port. Medium term, port to Warp and put the eye
+itself in the training loop. The surrogate is not wasted either way — a
+differentiable simulator still has to be shown to reproduce the measured
+static map and mechanics, and the protocol's holds are exactly that test.
+
+The one measurement that would overturn this is cheap. Build the MuJoCo
+version — rigid globe, six cables through wrap surfaces, the built-in muscle
+model — and run stage 0 and stage 1 on it. If it reproduces the measured span
+and the six single-muscle curves to within the accuracy the tracking task is
+scored at, then the deforming tissue is not buying anything the task can see,
+and we should take the hundredfold speedup and the free gradients. That is a
+day's work and it is worth doing before the port, not after.
+
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
