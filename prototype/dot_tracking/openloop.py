@@ -683,6 +683,7 @@ PAGE = r"""<!doctype html>
   .cap { font-size:10px; letter-spacing:.16em; text-transform:uppercase;
          color:var(--dim); }
   .cap i { color:var(--red); font-style:normal; }
+  .cap b { font-weight:600; }
   .stats { font-size:12px; color:var(--dim); margin-top:16px;
            font-variant-numeric:tabular-nums; }
   .stats b { color:var(--fg); font-weight:600; }
@@ -699,7 +700,7 @@ learned ones.</p>
 <div class="knobs" id="knobs"></div>
 <div class="row">
   <div class="panel"><canvas id="world" width="620" height="620"></canvas>
-    <div class="cap" id="worldcap">world &mdash; target, and <i>computed</i></div></div>
+    <div class="cap" id="worldcap">world &mdash; target, and <i>command</i></div></div>
   <div class="panel"><canvas id="eye" width="360" height="360"></canvas>
     <div class="cap" id="eyecap">the eye, seen from in front</div></div>
 </div>
@@ -1016,10 +1017,11 @@ function stats(){
   // an eye, so it has no inverse model of one and pays a lag it cannot see.
   // Saying so stops that reading as a controller regression.
   const uncomp = TR.plant
-    ? '<br><span style="color:#e5a23c">red is the controller, blue is the eye '
-      + 'driven by it. This controller was trained without an eye, so the '
-      + 'blue lag is the plant, not a control failure. The number on the eye '
-      + 'button is what a controller trained THROUGH that eye achieves.</span>'
+    ? '<br><span style="color:#e5a23c">red = the command as a position, '
+      + '\u03a6(u), i.e. where the eye would sit with no inertia. blue = the '
+      + 'gaze the second-order mechanics actually produce. The command loops '
+      + 'at direction changes because it must LEAD the plant to cancel its '
+      + 'lag \u2014 that overshoot-and-return is the inverse model.</span>'
     : "";
   const lost = TR.t_lose===null
     ? 'never lost within '+TR.settings.duration.toFixed(0)+'s'
@@ -1033,8 +1035,9 @@ function stats(){
 
 function frame(){ drawWorld(); drawEye(); drawStates(); stats();
   document.getElementById("worldcap").innerHTML = TR.plant
-    ? 'world &mdash; target, <i>computed</i>, and <b style="color:#4da3ff">where the eye points</b>'
-    : 'world &mdash; target, and <i>computed</i>';
+    ? 'world &mdash; target, <i>command</i> (what the muscles ask for), '
+      + 'and <b style="color:#4da3ff">gaze</b> (where the eye actually points)'
+    : 'world &mdash; target, and <i>computed position</i>';
   k=(k+1)%TR.t.length; }
 
 async function load(newseed){
