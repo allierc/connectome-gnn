@@ -21,7 +21,7 @@ UNICODE = {
     "—": "---", "–": "--", "§": r"\S{}",
     "→": r"$\rightarrow$", "π": r"$\pi$",
     "≈": r"$\approx$", "×": r"$\times$", "±": r"$\pm$",
-    "≤": r"$\leq$", "≥": r"$\geq$", "ρ": r"$\rho$",
+    "−": "--", "≤": r"$\leq$", "≥": r"$\geq$", "ρ": r"$\rho$",
     "θ": r"$\theta$", "σ": r"$\sigma$", "λ": r"$\lambda$",
     "τ": r"$\tau$", "ω": r"$\omega$", "Δ": r"$\Delta$",
 }
