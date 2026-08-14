@@ -11,7 +11,7 @@ Source reconstruction: `Oculomotor_sortedData_081126.pkl`, 2949 cells,
 42 cell types, 44,584 edges (density 0.51 %). Selected sub-circuit:
 `config/zebrafish/zebrafish_om_intg_285_v1.yaml`, 285 cells, 8 types.
 
-![**The oculomotor reconstruction and the sub-circuit modelled here.** (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. Rows are postsynaptic, columns presynaptic. Regenerate with `python scripts/plot_oculomotor_connectome.py --config config/zebrafish/zebrafish_om_intg_285_v1.yaml --out figures/zebrafish/fig_oculomotor_circuit.png`.](../figures/zebrafish/fig_oculomotor_circuit.png)
+![**The oculomotor reconstruction and the sub-circuit modelled here.** (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. (c) The same sub-circuit signed by the Dale assignment of section 1.4 — each synapse coloured by the sign of its *presynaptic* cell, blue excitatory, red inhibitory, shade log-scaled in synaptic area. This is what the model multiplies, $\hat W_{ij} = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})$, and the support mask of (b) cannot show it. Because the sign belongs to the column, the panel reads as vertical bands: the two `INTG_contra` types are a solid red block, and it is visibly the only inhibition the 285 cells contain. Rows are postsynaptic, columns presynaptic in all three. Regenerate with `python scripts/plot_oculomotor_connectome.py --config config/zebrafish/zebrafish_om_intg_285_v1.yaml --out figures/zebrafish/fig_oculomotor_circuit.png`.](../figures/zebrafish/fig_oculomotor_circuit.png)
 
 ![**Figure 1 — the oculomotor circuit.** Twin of Figure 1 of the zebrafish heading-direction paper, rendered through the same code with the content swapped. **(a)** All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. **(b)** The cell bodies alone, same view — the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). **(c, d)** The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made — that the E/I split is by projection laterality, not by anatomical position. **(e)** The computation of section 4.6 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye plant to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with `python figures/zebrafish/fig_1_oculomotor_overview.py`.](../figures/zebrafish/fig_1_oculomotor_overview.png)
 
@@ -765,53 +765,55 @@ nothing else.
 
 ### 4.7 The eye model
 
-
 The circuit's output is muscle drive, not eye position, so at some point the
 mechanics has to be in the loop. The MPM eye of `Plexus/prototype/eye` cannot
 be: its grid scatter is in-place and a single trial costs far more than the
-7250 gradient updates of section 4.5. It is replaced by a reduced plant
-identified from the probe runs already in that prototype's `archive/`
-(`fit_plant.py`).
+7250 gradient updates of section 4.5. It is replaced by a reduced plant,
+identified from the probe runs in that prototype's `archive/` by
+`fit_plant.py`, and it is the plant of step 7 above — a static nonlinearity
+$\Phi$ followed by second-order mechanics, per axis. This section says where
+its three numbers come from and what they are worth; the equations are not
+repeated.
 
-Command-to-gaze is plainly nonlinear — activation saturates, and the two
+Command-to-gaze is plainly nonlinear: activation saturates, and the two
 horizontal muscles are not mirror images. That does not force a nonlinear
-ODE. The system is **Hammerstein**: a static nonlinearity $\Phi$ followed by
-linear mechanics, with $u_\theta$ the signed horizontal command (positive for lateral rectus,
-negative for medial) and $\theta$ the horizontal gaze in degrees,
+ODE. Putting the whole nonlinearity in $\Phi$ and leaving the ODE linear is
+the **Hammerstein** factorisation, and it earns its keep here — across the
+five eyes the mechanics barely move, $\omega_n = 9.5$ to $11.1$ rad s$^{-1}$
+and $\zeta = 0.22$ to $0.32$, while the static gain ranges over 14 to 23
+degrees of travel. The configurations change $\Phi$, not the ODE, so one set
+of dynamics covers the sweep. At $\zeta \approx 0.3$ the modelled eye is
+underdamped and rings at about 1.5 Hz; real oculomotor plants are overdamped,
+so that is a property of the MPM configuration rather than of a fish.
 
-```math
-u_\theta\;\longrightarrow\;\Phi_\theta(u_\theta)\;\longrightarrow\;
-\big[\;\text{linear mechanics}\;\big]\;\longrightarrow\;\theta
-```
+$\Phi$ and the mechanics are fitted **jointly**, against whole trajectories.
+The alternative — read the plateaus for $\Phi$, then fit the transient — needs
+settled plateaus, and this archive has none, for the reason given below.
 
-The two factors are identified separately, which is what keeps the fit
-honest. $\Phi$ is read straight off the plateaus of the step responses,
-absorbing the force-activation curve and the geometric saturation of a globe
-that can only rotate so far,
+![**The identified eye plants.** All three panels are drawn from the stored fit in `plant.npz` / `plant_v.npz`, in the symbols of section 4.6. **(a)** The static nonlinearity $\Phi_\theta(u_\theta)$ of all five eyes, and $\Phi_\varphi$ of eye C, the one the controller is coupled to. Every curve is monotone by construction; the curvature is the genuine asymmetry between abduction and adduction. **(b)** Step response of eye C on both axes at commands 0.5 and 1: the overshoot and the ringing are what only the inertial term can produce, and they are the reason the second-order plant beats the first. **(c)** Reachable travel per axis, $\min|\Phi(\pm 1)|$ — the quantity that decides whether a tracking task is expressible at all, and the reason the world is scaled anisotropically. Regenerate with `python fig_plant_summary.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_plant.png)
 
-```math
-\Phi_\theta(u)\;=\;\sum_{k=1}^{3}\beta_k\,u^{k},
-\qquad
-\beta \;\text{ fitted to }\; \big\{\,(u,\ \theta_\infty)\,\big\}\ \text{at each hold}
-```
+**Second order wins on every variant, by a factor of 3.** Against the
+first-order alternative $\tau\dot\theta + \theta = \Phi_\theta(u_\theta)$ —
+viscosity and an elastic restoring force, no globe inertia — the RMS error in
+degrees is:
 
-and the mechanics are then fitted from $\Phi_\theta(u_\theta)$ to $\theta$,
-so the ODE never has to bend around the saturation. Two candidate mechanics
-were compared rather than assumed:
+| variant | order 1 | order 2 | ratio |
+|---|---|---|---|
+| **B** `baseline_fixmat` | 1.22 | **0.41** | 3.0x |
+| **A** `c_a` | 1.20 | **0.42** | 2.9x |
+| **C** `p3a_length` | 2.58 | **0.62** | 4.2x |
+| **D** `p3b_pulley` | 2.24 | **0.77** | 2.9x |
+| **E** `p3c_drive` | 6.77 | 6.34 | 1.1x |
 
-```math
-\text{order 1:}\quad \tau\,\dot\theta + \theta \;=\; \Phi_\theta(u_\theta)
-\qquad\qquad \text{(viscosity + elastic restoring force)}
-```
-
-```math
-\text{order 2:}\quad \ddot\theta + 2\zeta\omega_n\,\dot\theta + \omega_n^{2}\,\theta
-\;=\; \omega_n^{2}\,\Phi_\theta(u_\theta)
-\qquad \text{(+ globe inertia)}
-```
-
-![**The eye plant.** Left: the static nonlinearity, plateau gaze against held command. Middle: one lateral-rectus and one medial-rectus probe, MPM solid, first-order dotted, second-order dashed — the first-order plant cannot overshoot, and the eye does. Right: RMS error per plant variant, first order against second.](../figures/zebrafish/fig_eye_plant_fit.png)
-
+This is not a matter of degrees of freedom. A first-order system is monotone
+towards its target and *cannot overshoot*, while the MPM eye overshoots and
+rings — panel (b). Only the inertial term can produce that. The one variant
+where the two orders are indistinguishable, `p3c_drive`, is also the one
+neither fits at 6 degrees of error, which is a signal about that run rather
+than about the model order. And the fit has to be **per variant**: pooled
+across all five it gives RMS 5.05 deg and a static curve with plateaus at
++16, +13 and +3 degrees for the same command; fitted separately, 0.41 to
+0.77 deg.
 
 #### The five eyes
 
@@ -839,37 +841,38 @@ whose slope at the origin was **negative** — pulling the lateral rectus would
 rotate the eye medially. That is not a finding about the eye, it is an
 artefact, and it invalidated everything downstream of it.
 
-The cause was mundane. `static_curve` reads plateaus as steady states, but
-for $\omega_n$ = 10 rad/s and $\zeta$ = 0.31 the settling time is
-$4/(\zeta\omega_n)$ = 1.28 s, while the holds in these runs last **0.19 s, 1.27 s
-and 0.24 s**. Not one hold in the archive has settled; the two short ones are
-still moving at 70 deg/s when sampled. What I called a static curve was
-measured entirely from transients, and the post-step return — the eye sailing
-back through zero after a full step was released — was being read as "small
-positive command gives negative gaze".
+The cause was mundane. `static_curve` reads plateaus as steady states, but at
+$\omega_n = 10$ rad s$^{-1}$ and $\zeta = 0.31$ the settling time
+$4/(\zeta\omega_n)$ is 1.28 s, while the holds in these runs last **0.19 s,
+1.27 s and 0.24 s**. Not one hold in the archive has settled; the two short
+ones are still moving at 70 deg/s when sampled. What was called a static curve
+was measured entirely from transients, and the post-step return — the eye
+sailing back through zero after a full step was released — was being read as
+"small positive command gives negative gaze".
 
-Two changes follow. $\Phi$ is now **monotone by construction**,
+$\Phi$ is now **monotone by construction**: in the quadratic of step 7 the
+linear coefficient is parameterised as $a = e^{p} > 0$ and the quadratic one
+as $b = \tfrac{a}{2}\tanh q$, which forces $\Phi' = a + 2bu > 0$ on the whole
+command range $[-1,1]$. The fit therefore cannot return a physically
+impossible curve whatever the data does, while the quadratic term still
+carries the genuine asymmetry between abduction and adduction. Every variant
+now has a positive slope at the origin and zero non-monotone fraction. The
+residuals rise a little — 0.41 to 0.72 deg on B — and that increase is the
+honest cost of refusing to fit transients.
 
-```math
-\Phi_\bullet(u)=a\,u+b\,u^{2},
-\qquad a=e^{p}>0,
-\qquad b=\tfrac{a}{2}\tanh q
-\;\Longrightarrow\;
-\Phi_\bullet'(u)=a+2bu>0 \ \ \forall\, u\in[-1,1]
-```
+The identification still needs re-running with **holds longer than 1.3 s at
+intermediate levels** (0.2 / 0.4 / 0.6 / 0.8 in both directions). Each
+protocol steps straight to full activation, so there are only two plateaus per
+variant, at command $-1$ and $+1$, and the curve between them is extrapolation
+constrained to be monotone rather than measurement. The dynamics are well
+determined, because those come from the transients; the static gain is not.
 
-so the fit cannot return a physically impossible curve whatever the data
-does, while the quadratic term still carries the genuine asymmetry between
-abduction and adduction. Every variant now has a positive slope at the origin
-and zero non-monotone fraction. The residuals rise a little — 0.41 to 0.72 deg
-on B — and that increase is the honest cost of refusing to fit transients.
-
-And the identification needs re-running with **holds longer than 1.3 s at
-intermediate levels** (0.2 / 0.4 / 0.6 / 0.8 in both directions). The point is
-no longer that the gain is imprecise: no steady state has been measured at
-all, so the static curve currently rests on nothing but its endpoints and the
-constraint that it must be monotone.
-
+**A caveat on reproducibility.** The `archive/t*_probe_*/curves.npz` behind
+eyes A-E have since been deleted, so `fit_plant.py` can no longer be re-run on
+them and the figure above is drawn from the stored coefficients instead. The
+fit itself survives — `plant.npz` and `plant_v.npz` carry $\Phi$, $\omega_n$
+and $\zeta$ per variant, which is what the trained controllers use — but the
+staircase re-probe will have to regenerate the runs from the specs.
 
 #### Coupling the circuit to the eye: what the geometry forces
 
@@ -877,24 +880,14 @@ Driving the eye is not a matter of appending a plant to the readout. Two
 constraints come from the mechanics and neither is negotiable by training.
 
 **Four pools, two antagonist pairs.** The readout emits four non-negative
-motor drives — LR and MR for the horizontal, SR and IR for the vertical —
-and each axis is commanded by a difference:
-
-```math
-u_\theta = m_{\mathrm{LR}} - m_{\mathrm{MR}},
-\qquad
-u_\varphi = m_{\mathrm{SR}} - m_{\mathrm{IR}},
-\qquad m_\bullet \ge 0
-```
-
-with $u_\theta$ driving the horizontal plant and $u_\varphi$ the vertical. A single
-command cannot serve both: the two axes have different static curves and
-different mechanics. Fitted separately from the LR/MR and SR/IR probes, the
-horizontal and vertical plants of eye C differ by more than a factor of
-one and a half in travel.
+motor drives and each axis is commanded by a difference, which is step 6
+above. A single command cannot serve both axes: they have different static
+curves and different mechanics, fitted separately from the LR/MR and the
+SR/IR probes. On eye C they differ by more than a factor of one and a half in
+travel.
 
 **The workspace is per axis, and it is the binding constraint.** Reachable
-travel, in degrees:
+travel, in degrees, plotted in panel (c):
 
 | eye | horizontal | vertical | usable world |
 |---|---|---|---|
@@ -904,75 +897,39 @@ travel, in degrees:
 | D | 12.3 | 5.0 | 5.3 |
 | E | 5.1 | 5.9 | 5.3 |
 
-The task can only be scaled to the *smaller* of the two. Scaling it to the
-horizontal instead — which an implementation does by default, because the
-horizontal pair is the one everybody models — puts the vertical target
-outside the eye's travel 40 % of the time on eye C and 60 % on eye D. The
-eye then cannot look where the target is, and the resulting error is
+An isotropic task can only be scaled to the *smaller* of the two. Scaling it
+to the horizontal instead — which an implementation does by default, because
+the horizontal pair is the one everybody models — puts the vertical target
+outside the eye's travel 40 % of the time on eye C and 60 % on eye D. The eye
+then cannot look where the target is, and the resulting error is
 indistinguishable, in any plot, from a controller that has failed to learn.
+The prototype avoids it by scaling each axis to its own reach, which is the
+$s_\theta \neq s_\varphi$ of step 0.
 
 That is the transferable point for the connectome model. Before any training
 result is interpreted, the reachable range of each output axis has to be
 compared against the eccentricity the task demands of it. A circuit whose
 motor pools cannot produce the required rotation will look exactly like a
-circuit that cannot compute — and only the first of those is fixed by
-anatomy rather than by optimisation.
+circuit that cannot compute — and only the first of those is fixed by anatomy
+rather than by optimisation.
 
 #### Co-contraction is a second input, not a second value of the first
 
-The command is written as one signed scalar, $u_\theta = m_{LR} - m_{MR}$, which assumes
-reciprocal innervation: one muscle pulls, the other releases. If instead both
-pull — the lateral rectus leading and the medial rectus resisting — the
-difference is unchanged but the **sum** is not, and the sum is not a position
-command at all. Co-contraction raises the stiffness and the damping of the
-plant, so it moves $\omega_n$ and $\zeta$ rather than $\Phi$.
+Step 6 writes each axis as one signed scalar, which assumes reciprocal
+innervation: one muscle pulls, the other releases. If instead both pull — the
+lateral rectus leading and the medial rectus resisting — the difference is
+unchanged but the **sum** is not, and the sum is not a position command at
+all. Co-contraction raises the stiffness and the damping of the plant, so it
+moves $\omega_n$ and $\zeta$ rather than $\Phi$.
 
 A single-input Hammerstein cannot express that. Capturing it needs
-$\Phi(m_{LR}, m_{MR})$ together with $\omega_n(m_{LR}+m_{MR})$, identified from a probe that
-sweeps the sum as well as the difference. This is not academic for the
-present model: the motor readout already emits two independent non-negative
-drives, so the network is free to co-contract, and the plant will ignore it —
+$\Phi(m_{\mathrm{LR}}, m_{\mathrm{MR}})$ together with
+$\omega_n(m_{\mathrm{LR}} + m_{\mathrm{MR}})$, identified from a probe that
+sweeps the sum as well as the difference. This is not academic for the present
+model: the motor readout already emits two independent non-negative drives per
+axis, so the network is free to co-contract, and the plant will ignore it —
 the capacity is there and its effect is silently discarded.
 
-
-**Second order wins on every variant, by a factor of 3.** RMS error in
-degrees:
-
-| variant | order 1 | order 2 | ratio |
-|---|---|---|---|
-| **B** `baseline_fixmat` | 1.22 | **0.41** | 3.0x |
-| **A** `c_a` | 1.20 | **0.42** | 2.9x |
-| **C** `p3a_length` | 2.58 | **0.62** | 4.2x |
-| **D** `p3b_pulley` | 2.24 | **0.77** | 2.9x |
-| **E** `p3c_drive` | 6.77 | 6.34 | 1.1x |
-
-The reason is visible in the middle panel and is not a matter of degrees of
-freedom: a first-order system is monotone towards its target and *cannot
-overshoot*, while the MPM eye overshoots and rings. Only the inertial term
-can produce that. The one variant where the two orders are indistinguishable,
-`p3c_drive`, is also the one neither fits — 6 degrees of error — which is a
-signal about that run rather than about the model order.
-
-Two things worth recording. First, the archive is **five mechanically
-different eyes**, not repeats of one; a pooled fit gives RMS 5.05 deg and a
-static curve with plateaus at +16, +13 and +3 degrees for the same command.
-Fitted per variant it is 0.41-0.77 deg. Second, and more interesting, the
-*mechanics are nearly invariant across the five*: $\omega_n$ = 9.5-11.1 rad/s and $\zeta$ = 0.22-0.32 throughout, while the static gain ranges over 14-23 deg of
-travel. The configurations change $\Phi$, not the ODE — which is the Hammerstein
-factorisation earning its keep, and it means one set of dynamics covers the
-sweep.
-
-At $\zeta \approx 0.3$ the modelled eye is underdamped and rings at ~1.5 Hz. Real
-oculomotor plants are overdamped, so this is a property of the MPM
-configuration rather than of a fish.
-
-**What is not yet identified is $\Phi$ itself.** Each protocol steps straight to
-full activation, so there are only two plateaus per variant, at command -1 and
-+1; the curve drawn between them is extrapolation, not measurement. Before
-this plant goes into a training loop it needs a staircase protocol holding
-intermediate levels (0.2 / 0.4 / 0.6 / 0.8, both directions, held longer than
-about 0.5 s given $\omega_n \approx 10$ rad/s). The dynamics are already well determined,
-because those come from the transients; the static gain is not.
 
 ## 5. Progress, 11 August 2026
 

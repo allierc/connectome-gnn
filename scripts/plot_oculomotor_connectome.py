@@ -184,12 +184,56 @@ def _spec_colours(specs):
     return out
 
 
+_EI_COLOR = {"E": "#1f4fd8", "I": "#d81b26"}      # blue excitatory, red inhibitory
+
+
+def _panel_signed_matrix(ax, W, partition, sign_of_type, ref):
+    """The same matrix as the support panel, with each synapse coloured by the
+    Dale sign of its PRESYNAPTIC cell: blue excitatory, red inhibitory.
+
+    This is what the model actually multiplies -- the sign lock of section 4.4
+    of the note, ``W_hat_ij = |S_hat_ij| sign(W_con_ij)`` -- rather than the
+    support mask, which cannot show it. The sign is a property of the column,
+    so the panel reads as vertical bands: an inhibitory type is a red column
+    block, whatever its targets.
+
+    Magnitudes are log-compressed because synapse contact area spans four
+    decades; without it the panel is a handful of dark pixels on white.
+    """
+    from scipy.ndimage import grey_dilation
+
+    order_key = {k: i for i, k in enumerate(ref.PARTITION_ORDER)}
+    perm = np.argsort([order_key.get(p, len(ref.PARTITION_ORDER))
+                       for p in partition], kind="stable")
+    W_sorted = W[np.ix_(perm, perm)]
+    part_sorted = partition[perm]
+
+    mag = np.log1p(np.abs(W_sorted))
+    mag = grey_dilation(mag, size=(2, 2))            # visibility at panel dpi
+    sign = np.array([1.0 if sign_of_type.get(str(p), "E") == "E" else -1.0
+                     for p in part_sorted])
+    signed = mag * sign[None, :]                     # sign is the column's
+    vmax = float(np.percentile(mag[mag > 0], 99)) if (mag > 0).any() else 1.0
+    im = ax.imshow(signed, cmap="RdBu", vmin=-vmax, vmax=vmax,
+                   interpolation="nearest", aspect="equal")
+
+    ref._add_partition_strips(ax, part_sorted, alpha_overlay=0.0,
+                              boundary_color="0.35", boundary_lw=0.5)
+    ref._set_partition_tick_labels(ax, part_sorted)
+    ax.set_xlabel("presynaptic", fontsize=13)
+    ax.set_ylabel("postsynaptic", fontsize=13)
+    return im
+
+
 def build_pair_figure(A, types, hemi, specs, families, family_order, out_path):
-    """(a) the whole reconstruction, (b) the sub-circuit this config selects.
+    """(a) the whole reconstruction, (b) the sub-circuit this config selects,
+    (c) the same sub-circuit signed by the Dale assignment.
 
     Panel (b) orders cells afferent -> recurrent -> output, and within a type
     left hemisphere before right, so the L/R block structure of the gate is
-    visible directly in the matrix.
+    visible directly in the matrix. Panel (c) repeats that ordering with the
+    signs applied, which is the only view in which the E/I claim of section
+    1.4 is falsifiable by eye.
     """
     import fig_2_connectome as ref
 
@@ -209,7 +253,7 @@ def build_pair_figure(A, types, hemi, specs, families, family_order, out_path):
     block_order = sorted(names, key=lambda n: (role_rank[n], type_rank[n]))
     colours = _spec_colours(specs)
 
-    fig, axes = plt.subplots(1, 2, figsize=(19, 9.2))
+    fig, axes = plt.subplots(1, 3, figsize=(27.5, 9.2))
 
     ref.PARTITION_ORDER = list(family_order)
     ref.PARTITION_COLOR = {f: _PALETTE[i % len(_PALETTE)]
@@ -228,7 +272,23 @@ def build_pair_figure(A, types, hemi, specs, families, family_order, out_path):
     axes[1].tick_params(labelsize=8)
     axes[1].set_xticklabels(axes[1].get_xticklabels(), rotation=30, ha="right")
 
-    for ax, letter in zip(axes, "ab"):
+    sign_of_type = {s.name: s.sign for s in specs}
+    _panel_signed_matrix(axes[2], sub, sub_types, sign_of_type, ref)
+    axes[2].tick_params(labelsize=8)
+    axes[2].set_xticklabels(axes[2].get_xticklabels(), rotation=30, ha="right")
+    n_e = sum(int((sub_types == n).sum()) for n in names
+              if sign_of_type.get(n) == "E")
+    axes[2].text(1.0, 1.02,
+                 f"{n_e} excitatory, {sel.size - n_e} inhibitory cells",
+                 transform=axes[2].transAxes, fontsize=9, va="bottom",
+                 ha="right", color="0.35")
+    axes[2].legend(
+        handles=[Patch(facecolor=_EI_COLOR["E"], label="excitatory presynaptic"),
+                 Patch(facecolor=_EI_COLOR["I"], label="inhibitory presynaptic")],
+        loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=1,
+        frameon=False, fontsize=9)
+
+    for ax, letter in zip(axes, "abc"):
         ax.text(-0.02, 1.02, letter, transform=ax.transAxes, fontsize=15,
                 fontweight="bold", va="bottom", ha="right")
     axes[0].text(1.0, 1.02, f"all {A.shape[0]} cells, {len(set(types))} types",
