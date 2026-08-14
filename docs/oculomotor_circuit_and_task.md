@@ -701,6 +701,8 @@ u_\varphi(t) = m_{\mathrm{SR}}(t) - m_{\mathrm{IR}}(t)
 **Step 7 — the plant, per axis.** Each command drives a Hammerstein eye: a
 monotone static nonlinearity followed by second-order mechanics, with
 $\Phi$, $\omega_n$ and $\zeta$ identified in section 4.7 and **frozen** —
+steps 6 and 7 together are what this note calls the **lateral-horizontal
+Hammerstein model**, and section 4.8 says what has to replace it —
 registered as buffers, not parameters, because the body is measured and
 letting the optimiser retune it would defeat the point:
 
@@ -778,14 +780,50 @@ be: its grid scatter is in-place and a single trial costs far more than the
 7250 gradient updates of section 4.5. It is replaced by a reduced plant,
 identified from the probe runs in that prototype's `archive/` by
 `fit_plant.py`, and it is the plant of step 7 above — a static nonlinearity
-$\Phi$ followed by second-order mechanics, per axis. This section says where
-its three numbers come from and what they are worth; the equations are not
+$\Phi$ followed by second-order mechanics, per axis. Steps 6 and 7 together
+are the **lateral-horizontal Hammerstein model**: two antagonist pairs, two
+scalar commands, two independent single-input plants. This section says where
+its numbers come from and what they are worth; the equations are not
 repeated.
+
+#### Why Hammerstein, and where it comes from
 
 Command-to-gaze is plainly nonlinear: activation saturates, and the two
 horizontal muscles are not mirror images. That does not force a nonlinear
-ODE. Putting the whole nonlinearity in $\Phi$ and leaving the ODE linear is
-the **Hammerstein** factorisation, and it earns its keep here — across the
+ODE. Putting the whole nonlinearity in a memoryless block and leaving the
+dynamics linear is the **Hammerstein** structure, and it is not an
+improvisation for this note — it is the standard first move of *block-oriented
+nonlinear system identification*, a field with fifty years of theory behind
+it. The name is Adolf Hammerstein's, from the nonlinear integral equations he
+studied around 1930; the four canonical cascades are Hammerstein (static
+nonlinearity then LTI), Wiener (LTI then static nonlinearity),
+Wiener-Hammerstein (LTI, nonlinearity, LTI) and Hammerstein-Wiener. The
+reason they dominate practice is identifiability rather than expressiveness:
+the linear factor remains a transfer function, with poles, a frequency
+response and every tool of linear systems theory intact, while the nonlinear
+factor is a curve that can be fitted pointwise. The classical identification
+algorithms are Narendra and Gallman's iterative scheme (IEEE TAC, 1966) and
+the overparameterisation / two-stage SVD methods that followed (Bai,
+*Automatica*, 1998); the standard collection is Giri and Bai (eds),
+*Block-oriented Nonlinear System Identification*, Springer LNCIS 404, 2010,
+and the structure ships in MATLAB's System Identification Toolbox as `nlhw`.
+
+For an eye the split is not merely convenient, it is anatomical. The
+nonlinearity lives in the muscle — force-activation, the Hill length-tension
+and force-velocity relations, a moment arm that changes with eye position,
+and the geometric saturation of a globe that can only rotate so far — and on
+the timescale that matters it is memoryless. The dynamics live in the globe
+and the orbital tissue: inertia, viscosity and an elastic restoring force,
+approximately linear for rotations this small. This is also the classical
+oculomotor model, not a new proposal: Robinson's mechanics of human saccades
+(*J. Physiol.*, 1964) and his control-systems review (*Annu. Rev. Neurosci.*,
+1981) set the linear-plant description and the pulse-step command that
+inverts it, and later work argued the real plant carries a wider spread of
+time scales than a second-order fit allows (Sklavos, Porrill, Kaneko and
+Dean, *Vision Research*, 2005). Our own $\zeta \approx 0.3$ is the one place
+we are clearly off the biology, as noted below.
+
+The factorisation earns its keep here — across the
 five eyes the mechanics barely move, $\omega_n = 9.5$ to $11.1$ rad s$^{-1}$
 and $\zeta = 0.22$ to $0.32$, while the static gain ranges over 14 to 23
 degrees of travel. The configurations change $\Phi$, not the ODE, so one set
