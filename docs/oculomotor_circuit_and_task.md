@@ -103,6 +103,13 @@ prefixes inside a loader.
 
 Only the **horizontal** pair of extraocular muscles is modelled:
 
+The **plant** is the control-theory name for the thing being controlled —
+here the globe, its six muscles, the orbital tissue and their mechanics,
+everything downstream of the last neuron. It is worth using rather than "the
+eye" because it names a boundary: the circuit's output is a muscle command,
+the plant turns that command into an angle, and the plant is measured and
+frozen while the circuit is learned. Section 4.7 identifies it.
+
 - `AMN` drives the **lateral rectus** (`LR` in the plant), which abducts the
   eye;
 - `AIN` drives the **medial rectus** (`MR`), which adducts it.
@@ -698,14 +705,14 @@ registered as buffers, not parameters, because the body is measured and
 letting the optimiser retune it would defeat the point:
 
 ```math
-\Phi_\theta(u)=a_\theta u + b_\theta u^{2},
+\Phi_\theta(u_\theta)=a_\theta\,u_\theta + b_\theta\,u_\theta^{2},
 \qquad
 \ddot\theta+2\zeta_\theta\omega_\theta\,\dot\theta+\omega_\theta^{2}\,\theta
 \;=\;\omega_\theta^{2}\,\Phi_\theta\big(u_\theta(t)\big)
 ```
 
 ```math
-\Phi_\varphi(u)=a_\varphi u + b_\varphi u^{2},
+\Phi_\varphi(u_\varphi)=a_\varphi\,u_\varphi + b_\varphi\,u_\varphi^{2},
 \qquad
 \ddot\varphi+2\zeta_\varphi\omega_\varphi\,\dot\varphi+\omega_\varphi^{2}\,\varphi
 \;=\;\omega_\varphi^{2}\,\Phi_\varphi\big(u_\varphi(t)\big)
@@ -852,8 +859,9 @@ sailing back through zero after a full step was released — was being read as
 
 $\Phi$ is now **monotone by construction**: in the quadratic of step 7 the
 linear coefficient is parameterised as $a = e^{p} > 0$ and the quadratic one
-as $b = \tfrac{a}{2}\tanh q$, which forces $\Phi' = a + 2bu > 0$ on the whole
-command range $[-1,1]$. The fit therefore cannot return a physically
+as $b = \tfrac{a}{2}\tanh q$, which forces
+$\Phi_\theta'(u_\theta) = a + 2b\,u_\theta > 0$ across the whole command range
+$u_\theta \in [-1,1]$, and likewise in $\varphi$. The fit therefore cannot return a physically
 impossible curve whatever the data does, while the quadratic term still
 carries the genuine asymmetry between abduction and adduction. Every variant
 now has a positive slope at the origin and zero non-monotone fraction. The
