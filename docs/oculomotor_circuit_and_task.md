@@ -1233,7 +1233,7 @@ question.
 | | mesh becomes | different materials | large deformation | gradients | speed |
 |---|---|---|---|---|---|
 | MuJoCo, rigid globe + cable muscles | attachment points, wrap surfaces | not applicable | not applicable | yes (MJX / MuJoCo-Warp) | very fast |
-| MuJoCo, deformable bodies (`flex`) | tetrahedral volume | one per body | **no — small strain only** | yes | slow at high resolution |
+| MuJoCo, deformable objects (`flex`) | tetrahedral volume | one per flex, or per edge | **no — small strain only** | yes | slow at high resolution |
 | our material-point simulator | particles filling the volume | per particle | yes | **no** | slow |
 | material-point on Warp | particles filling the volume | per particle | yes | yes, and batched | fast |
 
@@ -1252,13 +1252,33 @@ the segmentation contributes geometry and nothing else, and every distinction
 between sclera, tendon and muscle belly is discarded on import.
 
 **MuJoCo's deformable bodies** are the obvious way to keep the tissue, and
-they do not work here. Each deformable body carries a single stiffness and a
-single Poisson ratio, so sclera, tendon and bone cap — 300, 9 and 40 in eye A
-— need three separate bodies fastened together, which MuJoCo supports poorly.
+they do not work here. First a word on the terms, because they mislead: a
+MuJoCo *body* is a rigid element of a kinematic tree and has no stiffness at
+all. Deformable objects are a separate element, `flex`, added in MuJoCo 3.0.
+MuJoCo is a rigid-body contact engine with deformation built on top, which is
+not a criticism — it is what it was designed for — but it is why continuum
+tissue sits awkwardly in it.
+
+Two limits then apply. A flex carries **one** Young's modulus and one Poisson
+ratio for the whole object, so sclera, tendon and bone cap — 300, 9 and 40 in
+eye A — need three separate flexes fastened together, and joining elastic
+objects is reported to work only by giving each its own body. There is a
+partial escape: a flex is a mesh of edges, and edges carry stiffness and
+damping individually, so stiffness *can* be varied inside one flex at the edge
+level. But that means abandoning the continuum parameters and calibrating
+springs instead, which for a segmentation whose whole point is "this region is
+tendon and that region is sclera" is a downgrade rather than a solution.
+
 More decisively, the deformation model is only valid for *small* strains, and
 warns that tetrahedra can invert under large load. A rectus muscle shortening
-by a third is not a small strain. This is a limitation of the method, not of
-the implementation, so it will not be fixed by a newer version.
+by a third is not a small strain. That is a limitation of the method rather
+than of the implementation, so a newer version will not fix it — and it is
+consistent with the accuracy users report in large-deflection tests, where a
+beam expected to deflect 2.15 m settled at about 0.26 m. The rest of the
+implementation is improving quickly, for what it is worth: the solid
+elasticity model has moved from a plugin into the engine, and flex stiffness
+is now solved implicitly alongside contact rather than added as an external
+force.
 
 **The material-point method** has the opposite profile, and it is the reason
 the prototype uses it. Material properties are carried by the particles, so
