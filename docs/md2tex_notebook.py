@@ -169,12 +169,25 @@ def parse(lines):
             out.append("\\par\\noindent\\rule{\\textwidth}{0.4pt}\\par")
             i += 1
             continue
-        # list item
+        # list item. A wrapped item — its continuation lines indented under the
+        # marker, as any editor with a fill column produces — used to end the
+        # list and turn the rest of the item into a body paragraph, so a
+        # three-line bullet rendered as one bullet plus two orphans.
+        def _gather(marker):
+            items, j = [], i
+            while j < n and re.match(marker, lines[j]):
+                items.append(re.sub(marker, "", lines[j].rstrip("\n"), count=1))
+                j += 1
+                while (j < n and lines[j].strip()
+                       and not re.match(r"\s*[-*]\s+", lines[j])
+                       and not re.match(r"\s*\d+\.\s+", lines[j])
+                       and not lines[j].lstrip().startswith(("#", "```", "|", "!["))):
+                    items[-1] += " " + lines[j].strip()
+                    j += 1
+            return items, j
+
         if re.match(r"\s*[-*]\s+", ln):
-            items = []
-            while i < n and re.match(r"\s*[-*]\s+", lines[i]):
-                items.append(re.sub(r"\s*[-*]\s+", "", lines[i].rstrip("\n"), count=1))
-                i += 1
+            items, i = _gather(r"\s*[-*]\s+")
             out.append("\\begin{itemize}\\setlength{\\itemsep}{1pt}")
             for it in items:
                 out.append("  \\item " + inline(it))
@@ -182,10 +195,7 @@ def parse(lines):
             continue
         # numbered list
         if re.match(r"\s*\d+\.\s+", ln):
-            items = []
-            while i < n and re.match(r"\s*\d+\.\s+", lines[i]):
-                items.append(re.sub(r"\s*\d+\.\s+", "", lines[i].rstrip("\n"), count=1))
-                i += 1
+            items, i = _gather(r"\s*\d+\.\s+")
             out.append("\\begin{enumerate}\\setlength{\\itemsep}{1pt}")
             for it in items:
                 out.append("  \\item " + inline(it))
