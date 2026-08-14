@@ -410,50 +410,24 @@ learns its own decay and lands at `tau = 9.5 s`. Read the analytic rows as
 
 ### 4.4 The ceiling, and where the integration lives
 
-**0.007 is the evaluation's floor, not the model's.** `ctrnn` is the
-continuous-time rate network of section 5 with the sign-lock and the
-connectome removed — the same equation as `zebrafish_hd_si`. Trained to
-convergence it reaches 0.0074 against 0.0041 for exact analytic integration,
-and the gap is arithmetic rather than modelling: the dataset defines velocity
-by central difference while the target is an Euler sum, which is worth ~0.007
-on its own on a fast trajectory. That number is what the 285-cell circuit gets
-compared against.
+**0.007 is the evaluation's floor, not the model's.** `ctrnn` reaches 0.0074
+against 0.0041 for exact analytic integration, and the gap is arithmetic —
+velocity is a central difference while the target is an Euler sum. It audits
+clean: disjoint seeds, the one-sample look-ahead worth 13 %, the time constant
+probed beyond any horizon trained on. Of four levers only training length
+moved it (0.0144 to 0.0074); nine times the recurrent parameters gave 0.0072
+and train and validation MSE are identical, so the constraint was
+optimisation, not capacity and not data.
 
-It was audited, because 0.007 over 8 s from velocity alone is usually a bug.
-Train and test seeds are disjoint (0 overlap, verified), the central
-difference's one-sample look-ahead is worth only 13 % (0.0071 against 0.0080
-causal), and the time constant is probed at a horizon never trained on. Of
-four levers only training length moved the number, 0.0144 to 0.0074: widening
-the core 64 to 192 gave 0.0072, and train and validation MSE agree to five
-decimals (0.00004 each), so neither capacity nor data was ever the
-constraint.
-
-**The integration is in the recurrent matrix, not in the neurons.**
-
-```
-learned tau_i per neuron :  min 0.57 s   median 0.74 s   max 0.96 s
-learned |W_ij|           :  mean 0.035   max 0.267   (initialised at ZERO)
-```
-
-A hold-and-decay probe returns an effectively infinite time constant over 20 s,
-which a 0.74 s membrane cannot supply. Positive feedback through $\hat W$ —
-initialised at exactly zero, so entirely learned — cancels the per-neuron leak
-and buys a network time constant more than 27 times the neuronal one. That is
-the classical oculomotor-integrator result reached from the other direction:
-real integrators hold gaze for tens of seconds using membranes of order
-100 ms. The optimiser was free to grow $\tau_i$ instead, and did not.
-
-Two consequences for stage 2. The quantity to measure on the constrained
-circuit is not any neuron's time constant but the **feedback gain the
-connectome can support** once sign-locked. And that solution is fragile —
-tuned positive feedback needs the gain finely balanced against the leak, and a
-few percent of detuning collapses it — so perturbing $\hat W$ and re-measuring
-is the natural robustness test, and the one place a connectome-constrained
-$\hat W$ might behave unlike a freely learned one.
-
-**Memory is the bottleneck, and it fails quantitatively.** The windowed MLP's
-measured decay constant is **0.48 s** — its own 0.5 s window, recovered from a
-probe it was never trained on, rather than any approximation to the task.
+**The integration is in the recurrent matrix, not the neurons.** Learned time
+constants are 0.57 to 0.96 s, yet a hold-and-decay probe returns effectively
+infinite over 20 s: positive feedback through $\hat W$, initialised at exactly
+zero, cancels the leak and buys 27 times the neuronal time constant. That is
+the classical oculomotor-integrator result reached from the other direction —
+the optimiser could have grown $\tau_i$ instead and did not. Stage 2 should
+therefore measure the **feedback gain the connectome can support**, and
+perturb $\hat W$ to test it, because tuned positive feedback is fragile. (The
+memoryless MLP's 0.48 s decay constant is simply its own 0.5 s window.)
 
 ### 4.5 How the recurrent models are trained
 
