@@ -100,39 +100,43 @@ def _panel_e(ax):
 
     The chain of Section 5, left to right: the target velocity that reaches
     the afferents, the sign-locked recurrent integrator, the non-negative
-    motor pools, the push-pull commands, the eye plant, the gaze angles.
+    motor pools, the push-pull commands, the eye, the gaze angles.
     """
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
     LF, CF, SF = cv.LABEL_FS, cv.COUNT_FS, cv.SUB_FS
+    # One gap width for every arrow, wide enough that neither the arrow nor
+    # the label at either end of the chain touches a box. Boxes take what is
+    # left, so widening the gaps narrows the boxes rather than colliding.
+    G = 0.055
 
     # --- input ------------------------------------------------------------
-    cv._text(ax, (0.004, 0.56), [r"$(\dot x,\dot y)$"],
+    cv._text(ax, (0.004, 0.60), [r"$(\dot x,\dot y)$"],
              fontsize=LF + 4, ha="left")
     cv._text(ax, (0.004, 0.44), ["target velocity"], fontsize=SF, ha="left")
-    cv._arrow(ax, (0.075, 0.52), (0.105, 0.52), color=cv.COL_OMEGA, lw=2.2)
+    cv._arrow(ax, (0.070, 0.52), (0.070 + G, 0.52), color=cv.COL_OMEGA, lw=2.2)
 
-    cv._box(ax, (0.105, 0.40), (0.155, 0.24), fill=F_AF5)
-    _stack(ax, 0.1825, 0.52, [("AF5 L / R", LF), (r"$n=29+12$", CF),
-                              (r"$\mathbf{I}=\hat W^{\rm in}\,(\dot x,\dot y)^{\!\top}$", CF)])
+    cv._box(ax, (0.125, 0.40), (0.125, 0.24), fill=F_AF5)
+    _stack(ax, 0.1875, 0.52, [("AF5 L / R", LF), (r"$n=29+12$", CF),
+                              (r"$\mathbf{I}=\hat W^{\rm in}(\dot x,\dot y)^{\!\top}$", CF)])
 
     # --- recurrent integrator --------------------------------------------
     from matplotlib.patches import FancyBboxPatch
     ax.add_patch(FancyBboxPatch(
-        (0.295, 0.16), 0.265, 0.74, boxstyle="round,pad=0.012",
+        (0.305, 0.16), 0.235, 0.74, boxstyle="round,pad=0.012",
         linewidth=1.0, edgecolor="0.45", facecolor=F_REC, zorder=1))
-    cv._text(ax, (0.4275, 0.94), ["recurrent integrator  ($n=182$)"],
+    cv._text(ax, (0.4225, 0.94), ["recurrent integrator  ($n=182$)"],
              fontsize=LF, ha="center")
-    cv._box(ax, (0.315, 0.65), (0.225, 0.19), fill=F_INTG_E)
-    _stack(ax, 0.4275, 0.745, [("INTG ipsi  (E)", LF), (r"$n=38+27$", CF)],
+    cv._box(ax, (0.320, 0.65), (0.205, 0.19), fill=F_INTG_E)
+    _stack(ax, 0.4225, 0.745, [("INTG ipsi  (E)", LF), (r"$n=38+27$", CF)],
            gap=0.075)
-    cv._box(ax, (0.315, 0.215), (0.225, 0.19), fill=F_INTG_I)
-    _stack(ax, 0.4275, 0.31, [("INTG contra  (I)", LF), (r"$n=34+18$", CF)],
+    cv._box(ax, (0.320, 0.215), (0.205, 0.19), fill=F_INTG_I)
+    _stack(ax, 0.4225, 0.31, [("INTG contra  (I)", LF), (r"$n=34+18$", CF)],
            gap=0.075)
     # Mutual inhibition across the midline — the line-attractor motif. The
     # arrows flank the equation rather than crossing it.
-    cv._arrow(ax, (0.335, 0.635), (0.335, 0.425), color="#b03a3a", lw=1.4)
-    cv._arrow(ax, (0.520, 0.425), (0.520, 0.635), color="#3a8a45", lw=1.4)
-    _stack(ax, 0.4275, 0.525,
+    cv._arrow(ax, (0.338, 0.635), (0.338, 0.425), color="#b03a3a", lw=1.4)
+    cv._arrow(ax, (0.507, 0.425), (0.507, 0.635), color="#3a8a45", lw=1.4)
+    _stack(ax, 0.4225, 0.525,
            [(r"$\tau_i\dot v_i=-v_i+\sum_j\hat W_{ij}\,r_j+I_i$", CF),
             (r"$\hat W_{ij}=|\hat S_{ij}|\,{\rm sign}(W^{\rm con}_{ij})$", SF)],
            gap=0.085)
@@ -140,25 +144,27 @@ def _panel_e(ax):
     # --- motor pools and push-pull commands -------------------------------
     # LR and MR have an anatomical pool in the selected 285 cells; SR and IR
     # would come from OMN, which section 1.5 leaves out of the pool.
-    cv._box(ax, (0.595, 0.40), (0.175, 0.30), fill=F_AMN)
-    _stack(ax, 0.6825, 0.55, [("AMN / AIN", LF), (r"$n=92+35$", CF),
-                              (r"$\mathbf{m}=[\hat W^{\rm out}\mathbf{r}]_+$", CF),
-                              ("LR, MR;  SR, IR from OMN", SF)], gap=0.075)
+    cv._box(ax, (0.595, 0.40), (0.150, 0.30), fill=F_AMN)
+    _stack(ax, 0.670, 0.55, [("AMN / AIN", LF), (r"$n=92+35$", CF),
+                             (r"$\mathbf{m}=[\hat W^{\rm out}\mathbf{r}]_+$", CF),
+                             ("LR, MR;  SR, IR from OMN", SF)], gap=0.075)
 
-    cv._box(ax, (0.805, 0.40), (0.135, 0.30), fill=F_AIN)
-    _stack(ax, 0.8725, 0.55, [("eye plant", LF),
-                              (r"$u_\theta=m_{\rm LR}-m_{\rm MR}$", CF),
-                              (r"$u_\varphi=m_{\rm SR}-m_{\rm IR}$", CF),
-                              (r"$\Phi,\ \omega_n,\ \zeta$  frozen", SF)],
+    cv._box(ax, (0.800, 0.40), (0.128, 0.30), fill=F_AIN)
+    _stack(ax, 0.864, 0.55, [("the eye", LF),
+                             (r"$u_\theta=m_{\rm LR}-m_{\rm MR}$", CF),
+                             (r"$u_\varphi=m_{\rm SR}-m_{\rm IR}$", CF),
+                             (r"$\Phi,\ \omega_n,\ \zeta$  frozen", SF)],
            gap=0.075)
 
-    cv._arrow(ax, (0.260, 0.52), (0.295, 0.52), color="0.4", lw=1.4)
-    cv._arrow(ax, (0.560, 0.52), (0.595, 0.52), color="0.4", lw=1.4)
-    cv._arrow(ax, (0.770, 0.52), (0.805, 0.52), color="0.4", lw=1.4)
-    cv._arrow(ax, (0.940, 0.52), (0.968, 0.52), color="0.4", lw=1.4)
-    cv._text(ax, (0.996, 0.58), [r"$(\theta,\varphi)$"],
+    # Chain arrows, each sitting in its own gap and touching neither box.
+    for x0 in (0.250, 0.540, 0.745):
+        cv._arrow(ax, (x0, 0.52), (x0 + G, 0.52), color="0.4", lw=1.4)
+    cv._arrow(ax, (0.928, 0.52), (0.958, 0.52), color="0.4", lw=1.4)
+
+    # --- output. Held off the arrow's own row so neither can touch it. ----
+    cv._text(ax, (0.999, 0.62), [r"$(\theta,\varphi)$"],
              fontsize=LF + 4, ha="right")
-    cv._text(ax, (0.996, 0.45), ["eye angles"], fontsize=SF, ha="right")
+    cv._text(ax, (0.999, 0.44), ["eye angles"], fontsize=SF, ha="right")
 
 
 def main() -> int:
