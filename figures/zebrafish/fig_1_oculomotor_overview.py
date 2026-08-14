@@ -98,7 +98,7 @@ def _stack(ax, cx, cy, lines, gap=0.085):
 def _panel_e(ax):
     """Velocity in, eye angles out — the computation, not the anatomy.
 
-    The chain of Section 4.6, left to right: the target velocity that reaches
+    The chain of Section 5, left to right: the target velocity that reaches
     the afferents, the sign-locked recurrent integrator, the non-negative
     motor pools, the push-pull commands, the eye plant, the gaze angles.
     """
