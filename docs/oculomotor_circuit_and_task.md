@@ -977,6 +977,232 @@ axis, so the network is free to co-contract, and the plant will ignore it —
 the capacity is there and its effect is silently discarded.
 
 
+### 4.8 Characterising the MPM eye, from now on
+
+The lateral-horizontal Hammerstein model of steps 6 and 7 assumes the eye is
+two independent axes driven by two signed scalars. The first properly settled
+measurements say it is not. On eye F the lateral rectus produces 3.86 degrees
+of torsion at full drive against 6.17 of horizontal — 63 % — and the inferior
+oblique produces 11.08 degrees of torsion, larger than any horizontal action
+in the plant. A model with no torsion coordinate cannot represent that, and a
+model with two commands cannot be told about it. This section is the
+replacement, and the protocol that identifies it.
+
+The aim is a procedure rather than a model of one eye. Eye F will be replaced,
+eye G is coming, and the point of writing the protocol down is that neither
+should require re-deriving anything here.
+
+#### The shape of the model, coarsest first
+
+The eye takes six muscle drives and returns three angles:
+
+```math
+\mathbf{m}(t)\in[0,1]^{6}
+\;\longrightarrow\;
+\mathbf{x}(t)=\big(\theta(t),\ \varphi(t),\ \psi(t)\big)\in\mathbb{R}^{3}
+```
+
+horizontal, vertical and torsion, in degrees. The drives are one-sided
+because muscles pull and do not push, which is why they are not the signed
+$u_\theta, u_\varphi$ of step 6.
+
+The single structural assumption is that the eye is a **static map followed by
+linear mechanics**. Where the eye eventually comes to rest is a nonlinear
+function of the drives; how it gets there is linear:
+
+```math
+\mathbf{x}_{\infty}=g(\mathbf{m}),
+\qquad
+\ddot{\mathbf{x}}+C\,\dot{\mathbf{x}}+K\,\mathbf{x}=K\,\mathbf{x}_{\infty}
+```
+
+In plain terms: hold the muscles at some fixed activation and the eye settles
+somewhere — that is $g$. Change the activation and the globe swings to the
+new resting place with an overshoot and a ring — that is $C$ and $K$. It is
+the same factorisation as section 4.7, widened from one input and one angle to
+six inputs and three angles, and it is what makes the whole thing measurable:
+$g$ is memoryless, so **it can be measured entirely from holds**, with no
+differential equation anywhere in the fit.
+
+That is not our idea. It is the block-oriented structure whose provenance
+section 4.7 gives — Hammerstein's cascade, the identification literature from
+Narendra and Gallman (1966) through Bai (1998) to Giri and Bai (2010) — and
+for an eye it is also the classical description, Robinson (1964, 1981). What
+is new here is only that the blocks are multi-input and multi-output.
+
+#### The static map, specifically
+
+Six inputs is too many to write in closed form and too few for a blind neural
+network to fit from an affordable number of simulations. The standard way out
+is to decompose the function by interaction order — the **functional ANOVA**
+decomposition, due to Hoeffding (1948) and made a practical tool by Sobol'
+(1993), which is also the basis of the additive models of Hastie and
+Tibshirani (1986):
+
+```math
+g(\mathbf{m})=
+\underbrace{\sum_{i=1}^{6}\phi_i(m_i)}_{\text{one muscle at a time}}
+\;+\;
+\underbrace{\sum_{i<j}\phi_{ij}(m_i,m_j)}_{\text{pairs}}
+\;+\;
+\underbrace{\eta(\mathbf{m})}_{\text{everything else}},
+\qquad \phi_i:[0,1]\to\mathbb{R}^{3}
+```
+
+Read left to right this says: most of what the eye does is each muscle acting
+on its own, some of it is two muscles fighting or helping each other, and
+whatever remains is a small correction. The first term is six curves, each
+measured by driving one muscle alone. The second is fifteen surfaces. The
+third is a small neural network regularised towards zero, present so that the
+model can absorb what the first two miss rather than pretend it does not
+exist.
+
+The reason this matters practically is sample size. A neural network on the
+six-dimensional cube would need thousands of simulated holds; the marginals
+need thirty, and the pairs are decided one at a time. The decomposition is
+what turns an unaffordable experiment into a two-hour one.
+
+Nothing in $g$ is constrained to be monotone. The negative-slope disaster of
+section 4.7 was caused by fitting transients as though they were plateaus, not
+by the fitting method, and with genuinely settled holds the constraint is
+unnecessary. It also turns out to have been actively harmful: the monotone
+parameterisation caps the curvature at $|b|\le a/2$, and eye F's horizontal
+recti need $b/a=0.65$, so enforcing it doubles the residual from 0.54 to 0.95
+degrees. Monotonicity is now **checked and reported**, not imposed.
+
+#### The mechanics, specifically
+
+$C$ and $K$ are three-by-three, so the model can express one axis dragging on
+another, which the two independent second-order plants of section 4.7 cannot.
+They are parameterised through their Cholesky factors,
+
+```math
+K=L_K L_K^{\!\top}+\varepsilon I,
+\qquad
+C=L_C L_C^{\!\top}
+```
+
+which makes them positive definite and the plant therefore **stable by
+construction**, for any values the optimiser reaches. This replaces the
+per-eye supervision of $\omega_n$ and $\zeta$: instead of assuming two
+numbers, the eigenvalues of the fitted pair are reported, and if the eye turns
+out to need more time scales than two — which Sklavos, Porrill, Kaneko and
+Dean (2005) argue real oculomotor plants do — that shows up as a poor fit
+rather than as a silently wrong assumption.
+
+One optional block covers co-contraction, the failure of section 4.7 that no
+single-input model can express. Pulling two antagonists together leaves the
+difference unchanged and raises the stiffness, so the mechanics are allowed to
+depend on the total drive $s=\mathbf{1}^{\!\top}\mathbf{m}$:
+
+```math
+K(s)=K_0\,(1+\kappa_K s),
+\qquad
+C(s)=C_0\,(1+\kappa_C s)
+```
+
+This is a linear-parameter-varying plant, and it is included only if the
+measurement below says it is needed.
+
+#### The protocol
+
+Five stages, in `Plexus/prototype/eye/PROTOCOL_eye_characterisation.md`. Two
+choices in it are worth stating here because both were paid for in lost data.
+
+**Stage 0, the gate — six runs.** Each muscle alone at full drive. This
+returns the reachable span per axis and the settling time. The controller
+needs 25 degrees horizontal and 10 vertical; an eye that cannot reach that
+cannot do the task, and characterising it is wasted compute. Eye F fails —
+7.9 degrees horizontal from single-muscle extremes, 10.8 even allowing every
+muscle to co-activate helpfully, against 25 — so it is the worked example of
+the gate doing its job. Stage 0 also sets the hold length for everything that
+follows, $T_{\rm hold}=\max(2\ {\rm s},\,1.5\times{\rm settling})$, derived per
+eye. A fixed constant is exactly how eyes A to E came to be fitted entirely
+from transients.
+
+**Stage 1, the marginals — thirty holds.** Each muscle alone at
+$m_i\in\{0.10, 0.25, 0.50, 0.75, 1.00\}$. Five levels weighted to the low end,
+because eye F's nonlinearity is strongly convex — the lateral rectus gains
+6.9 times more per unit drive at $m=1$ than at $m=0$ — so the shape lives near
+the origin, which is also where a tracking controller spends its time.
+
+**Stage 2, which pairs matter — fifteen holds, then nine per pair that does.**
+Stage 1 gives an additive prediction for any combination. Drive each of the
+fifteen pairs at $m_i=m_j=0.5$ and compare; a pair whose residual exceeds
+0.2 degrees, four times the settling tolerance, gets a three-by-three grid,
+and a pair below it gets nothing more. This is interaction screening in the
+sense of classical design of experiments (Box, Hunter and Hunter), and it is
+where the saving is: a pair that does not interact becomes a recorded
+measurement instead of an untested assumption, at a cost of one run.
+
+**Stage 3, the mechanics — about twenty-five trajectories.** Steps from rest
+in many directions, single-muscle frequency sweeps to pin the damping, and
+three matched pairs that reach the same final angle with different total drive
+— the last of these being the measurement that decides whether $K(s)$ and
+$C(s)$ are needed at all.
+
+**Stage 4, fit and select.** $g$ from the holds alone, by ordinary regression;
+$C$ and $K$ from the trajectories with $g$ frozen; then a short joint
+refinement of both against the trajectories, which is what rescued the eye C
+fit. Then a nested comparison on held-out runs: marginals against
+marginals-plus-pairs against plus-network, diagonal against full $C,K$,
+constant against drive-dependent. **This selection step is what makes the
+procedure general.** Every eye runs the same comparison and the data chooses
+how much structure that eye needs, so eye G requires re-running the selection
+and not rewriting the model.
+
+#### What it costs
+
+About 112 runs against the 200 a blind low-discrepancy sweep of the cube would
+take, the saving coming entirely from stage 2. Measured on the target
+hardware, the whole protocol is **two hours on eight L4 GPUs**, which puts a
+full re-characterisation within a single working session and means an eye can
+be changed and re-measured in the same day.
+
+#### What it changes upstream
+
+Two things in section 4.6, and they are simplifications rather than
+complications.
+
+**Step 6 disappears.** There is no push-pull and no $u_\theta, u_\varphi$; the
+readout emits six non-negative drives straight to the plant,
+
+```math
+\mathbf{m}(t)=\big[\hat W^{\rm out}\mathbf{r}(t)\big]_{+},
+\qquad
+\hat W^{\rm out}\in\mathbb{R}^{6\times N}
+```
+
+**Step 8 gains one term.** Six drives against two supervised angles leaves a
+four-dimensional set of muscle patterns producing the same gaze, and the
+network will wander in it arbitrarily. Penalising torsion pins it down:
+
+```math
+\mathcal{L}=\sum_{t}\Big\|\big(\theta,\varphi\big)-\big(\theta^{\star},\varphi^{\star}\big)\Big\|_2
+\;+\;\lambda_\psi\sum_{t}\psi(t)^{2}
+```
+
+This is not an arbitrary regulariser. Real eyes resolve the same redundancy by
+holding torsion to a fixed function of gaze direction — Donders' law, and its
+sharper form Listing's law — and the term above is its simplest version. The
+three-dimensional treatment of eye rotations that makes this precise is
+Tweed and Vilis (1990) and Haslwanter (1995); adopting the full form later
+costs nothing extra, because the torsion coordinate is now in the model.
+
+#### When the eye is good enough
+
+The same numbers for every eye, reported by the fit: the fraction of holds
+that settled, held-out RMS per axis in degrees, the fraction of the command
+cube where the fitted map is monotone in each muscle's own dominant axis, the
+reachable span per axis against the 25 and 10 degrees the task needs, the
+eigenvalues of $(C,K)$, and the size of the interaction and residual terms
+relative to the marginals. An eye is usable when the span passes, the settled
+fraction is near one, and the held-out error is small against the precision
+the tracking task is scored at. Those are the criteria eye F fails on the
+first, and they are the criteria eye G will be judged by without anything in
+this section changing.
+
+
 ## 5. Progress, 11 August 2026
 
 Opened the branch `feat/oculomotor` and put the zebrafish configs back under
