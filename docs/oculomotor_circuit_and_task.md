@@ -13,7 +13,7 @@ Source reconstruction: `Oculomotor_sortedData_081126.pkl`, 2949 cells,
 
 ![**The oculomotor reconstruction and the sub-circuit modelled here.** (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. (c) The same sub-circuit signed by the Dale assignment of section 1.4 — each synapse coloured by the sign of its *presynaptic* cell, blue excitatory, red inhibitory, shade log-scaled in synaptic area. This is what the model multiplies, $\hat W_{ij} = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})$, and the support mask of (b) cannot show it. Because the sign belongs to the column, the panel reads as vertical bands: the two `INTG_contra` types are a solid red block, and it is visibly the only inhibition the 285 cells contain. Rows are postsynaptic, columns presynaptic in all three. Regenerate with `python scripts/plot_oculomotor_connectome.py --config config/zebrafish/zebrafish_om_intg_285_v1.yaml --out figures/zebrafish/fig_oculomotor_circuit.png`.](../figures/zebrafish/fig_oculomotor_circuit.png)
 
-![**Figure 1 — the oculomotor circuit.** Twin of Figure 1 of the zebrafish heading-direction paper, rendered through the same code with the content swapped. **(a)** All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. **(b)** The cell bodies alone, same view — the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). **(c, d)** The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made — that the E/I split is by projection laterality, not by anatomical position. **(e)** The computation of section 4.6 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye plant to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with `python figures/zebrafish/fig_1_oculomotor_overview.py`.](../figures/zebrafish/fig_1_oculomotor_overview.png)
+![**Figure 1 — the oculomotor circuit.** Twin of Figure 1 of the zebrafish heading-direction paper, rendered through the same code with the content swapped. **(a)** All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. **(b)** The cell bodies alone, same view — the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). **(c, d)** The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made — that the E/I split is by projection laterality, not by anatomical position. **(e)** The computation of section 5 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye plant to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with `python figures/zebrafish/fig_1_oculomotor_overview.py`.](../figures/zebrafish/fig_1_oculomotor_overview.png)
 
 ## 1. The circuit
 
@@ -108,7 +108,7 @@ here the globe, its six muscles, the orbital tissue and their mechanics,
 everything downstream of the last neuron. It is worth using rather than "the
 eye" because it names a boundary: the circuit's output is a muscle command,
 the plant turns that command into an angle, and the plant is measured and
-frozen while the circuit is learned. Section 4.7 identifies it.
+frozen while the circuit is learned. Section 5.1 identifies it.
 
 - `AMN` drives the **lateral rectus** (`LR` in the plant), which abducts the
   eye;
@@ -159,7 +159,7 @@ integral of the drive, per axis,
 ```
 
 where $(\theta,\varphi)$ are the horizontal and vertical eye angles and
-$(\dot x,\dot y)$ the target velocity — the notation of section 4.6, in which
+$(\dot x,\dot y)$ the target velocity — the notation of section 5, in which
 $v$ is reserved for membrane voltage. The quantity of interest is $\tau$, the
 time constant over which eye position leaks back to centre. A perfect integrator is $\tau = \infty$; the biological
 integrator is finite, and measuring what $\tau$ the connectome-constrained
@@ -387,43 +387,8 @@ shared 960-trial test set, mean |drift| in grid units:
 | `mlp` (windowed, memoryless) | 0.392 | 25 % | 0.48 s |
 | `rnn` (discrete tanh) | 0.424 | 27 % | 0.40 s |
 
-Four things follow.
-
-**The ceiling is 0.007, and it is the evaluation's floor rather than the
-model's.** `ctrnn` is the continuous-time rate network
-$\tau_i\,\dot v_i = -v_i + \sum_j \hat W_{ij} r_j + I_i$ with
-$\mathbf{I}=\hat W^{\mathrm{in}}(\dot x,\dot y)^{\top}$ — the same equation
-as `zebrafish_hd_si`,
-with the sign-lock and the connectome removed. Trained to convergence it
-reaches 0.0074, against 0.0041 for exact analytic integration. The residual
-is not a modelling shortfall: the dataset defines velocity by central
-difference while the target is an Euler sum, and that mismatch alone is
-~0.007 on a fast sharp trajectory. The network has reached the numerical
-floor of its own scoring.
-
-Which lever moved it is worth recording, because three of the four did
-nothing. Training length with a cosine schedule took 0.0144 to 0.0074, a
-factor of two. Widening the core from 64 to 192 neurons — nine times the
-recurrent parameters — gave 0.0072, i.e. nothing. More data would give
-nothing either: train and validation MSE are equal to five decimal places
-(0.00004 each), so the model was never overfitting and the corpus was never
-the constraint. The binding constraint was optimisation, exactly as it was
-for the discrete RNN, only there it was fatal and here it was a factor of
-two.
-
-That 0.007 is the number the 285-cell constrained circuit should be compared
-against. And the comparison is not speculative: the heading-direction work
-in `zebrafish.tex` already trains this same equation under sign-lock on a
-917-cell measured connectome and reaches r_theta = 0.998 with a precision
-horizon beyond 60 s. The constrained form is known to train. What stage 2
-measures is not whether it can be done but what it costs.
-
-**Memory is the bottleneck, and the failure is quantitative.** The windowed
-MLP has no state and can only reconstruct displacement within its 0.5 s
-window. Its measured decay constant is **0.48 s** — its window, recovered
-from a hold-and-decay probe it was never trained on. A memoryless model does
-not approximately fail here; it fails by exactly the amount its architecture
-predicts.
+Two of the rows need comment here. Why the top one is a floor rather than a
+result, and where it comes from, is section 4.4.
 
 **A discrete tanh RNN cannot learn this, and that is an optimisation result,
 not a capacity one.** It plateaus at 0.42 whether trained for 40 or 250
@@ -443,50 +408,52 @@ interface. The properly fitted member of that family is `intlin`, which
 learns its own decay and lands at `tau = 9.5 s`. Read the analytic rows as
 "how bad is this specific defect", never as "how good is this method".
 
-### 4.4 Where the integration actually lives
+### 4.4 The ceiling, and where the integration lives
 
-The trained `ctrnn` was audited, because a mean drift of 0.007 over 8 s from
-velocity alone is the kind of number that is usually a bug. It is not: the
-train and test seeds are disjoint by construction (0 overlap, verified), the
-one-sample look-ahead in the central-difference velocity is worth only 13 %
-(0.0071 against 0.0080 with a strictly causal backward difference), and the
-model was never trained at the horizon its time constant is probed at.
+**0.007 is the evaluation's floor, not the model's.** `ctrnn` is the
+continuous-time rate network of section 5 with the sign-lock and the
+connectome removed — the same equation as `zebrafish_hd_si`. Trained to
+convergence it reaches 0.0074 against 0.0041 for exact analytic integration,
+and the gap is arithmetic rather than modelling: the dataset defines velocity
+by central difference while the target is an Euler sum, which is worth ~0.007
+on its own on a fast trajectory. That number is what the 285-cell circuit gets
+compared against.
 
-What the audit did turn up is the interesting part. Every neuron in the
-trained network leaks, and leaks fast:
+It was audited, because 0.007 over 8 s from velocity alone is usually a bug.
+Train and test seeds are disjoint (0 overlap, verified), the central
+difference's one-sample look-ahead is worth only 13 % (0.0071 against 0.0080
+causal), and the time constant is probed at a horizon never trained on. Of
+four levers only training length moved the number, 0.0144 to 0.0074: widening
+the core 64 to 192 gave 0.0072, and train and validation MSE agree to five
+decimals (0.00004 each), so neither capacity nor data was ever the
+constraint.
+
+**The integration is in the recurrent matrix, not in the neurons.**
 
 ```
 learned tau_i per neuron :  min 0.57 s   median 0.74 s   max 0.96 s
 learned |W_ij|           :  mean 0.035   max 0.267   (initialised at ZERO)
 ```
 
-A hold-and-decay probe on the same network returns an effectively infinite
-time constant over 20 s. So the integration is not in the cellular time
-constants at all — a 0.74 s membrane cannot hold anything for 20 s. It is
-built by the recurrent matrix, which started at exactly zero and was learned:
-positive feedback through $\hat W$ cancels the per-neuron leak, giving a network
-time constant more than 27 times the neuronal one.
+A hold-and-decay probe returns an effectively infinite time constant over 20 s,
+which a 0.74 s membrane cannot supply. Positive feedback through $\hat W$ —
+initialised at exactly zero, so entirely learned — cancels the per-neuron leak
+and buys a network time constant more than 27 times the neuronal one. That is
+the classical oculomotor-integrator result reached from the other direction:
+real integrators hold gaze for tens of seconds using membranes of order
+100 ms. The optimiser was free to grow $\tau_i$ instead, and did not.
 
-This is the classical oculomotor-integrator result arrived at from the other
-direction. Real neural integrators hold eye position for tens of seconds
-using neurons whose membrane time constants are of order 100 ms, and the
-integration is a **network** property produced by recurrent feedback rather
-than a cellular one. An optimiser given free choice of both — per-neuron
-$\tau_i$ and recurrent $\hat W$ — put the integration in the network and left the
-neurons leaky. It was not obliged to; the per-neuron time constants were
-learnable and could have grown instead.
+Two consequences for stage 2. The quantity to measure on the constrained
+circuit is not any neuron's time constant but the **feedback gain the
+connectome can support** once sign-locked. And that solution is fragile —
+tuned positive feedback needs the gain finely balanced against the leak, and a
+few percent of detuning collapses it — so perturbing $\hat W$ and re-measuring
+is the natural robustness test, and the one place a connectome-constrained
+$\hat W$ might behave unlike a freely learned one.
 
-Two consequences for stage 2. First, the quantity to measure on the
-constrained circuit is not any neuron's time constant but the **feedback gain
-the connectome can support** — whether the measured INTG wiring, once
-sign-locked, can supply enough recurrent excitation to cancel a leak it does
-not control. Second, this solution is known to be fragile: a line attractor
-built from tuned positive feedback requires the gain finely balanced against
-the leak, and a few percent of detuning collapses or destabilises the
-integrator. Perturbing $\hat W$ and re-measuring the effective time constant is
-therefore the natural robustness test, and it is the one place a sign-locked
-connectome-constrained $\hat W$ might behave quite differently from a freely
-learned one.
+**Memory is the bottleneck, and it fails quantitatively.** The windowed MLP's
+measured decay constant is **0.48 s** — its own 0.5 s window, recovered from a
+probe it was never trained on, rather than any approximation to the task.
 
 ### 4.5 How the recurrent models are trained
 
@@ -533,7 +500,7 @@ they were trained on, but the hold-and-decay time-constant probe runs 1200
 steps — 2.5 times anything seen in training — and the integration holds.
 Whatever the network learned, it is not a fit to the trial length.
 
-### 4.6 The whole model in one notation
+## 5. The whole model in one notation
 
 ![**The eye, and the symbols of the model.** **(a)** The globe seen down the corneal axis with the six extraocular muscles at their true insertions, drawn from `eye_anatomy.MUSCLES` — the same table the MPM uses to shape the straps, so this is the model's own geometry. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the plant but receive no command. The two axes the model uses are marked: horizontal gaze $\theta$, positive in abduction, and vertical gaze $\varphi$. **(b)** Every symbol of the nine steps below, in the order the signal meets them: the target velocity $(\dot x,\dot y)$, the input map $\hat W^{\mathrm{in}}$ onto the AF5 afferents, the sign-locked recurrent core, the output map $\hat W^{\mathrm{out}}$ onto four non-negative motor pools, the push-pull commands $u_\theta,u_\varphi$, the frozen per-axis plant, and the loss on the gaze angles $(\theta,\varphi)$ — after the plant, not on the command. Regenerate with `python fit_plant.py` and `python fig_eye_schematic.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_schematic.png)
 
@@ -570,7 +537,7 @@ orientation is the pair $(\theta,\varphi)$, horizontal first.
 **Step 0 — the world sets the angles.** The target moves in a bounded arena
 in units, and each axis is mapped to degrees by its own scale, because the
 eye's reachable travel is not the same horizontally and vertically
-(section 4.7):
+(section 5.1):
 
 ```math
 \theta^{\star}(t) = s_\theta\, x(t),
@@ -667,9 +634,9 @@ u_\varphi(t) = m_{\mathrm{SR}}(t) - m_{\mathrm{IR}}(t)
 
 **Step 7 — the plant, per axis.** Each command drives a Hammerstein eye: a
 monotone static nonlinearity followed by second-order mechanics, with
-$\Phi$, $\omega_n$ and $\zeta$ identified in section 4.7 and **frozen** —
+$\Phi$, $\omega_n$ and $\zeta$ identified in section 5.1 and **frozen** —
 steps 6 and 7 together are what this note calls the **lateral-horizontal
-Hammerstein model**, and section 4.8 says what has to replace it —
+Hammerstein model**, and section 5.2 says what has to replace it —
 registered as buffers, not parameters, because the body is measured and
 letting the optimiser retune it would defeat the point:
 
@@ -704,7 +671,7 @@ Putting the loss after the plant is what makes the network learn the eye's
 inverse rather than a velocity command: the gradient reaches
 $\hat W,\hat W^{\mathrm{in}},\hat W^{\mathrm{out}}$ through $\Phi$ and through
 the second-order mechanics, so a different eye trains a different controller.
-That is why section 4.7 lists one trained network per eye rather than one
+That is why section 5.1 lists one trained network per eye rather than one
 network tested on five.
 
 **Step 9 — discretisation and initial condition.** Forward Euler at
@@ -739,7 +706,7 @@ plant, the loss on $(\theta,\varphi)$, the Euler step from $v=0$ — are
 identical, so the gap between the two is attributable to the anatomy and to
 nothing else.
 
-### 4.7 The eye model
+### 5.1 The eye model
 
 The circuit's output is muscle drive, not eye position, so at some point the
 mechanics has to be in the loop. The MPM eye of `Plexus/prototype/eye` cannot
@@ -802,7 +769,7 @@ $\Phi$ and the mechanics are fitted **jointly**, against whole trajectories.
 The alternative — read the plateaus for $\Phi$, then fit the transient — needs
 settled plateaus, and this archive has none, for the reason given below.
 
-![**The identified eye plants.** All three panels are drawn from the stored fit in `plant.npz` / `plant_v.npz`, in the symbols of section 4.6. **(a)** The static nonlinearity $\Phi_\theta(u_\theta)$ of all five eyes, and $\Phi_\varphi$ of eye C, the one the controller is coupled to. Every curve is monotone by construction; the curvature is the genuine asymmetry between abduction and adduction. **(b)** Step response of eye C on both axes at commands 0.5 and 1: the overshoot and the ringing are what only the inertial term can produce, and they are the reason the second-order plant beats the first. **(c)** Reachable travel per axis, $\min|\Phi(\pm 1)|$ — the quantity that decides whether a tracking task is expressible at all, and the reason the world is scaled anisotropically. Regenerate with `python fig_plant_summary.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_plant.png)
+![**The identified eye plants.** All three panels are drawn from the stored fit in `plant.npz` / `plant_v.npz`, in the symbols of section 5. **(a)** The static nonlinearity $\Phi_\theta(u_\theta)$ of all five eyes, and $\Phi_\varphi$ of eye C, the one the controller is coupled to. Every curve is monotone by construction; the curvature is the genuine asymmetry between abduction and adduction. **(b)** Step response of eye C on both axes at commands 0.5 and 1: the overshoot and the ringing are what only the inertial term can produce, and they are the reason the second-order plant beats the first. **(c)** Reachable travel per axis, $\min|\Phi(\pm 1)|$ — the quantity that decides whether a tracking task is expressible at all, and the reason the world is scaled anisotropically. Regenerate with `python fig_plant_summary.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eye_plant.png)
 
 **Second order wins on every variant, by a factor of 3.** Against the
 first-order alternative $\tau\dot\theta + \theta = \Phi_\theta(u_\theta)$ —
@@ -944,7 +911,7 @@ axis, so the network is free to co-contract, and the plant will ignore it —
 the capacity is there and its effect is silently discarded.
 
 
-### 4.8 Characterising the MPM eye, from now on
+### 5.2 Characterising the MPM eye, from now on
 
 The lateral-horizontal Hammerstein model of steps 6 and 7 assumes the eye is
 two independent axes driven by two signed scalars. The first properly settled
@@ -986,13 +953,13 @@ function of the drives; how it gets there is linear:
 In plain terms: hold the muscles at some fixed activation and the eye settles
 somewhere — that is $g$. Change the activation and the globe swings to the
 new resting place with an overshoot and a ring — that is $C$ and $K$. It is
-the same factorisation as section 4.7, widened from one input and one angle to
+the same factorisation as section 5.1, widened from one input and one angle to
 six inputs and three angles, and it is what makes the whole thing measurable:
 $g$ is memoryless, so **it can be measured entirely from holds**, with no
 differential equation anywhere in the fit.
 
 That is not our idea. It is the block-oriented structure whose provenance
-section 4.7 gives — Hammerstein's cascade, the identification literature from
+section 5.1 gives — Hammerstein's cascade, the identification literature from
 Narendra and Gallman (1966) through Bai (1998) to Giri and Bai (2010) — and
 for an eye it is also the classical description, Robinson (1964, 1981). What
 is new here is only that the blocks are multi-input and multi-output.
@@ -1030,7 +997,7 @@ need thirty, and the pairs are decided one at a time. The decomposition is
 what turns an unaffordable experiment into a two-hour one.
 
 Nothing in $g$ is constrained to be monotone. The negative-slope disaster of
-section 4.7 was caused by fitting transients as though they were plateaus, not
+section 5.1 was caused by fitting transients as though they were plateaus, not
 by the fitting method, and with genuinely settled holds the constraint is
 unnecessary. It also turns out to have been actively harmful: the monotone
 parameterisation caps the curvature at $|b|\le a/2$, and eye F's horizontal
@@ -1040,7 +1007,7 @@ degrees. Monotonicity is now **checked and reported**, not imposed.
 #### The mechanics, specifically
 
 $C$ and $K$ are three-by-three, so the model can express one axis dragging on
-another, which the two independent second-order plants of section 4.7 cannot.
+another, which the two independent second-order plants of section 5.1 cannot.
 They are parameterised through their Cholesky factors,
 
 ```math
@@ -1057,7 +1024,7 @@ out to need more time scales than two — which Sklavos, Porrill, Kaneko and
 Dean (2005) argue real oculomotor plants do — that shows up as a poor fit
 rather than as a silently wrong assumption.
 
-One optional block covers co-contraction, the failure of section 4.7 that no
+One optional block covers co-contraction, the failure of section 5.1 that no
 single-input model can express. Pulling two antagonists together leaves the
 difference unchanged and raises the stiffness, so the mechanics are allowed to
 depend on the total drive $s=\mathbf{1}^{\!\top}\mathbf{m}$:
@@ -1128,7 +1095,7 @@ be changed and re-measured in the same day.
 
 #### What it changes upstream
 
-Two things in section 4.6, and they are simplifications rather than
+Two things in section 5, and they are simplifications rather than
 complications.
 
 **Step 6 disappears.** There is no push-pull and no $u_\theta, u_\varphi$; the
@@ -1170,7 +1137,90 @@ first, and they are the criteria eye G will be judged by without anything in
 this section changing.
 
 
-### 4.9 Which simulator, now that there are meshes
+## 6. Progress, 11 August 2026
+
+Opened the branch `feat/oculomotor` and put the zebrafish configs back under
+version control — 254 of them had been absent from every worktree since the
+`config/zebrafish` bind-mount was commented out of `devcontainer.json`, which
+left no figure script able to resolve a run config. Traced how the 917-cell
+heading-direction circuit was actually built (the colleagues' pickle, not the
+neuPrint query the filenames suggest) and wrote that up as
+`HOWTO_add_oculomotor_circuit.md`, since the same five inputs are needed
+again here. Read the new `Oculomotor_sortedData_081126.pkl`: 2949 cells, 42
+types, 5 keys, no per-cell ordering variable; confirmed its matrix
+orientation empirically rather than assuming it. Selected the sub-circuit in
+two steps — first the 244-cell INTG/AMN/AIN core, then 285 cells once AF5 was
+added, which gave the pool the afferent stage it had been missing.
+Introduced `CellTypeSpec` so each type's pool, Dale sign, L/R split and role
+live in the config where they can be reviewed, rather than in hardcoded
+prefix tuples inside the loader. Rendered the two-panel connectivity figure
+above, and wrote this note.
+
+Nothing has been trained, and no connectome CSVs exist yet. The five
+decisions below are what stand between this document and a first run.
+
+## 7. What has to be decided next
+
+1. **The AF5 combination rule** (§1.3) — AND, OR or XOR. Blocks the input model.
+2. **Whether `OMN` joins the pool** (§1.5) — decides whether `AIN` -> medial
+   rectus is one synapse or two.
+3. **Whether `Burst_*` joins the pool** (§1.6) — decides whether the saccadic
+   regime has an anatomical input or an injected one.
+4. **The readout convention** — scalar eye position, or innervation of the
+   `LR`/`MR` pair coupled to the soft-body plant.
+5. **The target leak `xi_tau_s`** — a free parameter, or the quantity to be
+   fitted against recorded eye position.
+
+## 8. The eye plant: why eye F cannot yet do the task
+
+Eye F is the MPM plant rebuilt from measured zebrafish anatomy — the six muscle
+attachments, the globe's flattening and each strap's width traced off the camera
+lucida in Tulenko & Currie (2020, fig 12.1A, after Easter & Nicola 1996), rather
+than from the mammalian textbook the earlier eyes A–E assumed. The anatomy is now
+right and **the eye still cannot do the task**: driving each muscle alone to full
+command and holding it past settling gives a horizontal span of **7.9°** against
+the 25° the tracking task needs, and 6.3° vertical against 10°.
+
+Three families of parameter were swept on the lateral rectus to find out why —
+LR because it is the abductor, the muscle this circuit drives, and the one that
+sets the horizontal span. Every cell below is a *settled* measurement: the command
+is held 2.0 s, which is 1.5 settling times, and the pose is averaged over the last
+quarter with its peak-to-peak recorded beside it.
+
+**What was swept, and what it gave.** *Geometry:* the sclera stand-off, 0.0161 →
+0.080. This was the obvious suspect — the muscle and the globe are separate bodies
+that couple only through the shared MLS-MPM grid, so a strap lying hard against the
+sclera is welded along its whole arc of contact and drags the surface instead of
+winding the globe round. It is also the parameter that separates eye B from eye C.
+It is not the answer: travel *falls* monotonically, 6.11° → 1.08°. The B → C gain
+came from the strap *fraction* moving with it, 0.55 → 0.95, and F already runs 1.0.
+*Material:* active stress and stiffness together, 12 cells. Travel depends only on
+A/E, cleanly — two cells at A/E = 0.25 with quite different absolute values give
+3.96° and 3.91° — and it saturates near A/E ≈ 0.3, above which the strap collapses
+on itself and the globe's radius drops 80%. F ships at 0.28, already at that edge.
+*Suspension:* fat, socket, and the resting pull of the five muscles that are not
+being driven. 6.10° → 7.06° with all three relaxed simultaneously, and the socket
+contributes exactly nothing — 6.104° in every cell of that sweep.
+
+**Why none of them works.** LR shortens by **31% of its rest length** and its moment
+arm is **107 µm**, larger than the mammalian plant's 69. If that shortening pulled
+the insertion round that arm the globe would turn 34.6°. It turns 6.1°. So **82% of
+the contraction is absorbed inside the muscle**: the measured fish straps are 10–20 µm
+wide against the mammalian model's 34, and a strap that slender buckles rather than
+transmits. That is a mechanical property of the model, not of the fish — the animal's
+muscle has an internal architecture the MPM strap does not.
+
+**Consequences for this document.** First, the span gate in the characterisation
+protocol is not a formality: characterising F now would produce an exact description
+of a plant that cannot express the task. The levers left are anti-buckling — the
+`muscle_sleeve` that eyes D and E used and F has switched off — and cross-section.
+Second, **torsion is not negligible and the two-axis model of §5 needs revisiting**:
+at full command LR produces 3.86° of torsion against 6.17° of horizontal, and IO
+produces -11.08°. Both were measured on the same settled staircase runs, and the raw
+`curves.npz` for all six muscles are kept under `Plexus/prototype/eye/archive/eye_F/`.
+
+
+## Appendix A. Which simulator, now that there are meshes
 
 **The question.** A colleague is segmenting the six extraocular muscles and
 the globe from imaging, so for the first time we will have real anatomy rather
@@ -1181,7 +1231,7 @@ reimplementation of that simulator on NVIDIA's Warp.
 
 **The answer, first.** Keep the material-point simulator. MuJoCo is faster,
 more mature and — importantly — already differentiable, which would remove
-the need for the fitted surrogate of section 4.8 entirely. But it cannot
+the need for the fitted surrogate of section 5.2 entirely. But it cannot
 represent tissue that both deforms a lot and has different stiffness in
 different places, and that is precisely what a per-muscle segmentation is for.
 The medium-term move is to port the material-point simulator to Warp, which
@@ -1271,7 +1321,7 @@ setting, and GeoWarp demonstrates fitting one scalar parameter and describes
 spatially varying parameters as a generalisation rather than a result.
 
 **The plan, and the measurement that would change it.** Near term, nothing
-changes: the material-point eye and the fitted surrogate of section 4.8, which
+changes: the material-point eye and the fitted surrogate of section 5.2, which
 work today and depend on no port. Medium term, port to Warp and put the eye
 itself in the training loop. The surrogate is not wasted either way — a
 differentiable simulator still has to be shown to reproduce the measured
@@ -1284,86 +1334,3 @@ and the six single-muscle curves to within the accuracy the tracking task is
 scored at, then the deforming tissue is not buying anything the task can see,
 and we should take the hundredfold speedup and the free gradients. That is a
 day's work and it is worth doing before the port, not after.
-
-
-## 5. Progress, 11 August 2026
-
-Opened the branch `feat/oculomotor` and put the zebrafish configs back under
-version control — 254 of them had been absent from every worktree since the
-`config/zebrafish` bind-mount was commented out of `devcontainer.json`, which
-left no figure script able to resolve a run config. Traced how the 917-cell
-heading-direction circuit was actually built (the colleagues' pickle, not the
-neuPrint query the filenames suggest) and wrote that up as
-`HOWTO_add_oculomotor_circuit.md`, since the same five inputs are needed
-again here. Read the new `Oculomotor_sortedData_081126.pkl`: 2949 cells, 42
-types, 5 keys, no per-cell ordering variable; confirmed its matrix
-orientation empirically rather than assuming it. Selected the sub-circuit in
-two steps — first the 244-cell INTG/AMN/AIN core, then 285 cells once AF5 was
-added, which gave the pool the afferent stage it had been missing.
-Introduced `CellTypeSpec` so each type's pool, Dale sign, L/R split and role
-live in the config where they can be reviewed, rather than in hardcoded
-prefix tuples inside the loader. Rendered the two-panel connectivity figure
-above, and wrote this note.
-
-Nothing has been trained, and no connectome CSVs exist yet. The five
-decisions below are what stand between this document and a first run.
-
-## 6. What has to be decided next
-
-1. **The AF5 combination rule** (§1.3) — AND, OR or XOR. Blocks the input model.
-2. **Whether `OMN` joins the pool** (§1.5) — decides whether `AIN` -> medial
-   rectus is one synapse or two.
-3. **Whether `Burst_*` joins the pool** (§1.6) — decides whether the saccadic
-   regime has an anatomical input or an injected one.
-4. **The readout convention** — scalar eye position, or innervation of the
-   `LR`/`MR` pair coupled to the soft-body plant.
-5. **The target leak `xi_tau_s`** — a free parameter, or the quantity to be
-   fitted against recorded eye position.
-
-## 7. The eye plant: why eye F cannot yet do the task
-
-Eye F is the MPM plant rebuilt from measured zebrafish anatomy — the six muscle
-attachments, the globe's flattening and each strap's width traced off the camera
-lucida in Tulenko & Currie (2020, fig 12.1A, after Easter & Nicola 1996), rather
-than from the mammalian textbook the earlier eyes A–E assumed. The anatomy is now
-right and **the eye still cannot do the task**: driving each muscle alone to full
-command and holding it past settling gives a horizontal span of **7.9°** against
-the 25° the tracking task needs, and 6.3° vertical against 10°.
-
-Three families of parameter were swept on the lateral rectus to find out why —
-LR because it is the abductor, the muscle this circuit drives, and the one that
-sets the horizontal span. Every cell below is a *settled* measurement: the command
-is held 2.0 s, which is 1.5 settling times, and the pose is averaged over the last
-quarter with its peak-to-peak recorded beside it.
-
-![**Eye F: three families of MPM parameter swept on the lateral rectus.** **(a)** The plant, three-quarter view, with LR — the muscle every sweep drove — in blue and the other five greyed. **(b)** Strap geometry: the clearance `gap` at which the muscle rides off the sclera. Travel *falls* as it is raised; eye C's value of 0.042, which spans 30°, makes F three times worse. **(c)** Material: active stress `A` and passive stiffness `E` swept together on eye A, cells that crushed the globe removed. Travel is a function of the *ratio* — two cells at A/E = 0.25 with different absolute values give 3.96° and 3.91° — and above A/E ≈ 0.3 the strap collapses on itself and the globe's radius drops 80%. **(d)** Suspension and antagonists: orbital fat 4000 → 250, socket 5000 → 500, and the tonic of the five undriven muscles 0.14 → 0.02. Loosening all three at once buys 16%. The socket contributes exactly nothing — 6.104° in every cell. **(e)** The reason, from the same runs. Regenerate with `python fig_eyeF_sweeps.py` in `Plexus/prototype/eye`.](../figures/zebrafish/fig_eyeF_material_sweeps.png)
-
-**What was swept, and what it gave.** *Geometry:* the sclera stand-off, 0.0161 →
-0.080. This was the obvious suspect — the muscle and the globe are separate bodies
-that couple only through the shared MLS-MPM grid, so a strap lying hard against the
-sclera is welded along its whole arc of contact and drags the surface instead of
-winding the globe round. It is also the parameter that separates eye B from eye C.
-It is not the answer: travel *falls* monotonically, 6.11° → 1.08°. The B → C gain
-came from the strap *fraction* moving with it, 0.55 → 0.95, and F already runs 1.0.
-*Material:* active stress and stiffness together, 12 cells. Travel depends only on
-A/E, cleanly — and it saturates near A/E ≈ 0.3, above which the muscle collapses
-rather than pulls. F ships at 0.28, already at that edge. *Suspension:* fat, socket,
-and the resting pull of the five muscles that are not being driven. 6.10° → 7.06°
-with all three relaxed simultaneously.
-
-**Why none of them works.** LR shortens by **31% of its rest length** and its moment
-arm is **107 µm**, larger than the mammalian plant's 69. If that shortening pulled
-the insertion round that arm the globe would turn 34.6°. It turns 6.1°. So **82% of
-the contraction is absorbed inside the muscle**: the measured fish straps are 10–20 µm
-wide against the mammalian model's 34, and a strap that slender buckles rather than
-transmits. That is a mechanical property of the model, not of the fish — the animal's
-muscle has an internal architecture the MPM strap does not.
-
-**Consequences for this document.** First, the span gate in the characterisation
-protocol is not a formality: characterising F now would produce an exact description
-of a plant that cannot express the task. The levers left are anti-buckling — the
-`muscle_sleeve` that eyes D and E used and F has switched off — and cross-section.
-Second, **torsion is not negligible and the two-axis model of §4.6 needs revisiting**:
-at full command LR produces 3.86° of torsion against 6.17° of horizontal, and IO
-produces -11.08°. Both were measured on the same settled staircase runs, and the raw
-`curves.npz` for all six muscles are kept under `Plexus/prototype/eye/archive/eye_F/`.
