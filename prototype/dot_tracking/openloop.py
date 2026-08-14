@@ -972,8 +972,9 @@ function drawStates(){
   // could do if the command went further.
   const uh=TR.cmd_h[k], uv=TR.cmd_v[k];
   const gh=TR.gaze_deg[k], gv=(TR.gaze_grid_v[k]||0)*(TR.deg_per_unit_v||TR.deg_per_unit);
-  [["h",TR.phi_u,TR.phi_f,uh,gh,430],["v",TR.phi_u_v,TR.phi_f_v,uv,gv,530]]
-   .forEach(([ax,U,F,uu,gg,x0])=>{
+  [["horizontal","LR\u2212MR","u\u2095",TR.phi_u,TR.phi_f,uh,gh,430],
+   ["vertical","SR\u2212IR","u\u1d65",TR.phi_u_v,TR.phi_f_v,uv,gv,530]]
+   .forEach(([axname,pair,usym,U,F,uu,gg,x0])=>{
     const w=88,h=110,y0=30;
     ST.strokeStyle="#222"; ST.strokeRect(x0,y0,w,h);
     const fmax=Math.max(...F.map(Math.abs))||1;
@@ -990,8 +991,9 @@ function drawStates(){
     ST.beginPath(); ST.moveTo(px,Y(0)); ST.lineTo(px,py);
     ST.lineTo(X(-1),py); ST.stroke(); ST.setLineDash([]);
     ST.fillStyle="#e5484d"; ST.beginPath(); ST.arc(px,py,4,0,7); ST.fill();
-    lab(x0,y0-6,"\u03a6 "+ax+"   u="+uu.toFixed(2));
-    lab(x0,y0+h+13,"\u03a6(u) = "+gg.toFixed(1)+"\u00b0","#c9c9c9");
+    lab(x0,y0-18,"\u03a6 "+axname,"#c9c9c9");
+    lab(x0,y0-7,pair+"    "+usym+" = "+uu.toFixed(2),"#7a7a7a");
+    lab(x0,y0+h+13,"\u03a6("+usym+") = "+gg.toFixed(1)+"\u00b0","#c9c9c9");
     lab(x0,y0+h+25,"slope "+((F[Math.min(U.length-1,Math.max(1,
       Math.round((uu+1)/2*(U.length-1))))]-F[Math.max(0,Math.round((uu+1)/2*(U.length-1))-1)])
       /((U[1]-U[0])||1)).toFixed(1)+"\u00b0/unit","#7a7a7a");
