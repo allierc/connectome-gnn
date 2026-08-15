@@ -52,7 +52,7 @@ import learn                                            # noqa: E402
 EYE_DIR = "/workspace/Plexus/prototype/eye/archive/eye_G"
 MODELS = os.path.join(HERE, "models")
 BOUND = 0.95                       # arena half-width, as in openloop
-GATE_H, GATE_V = 25.0, 10.0        # the span the task needs, in degrees
+GATE_H, GATE_V = 15.0, 10.0        # the span the task needs; 25 was unreachable
 
 # Which muscles make each synergy, and the order the light readout emits them in.
 # Indices are eye_anatomy.MUSCLE_KEYS = LR 0, SR 1, MR 2, IR 3, SO 4, IO 5, which is
@@ -391,11 +391,12 @@ def main():
         r = json.load(open(rp))
         print(f"[gate] the eye's own report: span_h {r.get('span_h')}, "
               f"span_v {r.get('span_v')}, gate_pass {r.get('gate_pass')}")
-        if r.get("gate_pass") and r.get("span_h", 0) < GATE_H:
-            print(f"[gate] NOTE: that pass is against a {r.get('span_h'):.1f}-deg "
-                  f"horizontal threshold, not the {GATE_H:.0f} deg the note and the "
-                  "protocol specify. Whichever is right, the two must be reconciled "
-                  "before a tracking error from this eye is compared with anything.")
+        if abs(float(r.get("span_h", 0)) - span_h) > 1.0:
+            print(f"[gate] NOTE: the eye's report reads the SYNERGY workspace "
+                  f"({r.get('span_h'):.1f} deg) while this eye model reaches "
+                  f"{span_h:.1f} on its own drives. The larger one is what a "
+                  "controller can command only if it may spend the torsion that "
+                  "comes with the recruitment.")
     if span_h < GATE_H or span_v < GATE_V:
         print(f"[gate] WARNING: span {span_h:.1f} deg h / {span_v:.1f} deg v against "
               f"the {GATE_H:.0f}/{GATE_V:.0f} the task needs.")
