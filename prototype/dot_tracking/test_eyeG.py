@@ -56,7 +56,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+PLEXUS_EYE = "/workspace/Plexus/prototype/eye"
 sys.path.insert(0, HERE)
+sys.path.insert(0, PLEXUS_EYE)
 from trajectory import generate                          # noqa: E402
 import train_eyeG as TG                                  # noqa: E402
 
@@ -131,6 +133,75 @@ def rot(theta, phi, psi):
     return Rz @ Ry @ Rx
 
 
+class _RotSeq:
+    """Frame k of a rigidly-turned point set, computed on demand.
+
+    `SurfaceScene` indexes its capture as `cap["shell"][k]`, so a capture can be
+    anything that answers to that. Materialising 480 frames of 13 347 shell points
+    would be 150 MB for no reason; this returns the rotation when asked.
+    """
+
+    def __init__(self, rest, centre, ang, frac=None):
+        self.base = np.asarray(rest, float) - centre
+        self.c, self.ang, self.frac = centre, np.asarray(ang, float), frac
+
+    def __len__(self):
+        return len(self.ang)
+
+    def __getitem__(self, k):
+        turned = self.base @ rot(*self.ang[int(k)]).T
+        if self.frac is None:
+            return turned + self.c
+        return self.base + self.frac * (turned - self.base) + self.c
+
+
+class _Const:
+    def __init__(self, v, n):
+        self.v, self.n = np.asarray(v), n
+
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, k):
+        return self.v
+
+
+class SurfaceView:
+    """The right panel drawn by the Plexus surface renderer itself.
+
+    `render_surface_vtk.SurfaceScene` skins the Blender meshes to the run's particles
+    -- translucent globe, solid lens, six smooth straps, a grey arrow at the rest
+    optic axis and a yellow one carried by the gaze. That is the render that made
+    `archive/eye_G/pairs_surface.png`, and reproducing it here rather than
+    approximating it means importing it, not rewriting it.
+
+    What it is given is a synthetic capture: eye G's rest particles turned rigidly by
+    the model's (theta, phi, psi), straps following by arc length. So the SURFACES and
+    the lighting are the real renderer's; only the motion is the reduced model's, and
+    the honest version -- the MPM run on the controller's own command -- is `--compose`.
+    """
+
+    def __init__(self, geo, angles, cmd, act, dt, size=(620, 620), az=25.0):
+        import render_surface_vtk as RS
+        c, T = geo["centre"], len(angles)
+        pad = np.zeros((T, 6))
+        pad[:, :act.shape[1]] = act[:, :6]
+        cap = {"shell": _RotSeq(geo["shell"], c, angles),
+               "mus_pos": _RotSeq(geo["mus"], c, angles, frac=geo["s"][:, None]),
+               "centre": _Const(c, T), "tissue": geo["tissue"],
+               "mus_parent": geo["parent"], "act": pad,
+               "gaze": np.asarray(angles), "target": np.asarray(cmd),
+               "frame": np.arange(T)}
+        self.scene = RS.SurfaceScene(cap, side="R", size=size, globe_alpha=0.20)
+        self.az, self.dt = az, dt
+
+    def frame(self, k):
+        return np.asarray(self.scene.frame(int(k), self.az, self.dt))
+
+    def close(self):
+        self.scene.close()
+
+
 class EyeView:
     """Eye G's own geometry, moved by the model. Three ways to draw it:
 
@@ -145,7 +216,7 @@ class EyeView:
     frame, so a frame costs one matrix multiply and a screenshot.
     """
 
-    MODES = ("vtk", "mpm", "mpm_stress")
+    MODES = ("surface", "vtk", "mpm", "mpm_stress")
 
     def __init__(self, geo, mode="vtk", size=(560, 560), muscles=TG.MUSCLES):
         import pyvista as pv
@@ -251,6 +322,10 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     ax_w.tick_params(colors="#ffffff", labelsize=12)
     ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#ffffff", fontsize=13)
     ax_w.set_ylabel("φ  vertical gaze (deg)", color="#ffffff", fontsize=13)
+    # The right panel looks AT the eye, so its left is the eye's right. Mirroring
+    # both axes here makes a rightward excursion move rightward in both panels;
+    # only the display is flipped, never the data.
+    ax_w.invert_xaxis(); ax_w.invert_yaxis()
     trail_t, = ax_w.plot([], [], "-", color="#ffffff", lw=1.0, alpha=0.45)
     trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.2, alpha=0.75)
     trail_g, = ax_w.plot([], [], "-", color="#4da3ff", lw=1.6, alpha=0.95)
@@ -360,7 +435,7 @@ def main():
                    help="write the drive trace and a playback spec for the real MPM")
     p.add_argument("--compose", default=None, metavar="MP4",
                    help="use this rendered movie as the right panel, frame-aligned")
-    p.add_argument("--render", default="vtk", choices=EyeView.MODES,
+    p.add_argument("--render", default="surface", choices=EyeView.MODES,
                    help="how the right panel is drawn")
     p.add_argument("--device", default="cpu")
     a = p.parse_args()
@@ -414,6 +489,10 @@ def main():
               f"{len(x)} controller steps")
         view = None
         img0 = ext[0]
+    elif a.render == "surface":
+        geo = load_geometry(a.eye_dir)
+        view = SurfaceView(geo, x, cmd, m, a.dt)
+        img0 = view.frame(0)
     else:
         geo = load_geometry(a.eye_dir)
         view = EyeView(geo, mode=a.render)
@@ -440,10 +519,13 @@ def main():
         art["im_in"].set_data(np.clip(v[k][:, None] / 1.5, -1, 1))
         art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
-        art["im_eye"].set_data(ext[min(int(k * len(ext) / len(x)), len(ext) - 1)]
-                               if ext is not None else view.frame(x[k], m[k]))
-        art["txt_ang"].set_text(f"θ {x[k,0]:+6.2f}   φ {x[k,1]:+6.2f}   "
-                                f"ψ {x[k,2]:+6.2f}  deg")
+        art["im_eye"].set_data(
+            ext[min(int(k * len(ext) / len(x)), len(ext) - 1)] if ext is not None
+            else (view.frame(k) if isinstance(view, SurfaceView)
+                  else view.frame(x[k], m[k])))
+        if not isinstance(view, SurfaceView):
+            art["txt_ang"].set_text(f"θ {x[k,0]:+6.2f}   φ {x[k,1]:+6.2f}   "
+                                    f"ψ {x[k,2]:+6.2f}  deg")
         art["phase"].set_text("continue" if k < n_split else "stop-and-go")
         fig.canvas.draw()
         w.append_data(np.asarray(fig.canvas.buffer_rgba())[..., :3].copy())
