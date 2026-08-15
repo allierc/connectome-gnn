@@ -769,6 +769,84 @@ across all five it gives RMS 5.05 deg and a static curve with plateaus at
 +16, +13 and +3 degrees for the same command; fitted separately, 0.41 to
 0.77 deg.
 
+#### What the eye does to a moving target
+
+In the prototype interface the red trace is $\Phi(u)$ — where the eye *would*
+settle if the command froze — and the blue trace is where the eye actually is.
+At the speeds the task uses the two sit on top of each other, which looks as
+though the eye were doing nothing at all. It is not, and the reason is worth
+stating carefully, because it is the difference between an eye that distorts
+the command and one that merely postpones it.
+
+Everything follows from the transfer function of step 7, the ratio of gaze to
+static command in the frequency domain:
+
+```math
+H(s)\;=\;\frac{\Theta(s)}{\Phi(s)}\;=\;\frac{\omega_n^{2}}
+{s^{2}+2\zeta\omega_n s+\omega_n^{2}}
+```
+
+**It does not shrink the target.** $H(0)=1$ exactly, by construction. Hold any
+command and the eye ends up precisely at $\Phi(u)$ — no steady-state error, no
+gain to calibrate away. This is the property that makes red and blue *equal*
+rather than merely proportional.
+
+**It delays it.** Expanding at low frequency,
+
+```math
+H(s)\;=\;1-\frac{2\zeta}{\omega_n}s+O(s^{2})\;\approx\;e^{-\Delta s},
+\qquad
+\Delta=\frac{2\zeta}{\omega_n}
+```
+
+which is a **pure time delay** to first order. Slow in, same thing out, $\Delta$
+later. For eye C that is 54 ms horizontally ($\zeta=0.263$, $\omega_n=9.76$
+rad s$^{-1}$) and 40 ms vertically ($0.225$, $11.24$) — about three frames at
+60 Hz, which is why red sits on blue.
+
+Measured on the simulator itself, by driving one axis with a small sinusoid
+and reading the phase, against the closed form above:
+
+| target | lag, horizontal | closed form | gain $\lvert$blue$\rvert/\lvert$red$\rvert$ |
+|---|---|---|---|
+| 0.10 Hz | 54.0 ms | 54.0 | 1.003 |
+| 0.20 Hz | 54.6 ms | 54.6 | 1.014 |
+| 0.35 Hz | 56.3 ms | 56.4 | 1.043 |
+| 0.60 Hz | 61.6 ms | 62.1 | 1.135 |
+| 1.00 Hz | 81.1 ms | 83.3 | 1.445 |
+| 1.50 Hz | 143.9 ms | 152.5 | 1.935 |
+
+Read it left to right. Below about 0.3 Hz the eye is a pure 54 ms delay at
+unity gain, and red and blue are the same curve shifted by three frames.
+Above that the delay grows and the gain **rises** — rises, not falls, because
+$\zeta\approx0.26$ is underdamped, so the response peaks near
+$\omega_n/2\pi=1.55$ Hz at roughly
+
+```math
+\lvert H\rvert_{\max}\;\approx\;\frac{1}{2\zeta}\;=\;1.9
+```
+
+At 1.5 Hz the eye overshoots its own command by a factor of two. That
+amplification, not any lag, is what the small loops at direction reversals in
+the interface are: the command turns, the eye carries past it, and the two
+traces separate for as long as the ringing lasts.
+
+Two consequences. For reading the interface, red on blue means the eye has
+caught up with its command, not that the eye is trivial — the static map is
+still doing a factor of 15.3 degrees per unit of command, and the plot only
+looks tidy because it is drawn *after* that map. For the task, the useful
+number is 0.3 Hz: below it the circuit can ignore the mechanics and solve a
+pure inversion of $\Phi$, above it the mechanics are part of the problem and
+the network has to learn a phase lead as well.
+
+*A correction.* An earlier note recorded the command leading the gaze by 0 ms
+at slow and middle speeds, from a cross-correlation. That was an artefact: the
+correlation peak of two smooth slow traces is flat across many frames, so the
+frame-quantised estimate collapsed to zero. Measured by single-frequency
+phase, the lag is 54 ms at every speed the task uses, and agrees with the
+closed form to a tenth of a millisecond.
+
+
 #### The five eyes
 
 The archive is a sweep over mechanical configurations, not repeats of one
