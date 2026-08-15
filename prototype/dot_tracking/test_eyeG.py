@@ -185,6 +185,23 @@ class EyeView:
                          point_size=4.5)
             self.parts.append((mm, geo["mus"][sel] - c, geo["s"][sel][:, None]))
             self.mus_actors.append(list(self.pl.renderer.actors)[-1])
+        # A 5-degree rotation of a globe is barely visible; the optic axis drawn as
+        # an arrow is not, and it is what the Plexus renderer draws for the same reason.
+        r = float(np.linalg.norm(sh - c, axis=1).max())
+        self.gaze_rest = np.array([0.0, 0.0, 1.0]) * r * 1.55
+        self.arrow = pv.Arrow(start=c, direction=self.gaze_rest,
+                              scale=float(np.linalg.norm(self.gaze_rest)),
+                              tip_length=0.22, tip_radius=0.055, shaft_radius=0.018)
+        self.arrow_rest = self.arrow.points - c
+        # grey arrow FIXED at the rest optic axis, yellow arrow carried by the gaze:
+        # the pair is what makes a five-degree rotation readable, and it is the
+        # convention `render_surface_vtk` already uses in the Plexus renders.
+        ref = pv.Arrow(start=c, direction=self.gaze_rest,
+                       scale=float(np.linalg.norm(self.gaze_rest)),
+                       tip_length=0.22, tip_radius=0.045, shaft_radius=0.012)
+        self.pl.add_mesh(ref, color=(0.55, 0.55, 0.58), opacity=0.55)
+        self.pl.add_mesh(self.arrow, color=(0.95, 0.80, 0.25))
+        self.parts.append((self.arrow, self.arrow_rest, None))
         self.pl.camera_position = "xy"
         self.pl.camera.azimuth = 25
         self.pl.camera.elevation = 12
@@ -201,7 +218,8 @@ class EyeView:
             for k, name in enumerate(self.mus_actors):
                 a = float(np.clip(drive[k] if k < len(drive) else 0.0, 0, 1))
                 self.pl.renderer.actors[name].prop.opacity = 0.35 + 0.6 * a
-        return np.asarray(self.pl.screenshot(return_img=True))
+        self.pl.render()          # screenshot() alone does NOT pick up new points:
+        return np.asarray(self.pl.screenshot(return_img=True))   # this is the movie
 
     def close(self):
         self.pl.close()
@@ -213,7 +231,7 @@ class EyeView:
 def build_figure(reach, hidden, n_act, act_names, img0, title):
     fig = plt.figure(figsize=(16.0, 5.6), facecolor=BG)
     gs = fig.add_gridspec(1, 3, width_ratios=[1.05, 0.75, 1.0], wspace=0.16,
-                          left=0.04, right=0.985, top=0.90, bottom=0.08)
+                          left=0.05, right=0.985, top=0.965, bottom=0.10)
     ax_w, ax_c, ax_e = (fig.add_subplot(gs[0, k]) for k in range(3))
     for ax in (ax_w, ax_c, ax_e):
         ax.set_facecolor(BG)
@@ -226,12 +244,13 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     ax_w.add_patch(plt.Rectangle((-reach[0], -reach[1]), 2 * reach[0], 2 * reach[1],
                                  fill=False, ec="#5a5a2a", ls=":", lw=1.0))
     ax_w.text(-reach[0], reach[1] * 1.03, f"eye reach  ±{reach[0]:.1f}° h / "
-              f"±{reach[1]:.1f}° v", color="#7a7a4a", fontsize=8, va="bottom")
+              f"±{reach[1]:.1f}° v", color="#ffffff", fontsize=10, va="bottom",
+              alpha=0.55)
     for s in ax_w.spines.values():
-        s.set_color("#333")
-    ax_w.tick_params(colors="#666", labelsize=8)
-    ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#999", fontsize=9)
-    ax_w.set_ylabel("φ  vertical gaze (deg)", color="#999", fontsize=9)
+        s.set_color("#444")
+    ax_w.tick_params(colors="#ffffff", labelsize=12)
+    ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#ffffff", fontsize=13)
+    ax_w.set_ylabel("φ  vertical gaze (deg)", color="#ffffff", fontsize=13)
     trail_t, = ax_w.plot([], [], "-", color="#ffffff", lw=1.0, alpha=0.45)
     trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.2, alpha=0.75)
     trail_g, = ax_w.plot([], [], "-", color="#4da3ff", lw=1.6, alpha=0.95)
@@ -243,33 +262,37 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     dot_g, = ax_w.plot([], [], "o", color="#4da3ff", ms=9, mec="none")
 
     # --- circuit ---------------------------------------------------------
+    # Left to right, in the direction the signal travels, so this panel reads the
+    # same way as the world panel beside it and as Figure 1e of the note.
     side = int(np.ceil(np.sqrt(hidden)))
     ax_c.set_xlim(0, 1); ax_c.set_ylim(0, 1); ax_c.axis("off")
-    ax_c.text(0.5, 1.005, "the circuit", color="#999", fontsize=10,
+    im_in = ax_c.imshow(np.zeros((2, 1)), cmap="viridis", vmin=-1, vmax=1,
+                        extent=(0.015, 0.10, 0.36, 0.64), aspect="auto", zorder=3)
+    im_rec = ax_c.imshow(np.zeros((side, side)), cmap="viridis", vmin=-1, vmax=1,
+                         extent=(0.235, 0.765, 0.235, 0.765), aspect="auto", zorder=3)
+    im_out = ax_c.imshow(np.zeros((n_act, 1)), cmap="viridis", vmin=0, vmax=1,
+                         extent=(0.90, 0.985, 0.28, 0.72), aspect="auto", zorder=3)
+    for x0, x1, y in ((0.10, 0.235, 0.5), (0.765, 0.90, 0.5)):
+        ax_c.annotate("", xy=(x1, y), xytext=(x0, y),
+                      arrowprops=dict(arrowstyle="-|>", color="#ffffff", lw=1.3))
+    ax_c.text(0.058, 0.30, r"$(\dot x,\dot y)$", color="#ffffff", fontsize=11,
               ha="center", va="top")
-    im_in = ax_c.imshow(np.zeros((1, 2)), cmap="coolwarm", vmin=-1, vmax=1,
-                        extent=(0.30, 0.70, 0.80, 0.90), aspect="auto", zorder=3)
-    im_rec = ax_c.imshow(np.zeros((side, side)), cmap="coolwarm", vmin=-1, vmax=1,
-                         extent=(0.13, 0.87, 0.22, 0.72), aspect="auto", zorder=3)
-    im_out = ax_c.imshow(np.zeros((1, n_act)), cmap="magma", vmin=0, vmax=1,
-                         extent=(0.13, 0.87, 0.07, 0.15), aspect="auto", zorder=3)
-    for y, s in ((0.915, r"input  $(\dot x,\dot y)$"),
-                 (0.755, f"recurrent  {hidden} rates  $r=\\tanh v$"),
-                 (0.185, f"output  {n_act} drives  $m=[\\hat W^{{out}}r]_+$")):
-        ax_c.text(0.5, y, s, color="#888", fontsize=8.5, ha="center", va="bottom")
+    ax_c.text(0.5, 0.185, f"{hidden} rates   $r=\\tanh v$", color="#ffffff",
+              fontsize=11, ha="center", va="top")
+    ax_c.text(0.943, 0.235, f"$m=[\\hat W^{{out}}r]_+$", color="#ffffff",
+              fontsize=11, ha="center", va="top")
     for k, nm in enumerate(act_names):
-        ax_c.text(0.13 + 0.74 * (k + 0.5) / n_act, 0.045, nm, color="#888",
-                  fontsize=7.5, ha="center", va="top")
+        ax_c.text(0.995, 0.72 - 0.44 * (k + 0.5) / n_act, nm, color="#ffffff",
+                  fontsize=9.5, ha="left", va="center")
 
     # --- eye -------------------------------------------------------------
     ax_e.axis("off")
     im_eye = ax_e.imshow(img0)
-    txt_ang = ax_e.text(0.02, 0.02, "", transform=ax_e.transAxes, color="#bbb",
-                        fontsize=9, va="bottom", family="monospace")
-    sup = fig.text(0.5, 0.965, title, color="#ddd", fontsize=11, ha="center",
-                   va="top")
-    phase = fig.text(0.04, 0.965, "", color="#e0c060", fontsize=10, ha="left",
-                     va="top")
+    txt_ang = ax_e.text(0.02, 0.02, "", transform=ax_e.transAxes, color="#ffffff",
+                        fontsize=12, va="bottom", family="monospace")
+    # the regime, boxed in the world panel's top right, where the eye is not
+    phase = ax_w.text(0.975, 0.965, "", transform=ax_w.transAxes, color="#ffffff",
+                      fontsize=13, ha="right", va="top")
     art = dict(trail_t=trail_t, trail_c=trail_c, trail_g=trail_g, dot_t=dot_t,
                dot_c=dot_c, dot_g=dot_g, im_in=im_in, im_rec=im_rec,
                im_out=im_out, im_eye=im_eye, txt_ang=txt_ang, phase=phase,
@@ -414,9 +437,9 @@ def main():
         art["dot_t"].set_data([tgt[k, 0]], [tgt[k, 1]])
         art["dot_c"].set_data([cmd[k, 0]], [cmd[k, 1]])
         art["dot_g"].set_data([x[k, 0]], [x[k, 1]])
-        art["im_in"].set_data(np.clip(v[k][None] / 1.5, -1, 1))
+        art["im_in"].set_data(np.clip(v[k][:, None] / 1.5, -1, 1))
         art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
-        art["im_out"].set_data(np.clip(m[k][None], 0, 1))
+        art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
         art["im_eye"].set_data(ext[min(int(k * len(ext) / len(x)), len(ext) - 1)]
                                if ext is not None else view.frame(x[k], m[k]))
         art["txt_ang"].set_text(f"θ {x[k,0]:+6.2f}   φ {x[k,1]:+6.2f}   "
