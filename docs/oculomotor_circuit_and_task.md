@@ -166,7 +166,7 @@ time constant over which eye position leaks back to centre. A perfect integrator
 integrator is finite, and measuring what $\tau$ the connectome-constrained
 circuit can support is the point of the exercise.
 
-### 2.3 Saccades versus optokinetic drive
+### 2.2 Saccades versus optokinetic drive
 
 The two natural stimulus regimes differ, and the choice interacts with §1.6:
 
@@ -183,7 +183,7 @@ So the saccadic regime is reachable by reparameterising the existing
 generator rather than writing a new one; what is missing is anatomy for the
 input, not code.
 
-### 2.4 The open-loop problem
+### 2.3 The open-loop problem
 
 Coarsely: the circuit is asked to keep a moving target centred on the fovea
 while being told only how fast the target is moving, never where it is. That
@@ -512,7 +512,7 @@ orientation is the pair $(\theta,\varphi)$, horizontal first.
 **Step 0 — the world sets the angles.** The target moves in a bounded arena
 in units, and each axis is mapped to degrees by its own scale, because the
 eye's reachable travel is not the same horizontally and vertically
-(section 5.1):
+(section 5.2):
 
 ```math
 \theta^{\star}(t) = s_\theta\, x(t),
@@ -523,7 +523,7 @@ eye's reachable travel is not the same horizontally and vertically
 ```
 
 **Step 1 — what the circuit is given.** Only the velocity, never the
-position. This is the open-loop premise of section 2.4 written as a vector:
+position. This is the open-loop premise of section 2.3 written as a vector:
 
 ```math
 \mathbf{u}(t) \;=\; \big(\dot x(t),\ \dot y(t)\big)^{\!\top} \in \mathbb{R}^{2}
@@ -611,7 +611,7 @@ u_\varphi(t) = m_{\mathrm{SR}}(t) - m_{\mathrm{IR}}(t)
 monotone static nonlinearity followed by second-order mechanics, with
 $\Phi$, $\omega_n$ and $\zeta$ identified in section 5.1 and **frozen** —
 steps 6 and 7 together are what this note calls the **lateral-horizontal
-Hammerstein model**, and section 5.2 says what has to replace it —
+Hammerstein model**, and section 5.3 says what has to replace it —
 registered as buffers, not parameters, because the body is measured and
 letting the optimiser retune it would defeat the point:
 
@@ -646,7 +646,7 @@ Putting the loss after the eye is what makes the network learn the eye's
 inverse rather than a velocity command: the gradient reaches
 $\hat W,\hat W^{\mathrm{in}},\hat W^{\mathrm{out}}$ through $\Phi$ and through
 the second-order mechanics, so a different eye trains a different controller.
-That is why section 5.1 lists one trained network per eye rather than one
+That is why section 5.2 lists one trained network per eye rather than one
 network tested on five.
 
 **Step 9 — discretisation and initial condition.** Forward Euler at
@@ -683,54 +683,25 @@ nothing else.
 
 ### 5.1 The eye model
 
-The circuit's output is muscle drive, not eye position, so at some point the
-mechanics has to be in the loop. The MPM eye of `Plexus/prototype/eye` cannot
-be: its grid scatter is in-place and a single trial costs far more than the
-7250 gradient updates of section 4.5. It is replaced by a reduced eye model,
-identified from the probe runs in that prototype's `archive/` by
-`fit_plant.py`, and it is the eye of step 7 above — a static nonlinearity
-$\Phi$ followed by second-order mechanics, per axis. Steps 6 and 7 together
-are the **lateral-horizontal Hammerstein model**: two antagonist pairs, two
-scalar commands, two independent single-input eye models. This section says where
-its numbers come from and what they are worth; the equations are not
-repeated.
+The circuit's output is muscle drive, not eye position, so the mechanics has
+to be in the loop — and the MPM eye cannot be: its grid scatter is in-place,
+so it is not differentiable, and one trial costs more than all 7250 gradient
+updates of section 4.5. It is replaced by the reduced model of step 7, fitted
+by `fit_plant.py` from the probe runs in `Plexus/prototype/eye/archive/`.
+Steps 6 and 7 together are the **lateral-horizontal Hammerstein model**: two
+antagonist pairs, two scalar commands, two independent single-input eyes.
 
-#### Why Hammerstein, and where it comes from
-
-Command-to-gaze is plainly nonlinear: activation saturates, and the two
-horizontal muscles are not mirror images. That does not force a nonlinear
-ODE. Putting the whole nonlinearity in a memoryless block and leaving the
-dynamics linear is the **Hammerstein** structure, and it is not an
-improvisation for this note — it is the standard first move of *block-oriented
-nonlinear system identification*, a field with fifty years of theory behind
-it. The name is Adolf Hammerstein's, from the nonlinear integral equations he
-studied around 1930; the four canonical cascades are Hammerstein (static
-nonlinearity then LTI), Wiener (LTI then static nonlinearity),
-Wiener-Hammerstein (LTI, nonlinearity, LTI) and Hammerstein-Wiener. The
-reason they dominate practice is identifiability rather than expressiveness:
-the linear factor remains a transfer function, with poles, a frequency
-response and every tool of linear systems theory intact, while the nonlinear
-factor is a curve that can be fitted pointwise. The classical identification
-algorithms are Narendra and Gallman's iterative scheme (IEEE TAC, 1966) and
-the overparameterisation / two-stage SVD methods that followed (Bai,
-*Automatica*, 1998); the standard collection is Giri and Bai (eds),
-*Block-oriented Nonlinear System Identification*, Springer LNCIS 404, 2010,
-and the structure ships in MATLAB's System Identification Toolbox as `nlhw`.
-
-For an eye the split is not merely convenient, it is anatomical. The
-nonlinearity lives in the muscle — force-activation, the Hill length-tension
-and force-velocity relations, a moment arm that changes with eye position,
-and the geometric saturation of a globe that can only rotate so far — and on
-the timescale that matters it is memoryless. The dynamics live in the globe
-and the orbital tissue: inertia, viscosity and an elastic restoring force,
-approximately linear for rotations this small. This is also the classical
-oculomotor model, not a new proposal: Robinson's mechanics of human saccades
-(*J. Physiol.*, 1964) and his control-systems review (*Annu. Rev. Neurosci.*,
-1981) set the linear description of the eye and the pulse-step command that
-inverts it, and later work argued the real eye carries a wider spread of
-time scales than a second-order fit allows (Sklavos, Porrill, Kaneko and
-Dean, *Vision Research*, 2005). Our own $\zeta \approx 0.3$ is the one place
-we are clearly off the biology, as noted below.
+Putting the whole nonlinearity in a memoryless block and leaving the dynamics
+linear is the **Hammerstein** structure — the standard first move of
+block-oriented nonlinear system identification (Narendra and Gallman 1966;
+Bai 1998; Giri and Bai 2010), which dominates practice because it keeps the
+linear factor a transfer function, with every tool of linear systems theory
+intact, while the nonlinear factor stays a curve fitted pointwise. For an eye
+the split is anatomical rather than convenient: the nonlinearity is muscle
+and memoryless, the dynamics are globe and orbital tissue and near-linear at
+these rotations. It is also the classical oculomotor model — Robinson (1964,
+1981), with later work arguing the real eye carries more time scales than
+second order allows (Sklavos, Porrill, Kaneko and Dean, 2005).
 
 The factorisation earns its keep here — across the
 five eyes the mechanics barely move, $\omega_n = 9.5$ to $11.1$ rad s$^{-1}$
@@ -847,7 +818,7 @@ phase, the lag is 54 ms at every speed the task uses, and agrees with the
 closed form to a tenth of a millisecond.
 
 
-#### The five eyes
+### 5.2 The five eyes
 
 The archive is a sweep over mechanical configurations, not repeats of one
 globe. They are labelled A-E in the order they were made, and the folders
@@ -964,7 +935,7 @@ axis, so the network is free to co-contract, and the eye will ignore it —
 the capacity is there and its effect is silently discarded.
 
 
-### 5.2 Characterising the MPM eye, from now on
+### 5.3 Characterising the MPM eye, from now on
 
 The lateral-horizontal Hammerstein model of steps 6 and 7 assumes the eye is
 two independent axes driven by two signed scalars. The first properly settled
@@ -1050,7 +1021,7 @@ need thirty, and the pairs are decided one at a time. The decomposition is
 what turns an unaffordable experiment into a two-hour one.
 
 Nothing in $g$ is constrained to be monotone. The negative-slope disaster of
-section 5.1 was caused by fitting transients as though they were plateaus, not
+section 5.2 was caused by fitting transients as though they were plateaus, not
 by the fitting method, and with genuinely settled holds the constraint is
 unnecessary. It also turns out to have been actively harmful: the monotone
 parameterisation caps the curvature at $|b|\le a/2$, and eye F's horizontal
@@ -1077,7 +1048,7 @@ out to need more time scales than two — which Sklavos, Porrill, Kaneko and
 Dean (2005) argue real eyes do — that shows up as a poor fit
 rather than as a silently wrong assumption.
 
-One optional block covers co-contraction, the failure of section 5.1 that no
+One optional block covers co-contraction, the failure of section 5.2 that no
 single-input model can express. Pulling two antagonists together leaves the
 difference unchanged and raises the stiffness, so the mechanics are allowed to
 depend on the total drive $s=\mathbf{1}^{\!\top}\mathbf{m}$:
@@ -1284,7 +1255,7 @@ reimplementation of that simulator on NVIDIA's Warp.
 
 **The answer, first.** Keep the material-point simulator. MuJoCo is faster,
 more mature and — importantly — already differentiable, which would remove
-the need for the fitted surrogate of section 5.2 entirely. But it cannot
+the need for the fitted surrogate of section 5.3 entirely. But it cannot
 represent tissue that both deforms a lot and has different stiffness in
 different places, and that is precisely what a per-muscle segmentation is for.
 The medium-term move is to port the material-point simulator to Warp, which
@@ -1374,7 +1345,7 @@ setting, and GeoWarp demonstrates fitting one scalar parameter and describes
 spatially varying parameters as a generalisation rather than a result.
 
 **The plan, and the measurement that would change it.** Near term, nothing
-changes: the material-point eye and the fitted surrogate of section 5.2, which
+changes: the material-point eye and the fitted surrogate of section 5.3, which
 work today and depend on no port. Medium term, port to Warp and put the eye
 itself in the training loop. The surrogate is not wasted either way — a
 differentiable simulator still has to be shown to reproduce the measured
