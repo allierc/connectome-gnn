@@ -466,8 +466,11 @@ def main():
           f"drives active {occ * 100:.0f}% of the time")
 
     ck = os.path.join(MODELS, f"{tag}.pt")
-    torch.save({"state": model.state_dict(), "eye": {k: (v.tolist()
-                if isinstance(v, np.ndarray) else v) for k, v in spec.items()},
+    torch.save({"state": model.state_dict(),
+                "eye": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                        for k, v in spec.items()},
+                "eye_shapes": {k: list(v.shape) for k, v in spec.items()
+                               if isinstance(v, np.ndarray)},
                 "hidden": a.hidden, "dt": a.dt, "scale": scale.tolist(),
                 "act_names": eye.act_names, "kind": eye.kind}, ck)
     rep = os.path.join(MODELS, f"{tag}.json")

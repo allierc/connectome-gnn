@@ -1,0 +1,16 @@
+{
+  "tag": "eyeG_deep",
+  "kind": "deep",
+  "n_act": 6,
+  "err_mean_deg": 0.10432443022727966,
+  "err_continue_deg": 0.04957013204693794,
+  "err_stop_and_go_deg": 0.15907873213291168,
+  "mean_abs_torsion_deg": 0.026601800695061684,
+  "reach_deg": [
+    6.839695453643799,
+    7.0919575691223145,
+    8.240701675415039
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}

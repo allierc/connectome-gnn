@@ -1,0 +1,23 @@
+{
+  "tag": "eyeG_light",
+  "fit": "light",
+  "n_act": 4,
+  "act_names": [
+    "up",
+    "down",
+    "temporal",
+    "nasal"
+  ],
+  "gaze_err_mean_deg": 0.12114253640174866,
+  "val_err_deg": 0.12176315486431122,
+  "mean_abs_torsion_deg": 0.5078815817832947,
+  "deg_per_unit_h": 7.957894802093506,
+  "deg_per_unit_v": 12.263157844543457,
+  "span_h_deg": 15.87999963760376,
+  "span_v_deg": 24.229999542236328,
+  "gate_pass": false,
+  "mech_fit_rms_deg": 0.6932632178240407,
+  "epochs": 250,
+  "hidden": 64,
+  "lam_psi": 0.05
+}
