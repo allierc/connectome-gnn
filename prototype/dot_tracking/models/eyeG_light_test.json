@@ -1,0 +1,16 @@
+{
+  "tag": "eyeG_light",
+  "kind": "light",
+  "n_act": 4,
+  "err_mean_deg": 0.2599315941333771,
+  "err_continue_deg": 0.24353472888469696,
+  "err_stop_and_go_deg": 0.276328444480896,
+  "mean_abs_torsion_deg": 1.3290019035339355,
+  "reach_deg": [
+    7.559999942779541,
+    11.649999618530273,
+    5.320000171661377
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}

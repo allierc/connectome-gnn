@@ -96,15 +96,28 @@ def sequence(duration, dt, seed=0, bound=0.95, tries=40):
 # ---------------------------------------------------------------------------
 # eye G geometry, for the right-hand panel
 # ---------------------------------------------------------------------------
-def load_geometry(eye_dir=EYE_DIR, stride=3):
+def load_geometry(eye_dir=EYE_DIR, stride=1):
+    """Rest geometry of eye G, plus the tissue label that makes rotation visible.
+
+    A globe drawn as a uniform cloud of shell points is ROTATIONALLY INVARIANT to
+    look at: spin it and nothing changes, which is why the first version of this
+    panel appeared frozen. `tissue` labels the cornea/iris patch separately (1482 of
+    13347 points), and drawing that patch in its own colour gives the globe a pupil
+    to move -- the same reason a real eye's rotation is visible.
+    """
     z = np.load(os.path.join(eye_dir, "baseline_curves.npz"), allow_pickle=True)
-    shell = np.asarray(z["shell"][0], np.float64)[::stride]
-    mus = np.asarray(z["mus_pos"][0], np.float64)[::stride]
-    parent = np.asarray(z["mus_parent"], int)[::stride]
-    s = np.asarray(z["mus_s"], np.float64)[::stride]
-    centre = np.asarray(z["centre"][0], np.float64)
-    s = (s - s.min()) / max(1e-9, float(np.ptp(s)))                 # 0 at orbit, 1 at insertion
-    return dict(shell=shell, mus=mus, parent=parent, s=s, centre=centre)
+    g = dict(shell=np.asarray(z["shell"][0], np.float64)[::stride],
+             tissue=np.asarray(z["tissue"], int)[::stride],
+             mus=np.asarray(z["mus_pos"][0], np.float64)[::stride],
+             parent=np.asarray(z["mus_parent"], int)[::stride],
+             s=np.asarray(z["mus_s"], np.float64)[::stride],
+             centre=np.asarray(z["centre"][0], np.float64))
+    g["mus_vm"] = np.asarray(z["mus_vm"][0], np.float64)[::stride]
+    g["s"] = (g["s"] - g["s"].min()) / max(1e-9, float(np.ptp(g["s"])))
+    # the smallest tissue class on the shell is the cornea/iris cap
+    lab, cnt = np.unique(g["tissue"], return_counts=True)
+    g["cornea"] = g["tissue"] == lab[np.argmin(np.where(cnt > 10, cnt, 1 << 30))]
+    return g
 
 
 def rot(theta, phi, psi):
@@ -119,42 +132,75 @@ def rot(theta, phi, psi):
 
 
 class EyeView:
-    """A pyvista scene built once; per frame only point coordinates and muscle
-    brightness change, which is the difference between a movie and a slideshow."""
+    """Eye G's own geometry, moved by the model. Three ways to draw it:
 
-    def __init__(self, geo, size=(560, 560), muscles=TG.MUSCLES):
+        vtk         reconstructed SURFACES -- translucent globe, solid cornea cap,
+                    six solid straps. The default, and the one that reads.
+        mpm         the material points themselves, cornea picked out
+        mpm_stress  the same points coloured by von Mises stress at rest
+
+    The surfaces are reconstructed ONCE, at rest, and then their vertices are
+    rotated: the globe turns rigidly and every strap follows by its arc length,
+    anchored at the orbit and carried at the insertion. Nothing is re-extracted per
+    frame, so a frame costs one matrix multiply and a screenshot.
+    """
+
+    MODES = ("vtk", "mpm", "mpm_stress")
+
+    def __init__(self, geo, mode="vtk", size=(560, 560), muscles=TG.MUSCLES):
         import pyvista as pv
         pv.OFF_SCREEN = True
-        self.pv, self.geo, self.muscles = pv, geo, muscles
+        self.pv, self.geo, self.mode, self.muscles = pv, geo, mode, muscles
         self.pl = pv.Plotter(off_screen=True, window_size=list(size))
         self.pl.set_background("black")
-        self.globe = pv.PolyData(geo["shell"])
-        self.pl.add_mesh(self.globe, color=(0.72, 0.74, 0.78), point_size=3.0,
-                         render_points_as_spheres=True, opacity=0.35)
-        self.mus, self.act = [], []
+        self.parts = []                       # (mesh, rest points, arc fraction)
+
+        def add(points, **kw):
+            if mode == "vtk":
+                m = pv.PolyData(points).reconstruct_surface(nbr_sz=14, sample_spacing=None)
+                self.pl.add_mesh(m, smooth_shading=True, **kw)
+            else:
+                m = pv.PolyData(points)
+                self.pl.add_mesh(m, point_size=kw.pop("point_size", 4.0),
+                                 render_points_as_spheres=True, **kw)
+            return m
+
+        sh, cor, c = geo["shell"], geo["cornea"], geo["centre"]
+        m = add(sh[~cor], color=(0.55, 0.57, 0.62), opacity=0.30 if mode == "vtk" else 0.25,
+                point_size=3.0)
+        self.parts.append((m, sh[~cor] - c, None))
+        m = add(sh[cor], color=(0.92, 0.94, 0.98), opacity=1.0, point_size=5.0)
+        self.parts.append((m, sh[cor] - c, None))          # the cornea: the landmark
+        self.mus_actors = []
         for k, key in enumerate(muscles):
             sel = geo["parent"] == k
-            pd = pv.PolyData(geo["mus"][sel])
-            self.pl.add_mesh(pd, color=MUS_COLOR[key], point_size=4.5,
-                             render_points_as_spheres=True, opacity=0.9)
-            self.mus.append((pd, sel))
+            if mode == "mpm_stress":
+                pd = pv.PolyData(geo["mus"][sel])
+                pd["vm"] = geo["mus_vm"][sel]
+                self.pl.add_mesh(pd, scalars="vm", cmap="inferno", point_size=4.5,
+                                 render_points_as_spheres=True, show_scalar_bar=False)
+                mm = pd
+            else:
+                mm = add(geo["mus"][sel], color=MUS_COLOR[key], opacity=0.95,
+                         point_size=4.5)
+            self.parts.append((mm, geo["mus"][sel] - c, geo["s"][sel][:, None]))
+            self.mus_actors.append(list(self.pl.renderer.actors)[-1])
         self.pl.camera_position = "xy"
         self.pl.camera.azimuth = 25
         self.pl.camera.elevation = 12
-        self.pl.camera.zoom(1.35)
-        self.pl.screenshot(return_img=True)                # realise the window once
+        self.pl.camera.zoom(1.45)
+        self.pl.screenshot(return_img=True)
 
     def frame(self, angles, drive):
-        R = rot(*angles)
-        c = self.geo["centre"]
-        self.globe.points = (self.geo["shell"] - c) @ R.T + c
-        for k, (pd, sel) in enumerate(self.mus):
-            f = self.geo["s"][sel][:, None]                # partial rotation by arc
-            base = self.geo["mus"][sel] - c
-            pd.points = base + f * (base @ R.T - base) + c
-            a = float(np.clip(drive[k] if k < len(drive) else 0.0, 0, 1))
-            self.pl.renderer.actors[list(self.pl.renderer.actors)[k + 1]] \
-                .prop.opacity = 0.35 + 0.65 * a
+        R = rot(*angles); c = self.geo["centre"]
+        for mesh, rest, frac in self.parts:
+            turned = rest @ R.T
+            mesh.points = (rest + frac * (turned - rest) + c) if frac is not None \
+                else turned + c
+        if self.mode != "mpm_stress":
+            for k, name in enumerate(self.mus_actors):
+                a = float(np.clip(drive[k] if k < len(drive) else 0.0, 0, 1))
+                self.pl.renderer.actors[name].prop.opacity = 0.35 + 0.6 * a
         return np.asarray(self.pl.screenshot(return_img=True))
 
     def close(self):
@@ -189,14 +235,17 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     trail_t, = ax_w.plot([], [], "-", color="#ffffff", lw=1.0, alpha=0.45)
     trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.2, alpha=0.75)
     trail_g, = ax_w.plot([], [], "-", color="#4da3ff", lw=1.6, alpha=0.95)
-    dot_t, = ax_w.plot([], [], "o", color="#ffffff", ms=9, mec="none")
+    # the target is a RING, not a disc: the gaze dot sits inside it when the
+    # controller is working, and a filled marker would simply hide the thing the
+    # movie exists to show.
+    dot_t, = ax_w.plot([], [], "o", mfc="none", mec="#ffffff", mew=1.8, ms=15)
     dot_c, = ax_w.plot([], [], "o", color="#e05a4a", ms=7, mec="none")
     dot_g, = ax_w.plot([], [], "o", color="#4da3ff", ms=9, mec="none")
 
     # --- circuit ---------------------------------------------------------
     side = int(np.ceil(np.sqrt(hidden)))
     ax_c.set_xlim(0, 1); ax_c.set_ylim(0, 1); ax_c.axis("off")
-    ax_c.text(0.5, 0.985, "the circuit", color="#999", fontsize=10,
+    ax_c.text(0.5, 1.005, "the circuit", color="#999", fontsize=10,
               ha="center", va="top")
     im_in = ax_c.imshow(np.zeros((1, 2)), cmap="coolwarm", vmin=-1, vmax=1,
                         extent=(0.30, 0.70, 0.80, 0.90), aspect="auto", zorder=3)
@@ -204,7 +253,7 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
                          extent=(0.13, 0.87, 0.22, 0.72), aspect="auto", zorder=3)
     im_out = ax_c.imshow(np.zeros((1, n_act)), cmap="magma", vmin=0, vmax=1,
                          extent=(0.13, 0.87, 0.07, 0.15), aspect="auto", zorder=3)
-    for y, s in ((0.925, r"input  $(\dot x,\dot y)$"),
+    for y, s in ((0.915, r"input  $(\dot x,\dot y)$"),
                  (0.755, f"recurrent  {hidden} rates  $r=\\tanh v$"),
                  (0.185, f"output  {n_act} drives  $m=[\\hat W^{{out}}r]_+$")):
         ax_c.text(0.5, y, s, color="#888", fontsize=8.5, ha="center", va="bottom")
@@ -228,6 +277,51 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     return fig, art
 
 
+def emit_spec(m, dt, tag, eye_dir=EYE_DIR, sim_dt=0.003, stride=3, base="pairs_long"):
+    """Hand the controller's drive trace back to the REAL MPM plant.
+
+    The right-hand panel above rotates eye G's rest geometry rigidly, which is honest
+    but is not the tissue moving. This writes what the Plexus session needs to run the
+    actual plant on the same command: the six-muscle trace resampled from the
+    controller's 1/60 s to the simulator's own timestep, and a spec that plays it back
+    verbatim through `muscle_probe [playback]`.
+
+    Composing the result back in is `--compose`, so the two halves of the movie stay
+    frame-aligned: their render is the right panel, everything else is drawn here.
+    """
+    import yaml
+    n_sim = int(round(len(m) * dt / sim_dt))
+    t_ctrl = np.arange(len(m)) * dt
+    t_sim = np.arange(n_sim) * sim_dt
+    trace = np.stack([np.interp(t_sim, t_ctrl, m[:, k]) for k in range(m.shape[1])], -1)
+    trace = np.clip(trace, 0.0, 1.0)
+    npy = os.path.join(eye_dir, f"ctrl_{tag}_act.npy")
+    np.save(npy, trace.astype(np.float32))
+
+    spec = yaml.safe_load(open(os.path.join(eye_dir, f"{base}_spec.yaml")))
+    spec["general"]["name"] = f"eye_G_ctrl_{tag}"
+    spec["general"]["n_frames"] = n_sim
+    ops = spec.get("ops", spec.get("operators", []))
+    for o in ops:
+        if o.get("op") == "muscle_probe":
+            o.clear()
+            o.update({"op": "muscle_probe", "implementation": "playback",
+                      "at": "muscle", "trace": os.path.basename(npy),
+                      "tonic": 0.14, "tau": 0.02})
+    out = os.path.join(eye_dir, f"ctrl_{tag}_spec.yaml")
+    yaml.safe_dump(spec, open(out, "w"), sort_keys=False)
+    print(f"[spec] wrote {npy}   ({trace.shape[0]} frames at dt {sim_dt})")
+    print(f"[spec] wrote {out}")
+    print("[spec] run it in the Plexus session, then compose:\n"
+          f"    cd /workspace/Plexus/prototype/eye\n"
+          f"    python run_eye_G.py --spec {os.path.basename(out)} "
+          f"--out archive/eye_G --label ctrl_{tag} --render surface --stride {stride}\n"
+          f"    # then, back here:\n"
+          f"    python test_eyeG.py --tag {tag} --compose "
+          f"{eye_dir}/ctrl_{tag}.mp4")
+    return npy, out
+
+
 def main():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -239,6 +333,12 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--trail", type=float, default=1.5, help="trail length, seconds")
     p.add_argument("--out", default=None)
+    p.add_argument("--emit-spec", action="store_true",
+                   help="write the drive trace and a playback spec for the real MPM")
+    p.add_argument("--compose", default=None, metavar="MP4",
+                   help="use this rendered movie as the right panel, frame-aligned")
+    p.add_argument("--render", default="vtk", choices=EyeView.MODES,
+                   help="how the right panel is drawn")
     p.add_argument("--device", default="cpu")
     a = p.parse_args()
     out = a.out or os.path.join(TG.MODELS, f"{a.tag}_test.mp4")
@@ -251,6 +351,11 @@ def main():
     ck = torch.load(ck_path, map_location="cpu", weights_only=False)
     spec = {k: (np.asarray(v) if isinstance(v, list) else v)
             for k, v in ck["eye"].items()}
+    # An empty (0, 2) array round-trips through tolist() as [], which numpy reads
+    # back as shape (0,) and the buffer shapes then disagree. Restore the width.
+    for k, w in (("pairs", 2), ("pair_coef", 3)):
+        if k in spec:
+            spec[k] = np.asarray(spec[k], float if w == 3 else int).reshape(-1, w)
     eye = TG.EyeG(spec, a.dt)
     model = TG.CTRNNEyeG(eye, hidden=ck["hidden"], dt=a.dt)
     model.load_state_dict(ck["state"]); model.eval()
@@ -273,10 +378,23 @@ def main():
           f"first half {err[:n_split].mean():.2f}   second {err[n_split:].mean():.2f}   "
           f"mean |torsion| {np.abs(x[:, 2]).mean():.2f} deg")
 
+    if a.emit_spec:
+        emit_spec(m, a.dt, a.tag, a.eye_dir)
+        return
+
     # --- render ----------------------------------------------------------
-    geo = load_geometry(a.eye_dir)
-    view = EyeView(geo)
-    img0 = view.frame(x[0], m[0])
+    ext = None
+    if a.compose:
+        import imageio.v2 as _iio
+        ext = [f for f in _iio.get_reader(a.compose)]
+        print(f"[compose] {len(ext)} rendered frames from {a.compose} against "
+              f"{len(x)} controller steps")
+        view = None
+        img0 = ext[0]
+    else:
+        geo = load_geometry(a.eye_dir)
+        view = EyeView(geo, mode=a.render)
+        img0 = view.frame(x[0], m[0])
     title = (f"{a.tag} — eye G, {eye.kind} characterisation — "
              f"continue then stop-and-go, middle speed — mean |err| {err.mean():.2f}°")
     fig, art = build_figure(reach, ck["hidden"], eye.n_act, names, img0, title)
@@ -299,13 +417,16 @@ def main():
         art["im_in"].set_data(np.clip(v[k][None] / 1.5, -1, 1))
         art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m[k][None], 0, 1))
-        art["im_eye"].set_data(view.frame(x[k], m[k]))
+        art["im_eye"].set_data(ext[min(int(k * len(ext) / len(x)), len(ext) - 1)]
+                               if ext is not None else view.frame(x[k], m[k]))
         art["txt_ang"].set_text(f"θ {x[k,0]:+6.2f}   φ {x[k,1]:+6.2f}   "
                                 f"ψ {x[k,2]:+6.2f}  deg")
         art["phase"].set_text("continue" if k < n_split else "stop-and-go")
         fig.canvas.draw()
         w.append_data(np.asarray(fig.canvas.buffer_rgba())[..., :3].copy())
-    w.close(); view.close(); plt.close(fig)
+    w.close(); plt.close(fig)
+    if view is not None:
+        view.close()
     rep = out.replace(".mp4", ".json")
     json.dump({"tag": a.tag, "kind": eye.kind, "n_act": eye.n_act,
                "err_mean_deg": float(err.mean()),
