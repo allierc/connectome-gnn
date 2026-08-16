@@ -59,7 +59,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PLEXUS_EYE = "/workspace/Plexus/prototype/eye"
 sys.path.insert(0, HERE)
 sys.path.insert(0, PLEXUS_EYE)
-from trajectory import generate                          # noqa: E402
+from trajectory import generate, SPEED_UPS               # noqa: E402
 import train_eyeG as TG                                  # noqa: E402
 
 EYE_DIR = TG.EYE_DIR
@@ -76,7 +76,27 @@ BG = "#000000"
 # smooth pursuit and fast stop-and-go and then meets the slower pair has been asked
 # the hard question first, and the two halves are directly comparable.
 PHASES = [("continue", "fast"), ("stop_and_go", "fast"),
-          ("continue", "middle"), ("stop_and_go", "middle")]
+          ("continue", "middle"), ("stop_and_go", "middle"),
+          ("circle_cw", "middle"), ("circle_ccw", "middle")]
+
+
+def _circle(duration, dt, speed, ccw, laps=1.5):
+    """A circle traversed at the corpus's own speed, as VELOCITY.
+
+    Not one of `trajectory.SPEC`'s shapes, and deliberately so: the corpus is
+    piecewise-straight or spline, and a circle is the one target whose direction
+    turns at a constant rate without ever reversing. That is a regime the network
+    was never trained on, which is the point of putting it last -- and running it
+    both ways separates a controller that has learned to integrate velocity from one
+    that has learned this corpus's turn statistics.
+    """
+    n = int(round(duration / dt))
+    t = np.arange(n) * dt
+    w = 2 * np.pi * laps / duration                    # rad/s, so `laps` in `duration`
+    r = SPEED_UPS[speed] / w                           # radius that gives that speed
+    sgn = 1.0 if ccw else -1.0
+    th = sgn * w * t
+    return np.stack([-r * w * sgn * np.sin(th), r * w * sgn * np.cos(th)], -1)
 
 
 def sequence(duration, dt, seed=0, bound=0.95, tries=200):
@@ -91,17 +111,22 @@ def sequence(duration, dt, seed=0, bound=0.95, tries=200):
     circuit is given, and a distorted input is not the regime we mean to test.
     """
     for k in range(tries):
-        parts = [generate(shape="curve", motion=mo, speed=sp, angle="low",
-                          duration=duration, dt=dt, seed=seed + 1000 * k + i,
-                          start="center")
-                 for i, (mo, sp) in enumerate(PHASES)]
-        v = np.concatenate([np.stack([np.gradient(np.asarray(p["x"]), dt),
-                                      np.gradient(np.asarray(p["y"]), dt)], -1)
-                            for p in parts], 0).astype(np.float32)
+        segs, n0 = [], None
+        for i, (mo, sp) in enumerate(PHASES):
+            if mo.startswith("circle"):
+                segs.append(_circle(duration, dt, sp, ccw=mo.endswith("ccw")))
+            else:
+                q = generate(shape="curve", motion=mo, speed=sp, angle="low",
+                             duration=duration, dt=dt, seed=seed + 1000 * k + i,
+                             start="center")
+                segs.append(np.stack([np.gradient(np.asarray(q["x"]), dt),
+                                      np.gradient(np.asarray(q["y"]), dt)], -1))
+            n0 = len(segs[0])
+        v = np.concatenate(segs, 0).astype(np.float32)
         xy = np.cumsum(v, 0) * dt
         if np.abs(xy).max() <= bound:
-            n = len(parts[0]["x"])
-            return v, xy.astype(np.float32), [n * (i + 1) for i in range(len(PHASES) - 1)]
+            return v, xy.astype(np.float32), [n0 * (i + 1)
+                                              for i in range(len(PHASES) - 1)]
     raise SystemExit(f"[seq] no seed within {tries} kept the target inside "
                      f"+-{bound}; lower --duration or raise the bound")
 
@@ -444,7 +469,7 @@ def main():
     p.add_argument("--eye-dir", default=EYE_DIR)
     p.add_argument("--duration", type=float, default=8.0, help="seconds PER half")
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
-    p.add_argument("--fps", type=int, default=30)
+    p.add_argument("--fps", type=int, default=60)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--trail", type=float, default=1.5, help="trail length, seconds")
     p.add_argument("--out", default=None)
@@ -483,7 +508,9 @@ def main():
     # --- run -------------------------------------------------------------
     v, xy, cuts = sequence(a.duration, a.dt, seed=a.seed)
     bounds = [0] + list(cuts) + [len(v)]
-    labels = [f"{mo.replace('_', '-')}  {sp}" for mo, sp in PHASES]
+    labels = [(f"circle {'ccw' if mo.endswith('ccw') else 'cw'}  {sp}"
+               if mo.startswith("circle") else f"{mo.replace('_', '-')}  {sp}")
+              for mo, sp in PHASES]
     tgt = xy * scale                                        # target, in degrees
     with torch.no_grad():
         u = torch.tensor(v[None])

@@ -15,7 +15,7 @@
   "deg_per_unit_v": 12.263157844543457,
   "span_h_deg": 15.87999963760376,
   "span_v_deg": 24.229999542236328,
-  "gate_pass": false,
+  "gate_pass": true,
   "mech_fit_rms_deg": 0.6932632178240407,
   "epochs": 250,
   "hidden": 64,
