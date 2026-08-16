@@ -333,7 +333,9 @@ x^{k}_{\infty}(t)\;=\;g^{k}\big(\mathbf{m}(t)\big)\;=\; \sum_{i=1}^{6} a^{k}_{i}
 C,K\in\mathbb{R}^{3\times 3}
 \end{equation}
 
-$C$ and $K$ are full rather than diagonal, so one axis may drag on another, which two independent per-axis plants cannot express. Both are parameterised through their Cholesky factors, $K = L_K L_K^{\!\top} + \varepsilon I$ and $C = L_C L_C^{\!\top}$, which makes them positive definite and the eye therefore stable by construction for any values the fit reaches.
+$C$ and $K$ are full rather than diagonal, so one axis may drag on another, which two independent per-axis plants cannot express.
+
+\textbf{Steps 6 and 7 are not our invention.} A memoryless nonlinearity followed by linear dynamics is the \emph{Hammerstein} cascade, the standard first move of block-oriented system identification, and for an eye it is also the classical description --- Robinson (1964, 1981), whose linear plant and pulse-step command section 4.1 gives the provenance of. What is new here is only that both blocks are multi-input and multi-output: $g$ takes six drives instead of one signed command, and $C,K$ act on three angles instead of one. The reason the split is worth keeping at that width is the same as at width one --- $g$ is memoryless, so \eqref{eq:static-map} can be measured entirely from holds, with no differential equation anywhere in the fit, while \eqref{eq:mechanics} is measured from the transients those same holds already contain. Both are parameterised through their Cholesky factors, $K = L_K L_K^{\!\top} + \varepsilon I$ and $C = L_C L_C^{\!\top}$, which makes them positive definite and the eye therefore stable by construction for any values the fit reaches.
 
 \textbf{Step 8 --- the objective.} Supervision is on the eye angles \emph{after} the eye, never on the command. Two of the three are matched to the target; the third is penalised toward zero, because six drives against two supervised angles would otherwise leave the network free to wander:
 
@@ -497,7 +499,7 @@ The single structural assumption is that the eye is a \textbf{static map followe
 \label{eq:hammerstein}
 \end{equation}
 
-Hold the muscles at a fixed activation and the eye settles somewhere --- that is $g$. Change the activation and the globe swings to the new resting place with an overshoot and a ring --- that is $C$ and $K$. It is the factorisation of section 4.1 widened from one input and one angle to six and three, and it is what makes the thing measurable: $g$ is memoryless, so \textbf{it can be measured entirely from holds}, with no differential equation anywhere in the fit. The structure is not ours --- Hammerstein's cascade, identified in the literature section 4.1 cites, and for an eye the classical description of Robinson (1964, 1981). What is new here is only that the blocks are multi-input and multi-output.
+Hold the muscles at a fixed activation and the eye settles somewhere --- that is $g$. Change the activation and the globe swings to the new resting place with an overshoot and a ring --- that is $C$ and $K$. That is \eqref{eq:static-map} and \eqref{eq:mechanics} of section 4, and the reason for splitting it that way is given there: $g$ is memoryless, so it can be measured entirely from holds.
 
 \paragraph{The static map, as measured}
 
