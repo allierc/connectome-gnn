@@ -1007,9 +1007,8 @@ this section changing.
 The task is **supervised, not reinforcement**, and it is worth being explicit
 about why, because the instinct to reach for RL here is strong and wrong. In
 open loop the correct output is known in closed form at every timestep —
-given the velocity stream, the target eye position is its integral — so the
-teacher is dense rather than sparse. And the environment does not react to
-the agent: the dot moves the same way whatever the eye does. With no feedback
+given the velocity stream, the target eye position is its integral. And the
+environment does not react to the agent: the dot moves the same way whatever the eye does. With no feedback
 loop and no unknown to explore, this is sequence-to-sequence regression
 trained by backpropagation through time. RL would recover the same gradient
 information with far more variance and no compensating benefit.
