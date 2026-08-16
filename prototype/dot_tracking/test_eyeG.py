@@ -86,7 +86,10 @@ CIRCLE_DEG = 5.0
 # wn/2pi = 0.9 to 1.2 Hz -- so the slow end is well inside the regime where the eye
 # is a pure delay and the fast end is past its resonance, and the sequence walks
 # the controller across that boundary.
-SACCADE_HZ = [0.25, 0.5, 1.0, 1.5, 2.5, 4.0]
+# Geometric from 0.5 to 4 Hz. 0.25 was dropped as uninformative -- two seconds
+# between jumps is long enough for any of these controllers -- and the ratio is
+# constant so the six rates sample the eye's corner frequency evenly in log f.
+SACCADE_HZ = [0.5, 0.75, 1.15, 1.75, 2.65, 4.0]
 SACCADE_DEG = 5.0
 
 PHASES = [("circle_cw", "middle"), ("circle_ccw", "middle"),
@@ -470,13 +473,15 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     # only the display is flipped, never the data.
     ax_w.invert_xaxis(); ax_w.invert_yaxis()
     trail_t, = ax_w.plot([], [], "-", color="#ffffff", lw=1.0, alpha=0.45)
-    trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.2, alpha=0.75)
+    # red is the command, which is context for the two traces that matter; it is
+    # drawn back so the white target and the blue gaze read first
+    trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.0, alpha=0.35)
     trail_g, = ax_w.plot([], [], "-", color="#4da3ff", lw=1.6, alpha=0.95)
     # the target is a RING, not a disc: the gaze dot sits inside it when the
     # controller is working, and a filled marker would simply hide the thing the
     # movie exists to show.
     dot_t, = ax_w.plot([], [], "o", mfc="none", mec="#ffffff", mew=1.8, ms=15)
-    dot_c, = ax_w.plot([], [], "o", color="#e05a4a", ms=7, mec="none")
+    dot_c, = ax_w.plot([], [], "o", color="#e05a4a", ms=6, mec="none", alpha=0.5)
     dot_g, = ax_w.plot([], [], "o", color="#4da3ff", ms=9, mec="none")
 
     # --- circuit ---------------------------------------------------------
