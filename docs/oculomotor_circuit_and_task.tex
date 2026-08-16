@@ -406,15 +406,11 @@ H(s)\;=\;\big(s^{2}I + Cs + K\big)^{-1}K
 H(s)=\frac{\omega_n^{2}}{s^{2}+2\zeta\omega_n s+\omega_n^{2}}\text{)}
 \end{equation}
 
-$s$ is a frequency: $s=i\omega$ asks what the eye does to a command oscillating at $\omega$, and $s=0$ asks what it does to a command that never changes. Two properties of $H$ are the whole story.
+$s$ is a frequency: $s=i\omega$ asks what the eye does to a command oscillating at $\omega$, and $s=0$ what it does to one that never changes. Two properties of $H$ are the whole story.
 
-\textbf{First: it does not shrink the target.} Put $s=0$ in \eqref{eq:transfer}. Every term with an $s$ in it disappears and what is left is $H(0)=K^{-1}K=I$ --- exactly one, not approximately.
+\textbf{First: it does not shrink the target.} Put $s=0$ in \eqref{eq:transfer} and every term carrying an $s$ vanishes, leaving $H(0)=K^{-1}K=I$: held still, the eye rests exactly at the angle the static map asked for.
 
-In plain terms: hold the drives still, wait, and the eye comes to rest \emph{precisely} at the angle the static map asked for. Not 95\,\% of it, not 105\,\%. There is no steady-state error and no calibration constant sitting between the command and the gaze.
-
-It is what makes the two traces \emph{equal} rather than merely proportional. Suppose $H(0)$ were $0.9$ instead: every held gaze would fall a tenth short of its command, red would sit consistently outside blue, and the gap would fan open toward the edges of the workspace --- a gain the controller would have to learn to compensate.
-
-\textbf{But this is a property of the model, not a discovery about the eye.} $H(0)=I$ follows from the same $K$ appearing on both sides of \eqref{eq:mechanics}, and that is a choice: $\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is just as linear and has $H(0)=K^{-1}B$. Writing it this way is what makes $\mathbf{x}_\infty$ \emph{mean} "the angle the eye settles at", so unity DC gain is bookkeeping rather than evidence.
+That is a property of the model, not a discovery about the eye. The same $K$ on both sides of \eqref{eq:mechanics} is a choice: $\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is just as linear and gives $H(0)=K^{-1}B$. What the choice buys is that $\mathbf{x}_\infty$ \emph{means} the angle the eye settles at, so unity gain at zero frequency is bookkeeping rather than evidence.
 
 The empirical content moves to the static map \eqref{eq:quadratic} of section 4.2, where it belongs and where it is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$ degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest where the model predicts. What could break it is not a wrong gain but a wrong premise: hysteresis, slow drift, or holds that never settle would mean no static map fits at all. That is precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
 
