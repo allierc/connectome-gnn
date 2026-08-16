@@ -1,0 +1,22 @@
+{
+  "tag": "eyeG_deep",
+  "kind": "quad",
+  "n_act": 6,
+  "err_mean_deg": 1.924683928489685,
+  "err_by_phase_deg": {
+    "saccades  0.25 Hz": 0.4416116774082184,
+    "saccades  0.5 Hz": 0.9521716833114624,
+    "saccades  1 Hz": 1.5072225332260132,
+    "saccades  1.5 Hz": 2.0781149864196777,
+    "saccades  2.5 Hz": 3.078880786895752,
+    "saccades  4 Hz": 3.4901015758514404
+  },
+  "mean_abs_torsion_deg": 0.5676583051681519,
+  "reach_deg": [
+    6.919303894042969,
+    7.108933448791504,
+    8.12649154663086
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}
