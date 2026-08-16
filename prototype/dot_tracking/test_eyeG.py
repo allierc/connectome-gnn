@@ -75,31 +75,51 @@ BG = "#000000"
 # Four regimes back to back: fast first, because a controller that survives fast
 # smooth pursuit and fast stop-and-go and then meets the slower pair has been asked
 # the hard question first, and the two halves are directly comparable.
-PHASES = [("continue", "fast"), ("stop_and_go", "fast"),
-          ("continue", "middle"), ("stop_and_go", "middle"),
-          ("circle_cw", "middle"), ("circle_ccw", "middle")]
+# Circles FIRST, and centred on the origin: a target whose direction turns at a
+# constant rate and never reverses is the cleanest probe there is, and putting it
+# before the corpus regimes means it is seen from a rested state rather than after
+# 32 s of accumulated drift.
+CIRCLE_DEG = 5.0
+
+PHASES = [("circle_cw", "middle"), ("circle_ccw", "middle"),
+          ("continue", "fast"), ("stop_and_go", "fast"),
+          ("continue", "middle"), ("stop_and_go", "middle")]
 
 
-def _circle(duration, dt, speed, ccw, laps=1.5):
-    """A circle traversed at the corpus's own speed, as VELOCITY.
+def _circle(duration, dt, scale, ccw, radius_deg=CIRCLE_DEG, laps=1.0, lead=0.75):
+    """A circle of `radius_deg` IN GAZE ANGLE, as velocity, centred on the origin.
 
     Not one of `trajectory.SPEC`'s shapes, and deliberately so: the corpus is
     piecewise-straight or spline, and a circle is the one target whose direction
-    turns at a constant rate without ever reversing. That is a regime the network
-    was never trained on, which is the point of putting it last -- and running it
-    both ways separates a controller that has learned to integrate velocity from one
-    that has learned this corpus's turn statistics.
+    turns at a constant rate and never reverses. Running it both ways separates a
+    controller that integrates velocity from one that has learned this corpus's turn
+    statistics.
+
+    The radius is given in DEGREES and converted per axis, so it is a true circle in
+    the space the error is measured in rather than in grid units -- on an eye whose
+    horizontal and vertical reach differ, a circle in grid units is an ellipse in
+    gaze. The first `lead` seconds run radially out from the centre to the circle's
+    start: the harness integrates from the origin, so a circle begun there would be
+    tangent to it and would swing out to twice its radius, which does not fit. Only
+    the FIRST circle gets that lead -- `laps` is a whole number, so each circle ends
+    where it began and the next one continues from there; giving the second a lead of
+    its own would step it out by another radius and leave the arena.
     """
     n = int(round(duration / dt))
-    t = np.arange(n) * dt
-    w = 2 * np.pi * laps / duration                    # rad/s, so `laps` in `duration`
-    r = SPEED_UPS[speed] / w                           # radius that gives that speed
+    nl = int(round(lead / dt))
+    rx, ry = radius_deg / scale[0], radius_deg / scale[1]        # grid units per axis
+    v = np.zeros((n, 2))
+    if nl:
+        v[:nl] = (rx / lead, 0.0)                                # out to (rx, 0)
+    w = 2 * np.pi * laps / max(duration - lead, 1e-6)
     sgn = 1.0 if ccw else -1.0
-    th = sgn * w * t
-    return np.stack([-r * w * sgn * np.sin(th), r * w * sgn * np.cos(th)], -1)
+    th = sgn * w * (np.arange(n - nl) * dt)
+    v[nl:] = np.stack([-rx * w * sgn * np.sin(th),
+                       ry * w * sgn * np.cos(th)], -1)
+    return v
 
 
-def sequence(duration, dt, seed=0, bound=0.95, tries=200):
+def sequence(duration, dt, scale, seed=0, bound=0.95, tries=200):
     """The four regimes of PHASES, joined in VELOCITY.
 
     Joining velocities rather than positions means the target never jumps at a
@@ -114,7 +134,10 @@ def sequence(duration, dt, seed=0, bound=0.95, tries=200):
         segs, n0 = [], None
         for i, (mo, sp) in enumerate(PHASES):
             if mo.startswith("circle"):
-                segs.append(_circle(duration, dt, sp, ccw=mo.endswith("ccw")))
+                first = not any(PHASES[j][0].startswith("circle")
+                                for j in range(i))
+                segs.append(_circle(duration, dt, scale, ccw=mo.endswith("ccw"),
+                                    lead=0.75 if first else 0.0))
             else:
                 q = generate(shape="curve", motion=mo, speed=sp, angle="low",
                              duration=duration, dt=dt, seed=seed + 1000 * k + i,
@@ -128,13 +151,23 @@ def sequence(duration, dt, seed=0, bound=0.95, tries=200):
         # every other statistic of the regime exactly -- it changes only the heading --
         # whereas clipping the position would distort the velocity, which is the one
         # thing the circuit is given.
+        # Rotating a phase so its NET displacement points home fixes where it ends
+        # and not where it goes: a phase can bulge to 0.9 units on the way. So the
+        # angle is chosen by search -- 72 rotations, keep the one whose whole path
+        # stays closest in. Rotation is still an isometry, so speed, turn rate and
+        # the stop/go timing are untouched whichever angle wins; only the heading
+        # changes, and only the heading was ever the problem.
         pos = np.zeros(2)
         for i, seg in enumerate(segs):
-            net = seg.sum(0) * dt
-            if i and np.linalg.norm(net) > 1e-6 and np.linalg.norm(pos) > 1e-6:
-                a = np.arctan2(-pos[1], -pos[0]) - np.arctan2(net[1], net[0])
-                c_, s_ = np.cos(a), np.sin(a)
-                segs[i] = seg @ np.array([[c_, s_], [-s_, c_]])
+            if i and not PHASES[i][0].startswith("circle"):
+                best, best_r = None, np.inf
+                for a in np.linspace(0, 2 * np.pi, 72, endpoint=False):
+                    c_, s_ = np.cos(a), np.sin(a)
+                    cand = seg @ np.array([[c_, s_], [-s_, c_]])
+                    reach = np.abs(pos + np.cumsum(cand, 0) * dt).max()
+                    if reach < best_r:
+                        best, best_r = cand, reach
+                segs[i] = best
             pos = pos + segs[i].sum(0) * dt
         v = np.concatenate(segs, 0).astype(np.float32)
         xy = np.cumsum(v, 0) * dt
@@ -520,7 +553,7 @@ def main():
           f"reach {reach[0]:.1f}/{reach[1]:.1f} deg")
 
     # --- run -------------------------------------------------------------
-    v, xy, cuts = sequence(a.duration, a.dt, seed=a.seed)
+    v, xy, cuts = sequence(a.duration, a.dt, scale, seed=a.seed)
     bounds = [0] + list(cuts) + [len(v)]
     labels = [(f"circle {'ccw' if mo.endswith('ccw') else 'cw'}  {sp}"
                if mo.startswith("circle") else f"{mo.replace('_', '-')}  {sp}")
