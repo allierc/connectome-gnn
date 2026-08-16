@@ -416,7 +416,7 @@ It is what makes the two traces \emph{equal} rather than merely proportional. Su
 
 \textbf{But this is a property of the model, not a discovery about the eye.} $H(0)=I$ follows from the same $K$ appearing on both sides of \eqref{eq:mechanics}, and that is a choice: $\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is just as linear and has $H(0)=K^{-1}B$. Writing it this way is what makes $\mathbf{x}_\infty$ \emph{mean} "the angle the eye settles at", so unity DC gain is bookkeeping rather than evidence.
 
-The empirical content moves to the static map, where it belongs and where it is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$ degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest where the model predicts. What could break it is not a wrong gain but a wrong premise: hysteresis, slow drift, or holds that never settle would mean no static map fits at all. That is precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
+The empirical content moves to the static map \eqref{eq:quadratic} of section 4.2, where it belongs and where it is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$ degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest where the model predicts. What could break it is not a wrong gain but a wrong premise: hysteresis, slow drift, or holds that never settle would mean no static map fits at all. That is precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
 
 \textbf{Second: it delays it.} Since $H$ is not the identity at nonzero $s$, ask what it \emph{is} for small $s$. Factor $K$ out of \eqref{eq:transfer}:
 
@@ -527,6 +527,8 @@ g_k(\mathbf{m})=\sum_{i=1}^{6} a^{k}_{i}\,m_i
 \end{equation}
 
 $27$ coefficients per angle ($6$ linear, $6$ square, $15$ cross) and no intercept, because zero drive is the rest pose by construction. It is identified from a scrambled Sobol design of $64$ points in $[0,1]^6$ --- deterministic, so the design is in the file rather than in a seed --- and it fits to $0.15$, $0.16$ and $0.08$ degrees rms in $\theta,\varphi,\psi$ (figure below, panel d, and the table), against $0.54$, $0.62$ and $0.47$ for the linear map. That is roughly $1\,\%$ of each axis's range and five times the numerical floor. Nothing in $g$ is constrained to be monotone; monotonicity is \textbf{checked and reported}, not imposed.
+
+That residual carries more weight than a goodness-of-fit number usually does, and section 4.1 says why. Writing the mechanics as \eqref{eq:mechanics}, with the same $K$ on both sides, forces unity gain at zero frequency --- so "the eye comes to rest exactly where it was told to" is true of the \emph{model} by construction and is no evidence about the eye at all. What that construction does is make $\mathbf{x}_\infty$ \emph{mean} the angle the eye settles at, which hands the entire empirical claim to $g$. These three numbers are it: they are the statement that this eye, held still, rests where \eqref{eq:quadratic} predicts, to about one part in a hundred of its own range.
 
 \paragraph{The mechanics, and what is still open}
 
