@@ -181,41 +181,50 @@ def main():
               f"{f['err_pulse_free_uturn_deg']:.3f})")
 
     # ----------------------------------------------------------------- figure
-    fig, ax = plt.subplots(2, 2, figsize=(14.5, 8.4), facecolor=BG)
-    for x_ in ax.flat:
-        x_.set_facecolor(BG)
-        for s in x_.spines.values():
-            s.set_color("#444")
-        x_.tick_params(colors=FG, labelsize=10)
-        x_.xaxis.label.set_color(FG); x_.yaxis.label.set_color(FG)
+    # White ground, spines on the left and bottom only, bold panel letters above
+    # left and no titles inside the panels -- the zebrafish.tex convention, so this
+    # figure sits beside Figure 1 without a change of dress.
+    LBL = dict(fontsize=17, fontweight="bold", va="top", ha="left")
+    AX_FS, TK_FS, LG_FS = 14, 12.5, 11.5
+    fig, ax = plt.subplots(2, 2, figsize=(14.5, 9.0), facecolor="white")
+    for k, x_ in enumerate(ax.flat):
+        x_.set_facecolor("white")
+        x_.spines[["top", "right"]].set_visible(False)
+        for sp in ("left", "bottom"):
+            x_.spines[sp].set_color("black"); x_.spines[sp].set_linewidth(1.0)
+        x_.tick_params(colors="black", labelsize=TK_FS, width=1.0)
+        x_.xaxis.label.set_color("black"); x_.yaxis.label.set_color("black")
+        x_.xaxis.label.set_size(AX_FS); x_.yaxis.label.set_size(AX_FS)
+        x_.text(-0.10, 1.06, "abcd"[k], transform=x_.transAxes, color="black", **LBL)
 
     tag0 = a.tags[0]
     r = res[tag0]
     # (a) the step probe
     A = ax[0, 0]
-    A.plot(r["t_s"], r["tgt_s"][:, 0], "-", color=FG, lw=1.6, label="target  $\\theta^\\star$")
-    A.plot(r["t_s"], r["cmd_s"][:, 0], "-", color="#e05a4a", lw=1.6,
+    A.plot(r["t_s"], r["tgt_s"][:, 0], "-", color="black", lw=1.8,
+           label="target  $\\theta^\\star$")
+    A.plot(r["t_s"], r["cmd_s"][:, 0], "-", color="#cf222e", lw=1.8,
            label="command  $\\Phi(m)$")
-    A.plot(r["t_s"], r["x_s"][:, 0], "-", color="#4da3ff", lw=2.0, label="gaze  $\\theta$")
+    A.plot(r["t_s"], r["x_s"][:, 0], "-", color="#1f6feb", lw=2.2,
+           label="gaze  $\\theta$")
     A.set_xlabel("time (s)"); A.set_ylabel("horizontal (deg)")
-    A.legend(frameon=False, labelcolor=FG, fontsize=9, loc="lower right")
-    A.text(0.02, 0.97, "a   step probe — a regime the corpus never contains",
-           transform=A.transAxes, color=FG, fontsize=10, va="top")
+    A.legend(frameon=False, fontsize=LG_FS, loc="lower right")
 
     # (b) command against the closed-form inverse, on the corpus sequence
     B = ax[0, 1]
     tgt3 = np.concatenate([r["tgt"], np.zeros((len(r["tgt"]), 1))], 1)
     Ki = r["fit"]["A2_hat"]; KiC = r["fit"]["A1_hat"]
     pred = (tgt3 + d1(tgt3, r["dt"]) @ KiC.T + d1(d1(tgt3, r["dt"]), r["dt"]) @ Ki.T)
-    B.plot(pred[:, 0], r["cmd"][:, 0], ".", ms=1.4, color="#4da3ff", alpha=0.5)
+    B.plot(pred[:, 0], r["cmd"][:, 0], ".", ms=1.6, color="#1f6feb", alpha=0.45)
     lim = np.percentile(np.abs(np.concatenate([pred[:, 0], r["cmd"][:, 0]])), 99.5)
-    B.plot([-lim, lim], [-lim, lim], "-", color="#888", lw=1.0)
+    B.plot([-lim, lim], [-lim, lim], "-", color="0.35", lw=1.2)
     rr = 1 - ((pred[:, :2] - r["cmd"][:, :2]) ** 2).sum() / \
         ((r["cmd"][:, :2] - r["cmd"][:, :2].mean(0)) ** 2).sum()
-    B.set_xlabel("closed-form inverse  $x^\\star+K^{-1}C\\dot x^\\star+K^{-1}\\ddot x^\\star$ (deg)")
+    B.set_xlabel("closed-form inverse   "
+                 "$x^\\star+K^{-1}C\\dot x^\\star+K^{-1}\\ddot x^\\star$   (deg)")
     B.set_ylabel("network's command (deg)")
-    B.text(0.02, 0.97, f"b   no free parameters — $R^2$ = {rr:.3f}",
-           transform=B.transAxes, color=FG, fontsize=10, va="top")
+    B.text(0.04, 0.94, f"$R^2$ = {rr:.3f},  no free parameters",
+           transform=B.transAxes, fontsize=LG_FS + 1, va="top")
 
     # (c) the pulse gain of each network against its own plant
     C = ax[1, 0]
@@ -223,32 +232,28 @@ def main():
     meas = [report[t]["pulse_gain_s"] * 1e3 for t in tags]
     anal = [report[t]["pulse_gain_analytic_s"] * 1e3 for t in tags]
     xi = np.arange(len(tags))
-    C.bar(xi - 0.19, meas, 0.36, color="#e05a4a", label="measured  $A_1$")
-    C.bar(xi + 0.19, anal, 0.36, color="#4da3ff", label="analytic  $K^{-1}C$")
-    C.set_xticks(xi); C.set_xticklabels(tags, color=FG)
+    C.bar(xi - 0.19, meas, 0.36, color="#cf222e", label="measured  $A_1$")
+    C.bar(xi + 0.19, anal, 0.36, color="#1f6feb", label="analytic  $K^{-1}C$")
+    C.set_xticks(xi); C.set_xticklabels(tags, fontsize=TK_FS)
     C.set_ylabel("pulse gain (ms)")
-    C.legend(frameon=False, labelcolor=FG, fontsize=9)
-    C.text(0.02, 0.97, "c   each network tracks its own plant, not a habit",
-           transform=C.transAxes, color=FG, fontsize=10, va="top")
+    C.legend(frameon=False, fontsize=LG_FS)
 
     # (d) necessity
     D = ax[1, 1]
-    w = 0.36
     for i, t in enumerate(tags):
         f = report[t]
-        D.bar(i - 0.19, f["err_network_deg"], w, color="#4da3ff",
+        D.bar(i - 0.19, f["err_network_deg"], 0.36, color="#1f6feb",
               label="network's command" if i == 0 else None)
-        D.bar(i + 0.19, f["err_pulse_free_deg"], w, color="#e0a04a",
+        D.bar(i + 0.19, f["err_pulse_free_deg"], 0.36, color="#d29922",
               label="pulse-free  $x^\\star$ alone" if i == 0 else None)
-    D.set_xticks(np.arange(len(tags))); D.set_xticklabels(tags, color=FG)
-    D.set_ylabel("mean |gaze $-$ target| (deg)")
+    D.set_xticks(np.arange(len(tags)))
+    D.set_xticklabels(tags, fontsize=TK_FS)
+    D.set_ylabel("mean |gaze $-$ target|  (deg)")
     D.set_yscale("log")
-    D.legend(frameon=False, labelcolor=FG, fontsize=9)
-    D.text(0.02, 0.97, "d   drop the pulse and the eye lags",
-           transform=D.transAxes, color=FG, fontsize=10, va="top")
+    D.legend(frameon=False, fontsize=LG_FS)
 
     fig.tight_layout()
-    fig.savefig(a.out, dpi=170, facecolor=BG)
+    fig.savefig(a.out, dpi=170, facecolor="white", bbox_inches="tight")
     json.dump(report, open(a.out.replace(".png", ".json"), "w"), indent=2)
     print(f"\nwrote {a.out}\nwrote {a.out.replace('.png', '.json')}")
 
