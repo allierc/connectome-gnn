@@ -1,0 +1,22 @@
+{
+  "tag": "eyeG_light",
+  "kind": "light",
+  "n_act": 4,
+  "err_mean_deg": 1.8501206636428833,
+  "err_by_phase_deg": {
+    "saccades  0.25 Hz": 0.31681373715400696,
+    "saccades  0.5 Hz": 0.655832052230835,
+    "saccades  1 Hz": 1.2512047290802002,
+    "saccades  1.5 Hz": 1.9035464525222778,
+    "saccades  2.5 Hz": 2.7725250720977783,
+    "saccades  4 Hz": 4.200802803039551
+  },
+  "mean_abs_torsion_deg": 0.4789119362831116,
+  "reach_deg": [
+    7.559999942779541,
+    11.649999618530273,
+    5.320000171661377
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}

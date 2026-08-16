@@ -81,9 +81,52 @@ BG = "#000000"
 # 32 s of accumulated drift.
 CIRCLE_DEG = 5.0
 
+# Saccades: the target jumps left/right at a fixed rate and holds between jumps.
+# Six rates spanning the eye's own corner frequency, which for eye G is
+# wn/2pi = 0.9 to 1.2 Hz -- so the slow end is well inside the regime where the eye
+# is a pure delay and the fast end is past its resonance, and the sequence walks
+# the controller across that boundary.
+SACCADE_HZ = [0.25, 0.5, 1.0, 1.5, 2.5, 4.0]
+SACCADE_DEG = 5.0
+
 PHASES = [("circle_cw", "middle"), ("circle_ccw", "middle"),
           ("continue", "fast"), ("stop_and_go", "fast"),
           ("continue", "middle"), ("stop_and_go", "middle")]
+
+
+def _saccade(duration, dt, scale, hz, amp_deg=SACCADE_DEG, rise=0.06):
+    """Left/right saccades at `hz`, as velocity.
+
+    A saccade is a step in angle, so in velocity it is a brief boxcar: the target
+    is carried across in `rise` seconds and then held. Amplitude is in DEGREES and
+    converted through the horizontal scale, so every frequency covers the same
+    angular excursion and only the rate changes.
+
+    The first jump goes to $+A/2$ and the rest alternate about the centre, so the
+    train has zero mean and the target does not walk off across the phase.
+    """
+    n = int(round(duration / dt))
+    nr = max(1, int(round(rise / dt)))
+    v = np.zeros((n, 2))
+    A = amp_deg / scale[0]                       # grid units
+    period = int(round(1.0 / (hz * dt)))
+    here, k, first = -A / 2, 0, True
+    while k + nr < n:
+        target = A / 2 if here < 0 else -A / 2
+        if first:
+            v[k:k + nr, 0] = (A / 2) / rise      # centre -> +A/2
+            here, first = A / 2, False
+        else:
+            v[k:k + nr, 0] = (target - here) / rise
+            here = target
+        k += max(period, nr + 1)
+    # Every phase must end where it began. Concatenating phases joins VELOCITIES,
+    # so a phase with an odd number of jumps leaves a net displacement and the
+    # target walks a half-amplitude further off centre at each change of rate --
+    # which is what the first version did, ending 17 deg out.
+    if abs(here) > 1e-9 and n - nr - 1 > 0:
+        v[n - nr - 1:n - 1, 0] = -here / rise
+    return v
 
 
 def _circle(duration, dt, scale, ccw, radius_deg=CIRCLE_DEG, laps=1.0, lead=0.75):
@@ -117,6 +160,17 @@ def _circle(duration, dt, scale, ccw, radius_deg=CIRCLE_DEG, laps=1.0, lead=0.75
     v[nl:] = np.stack([-rx * w * sgn * np.sin(th),
                        ry * w * sgn * np.cos(th)], -1)
     return v
+
+
+def saccade_sequence(duration, dt, scale):
+    """Six saccade rates back to back, one phase each. No steering and no seed
+    search: every phase is centred on the origin by construction, so the target
+    cannot wander out of the arena the way the corpus regimes can."""
+    segs = [_saccade(duration, dt, scale, f) for f in SACCADE_HZ]
+    v = np.concatenate(segs, 0).astype(np.float32)
+    n0 = len(segs[0])
+    return v, (np.cumsum(v, 0) * dt).astype(np.float32), \
+        [n0 * (i + 1) for i in range(len(SACCADE_HZ) - 1)]
 
 
 def sequence(duration, dt, scale, seed=0, bound=0.95, tries=200):
@@ -520,6 +574,8 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--trail", type=float, default=1.5, help="trail length, seconds")
     p.add_argument("--out", default=None)
+    p.add_argument("--saccade", action="store_true",
+                   help="six L/R saccade rates instead of the corpus regimes")
     p.add_argument("--emit-spec", action="store_true",
                    help="write the drive trace and a playback spec for the real MPM")
     p.add_argument("--compose", default=None, metavar="MP4",
@@ -528,7 +584,8 @@ def main():
                    help="how the right panel is drawn")
     p.add_argument("--device", default="cpu")
     a = p.parse_args()
-    out = a.out or os.path.join(TG.MODELS, f"{a.tag}_test.mp4")
+    out = a.out or os.path.join(
+        TG.MODELS, f"{a.tag}_saccade.mp4" if a.saccade else f"{a.tag}_test.mp4")
 
     ck_path = os.path.join(TG.MODELS, f"{a.tag}.pt")
     if not os.path.isfile(ck_path):
@@ -553,11 +610,15 @@ def main():
           f"reach {reach[0]:.1f}/{reach[1]:.1f} deg")
 
     # --- run -------------------------------------------------------------
-    v, xy, cuts = sequence(a.duration, a.dt, scale, seed=a.seed)
+    if a.saccade:
+        v, xy, cuts = saccade_sequence(a.duration, a.dt, scale)
+        labels = [f"saccades  {f:g} Hz" for f in SACCADE_HZ]
+    else:
+        v, xy, cuts = sequence(a.duration, a.dt, scale, seed=a.seed)
+        labels = [(f"circle {'ccw' if mo.endswith('ccw') else 'cw'}  {sp}"
+                   if mo.startswith("circle") else f"{mo.replace('_', '-')}  {sp}")
+                  for mo, sp in PHASES]
     bounds = [0] + list(cuts) + [len(v)]
-    labels = [(f"circle {'ccw' if mo.endswith('ccw') else 'cw'}  {sp}"
-               if mo.startswith("circle") else f"{mo.replace('_', '-')}  {sp}")
-              for mo, sp in PHASES]
     tgt = xy * scale                                        # target, in degrees
     with torch.no_grad():
         u = torch.tensor(v[None])
