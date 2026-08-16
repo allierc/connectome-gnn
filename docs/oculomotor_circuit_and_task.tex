@@ -118,11 +118,12 @@ Two omissions are deliberate and one of them constrains the task:
 
 The oculomotor integrator converts an eye-\textbf{velocity} command into an eye-\textbf{angle} command: the motor neurons must hold a rate proportional to the angle long after the velocity signal has gone. Written as the leaky integral of the drive, per axis,
 
-\begin{equation*}
+\begin{equation}
+\label{eq:leaky-integral}
 \frac{d\theta}{dt} = -\frac{\theta}{\tau} + s_\theta\,\dot x(t),
 \qquad
 \frac{d\varphi}{dt} = -\frac{\varphi}{\tau} + s_\varphi\,\dot y(t)
-\end{equation*}
+\end{equation}
 
 where $(\theta,\varphi)$ are the horizontal and vertical eye angles and $(\dot x,\dot y)$ the target velocity --- the notation of section 4, in which $v$ is reserved for membrane voltage. The quantity of interest is $\tau$, the time constant over which the eye angle leaks back to centre. A perfect integrator is $\tau = \infty$; the biological integrator is finite, and measuring what $\tau$ the connectome-constrained circuit can support is the point of the exercise.
 
@@ -143,38 +144,42 @@ Coarsely: the circuit is asked to keep a moving target centred on the fovea whil
 
 More specifically, take the horizontal axis and write the target eccentricity $\theta^{\star}(t)$, the gaze $\theta(t)$, and the retinal error $\varepsilon = \theta^{\star} - \theta$; the vertical axis is the same with $\varphi$. Every trial starts foveated at the centre, $\theta(0)=\theta^{\star}(0)=0$. The eye here is idealised as rate control: the motor command sets gaze \emph{velocity}, so gaze angle is its integral. The ideal controller is then
 
-\begin{equation*}
+\begin{equation}
+\label{eq:ideal-tracking}
 \frac{d\theta}{dt} = \dot\theta^{\star}(t) = s_\theta\,\dot x(t)
 \qquad\Longrightarrow\qquad
 \varepsilon(t) = 0 \ \ \forall\, t
-\end{equation*}
+\end{equation}
 
 and tracking is exact. The interesting cases are the three ways a biological integrator departs from it, each of which produces a different growth law for $|\varepsilon|$ --- which is what makes them separable from a single measured trace.
 
 \textbf{Gain.} If the velocity-to-angle conversion is miscalibrated by a factor $k$,
 
-\begin{equation*}
+\begin{equation}
+\label{eq:gain-error}
 \frac{d\theta}{dt} = k\,\dot\theta^{\star}(t)
 \qquad\Longrightarrow\qquad
 \varepsilon(t) = (1-k)\,\big[\theta^{\star}(t)-\theta^{\star}(0)\big]
-\end{equation*}
+\end{equation}
 
 The error is proportional to the \emph{displacement} from the start, not to the distance travelled, because integration is linear. In a bounded workspace displacement is capped by the arena, so this error is self-limiting: in our geometry the target reaches a median 1.16 arena units from the centre, and $|1-k|$ must exceed 0.52 before the target can leave a 0.6-unit fovea at all. A realistic miscalibration of a few percent is invisible. Gain is not what loses the target.
 
 \textbf{Leak.} A real integrator is imperfect and relaxes toward its rest state with a time constant $\tau$:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:leak-error}
 \frac{d\theta}{dt} = -\frac{\theta}{\tau} + \dot\theta^{\star}(t)
-\end{equation*}
+\end{equation}
 
 In the frequency domain this is a \emph{high-pass} on target eccentricity, corner frequency $1/\tau$. Sustained excursions are under-represented, so the error saturates rather than growing without bound, and gaze is a shrunken, centre-biased copy of the truth. The counterintuitive consequence is that \emph{slow} targets are lost first, because their motion is exactly the low-frequency content the leak removes. Measured: at $\tau = 2$ s a fast target is never lost within 20 s while a slow one goes at 5.9 s, and the slow case needs $\tau \geq 8$ s to survive. $\tau$ is the quantity the INTG pool exists to make long, and this is the curve that says how long is long enough.
 
 \textbf{Noise.} If the integrated velocity carries a white perturbation of intensity $\sigma$,
 
-\begin{equation*}
+\begin{equation}
+\label{eq:noise-error}
 \frac{d\theta}{dt} = \dot\theta^{\star}(t) + \sigma\,\xi(t),
 \qquad \langle \xi(t)\,\xi(t')\rangle = \delta(t-t')
-\end{equation*}
+\end{equation}
 
 the error is a random walk: $\mathrm{std}[\varepsilon(T)] = \sigma\sqrt{T}$ per axis, unbounded but with zero mean. It is the only one of the three that cannot be corrected by better calibration and the only one that averages away across trials, so it is invisible to any analysis that pools trials before measuring drift.
 
@@ -240,45 +245,50 @@ A hat marks a learned quantity. $v$ is the membrane voltage throughout and never
 
 \textbf{Step 0 --- the world sets the angles.} The target moves in a bounded arena in units, and each axis is mapped to degrees by its own scale, because the eye's reachable travel is not the same horizontally and vertically (section 4.2):
 
-\begin{equation*}
+\begin{equation}
+\label{eq:world-scale}
 \theta^{\star}(t) = s_\theta\, x(t),
 \qquad
 \varphi^{\star}(t) = s_\varphi\, y(t),
 \qquad
 \theta^{\star}(0)=\varphi^{\star}(0)=0
-\end{equation*}
+\end{equation}
 
 \textbf{Step 1 --- what the circuit is given.} Only the velocity, never the position. This is the open-loop premise of section 2.3 written as a vector:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:input-vector}
 \mathbf{u}(t) \;=\; \big(\dot x(t),\ \dot y(t)\big)^{\!\top} \in \mathbb{R}^{2}
-\end{equation*}
+\end{equation}
 
 \textbf{Step 2 --- the input map $\hat W^{\mathrm{in}}$.} The drive enters only through the AF5 afferents $\mathcal{A}$ ($|\mathcal{A}|=41$). That restriction is the whole content of "connectome-constrained input": a free input layer would let the optimiser inject velocity wherever it is most convenient, which is exactly the degree of freedom the anatomy is supposed to remove:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:input-map}
 \mathbf{I}(t) \;=\; \hat W^{\mathrm{in}}\,\mathbf{u}(t),
 \qquad
 \hat W^{\mathrm{in}}_{i,:} = \mathbf{0}\ \ \ \forall\, i\notin\mathcal{A},
 \qquad \mathcal{A}=\mathcal{A}_{\mathrm{AF5}}^{L}\cup\mathcal{A}_{\mathrm{AF5}}^{R}
-\end{equation*}
+\end{equation}
 
 so $\hat W^{\mathrm{in}}$ is $285\times 2$ with $41\times 2 = 82$ free entries out of 570. Componentwise, neuron $i$ receives $I_i = \hat W^{\mathrm{in}}_{i1}\dot x + \hat W^{\mathrm{in}}_{i2}\dot y$, and the direction tuning of section 1.3 --- still a CLAIM --- is what says whether that row should be free or fixed to a preferred direction.
 
 \textbf{Step 3 --- the circuit.} The $N=285$ neurons obey the same rate equation as Eq. (1) of \texttt{neurips.tex}:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:circuit}
 \tau_i\frac{d v_i(t)}{dt} \;=\; -\,v_i(t) \;+\; V_i^{\mathrm{rest}}
 \;+\!\!\sum_{j\in\mathcal{N}_i}\!\! \hat{W}_{ij}\,r_j(t)
 \;+\; I_i(t) \;+\; \sigma\,\xi_i(t),
 \qquad r_j=\rho(v_j)
-\end{equation*}
+\end{equation}
 
 with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonlinearity --- $\mathrm{ReLU}$ in the constrained model, $\tanh$ in the prototype of section 5.
 
 \textbf{Step 4 --- the sign lock.} Only the magnitudes are learned; the signs are the measured Dale assignment of section 1.4, plotted in panels (c) and (d) of Figure 1, so $\hat W$ never leaves the connectome's sign pattern:
 
-\begin{align*}
+\begin{align}
+\label{eq:sign-lock}
 \hat{W}_{ij} \;=\; \big|\hat{S}_{ij}\big|\;\mathrm{sign}\big(W^{\mathrm{con}}_{ij}\big),
 \qquad
 \mathrm{sign}\big(W^{\mathrm{con}}_{ij}\big)=
@@ -286,65 +296,71 @@ with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonline
 -1, & j\in\mathcal{I} \quad(\text{INTG contra, } 52 \text{ cells})\\[2pt]
 +1, & \text{otherwise} \quad(233 \text{ cells})
 \end{cases}
-\end{align*}
+\end{align}
 
 \textbf{Step 5 --- the output map $\hat W^{\mathrm{out}}$.} The motor pools are read as six non-negative drives, one per muscle, in the order \texttt{eye\_anatomy} uses:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:output-map}
 \mathbf{m}(t) \;=\; \big[\,\hat W^{\mathrm{out}}\mathbf{r}(t)\,\big]_{+}
 \;=\;\big(m_{\mathrm{LR}},\,m_{\mathrm{SR}},\,m_{\mathrm{MR}},\,m_{\mathrm{IR}},\,m_{\mathrm{SO}},\,m_{\mathrm{IO}}\big)^{\!\top}\in[0,\infty)^{6},
 \qquad
 \hat W^{\mathrm{out}}_{:,i} = \mathbf{0}\ \ \ \forall\, i\notin\mathcal{M}
-\end{equation*}
+\end{equation}
 
 with $[\cdot]_+$ a rectifier ($\mathrm{softplus}$ in the trained controller) enforcing $m_\bullet\ge 0$, and $\mathcal{M}$ the motor pool, so $\hat W^{\mathrm{out}}$ is $6\times N$ with columns live only on motor cells. In the selected 285 cells $\mathcal{M}$ is AMN (92 cells) and AIN (35), which between them innervate LR and MR; \textbf{the other four rows have no anatomical pool here}, since SR, IR, SO and IO are driven by OMN, which section 1.5 leaves out of the selection. The six-drive form is written because the eye is six-muscle and because the controller of section 5 emits six; the constrained circuit as currently scoped can fill two of the rows and reaching the rest means adding OMN to \texttt{circuit.cell\_types}.
 
 \textbf{Step 6 --- the static map.} The six drives set an equilibrium pose, one quadratic per angle, with the coefficients measured rather than assumed (section 4.2):
 
-\begin{equation*}
+\begin{equation}
+\label{eq:static-map}
 x^{k}_{\infty}(t) \;=\; \sum_{i=1}^{6} a^{k}_{i}\,m_i(t)
 \;+\;\sum_{i\le j} b^{k}_{ij}\,m_i(t)\,m_j(t),
 \qquad k\in\{\theta,\varphi,\psi\}
-\end{equation*}
+\end{equation}
 
 27 coefficients per angle, 81 in all. \textbf{This is where the push-pull went.} Earlier versions of this model imposed it --- one signed command per axis, $u_\theta = m_{\mathrm{LR}} - m_{\mathrm{MR}}$ --- so that a signed angle could be carried on non-negative rates. It is no longer imposed, it is an outcome: an antagonist pair shows up as $a^{k}_{i}$ of opposite sign, and co-contraction, which no signed scalar can express, shows up in $b^{k}_{ij}$. Two of the six muscles turn out to act mainly on $\psi$, which is why there are three angles here and not two.
 
 \textbf{Step 7 --- the mechanics.} The eye swings to that equilibrium under one linear second-order system on all three angles at once, with $C$ and $K$ identified in section 4.2 and \textbf{frozen} --- registered as buffers, not parameters, because the body is measured and letting the optimiser retune it would defeat the point:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:mechanics}
 \ddot{\mathbf{x}} + C\,\dot{\mathbf{x}} + K\,\mathbf{x} \;=\; K\,\mathbf{x}_{\infty},
 \qquad
 \mathbf{x}=(\theta,\varphi,\psi)^{\!\top},
 \qquad
 C,K\in\mathbb{R}^{3\times 3}
-\end{equation*}
+\end{equation}
 
 $C$ and $K$ are full rather than diagonal, so one axis may drag on another, which two independent per-axis plants cannot express. Both are parameterised through their Cholesky factors, $K = L_K L_K^{\!\top} + \varepsilon I$ and $C = L_C L_C^{\!\top}$, which makes them positive definite and the eye therefore stable by construction for any values the fit reaches.
 
 \textbf{Step 8 --- the objective.} Supervision is on the eye angles \emph{after} the eye, never on the command. Two of the three are matched to the target; the third is penalised toward zero, because six drives against two supervised angles would otherwise leave the network free to wander:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:loss}
 \mathcal{L}\;=\;\frac{1}{T}\sum_{t=1}^{T}
 \Big[\big(\theta_t-\theta^{\star}_t\big)^{2}+\big(\varphi_t-\varphi^{\star}_t\big)^{2}\Big]
 \;+\;\lambda_\psi\,\frac{1}{T}\sum_{t=1}^{T}\psi_t^{2}
-\end{equation*}
+\end{equation}
 
 The torsion term is Donders' law in its simplest form, and section 5.1 says what $\lambda_\psi$ is set to and why. Putting the loss after the eye is what makes the network learn the eye's inverse rather than a velocity command: the gradient reaches $\hat W,\hat W^{\mathrm{in}},\hat W^{\mathrm{out}}$ through the static map and through the mechanics, so a different eye trains a different controller --- which section 5.2 turns into a measurement.
 
 \textbf{Step 9 --- discretisation and initial condition.} Forward Euler at $\Delta t = 1/60$ s for the circuit, and for the eye the same step with the damping taken \emph{implicitly}:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:euler-circuit}
 v_i(t{+}\Delta t) = v_i(t) + \frac{\Delta t}{\tau_i}
 \Big(-v_i(t) + \textstyle\sum_j \hat W_{ij} r_j(t) + I_i(t)\Big),
 \qquad v_i(0)=0,\ \ \mathbf{x}(0)=\mathbf{0}
-\end{equation*}
+\end{equation}
 
-\begin{equation*}
+\begin{equation}
+\label{eq:euler-eye}
 \dot{\mathbf{x}}\;\leftarrow\;(I+\Delta t\,C)^{-1}
 \big[\dot{\mathbf{x}} + \Delta t\,K(\mathbf{x}_{\infty}-\mathbf{x})\big],
 \qquad
 \mathbf{x}\;\leftarrow\;\mathbf{x}+\Delta t\,\dot{\mathbf{x}}
-\end{equation*}
+\end{equation}
 
 The implicit damping is not a refinement. Taken explicitly the rollout is stable only while $\Delta t\,\lambda_{\max}(C) < 2$, and a fit that minimises error at one timestep will walk $C$ up to that edge --- ours reached $1.980$ at the $9$ ms of the recorded holds --- and then diverge when the controller rolls the same eye out at $1/60$ s, where the product is $3.67$. Taking it implicitly removes the limit and, more to the point, makes a fitted $C$ mean the same thing at both timesteps.
 
@@ -356,7 +372,7 @@ Two differences from the flyvis setting are worth naming. There the supervision 
 
 \subsubsection*{4.1 The eye model}
 
-The circuit's output is muscle drive, not an eye angle, so the mechanics has to be in the loop --- and the MPM eye cannot be: its grid scatter is in-place, so it is not differentiable, and one trial costs more than all 7250 gradient updates of section 5.1. It is replaced by the reduced model of step 7, fitted by \texttt{fit\_plant.py} from the probe runs in \texttt{Plexus/prototype/eye/archive/}. Steps 6 and 7 together are the \textbf{lateral-horizontal Hammerstein model}: two antagonist pairs, two scalar commands, two independent single-input eyes.
+The circuit's output is muscle drive, not an eye angle, so the mechanics has to be in the loop --- and the MPM eye cannot be: its grid scatter is in-place, so it is not differentiable, and one trial costs more than all 7250 gradient updates of section 5.1. It is replaced by the reduced model of \eqref{eq:mechanics}, fitted by \texttt{fit\_plant.py} from the probe runs in \texttt{Plexus/prototype/eye/archive/}. Steps 6 and 7 together are the \textbf{lateral-horizontal Hammerstein model}: two antagonist pairs, two scalar commands, two independent single-input eyes.
 
 Putting the whole nonlinearity in a memoryless block and leaving the dynamics linear is the \textbf{Hammerstein} structure --- the standard first move of block-oriented nonlinear system identification (Narendra and Gallman 1966; Bai 1998; Giri and Bai 2010), which dominates practice because it keeps the linear factor a transfer function, with every tool of linear systems theory intact, while the nonlinear factor stays a curve fitted pointwise. For an eye the split is anatomical rather than convenient: the nonlinearity is muscle and memoryless, the dynamics are globe and orbital tissue and near-linear at these rotations. It is also the classical oculomotor model --- Robinson (1964, 1981), with later work arguing the real eye carries more time scales than second order allows (Sklavos, Porrill, Kaneko and Dean, 2005).
 
@@ -372,53 +388,62 @@ This is not a matter of degrees of freedom. A first-order system is monotone tow
 
 In the interface the red trace is the equilibrium the drives are asking for --- where the eye \emph{would} settle if the command froze --- and the blue trace is where the eye actually is. At the speeds the task uses the two sit almost on top of each other, which looks as though the eye were doing nothing at all. It is not, and what it is doing instead follows from step 7 in three lines.
 
-\textbf{From the mechanics to a transfer function.} Step 7 is a linear differential equation, so take its Laplace transform. Writing $X(s)$ for the transform of the gaze $\mathbf{x}(t)$ and $X_\infty(s)$ for that of the commanded equilibrium, and starting from rest so the initial-condition terms vanish, $\dot{\mathbf{x}}\mapsto sX$ and $\ddot{\mathbf{x}}\mapsto s^{2}X$, so
+\textbf{From the mechanics to a transfer function.} \eqref{eq:mechanics} is a linear differential equation, so take its Laplace transform. Writing $X(s)$ for the transform of the gaze $\mathbf{x}(t)$ and $X_\infty(s)$ for that of the commanded equilibrium, and starting from rest so the initial-condition terms vanish, $\dot{\mathbf{x}}\mapsto sX$ and $\ddot{\mathbf{x}}\mapsto s^{2}X$, so
 
-\begin{equation*}
+\begin{equation}
+\label{eq:laplace}
 s^{2}X(s) + C\,sX(s) + K\,X(s) \;=\; K\,X_\infty(s)
 \qquad\Longrightarrow\qquad
 \big(s^{2}I + Cs + K\big)X(s) \;=\; K\,X_\infty(s)
-\end{equation*}
+\end{equation}
 
 and the eye is the matrix that carries the command to the gaze:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:transfer}
 H(s)\;=\;\big(s^{2}I + Cs + K\big)^{-1}K
 \qquad\text{(one axis alone: }\;
 H(s)=\frac{\omega_n^{2}}{s^{2}+2\zeta\omega_n s+\omega_n^{2}}\text{)}
-\end{equation*}
+\end{equation}
 
 $s$ is a frequency: $s=i\omega$ asks what the eye does to a command oscillating at $\omega$, and $s=0$ asks what it does to a command that never changes. Two properties of $H$ are the whole story.
 
-\textbf{First: it does not shrink the target.} Put $s=0$. Every term with an $s$ in it disappears and what is left is $H(0)=K^{-1}K=I$ --- exactly one, not approximately.
+\textbf{First: it does not shrink the target.} Put $s=0$ in \eqref{eq:transfer}. Every term with an $s$ in it disappears and what is left is $H(0)=K^{-1}K=I$ --- exactly one, not approximately.
 
 In plain terms: hold the drives still, wait, and the eye comes to rest \emph{precisely} at the angle the static map asked for. Not 95\,\% of it, not 105\,\%. There is no steady-state error and no calibration constant sitting between the command and the gaze.
 
-That is a stronger statement than it sounds, and it is what makes the two traces \emph{equal} rather than merely proportional. Suppose $H(0)$ were $0.9$ instead. Then every held gaze would fall a tenth short of its command, red would sit consistently outside blue, and the gap would grow with eccentricity --- a visible fan opening toward the edges of the workspace, and a gain the controller would have to learn to compensate. None of that happens, and none of it can: $H(0)=I$ is forced by the form of the equation, because the same $K$ that multiplies $\mathbf{x}$ on the left multiplies $\mathbf{x}_\infty$ on the right. The eye was built that way in step 7 precisely so that the static map means what it says.
+It is what makes the two traces \emph{equal} rather than merely proportional. Suppose $H(0)$ were $0.9$ instead: every held gaze would fall a tenth short of its command, red would sit consistently outside blue, and the gap would fan open toward the edges of the workspace --- a gain the controller would have to learn to compensate.
 
-\textbf{Second: it delays it.} Since $H$ is not the identity at nonzero $s$, ask what it \emph{is} for small $s$. Factor $K$ out:
+\textbf{But this is a property of the model, not a discovery about the eye.} $H(0)=I$ follows from the same $K$ appearing on both sides of \eqref{eq:mechanics}, and that is a choice: $\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is just as linear and has $H(0)=K^{-1}B$. Writing it this way is what makes $\mathbf{x}_\infty$ \emph{mean} "the angle the eye settles at", so unity DC gain is bookkeeping rather than evidence.
 
-\begin{equation*}
+The empirical content moves to the static map, where it belongs and where it is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$ degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest where the model predicts. What could break it is not a wrong gain but a wrong premise: hysteresis, slow drift, or holds that never settle would mean no static map fits at all. That is precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
+
+\textbf{Second: it delays it.} Since $H$ is not the identity at nonzero $s$, ask what it \emph{is} for small $s$. Factor $K$ out of \eqref{eq:transfer}:
+
+\begin{equation}
+\label{eq:transfer-factored}
 H(s)=\big(K\left[I + K^{-1}Cs + K^{-1}s^{2}\right]\big)^{-1}K
 =\big(I + K^{-1}Cs + K^{-1}s^{2}\big)^{-1}
-\end{equation*}
+\end{equation}
 
 and expand the inverse, using $(I+A)^{-1}=I-A+O(A^{2})$:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:delay}
 H(s)\;=\;I-K^{-1}C\,s+O(s^{2})
 \;\approx\;e^{-\Delta s},
 \qquad
 \Delta = K^{-1}C
-\end{equation*}
+\end{equation}
 
-the last step because $e^{-\Delta s}=I-\Delta s+O(s^{2})$ has the same first-order term. Multiplying by $e^{-\Delta s}$ in the frequency domain \emph{is} shifting by $\Delta$ in time, so to first order the eye returns its command unchanged, $\Delta$ later.
+the last step of \eqref{eq:delay} because $e^{-\Delta s}=I-\Delta s+O(s^{2})$ has the same first-order term. Multiplying by $e^{-\Delta s}$ in the frequency domain \emph{is} shifting by $\Delta$ in time, so to first order the eye returns its command unchanged, $\Delta$ later.
 
-\textbf{The assumption, stated.} This is a \textbf{low-frequency} expansion and nothing else: it needs $\lVert K^{-1}Cs\rVert$ and $\lVert K^{-1}s^{2}\rVert$ both small, which for $s=i\omega$ means
+\textbf{The assumption, stated.} \eqref{eq:delay} is a \textbf{low-frequency} expansion and nothing else: it needs $\lVert K^{-1}Cs\rVert$ and $\lVert K^{-1}s^{2}\rVert$ both small, which for $s=i\omega$ means
 
-\begin{equation*}
+\begin{equation}
+\label{eq:lowfreq}
 \omega \;\ll\; \omega_n \;=\; \sqrt{\lambda_{\min}(K)}
-\end{equation*}
+\end{equation}
 
 --- the target must move slowly \emph{compared with the eye's own natural frequency}, not slowly in absolute terms. It is not a large-$\omega$ or a small-damping assumption, and it says nothing about how far the eye moves, only how fast. On eye G, $\omega_n$ runs 5.8 to 7.3 rad\,s$^{-1}$ and the approximation holds to 5\,\% up to 0.26 Hz and to 10\,\% up to 0.36 Hz, i.e. while $\omega/\omega_n \lesssim 0.3$. Above that it fails in a specific and measurable way, and the table below is where it does.
 
@@ -435,7 +460,7 @@ target & lag $\theta$ & lag $\varphi$ & gain $|H_{\theta}|$ & gain $|H_{\varphi}
 1.50 Hz & 255 ms & 242 ms & 0.564 & 0.694 \\
 \bottomrule\end{tabular}\end{center}
 
-with $\Delta=K^{-1}C$ predicting 127 ms in $\theta$, 118 in $\varphi$ and 137 in $\psi$ --- the low-frequency rows to within a millisecond.
+with $\Delta=K^{-1}C$ of \eqref{eq:delay} predicting 127 ms in $\theta$, 118 in $\varphi$ and 137 in $\psi$ --- the low-frequency rows to within a millisecond.
 
 Read it downward. Below about 0.3 Hz the eye is a pure delay of an eighth of a second at unity gain, and red and blue are the same curve shifted by eight frames at 60 Hz. Between 0.3 and 1 Hz the gain \emph{rises} --- rises, not falls, because $\zeta\approx0.4$ is still underdamped, so the response peaks near $\omega_n$ before it rolls off --- and the delay grows with it. Past the peak the eye simply cannot keep up: at 1.5 Hz it returns barely half of what it is asked for.
 
@@ -464,7 +489,7 @@ The eye takes six muscle drives and returns three angles:
 \label{eq:eye-io}
 \end{equation}
 
-horizontal, vertical and torsion, in degrees. The drives are one-sided because muscles pull and do not push, which is why they are not the signed $u_\theta,u_\varphi$ of step 6.
+horizontal, vertical and torsion, in degrees. The drives are one-sided because muscles pull and do not push, which is why the static map \eqref{eq:static-map} takes them one-sided rather than as the signed differences earlier versions used.
 
 The single structural assumption is that the eye is a \textbf{static map followed by linear mechanics}. Where the eye eventually comes to rest is a nonlinear function of the drives; how it gets there is linear:
 
@@ -546,17 +571,18 @@ Closed loop does introduce a loop, but not a reason to change method: the eye is
 
 \subsubsection*{5.1 How the recurrent models are trained}
 
-Everything the controller learns comes from one scalar. Writing it in the symbols of section 4, with $(\theta_t,\varphi_t,\psi_t)$ the gaze the eye actually reaches and $(\theta^{\star}_t,\varphi^{\star}_t)$ the target eccentricity of step 0:
+Everything the controller learns comes from one scalar. It is \eqref{eq:loss} of step 8, written out again here because it is what every choice below optimises, with $(\theta_t,\varphi_t,\psi_t)$ the gaze the eye actually reaches and $(\theta^{\star}_t,\varphi^{\star}_t)$ the target eccentricity of \eqref{eq:world-scale}:
 
-\begin{equation*}
+\begin{equation}
+\label{eq:loss-again}
 \mathcal{L}\;=\;\frac{1}{T}\sum_{t=1}^{T}
 \Big[\big(\theta_t-\theta^{\star}_t\big)^{2}
 +\big(\varphi_t-\varphi^{\star}_t\big)^{2}\Big]
 \;+\;\lambda_\psi\,\frac{1}{T}\sum_{t=1}^{T}\psi_t^{2},
 \qquad \lambda_\psi=0.05
-\end{equation*}
+\end{equation}
 
-Note where the angles come from: $\theta,\varphi,\psi$ are the output of step 7, so the gradient reaches $\hat W$, $\hat W^{\mathrm{in}}$ and $\hat W^{\mathrm{out}}$ \emph{through} the eye. The eye's own coefficients are buffers rather than parameters and never move. The torsion term is the only part of the loss that is not a tracking error, and it is there because six drives against two supervised angles leaves a four-dimensional set of muscle patterns producing the same gaze; $\lambda_\psi$ picks one, and picking the untwisted one is Donders' law in its simplest form.
+Note where the angles come from: $\theta,\varphi,\psi$ are the output of \eqref{eq:mechanics}, so the gradient reaches $\hat W$, $\hat W^{\mathrm{in}}$ and $\hat W^{\mathrm{out}}$ \emph{through} the eye. The eye's own coefficients are buffers rather than parameters and never move. The torsion term is the only part of the loss that is not a tracking error, and it is there because six drives against two supervised angles leaves a four-dimensional set of muscle patterns producing the same gaze; $\lambda_\psi$ picks one, and picking the untwisted one is Donders' law in its simplest form.
 
 Three choices about how that loss is optimised are load-bearing.
 
@@ -592,9 +618,9 @@ One result inside the sequence is worth pulling out, because it is a prediction 
 
 \paragraph{Regularisation: almost none, and one that is missing}
 
-There is no weight decay, no penalty on $\hat W$, no spectral normalisation and no dropout. The only two terms that are not the tracking error are the torsion penalty above, which is a task constraint rather than a capacity one, and gradient-norm clipping at 1.0, which is a stability device.
+There is no weight decay, no penalty on $\hat W$, no spectral normalisation and no dropout. The only two terms that are not the tracking error are the torsion penalty of \eqref{eq:loss-again}, which is a task constraint rather than a capacity one, and gradient-norm clipping at 1.0, which is a stability device.
 
-That is defensible for capacity: train and validation error agree once put in the same units, so the network was never overfitting and a capacity regulariser would buy nothing. It would matter for \textbf{identifiability} rather than for fit --- many recurrent matrices integrate, and nothing here selects among them --- but in the constrained circuit that job is done by the sign lock of step 4, so the free-$\hat W$ controller is the wrong place to start adding priors.
+That is defensible for capacity: train and validation error agree once put in the same units, so the network was never overfitting and a capacity regulariser would buy nothing. It would matter for \textbf{identifiability} rather than for fit --- many recurrent matrices integrate, and nothing here selects among them --- but in the constrained circuit that job is done by the sign lock \eqref{eq:sign-lock}, so the free-$\hat W$ controller is the wrong place to start adding priors.
 
 What \emph{is} missing is a regulariser on the \textbf{drives}, and it is not cosmetic. The eye is characterised on $m\in[0,1]^{6}$ --- every hold in the protocol is at a level of 1 or below --- and above that the fitted quadratic simply extrapolates. The trained controllers do not stay inside:
 
@@ -613,22 +639,17 @@ The fix is a hinge on the drive, $\lambda_m \sum_t \|[\mathbf{m}_t-1]_+\|^2$, wh
 
 Watching the trained network drive the eye turns up something the training never asked for. Whenever the target reverses direction the \textbf{command} swings wildly while the \textbf{gaze} barely moves off the target: over the sharpest 3 \% of turns the gap between command and gaze grows 3.9 times, from 0.56 to 2.18 degrees, while the gaze error grows only 1.33 times, 0.098 to 0.130. The obvious reading is that the motor output has gone unstable and the eye's own smoothing rescues it.
 
-It is not instability. It is the eye's inverse, and the inverse has a closed form, so the claim is falsifiable. The eye of step 7 is
+It is not instability. It is the eye's inverse, and the inverse has a closed form, so the claim is falsifiable. Rearranging the mechanics of \eqref{eq:mechanics} for the command that would place the gaze exactly on a wanted trajectory $\mathbf{x}^{\star}(t)$ gives
 
-\begin{equation*}
-\ddot{\mathbf{x}} + C\,\dot{\mathbf{x}} + K\,\mathbf{x} \;=\; K\,\mathbf{x}_{\infty}
-\end{equation*}
-
-and rearranging for the command that would place the gaze exactly on a wanted trajectory $\mathbf{x}^{\star}(t)$ gives
-
-\begin{equation*}
+\begin{equation}
+\label{eq:inverse}
 \mathbf{x}_{\infty}^{\star}
 \;=\;\mathbf{x}^{\star}
 \;+\;K^{-1}C\,\dot{\mathbf{x}}^{\star}
 \;+\;K^{-1}\ddot{\mathbf{x}}^{\star}
-\end{equation*}
+\end{equation}
 
-Read it in plain terms: to hold the eye somewhere, ask for that place; to move it, ask for somewhere \emph{further}, in proportion to how fast you want to go; and to start or stop the movement, add a term proportional to the acceleration. A step in $\mathbf{x}^{\star}$ makes the velocity term a pulse and the acceleration term a doublet, and what is left afterwards is the step. \textbf{That is Robinson's pulse-step}, falling out of the algebra rather than being designed in --- the same pulse-step section 4.1 credits Robinson (1964, 1981) with, as the command that inverts the linear eye. Nothing in this model was told about it.
+Read it in plain terms: to hold the eye somewhere, ask for that place; to move it, ask for somewhere \emph{further}, in proportion to how fast you want to go; and to start or stop the movement, add a term proportional to the acceleration. A step in $\mathbf{x}^{\star}$ makes the velocity term of \eqref{eq:inverse} a pulse and the acceleration term a doublet, and what is left afterwards is the step. \textbf{That is Robinson's pulse-step}, falling out of the algebra rather than being designed in --- the same pulse-step section 4.1 credits Robinson (1964, 1981) with, as the command that inverts the linear eye. Nothing in this model was told about it.
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_pulse_step.png}
@@ -639,7 +660,7 @@ Read it in plain terms: to hold the eye somewhere, ask for that place; to move i
 
 \emph{The shape is not memorised.} The corpus is splines at three speeds and contains no steps at all; the step probe of panel (a) is a regime the network has never been in, and it produces the pulse-step there.
 
-\emph{The coefficients are the plant's.} Regressing the command freely on the target and its first two derivatives, $\mathbf{m}_{\rm cmd}\approx A_0\mathbf{x}^{\star} + A_1\dot{\mathbf{x}}^{\star} + A_2\ddot{\mathbf{x}}^{\star}$, reaches $R^2 = 0.952$; \emph{replacing} the fitted $A_1, A_2$ with the analytic $K^{-1}C$ and $K^{-1}$ --- no free parameters at all --- still reaches 0.945. The network's velocity gain is 133 ms against the plant's 123. Note the regressor is the \textbf{target}, not the achieved gaze: regressing on the gaze would be circular, since the equation above makes that an identity for any command whatsoever.
+\emph{The coefficients are the plant's.} Regressing the command freely on the target and its first two derivatives, as \eqref{eq:inverse} would have it, $\mathbf{m}_{\rm cmd}\approx A_0\mathbf{x}^{\star} + A_1\dot{\mathbf{x}}^{\star} + A_2\ddot{\mathbf{x}}^{\star}$, reaches $R^2 = 0.952$; \emph{replacing} the fitted $A_1, A_2$ with the analytic $K^{-1}C$ and $K^{-1}$ of \eqref{eq:inverse} --- no free parameters at all --- still reaches 0.945. The network's velocity gain is 133 ms against the plant's 123. Note the regressor is the \textbf{target}, not the achieved gaze: regressing on the gaze would be circular, since the equation above makes that an identity for any command whatsoever.
 
 \emph{It is this eye's inverse, not an eye's.} The deep and light controllers were trained identically on the same corpus and differ only in the eye between them. Their pulse gains differ by 46 \%, 133 against 193 ms, and each tracks its own $K^{-1}C$, 123 against 170. An architectural habit would not know which plant it was attached to.
 
