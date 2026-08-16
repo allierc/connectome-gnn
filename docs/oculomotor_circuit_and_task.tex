@@ -38,14 +38,14 @@ Figure~\ref{fig:connectome} is the source reconstruction and the sub-circuit tak
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_oculomotor_circuit.png}
-\label{fig:connectome}
 \caption{\small \textbf{The oculomotor reconstruction and the sub-circuit modelled here.} (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. (c) The same sub-circuit signed by the Dale assignment of section 1.4 --- each synapse coloured by the sign of its \emph{presynaptic} cell, blue excitatory, red inhibitory, shade log-scaled in synaptic area. This is what the model multiplies, $\hat W_{ij} = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})$, and the support mask of (b) cannot show it. Because the sign belongs to the column, the panel reads as vertical bands: the two \texttt{INTG\_contra} types are a solid red block, and it is visibly the only inhibition the 285 cells contain. Rows are postsynaptic, columns presynaptic in all three. Regenerate with \texttt{python scripts/plot\_oculomotor\_connectome.py --config config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml --out figures/zebrafish/fig\_oculomotor\_circuit.png}.}
+\label{fig:connectome}
 \end{figure}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_1_oculomotor_overview.png}
-\label{fig:circuit}
 \caption{\small \textbf{The oculomotor circuit.} \textbf{(a)} All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. \textbf{(b)} The cell bodies alone, same view --- the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). \textbf{(c, d)} The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made --- that the E/I split is by projection laterality, not by anatomical position. \textbf{(e)} The computation of section 4 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with \texttt{python figures/zebrafish/fig\_1\_oculomotor\_overview.py}.}
+\label{fig:circuit}
 \end{figure}
 
 \subsection*{1. The circuit}
@@ -219,8 +219,8 @@ parameter & meaning \\\midrule
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eye_schematic.png}
-\label{fig:symbols}
 \caption{\small \textbf{The eye, and the symbols of the model.} \textbf{(a)} Eye G at rest, near-anterior view, drawn by the surface renderer from the scanned geometry rather than schematised: the translucent globe, the lens, and the six straps as the Blender reconstruction places them. Muscle actions in the legend are the ones stage 0 measured, not the textbook ones --- SO elevates and torts positive here, IO depresses, because both obliques pull from the rostral orbit with no trochlea to reverse the superior one. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the eye but receive no command. The two axes the model uses are marked: horizontal gaze $\theta$, positive in abduction, and vertical gaze $\varphi$. \textbf{(b)} Every symbol of the nine steps below, in the order the signal meets them: the target velocity $(\dot x,\dot y)$, the input map $\hat W^{\mathrm{in}}$ onto the AF5 afferents, the sign-locked recurrent core, the output map $\hat W^{\mathrm{out}}$ onto four non-negative motor pools, the push-pull commands $u_\theta,u_\varphi$, the frozen per-axis eye, and the loss on the gaze angles $(\theta,\varphi)$ --- after the eye, not on the command. Regenerate with \texttt{python fit\_plant.py} and \texttt{python fig\_eye\_schematic.py} in \texttt{Plexus/prototype/eye}.}
+\label{fig:symbols}
 \end{figure}
 
 
@@ -395,7 +395,7 @@ This is not a matter of degrees of freedom. A first-order system is monotone tow
 
 \paragraph{What the eye does to a moving target}
 
-In the interface the red trace is the equilibrium the drives are asking for --- where the eye \emph{would} settle if the command froze --- and the blue trace is where the eye actually is. At the speeds the task uses the two sit almost on top of each other, which looks as though the eye were doing nothing at all. It is not, and what it is doing instead follows from step 7 in three lines.
+Three traces recur from here on, and Figure~\ref{fig:traces} is where to see them: \textbf{black} the target $\theta^{\star}$, \textbf{red} the command $\theta_\infty$ of \eqref{eq:static-map} --- the angle the eye \emph{would} settle at if the drives froze --- and \textbf{blue} the gaze $\theta$ of \eqref{eq:mechanics}, where the eye actually is. (The movies use the same red and blue on a black ground, so the target is white there and black here; it is the same quantity.) At the speeds the task uses red and blue sit almost on top of each other, which looks as though the eye were doing nothing at all. It is not, and what it is doing instead follows from step 7 in three lines.
 
 \textbf{From the mechanics to a transfer function.} \eqref{eq:mechanics} is a linear differential equation, so take its Laplace transform. Writing $X(s)$ for the transform of the gaze $\mathbf{x}(t)$ and $X_\infty(s)$ for that of the commanded equilibrium, and starting from rest so the initial-condition terms vanish, $\dot{\mathbf{x}}\mapsto sX$ and $\ddot{\mathbf{x}}\mapsto s^{2}X$, so
 
@@ -467,9 +467,9 @@ target & lag $\theta$ & lag $\varphi$ & gain $|H_{\theta}|$ & gain $|H_{\varphi}
 
 with $\Delta=K^{-1}C$ of \eqref{eq:delay} predicting 127 ms in $\theta$, 118 in $\varphi$ and 137 in $\psi$ --- the low-frequency rows to within a millisecond.
 
-Read it downward. Below about 0.3 Hz the eye is a pure delay of an eighth of a second at unity gain, and red and blue are the same curve shifted by eight frames at 60 Hz. Between 0.3 and 1 Hz the gain \emph{rises} --- rises, not falls, because $\zeta\approx0.4$ is still underdamped, so the response peaks near $\omega_n$ before it rolls off --- and the delay grows with it. Past the peak the eye simply cannot keep up: at 1.5 Hz it returns barely half of what it is asked for.
+Read it downward. Below about 0.3 Hz the eye is a pure delay of an eighth of a second at unity gain, and red and blue are the same curve shifted by eight frames at 60 Hz (Figure~\ref{fig:traces}a). Between 0.3 and 1 Hz the gain \emph{rises} --- rises, not falls, because $\zeta\approx0.4$ is still underdamped, so the response peaks near $\omega_n$ before it rolls off --- and the delay grows with it. Past the peak the eye simply cannot keep up: at 1.5 Hz it returns barely half of what it is asked for.
 
-Three things follow for reading the movies. The eighth-second delay is why red and blue separate visibly on eye G where they nearly coincided on the earlier, faster eye, whose 54 ms was three frames rather than eight. The rise in gain, not any lag, is what the small loops at direction reversals are: the command turns, the eye carries past it, and the two traces part company for as long as the ringing lasts. And $\Delta = K^{-1}C$ is not a new quantity --- it is the same matrix that section 5.2 measures as the controller's \emph{pulse gain}, arrived at there from the trained network rather than from the eye, and the two agree to 8\,\%.
+Three things follow for reading the movies. The eighth-second delay is why red and blue separate visibly on eye G --- clearest in Figure~\ref{fig:traces}b, where the gaze reaches each new angle a third of a second after the command asks for it --- where they nearly coincided on the earlier, faster eye, whose 54 ms was three frames rather than eight. The rise in gain, not any lag, is what the small loops at direction reversals are: the command turns, the eye carries past it, and the two traces part company for as long as the ringing lasts. And $\Delta = K^{-1}C$ is not a new quantity --- it is the same matrix that section 5.2 measures as the controller's \emph{pulse gain}, arrived at there from the trained network rather than from the eye, and the two agree to 8\,\%.
 
 \subsubsection*{4.2 Characterising the MPM eye}
 
@@ -555,14 +555,14 @@ derisk & 4 & substep, and the size levers & $2.0\!\times\!10^{-4}$ within $0.03^
 3 & 3 & co-contraction $\to$ $C(s),K(s)$ & outstanding \\\midrule
 & \textbf{109} & & $0$ unsettled holds \\
 \bottomrule\end{tabularx}
-\label{tab:stages}
 \caption{\small The characterisation of eye G, by stage. Every hold keeps its spec, its raw \texttt{curves.npz} and a VTK movie in \texttt{Plexus/prototype/eye/archive/eye\_G/charac/}; \texttt{holds.npz} and \texttt{report.json} are the assembled forms. Hold length is derived per eye as $\max(2.0\,\mathrm{s},\,1.5\times\text{slowest settling})$ rather than fixed, which is the error that invalidated every earlier characterisation.}
+\label{tab:stages}
 \end{table}
 
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eyeG_characterisation.png}
-\label{fig:charac}
 \caption{\small \textbf{Eye G, characterised.} \textbf{(a)} Stage 0-lite: the four cardinal synergies driven open loop, each arrow the settled gaze excursion, the dashed box the workspace they span --- $15.9^{\circ}$ horizontal by $24.2^{\circ}$ vertical, against the $15/10$ the task needs. All four move the eye in the direction the insertions predict, which is what says the scanned anatomy is right. \textbf{(b)} Stage 1: the six marginals on each muscle's own dominant axis. The plant is nearly dead below $u\approx0.25$ and does most of its work in the upper half of the drive range, so a linearisation about rest is wrong in the direction that matters. \textbf{(c)} Stage 2a: the residual of each pair against its additive prediction, per angle, with the flag threshold and the numerical floor. All fifteen pairs interact, mostly in horizontal. \textbf{(d)} Stage 6d: the quadratic $g$ of \eqref{eq:quadratic} fitted over $64$ Sobol points in $[0,1]^6$, measured against fitted. Regenerate with \texttt{python Plexus/prototype/eye/fig\_eyeG\_charac.py}.}
+\label{fig:charac}
 \end{figure}
 
 \paragraph{What it changed upstream}
@@ -625,8 +625,8 @@ The six-muscle readout beats the four-synergy one twice over --- better tracking
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eyeG_traces.png}
-\label{fig:traces}
 \caption{\small \textbf{The six-drive controller on eye G, three regimes.} Horizontal angle only, four seconds of each, drawn from the same rollout the movies play. Black is the target $\theta^{\star}$, blue the gaze $\theta$ of \eqref{eq:mechanics}, red the command $\theta_\infty$ of \eqref{eq:static-map} --- the angle the eye would settle at if the drives froze. \textbf{(a)} Smooth pursuit: blue sits on black, and red departs from both only at the direction reversals, where the pulse of section 5.2 is needed. \textbf{(b)} Saccades at 0.5 Hz: the gaze reaches each new angle in about a third of a second and overshoots slightly, and the command is a doublet reaching $\pm35^{\circ}$ --- an order of magnitude beyond the $\pm2.8^{\circ}$ excursion, which is why the axis is scaled to the target and the gaze and the command leaves the panel. \textbf{(c)} Saccades at 4 Hz, where the half-period of 125 ms is the eye's own group delay of 127 ms: the gaze is still travelling toward one target when the next arrives, so it never reaches either and tracking has stopped in any useful sense. Regenerate with \texttt{python fig\_eyeG\_traces.py} in \texttt{prototype/dot\_tracking}.}
+\label{fig:traces}
 \end{figure}
 
 One result inside the sequence is worth pulling out, because it is a prediction of section 2.3 confirmed on a trained network rather than on an analytic lesion. \textbf{Fast targets are tracked better than slow ones}: on the light controller, smooth pursuit at the fast speed gives $0.19^{\circ}$ against $0.36^{\circ}$ at the middle speed. A leaky integrator is a high-pass on target angle, so it is the \emph{low}-frequency content that the leak removes, and slow targets are lost first. The six-muscle controller shows the same ordering far more weakly, $0.11^{\circ}$ against $0.12^{\circ}$, which is what a better integrator should look like. The circles, a constant-turn regime neither controller has ever seen --- the corpus is splines and straight segments --- cost nothing beyond that: $0.07$ and $0.09^{\circ}$ on the six-muscle eye.
@@ -668,8 +668,8 @@ Read it in plain terms: to hold the eye somewhere, ask for that place; to move i
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_pulse_step.png}
-\label{fig:pulse}
 \caption{\small \textbf{The controller learned the eye's inverse, not a tracking habit.} \textbf{(a)} A step probe: the target steps 4° and holds. The corpus contains no steps --- it is splines at three speeds --- so this regime is new to the network. The command goes to $+26°$, brakes to $-14°$, then settles on the $+4°$ step, while the gaze rises smoothly to the target: accelerate, brake, hold. The doublet is the $K^{-1}\ddot x^{\star}$ term and the offset that survives it is $x^{\star}$. \textbf{(b)} The network's command against the closed-form inverse above, evaluated with the eye's own $K$ and $C$ and \textbf{no free parameters}: $R^2 = 0.945$. Fitting $A_0, A_1, A_2$ freely reaches only 0.952, so the analytic matrices cost essentially nothing. \textbf{(c)} The velocity gain $A_1$ of each network against its own $K^{-1}C$. The two eyes differ by 46 \% in measured pulse gain (133 against 193 ms) and each matches its own plant; a pulse that was a habit of the architecture or of the corpus would be the same in both. \textbf{(d)} Necessity: drive each eye with the pulse-free command $x^{\star}$ and the tracking error rises 5.9$\times$ on the deep eye (0.101 $\rightarrow$ 0.592°) and 3.5$\times$ on the light one. Regenerate with \texttt{python fig\_pulse\_step.py} in \texttt{prototype/dot\_tracking}.}
+\label{fig:pulse}
 \end{figure}
 
 \textbf{Why "learned" rather than "built in".} Four things have to be true at once, and each is measured in Figure~\ref{fig:pulse}.
