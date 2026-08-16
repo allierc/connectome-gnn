@@ -2,10 +2,16 @@
   "tag": "eyeG_light",
   "kind": "light",
   "n_act": 4,
-  "err_mean_deg": 0.2599315941333771,
-  "err_continue_deg": 0.24353472888469696,
-  "err_stop_and_go_deg": 0.276328444480896,
-  "mean_abs_torsion_deg": 1.3290019035339355,
+  "err_mean_deg": 0.4125840961933136,
+  "err_by_phase_deg": {
+    "continue  fast": 0.253602534532547,
+    "stop-and-go  fast": 0.4042512774467468,
+    "continue  middle": 0.466073602437973,
+    "stop-and-go  middle": 0.41742390394210815,
+    "circle cw  middle": 0.44371262192726135,
+    "circle ccw  middle": 0.4904407560825348
+  },
+  "mean_abs_torsion_deg": 0.3568194806575775,
   "reach_deg": [
     7.559999942779541,
     11.649999618530273,

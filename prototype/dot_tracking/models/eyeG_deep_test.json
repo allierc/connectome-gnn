@@ -1,15 +1,21 @@
 {
   "tag": "eyeG_deep",
-  "kind": "deep",
+  "kind": "quad",
   "n_act": 6,
-  "err_mean_deg": 0.10432443022727966,
-  "err_continue_deg": 0.04957013204693794,
-  "err_stop_and_go_deg": 0.15907873213291168,
-  "mean_abs_torsion_deg": 0.026601800695061684,
+  "err_mean_deg": 0.10053384304046631,
+  "err_by_phase_deg": {
+    "circle cw  middle": 0.06828833371400833,
+    "circle ccw  middle": 0.09240762144327164,
+    "continue  fast": 0.10826569050550461,
+    "stop-and-go  fast": 0.0986596867442131,
+    "continue  middle": 0.1176312118768692,
+    "stop-and-go  middle": 0.11795052140951157
+  },
+  "mean_abs_torsion_deg": 0.03713252395391464,
   "reach_deg": [
-    6.839695453643799,
-    7.0919575691223145,
-    8.240701675415039
+    6.919303894042969,
+    7.108933448791504,
+    8.12649154663086
   ],
   "duration_per_half_s": 8.0,
   "seed": 0
