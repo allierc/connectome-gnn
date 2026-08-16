@@ -430,6 +430,85 @@ therefore measure the **feedback gain the connectome can support**, and
 perturb $\hat W$ to test it, because tuned positive feedback is fragile. (The
 memoryless MLP's 0.48 s decay constant is simply its own 0.5 s window.)
 
+#### The controller rediscovered the pulse-step
+
+Watching the trained network drive the eye turns up something the training never
+asked for. Whenever the target reverses direction the **command** swings wildly
+while the **gaze** barely moves off the target: over the sharpest 3 % of turns the
+gap between command and gaze grows 3.9 times, from 0.56 to 2.18 degrees, while the
+gaze error grows only 1.33 times, 0.098 to 0.130. The obvious reading is that the
+motor output has gone unstable and the eye's own smoothing rescues it.
+
+It is not instability. It is the eye's inverse, and the inverse has a closed form,
+so the claim is falsifiable. The eye of step 7 is
+
+```math
+\ddot{\mathbf{x}} + C\,\dot{\mathbf{x}} + K\,\mathbf{x} \;=\; K\,\mathbf{x}_{\infty}
+```
+
+and rearranging for the command that would place the gaze exactly on a wanted
+trajectory $\mathbf{x}^{\star}(t)$ gives
+
+```math
+\mathbf{x}_{\infty}^{\star}
+\;=\;\mathbf{x}^{\star}
+\;+\;K^{-1}C\,\dot{\mathbf{x}}^{\star}
+\;+\;K^{-1}\ddot{\mathbf{x}}^{\star}
+```
+
+Read it in plain terms: to hold the eye somewhere, ask for that place; to move it,
+ask for somewhere *further*, in proportion to how fast you want to go; and to start
+or stop the movement, add a term proportional to the acceleration. A step in
+$\mathbf{x}^{\star}$ makes the velocity term a pulse and the acceleration term a
+doublet, and what is left afterwards is the step. **That is Robinson's pulse-step**,
+falling out of the algebra rather than being designed in — the same pulse-step
+section 5.1 credits Robinson (1964, 1981) with, as the command that inverts the
+linear eye. Nothing in this model was told about it.
+
+![**The controller learned the eye's inverse, not a tracking habit.** **(a)** A step probe: the target steps 4° and holds. The corpus contains no steps — it is splines at three speeds — so this regime is new to the network. The command goes to $+26°$, brakes to $-14°$, then settles on the $+4°$ step, while the gaze rises smoothly to the target: accelerate, brake, hold. The doublet is the $K^{-1}\ddot x^{\star}$ term and the offset that survives it is $x^{\star}$. **(b)** The network's command against the closed-form inverse above, evaluated with the eye's own $K$ and $C$ and **no free parameters**: $R^2 = 0.945$. Fitting $A_0, A_1, A_2$ freely reaches only 0.952, so the analytic matrices cost essentially nothing. **(c)** The velocity gain $A_1$ of each network against its own $K^{-1}C$. The two eyes differ by 46 % in measured pulse gain (133 against 193 ms) and each matches its own plant; a pulse that was a habit of the architecture or of the corpus would be the same in both. **(d)** Necessity: drive each eye with the pulse-free command $x^{\star}$ and the tracking error rises 5.9× on the deep eye (0.101 → 0.592°) and 3.5× on the light one. Regenerate with `python fig_pulse_step.py` in `prototype/dot_tracking`.](../figures/zebrafish/fig_pulse_step.png)
+
+**Why "learned" rather than "built in".** Four things have to be true at once, and
+each is measured in the figure.
+
+*The shape is not memorised.* The corpus is splines at three speeds and contains no
+steps at all; the step probe of panel (a) is a regime the network has never been in,
+and it produces the pulse-step there.
+
+*The coefficients are the plant's.* Regressing the command freely on the target and
+its first two derivatives, $\mathbf{m}_{\rm cmd}\approx A_0\mathbf{x}^{\star} +
+A_1\dot{\mathbf{x}}^{\star} + A_2\ddot{\mathbf{x}}^{\star}$, reaches $R^2 = 0.952$;
+*replacing* the fitted $A_1, A_2$ with the analytic $K^{-1}C$ and $K^{-1}$ — no free
+parameters at all — still reaches 0.945. The network's velocity gain is 133 ms
+against the plant's 123. Note the regressor is the **target**, not the achieved
+gaze: regressing on the gaze would be circular, since the equation above makes that
+an identity for any command whatsoever.
+
+*It is this eye's inverse, not an eye's.* The deep and light controllers were
+trained identically on the same corpus and differ only in the eye between them.
+Their pulse gains differ by 46 %, 133 against 193 ms, and each tracks its own
+$K^{-1}C$, 123 against 170. An architectural habit would not know which plant it was
+attached to.
+
+*The loss had no alternative.* Driving the same eye with the pulse-free command —
+just $\mathbf{x}^{\star}$, no velocity or acceleration term — costs a factor of 5.9
+in tracking error on the deep eye and 3.5 on the light one. The pulse is not
+decoration the optimiser could have skipped.
+
+Two structural points make the result sharper. Nothing in the architecture supplies
+$\dot{\mathbf{x}}^{\star}$ or $\ddot{\mathbf{x}}^{\star}$: the readout is a static
+map of the rates, so the velocity term has to come from the input — which *is* the
+target velocity, scaled — while the position term must be integrated out of it and
+the acceleration term differentiated out of it, both by the recurrent dynamics
+alone. And $K$ and $C$ appear nowhere in the loss; they are buffers inside a frozen
+eye the gradient passes *through*. The controller inferred them from the only thing
+it was ever shown, which is how far the gaze ended up from the target.
+
+This is the same question as the paragraphs above — where does the computation live
+— asked of the trained controller rather than of its weights. There the answer was
+that the integration is in the recurrent matrix and not in the membranes. Here it is
+that the *inverse model* is in the recurrent matrix too, and that a network given
+only a velocity stream and a squared error at the far end of a plant will build one.
+
 ### 4.5 How the recurrent models are trained
 
 Worth stating precisely, because two of the choices are what make the task
