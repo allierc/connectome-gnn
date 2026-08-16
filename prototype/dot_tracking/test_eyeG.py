@@ -122,6 +122,20 @@ def sequence(duration, dt, seed=0, bound=0.95, tries=200):
                 segs.append(np.stack([np.gradient(np.asarray(q["x"]), dt),
                                       np.gradient(np.asarray(q["y"]), dt)], -1))
             n0 = len(segs[0])
+        # Six phases of concatenated velocity is 48 s of walk and it leaves the arena
+        # every time. Each phase after the first is ROTATED so its net displacement
+        # points back toward the centre: a rotation preserves speed, turn rate and
+        # every other statistic of the regime exactly -- it changes only the heading --
+        # whereas clipping the position would distort the velocity, which is the one
+        # thing the circuit is given.
+        pos = np.zeros(2)
+        for i, seg in enumerate(segs):
+            net = seg.sum(0) * dt
+            if i and np.linalg.norm(net) > 1e-6 and np.linalg.norm(pos) > 1e-6:
+                a = np.arctan2(-pos[1], -pos[0]) - np.arctan2(net[1], net[0])
+                c_, s_ = np.cos(a), np.sin(a)
+                segs[i] = seg @ np.array([[c_, s_], [-s_, c_]])
+            pos = pos + segs[i].sum(0) * dt
         v = np.concatenate(segs, 0).astype(np.float32)
         xy = np.cumsum(v, 0) * dt
         if np.abs(xy).max() <= bound:
