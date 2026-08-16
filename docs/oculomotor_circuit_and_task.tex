@@ -509,18 +509,20 @@ $C$ and $K$ of \eqref{eq:hammerstein} are fitted from the transients the holds a
 
 \paragraph{What eye G measured}
 
-\begin{table}[h]\centering\small
-\begin{tabular}{llll}\toprule
+Every stage, what it cost and what it settled:
+
+\begin{table}[H]\centering\small
+\begin{tabularx}{\textwidth}{@{}llX>{\raggedright\arraybackslash}X@{}}\toprule
 stage & runs & what it establishes & result on eye G \\\midrule
-derisk & 4 & substep, and the size levers & $2.0\!\times\!10^{-4}$ within $0.03^{\circ}$ of $1.2\!\times\!10^{-4}$; globe $\times0.9$, $\times0.85$ both fail \\
+derisk & 4 & substep, and the size levers & $2.0\!\times\!10^{-4}$ within $0.03^{\circ}$ of $1.2\!\times\!10^{-4}$; globe $\times0.9$ and $\times0.85$ both fail \\
 0-lite & 1 & the four synergies, and the gate & all four correct; workspace $15.9^{\circ}$ h $\times$ $24.2^{\circ}$ v --- passes \\
 0 & 6 & per-muscle span, settling time & LR $+7.4$ h, MR $-6.8$ h, SR $+7.1$ v, IR $-8.4$ v, SO $+8.7$ t, IO $-8.2$ t; $T_{\rm hold}=2.84$ s \\
-1 & 24 & the marginals $\phi_i(u)$ & strongly convex: LR is negative below $u\!\approx\!0.2$, SR's gain rises $\times107$ \\
+1 & 24 & the marginals $\phi_i(u)$ & strongly convex: LR negative below $u\!\approx\!0.2$, SR's gain rises $\times107$ \\
 2a & 15 & additivity, pair by pair & $15/15$ non-additive, $0.09$--$1.03^{\circ}$; the pairwise grid is dropped \\
 6d & 64 & $g$ over $[0,1]^6$ & quadratic rms $0.15/0.16/0.08^{\circ}$; linear $0.54/0.62/0.47^{\circ}$ \\
 3 & 3 & co-contraction $\to$ $C(s),K(s)$ & outstanding \\\midrule
 & \textbf{109} & & $0$ unsettled holds \\
-\bottomrule\end{tabular}
+\bottomrule\end{tabularx}
 \caption*{\small The characterisation of eye G, by stage. Every hold keeps its spec, its raw \texttt{curves.npz} and a VTK movie in \texttt{Plexus/prototype/eye/archive/eye\_G/charac/}; \texttt{holds.npz} and \texttt{report.json} are the assembled forms. Hold length is derived per eye as $\max(2.0\,\mathrm{s},\,1.5\times\text{slowest settling})$ rather than fixed, which is the error that invalidated every earlier characterisation.}
 \end{table}
 
@@ -529,17 +531,9 @@ derisk & 4 & substep, and the size levers & $2.0\!\times\!10^{-4}$ within $0.03^
 \caption*{\small \textbf{Eye G, characterised.} \textbf{(a)} Stage 0-lite: the four cardinal synergies driven open loop, each arrow the settled gaze excursion, the dashed box the workspace they span --- $15.9^{\circ}$ horizontal by $24.2^{\circ}$ vertical, against the $15/10$ the task needs. All four move the eye in the direction the insertions predict, which is what says the scanned anatomy is right. \textbf{(b)} Stage 1: the six marginals on each muscle's own dominant axis. The plant is nearly dead below $u\approx0.25$ and does most of its work in the upper half of the drive range, so a linearisation about rest is wrong in the direction that matters. \textbf{(c)} Stage 2a: the residual of each pair against its additive prediction, per angle, with the flag threshold and the numerical floor. All fifteen pairs interact, mostly in horizontal. \textbf{(d)} Stage 6d: the quadratic $g$ of \eqref{eq:quadratic} fitted over $64$ Sobol points in $[0,1]^6$, measured against fitted. Regenerate with \texttt{python Plexus/prototype/eye/fig\_eyeG\_charac.py}.}
 \end{figure}
 
-\paragraph{What it changes upstream}
+\paragraph{What it changed upstream}
 
-Three things, all in section 5's notation. \textbf{Step 5} reads six non-negative drives rather than four, $\hat W^{\rm out}\in\mathbb{R}^{6\times N}$. \textbf{Step 7} becomes \eqref{eq:hammerstein}: one three-output static map and one $3\times3$ second-order block, in place of two independent single-input eyes; $g$, $C$ and $K$ are frozen buffers, as before, because the body is measured. And \textbf{step 8} gains a torsion penalty,
-
-\begin{equation}
-\mathcal{L}=\sum_{t}\big\|(\theta,\varphi)-(\theta^{\star},\varphi^{\star})\big\|_2
-\;+\;\lambda_\psi\sum_{t}\psi(t)^{2},
-\label{eq:loss-torsion}
-\end{equation}
-
-because six drives against two supervised angles leave a four-dimensional set of muscle patterns producing the same gaze, and the network will otherwise wander in it. This is not an arbitrary regulariser: real eyes resolve the same redundancy by holding torsion to a fixed function of gaze direction --- Donders' law, and its sharper form Listing's law --- and \eqref{eq:loss-torsion} is its simplest version. The three-dimensional treatment that makes it precise is Tweed and Vilis (1990) and Haslwanter (1995); adopting the full form later costs nothing, because the torsion coordinate is now in the model.
+All of this is already in section 4's steps rather than pending: step 5 reads six non-negative drives rather than four, $\hat W^{\rm out}\in\mathbb{R}^{6\times N}$; steps 6 and 7 are the static map and the $3\times3$ mechanics in place of two independent single-input eyes, with $g$, $C$ and $K$ frozen buffers; and step 8 carries the torsion penalty, because six drives against two supervised angles leave a four-dimensional set of muscle patterns producing the same gaze. Torsion is not an optional third channel here --- SO's largest action is $+8.7^{\circ}$ of it against $4.0$ of vertical, and IO's is $-8.2$ against $2.9$ --- so a two-angle model does not describe this eye at all.
 
 \paragraph{When an eye is good enough}
 
