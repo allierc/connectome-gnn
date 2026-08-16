@@ -33,8 +33,7 @@
 \maketitle
 \section*{The larval zebrafish oculomotor integrator: circuit, task, and training}
 
-Working document for the \texttt{feat/oculomotor} branch. It records what the circuit is taken to be, what the network will be asked to compute, and how the training data is generated. Everything here that is a \emph{claim about biology} rather than a fact read off the reconstruction is marked as such --- those are the parts that need the circuit owner's signature before any result means anything.
-
+Working document for the \texttt{feat/oculomotor} branch. It records what the circuit is taken to be, what the network will be asked to compute, and how the training data is generated. 
 Source reconstruction: \texttt{Oculomotor\_sortedData\_081126.pkl}, 2949 cells, 42 cell types, 44,584 edges (density 0.51 \%). Selected sub-circuit: \texttt{config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml}, 285 cells, 8 types.
 
 \begin{figure}[H]\centering
@@ -44,7 +43,7 @@ Source reconstruction: \texttt{Oculomotor\_sortedData\_081126.pkl}, 2949 cells, 
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_1_oculomotor_overview.png}
-\caption*{\small \textbf{Figure 1 --- the oculomotor circuit.} Twin of Figure 1 of the zebrafish heading-direction paper, rendered through the same code with the content swapped. \textbf{(a)} All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. \textbf{(b)} The cell bodies alone, same view --- the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). \textbf{(c, d)} The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made --- that the E/I split is by projection laterality, not by anatomical position. \textbf{(e)} The computation of section 4 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with \texttt{python figures/zebrafish/fig\_1\_oculomotor\_overview.py}.}
+\caption*{\small \textbf{Figure 1 --- the oculomotor circuit.} \textbf{(a)} All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. \textbf{(b)} The cell bodies alone, same view --- the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). \textbf{(c, d)} The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made --- that the E/I split is by projection laterality, not by anatomical position. \textbf{(e)} The computation of section 4 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with \texttt{python figures/zebrafish/fig\_1\_oculomotor\_overview.py}.}
 \end{figure}
 
 \subsection*{1. The circuit}
@@ -53,7 +52,7 @@ Source reconstruction: \texttt{Oculomotor\_sortedData\_081126.pkl}, 2949 cells, 
 
 Anatomy for all 285 cells was fetched from neuprint-fish2 and is shown in Figure 1. It had to be keyed on bodyId rather than cell type: the server does not carry the reconstruction's type names --- \texttt{INTG\_ipsi\_m} is \texttt{INTGip1} there, \texttt{INTG\_contra\_m} is \texttt{INTGco1} --- and the two AF5 populations carry no type at all, so a type query returns 142 of 285 cells and drops the whole afferent stage. All 285 bodyIds resolve.
 
-The 285 cells divide into an input stage, a recurrent integrator and a motor output stage.
+The 285 cells divide into an input stage, a recurrent integrator and a motor output stage. Throughout, \textbf{the afferents} means the input stage and nothing else --- the 41 AF5 cells, the only ones the external drive reaches --- and section 1.2 shows that calling them afferent is a measurement rather than a label.
 
 \begin{center}\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}\toprule
