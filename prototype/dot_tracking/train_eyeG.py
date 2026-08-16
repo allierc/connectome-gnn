@@ -168,99 +168,95 @@ def _charac(eye_dir, name):
     return json.load(open(p)) if os.path.isfile(p) else []
 
 
-def fit_deep(eye_dir=EYE_DIR, pair_tol=0.20, verbose=True):
-    """The six-muscle eye, from the characterisation table in `<eye>/charac/`.
+PAIRS = [(i, j) for i in range(6) for j in range(i + 1, 6)]      # 15
 
-    Reads `holds.npz`, which `characterise_eye.py --collect` re-assembles over every
-    stage that has landed, so this works the moment stage 1 finishes and improves by
-    itself as stage 2 arrives — one file, always current:
 
-        muscles (6,)    the order every column is in
-        m       (n,6)   the command of each hold
-        pose    (n,3)   its settled (h, v, t) relative to rest, in degrees
-        settled (n,)    the peak-to-peak criterion; unsettled rows are EXCLUDED here
-                        rather than dropped upstream, so the fit says how many it used
+def quad_design(U):
+    """(n, 6) drives -> (n, 27): the six linear terms, six squares, fifteen crosses.
 
-    Marginals are `phi_m(u) = a u + b u^2` per axis, through the origin. Nothing is
-    constrained to be monotone: with genuinely settled holds the constraint is
-    unnecessary, and on eye C it capped a curvature the data needed. It is checked and
-    reported below instead.
+    The full quadratic, not an additive model with a few interactions bolted on. Eye
+    G's screen found 15 of 15 muscle pairs non-additive, residuals 0.09 to 1.03 deg
+    against a 0.20 tolerance and a 0.03 noise floor, which triggered the protocol's
+    own stop rule: an eye that far from additive needs a different sampling plan, not
+    a longer one. The 64-point Sobol sweep is that plan, and this is the model it
+    supports.
     """
-    hp = os.path.join(eye_dir, "charac", "holds.npz")
-    if not os.path.isfile(hp):
-        sys.exit(f"[deep] {hp} has not landed yet.\n"
-                 "       Stage 1 is 24 holds; assemble with\n"
-                 "         python characterise_eye.py archive/eye_G --collect\n"
-                 "       Until then, train against the light eye:  --fit light")
-    z = np.load(hp, allow_pickle=True)
-    muscles = [str(x) for x in z["muscles"]]
-    M = np.asarray(z["m"], np.float64)                      # (n, 6)
-    P = np.asarray(z["pose"], np.float64)                   # (n, 3)
-    ok = np.asarray(z["settled"], bool) if "settled" in z.files else np.ones(len(M), bool)
-    M, P = M[ok], P[ok]
-    nz = [np.nonzero(r > 1e-6)[0] for r in M]
+    U = np.atleast_2d(np.asarray(U, np.float64))
+    return np.concatenate(
+        [U, U ** 2, np.stack([U[:, i] * U[:, j] for i, j in PAIRS], -1)], -1)
+
+
+def fit_deep(eye_dir=EYE_DIR, verbose=True):
+    """The six-muscle eye: one joint quadratic per axis over every settled hold.
+
+    Reads every stage the characterisation has written -- 0, 1, 2a and the 6-D Sobol
+    sweep -- rather than `holds.npz`, which `--collect` assembles from stages 0/1/2a
+    only and so leaves the 64 Sobol rows out of the table.
+
+    Fitted JOINTLY on all of them. The earlier version of this function fitted the
+    marginals from single-muscle holds and then read each cross term off a pair
+    residual; that is the decomposition stage 2a rejected, and it also conditions
+    badly, since every cross term inherits the marginals' error.
+
+    Nothing is constrained to be monotone, and on this eye that matters: LR is
+    NEGATIVE at u = 0.10 and only turns over by 0.25. A monotone parameterisation
+    would be unable to express the plant's own low-drive behaviour. What follows from
+    it -- that the inverse is not unique down there -- is the controller's problem,
+    not the fit's, and it is reported below rather than hidden.
+    """
+    rows = []
+    for st in ("stage0.json", "stage1.json", "stage2a.json", "stage2b.json",
+               "stage6d.json"):
+        rows += [r for r in _charac(eye_dir, st) if r.get("settled")]
+    if len(rows) < 40:
+        sys.exit(f"[deep] only {len(rows)} settled holds under {eye_dir}/charac/.\n"
+                 "       The 6-D sweep is what this model needs; until it lands, "
+                 "train against the light eye:  --fit light")
+    # Stages 0-2a name only the muscles they drive; the Sobol sweep names all six.
+    # Scatter every row into the same 6-vector, with undriven muscles at 0 -- pose is
+    # recorded relative to the tonic rest pose, so 0 IS "this muscle adds nothing".
+    muscles = MUSCLES
+    idx = {m: k for k, m in enumerate(muscles)}
+    U = np.zeros((len(rows), 6))
+    for k, r in enumerate(rows):
+        for nm, lv in zip(r["muscles"], r["level"]):
+            U[k, idx[str(nm)]] = float(lv)
+    P = np.array([r["pose_deg"] for r in rows], float)
+    A = quad_design(U)
+    beta, *_ = np.linalg.lstsq(A, P, rcond=None)                 # (27, 3)
+    res = P - A @ beta
+    rms = np.sqrt((res ** 2).mean(0))
+    lin, *_ = np.linalg.lstsq(U, P, rcond=None)
+    rms_lin = np.sqrt(((P - U @ lin) ** 2).mean(0))
     if verbose:
-        print(f"  [deep] {int(ok.sum())} settled holds of {len(ok)}; muscle order "
-              f"{muscles}")
-
-    phi = np.zeros((6, 3, 2))
-    for mi, m in enumerate(muscles):
-        sel = [k for k, idx in enumerate(nz) if len(idx) == 1 and idx[0] == mi]
-        if len(sel) < 2:
-            sys.exit(f"[deep] muscle {m} has {len(sel)} settled single-muscle holds, "
-                     "need >= 2 — has stage 1 finished?")
-        u, Y = M[sel, mi], P[sel]
-        A = np.stack([u, u ** 2], -1)
-        phi[mi] = np.linalg.lstsq(A, Y, rcond=None)[0].T
-        if verbose:
-            g = phi[mi][:, 0] + 2 * phi[mi][:, 1]           # slope at u = 1
-            mono = "monotone" if np.sign(g[np.argmax(np.abs(phi[mi][:, 0]))]) == \
-                np.sign(phi[mi][np.argmax(np.abs(phi[mi][:, 0])), 0]) else "NON-MONOTONE"
-            print(f"  [phi] {m:3s} n={len(sel)}  a={np.round(phi[mi][:,0],2)}  "
-                  f"b={np.round(phi[mi][:,1],2)}  resid "
-                  f"{np.abs(Y - A @ phi[mi].T).max():.3f} deg  {mono}")
-
-    marg = lambda u: u @ phi[:, :, 0] + u ** 2 @ phi[:, :, 1]
-    pairs, coef, screened = [], [], 0
-    for k, idx in enumerate(nz):
-        if len(idx) != 2:
-            continue
-        screened += 1
-        resid = P[k] - marg(M[k])
-        if np.abs(resid).max() < pair_tol:
-            continue
-        pairs.append(sorted(idx.tolist()))
-        coef.append(resid / max(M[k, idx[0]] * M[k, idx[1]], 1e-6))
-    if pairs:
-        acc = {}
-        for pr, c in zip(pairs, coef):
-            acc.setdefault(tuple(pr), []).append(c)
-        pairs = [list(k) for k in acc]; coef = [np.mean(v, 0) for v in acc.values()]
-    if verbose:
-        print(f"  [pairs] {len(pairs)} of {screened} screened pairs interact above "
-              f"{pair_tol} deg"
-              + (f": {[(muscles[i], muscles[j]) for i, j in pairs]}" if pairs else ""))
-        if screened == 0:
-            print("  [pairs] stage 2 has not landed; the eye is additive by default, "
-                  "which is an assumption until the screen is run")
-
+        rng = P.max(0) - P.min(0)
+        print(f"  [quad] {len(rows)} settled holds, 27 coefficients per axis")
+        print(f"  [quad] rms  h {rms[0]:.3f}  v {rms[1]:.3f}  t {rms[2]:.3f} deg "
+              f"against ranges {np.round(rng, 1)}")
+        print(f"  [quad] linear-only leaves {np.round(rms_lin, 2)} deg -- the squares "
+              "and crosses are load-bearing")
+        # where the map folds: the drive at which a muscle's own slope changes sign
+        for mi, m in enumerate(muscles):
+            u = np.zeros((41, 6)); u[:, mi] = np.linspace(0, 1, 41)
+            y = quad_design(u) @ beta
+            d = np.diff(y[:, np.argmax(np.abs(y[-1]))])
+            if (d[0] * d[-1]) < 0:
+                turn = float(np.linspace(0, 1, 40)[np.argmax(np.sign(d) != np.sign(d[0]))])
+                print(f"  [quad] {m}: slope reverses at u = {turn:.2f} -- "
+                      "NOT invertible below it")
     traces = []
     for f in sorted(glob.glob(os.path.join(eye_dir, "charac", "runs", "*_curves.npz"))):
         z = np.load(f)
         if "act" not in z.files or "gaze" not in z.files:
             continue
-        traces.append((float(np.median(np.diff(z["t"]))), marg(np.asarray(z["act"], np.float64)),
+        traces.append((float(np.median(np.diff(z["t"]))),
+                       quad_design(np.asarray(z["act"], np.float64)) @ beta,
                        np.asarray(z["gaze"], np.float64)))
     if not traces:
         sys.exit("[deep] no charac/runs/*_curves.npz to fit the mechanics from")
-    if verbose:
-        print(f"  [mech] {len(traces)} recorded holds available; fitting on "
-              f"{min(8, len(traces))} of them")
-    C, K, rms = fit_mechanics(traces[:8], verbose=verbose)
-    return dict(kind="deep", act_names=list(muscles), phi=phi, C=C, K=K,
-                pairs=np.array(pairs, int).reshape(-1, 2),
-                pair_coef=np.array(coef).reshape(-1, 3), fit_rms_deg=rms,
-                n_holds=int(ok.sum()), n_pairs_screened=screened)
+    C, K, mrms = fit_mechanics(traces[:8], verbose=verbose)
+    return dict(kind="quad", act_names=list(muscles), beta=beta, C=C, K=K,
+                fit_rms_deg=mrms, static_rms_deg=rms.tolist(), n_holds=len(rows))
 
 
 class EyeG(nn.Module):
@@ -283,6 +279,10 @@ class EyeG(nn.Module):
             torch.eye(3, dtype=torch.float32) + float(dt) * f(spec["C"])))
         if self.kind == "light":
             self.register_buffer("A", f(spec["A"]))              # (4, 3)
+        elif self.kind == "quad":
+            self.register_buffer("beta", f(spec["beta"]))        # (27, 3)
+            self.register_buffer("pidx", torch.as_tensor(np.asarray(PAIRS),
+                                                         dtype=torch.long))
         else:
             self.register_buffer("phi", f(spec["phi"]))          # (6, 3, 2)
             self.register_buffer("pairs", torch.as_tensor(
@@ -297,6 +297,9 @@ class EyeG(nn.Module):
         """(B, T, n_act) drives -> (B, T, 3) the pose the eye would settle at."""
         if self.kind == "light":
             return m @ self.A
+        if self.kind == "quad":
+            cross = m[..., self.pidx[:, 0]] * m[..., self.pidx[:, 1]]
+            return torch.cat([m, m ** 2, cross], -1) @ self.beta
         x = torch.einsum("btm,ma->bta", m, self.phi[:, :, 0]) \
             + torch.einsum("btm,ma->bta", m ** 2, self.phi[:, :, 1])
         if len(self.pairs):

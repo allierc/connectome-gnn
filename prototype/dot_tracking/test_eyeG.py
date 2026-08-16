@@ -72,25 +72,36 @@ BG = "#000000"
 # ---------------------------------------------------------------------------
 # the test sequence
 # ---------------------------------------------------------------------------
-def sequence(duration, dt, seed=0, bound=0.95, tries=40):
-    """continue then stop_and_go, both middle speed, joined in velocity.
+# Four regimes back to back: fast first, because a controller that survives fast
+# smooth pursuit and fast stop-and-go and then meets the slower pair has been asked
+# the hard question first, and the two halves are directly comparable.
+PHASES = [("continue", "fast"), ("stop_and_go", "fast"),
+          ("continue", "middle"), ("stop_and_go", "middle")]
+
+
+def sequence(duration, dt, seed=0, bound=0.95, tries=200):
+    """The four regimes of PHASES, joined in VELOCITY.
+
+    Joining velocities rather than positions means the target never jumps at a
+    boundary and the circuit's state carries across, so each transition is a real
+    test: the same controller meeting a regime it has not been in for `duration`.
 
     Retries the seed until the integrated target stays inside the arena, rather than
     clipping it: clipping would distort the velocity, which is the only thing the
     circuit is given, and a distorted input is not the regime we mean to test.
     """
     for k in range(tries):
-        parts = [generate(shape="curve", motion=m, speed="middle", angle="low",
+        parts = [generate(shape="curve", motion=mo, speed=sp, angle="low",
                           duration=duration, dt=dt, seed=seed + 1000 * k + i,
                           start="center")
-                 for i, m in enumerate(("continue", "stop_and_go"))]
+                 for i, (mo, sp) in enumerate(PHASES)]
         v = np.concatenate([np.stack([np.gradient(np.asarray(p["x"]), dt),
                                       np.gradient(np.asarray(p["y"]), dt)], -1)
                             for p in parts], 0).astype(np.float32)
         xy = np.cumsum(v, 0) * dt
         if np.abs(xy).max() <= bound:
             n = len(parts[0]["x"])
-            return v, xy.astype(np.float32), n
+            return v, xy.astype(np.float32), [n * (i + 1) for i in range(len(PHASES) - 1)]
     raise SystemExit(f"[seq] no seed within {tries} kept the target inside "
                      f"+-{bound}; lower --duration or raise the bound")
 
@@ -311,15 +322,21 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     lim_h, lim_v = reach[0] * 1.15, reach[1] * 1.15
     ax_w.set_xlim(-lim_h, lim_h); ax_w.set_ylim(-lim_v, lim_v)
     ax_w.set_aspect("equal")
-    ax_w.axhline(0, color="#222", lw=0.8); ax_w.axvline(0, color="#222", lw=0.8)
+    ax_w.axhline(0, color="#555", lw=0.8); ax_w.axvline(0, color="#555", lw=0.8)
     ax_w.add_patch(plt.Rectangle((-reach[0], -reach[1]), 2 * reach[0], 2 * reach[1],
-                                 fill=False, ec="#5a5a2a", ls=":", lw=1.0))
+                                 fill=False, ec="#ffffff", ls=":", lw=1.0,
+                                 alpha=0.45))
     ax_w.text(-reach[0], reach[1] * 1.03, f"eye reach  ±{reach[0]:.1f}° h / "
-              f"±{reach[1]:.1f}° v", color="#ffffff", fontsize=10, va="bottom",
-              alpha=0.55)
+              f"±{reach[1]:.1f}° v", color="#ffffff", fontsize=10, va="bottom")
     for s in ax_w.spines.values():
         s.set_color("#444")
     ax_w.tick_params(colors="#ffffff", labelsize=12)
+    from matplotlib.ticker import MultipleLocator, FuncFormatter
+    step = 2.0 if lim_h < 12 else 5.0
+    ax_w.xaxis.set_major_locator(MultipleLocator(step))
+    ax_w.yaxis.set_major_locator(MultipleLocator(step))
+    deg = FuncFormatter(lambda t, _: f"{t:.0f}°")
+    ax_w.xaxis.set_major_formatter(deg); ax_w.yaxis.set_major_formatter(deg)
     ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#ffffff", fontsize=13)
     ax_w.set_ylabel("φ  vertical gaze (deg)", color="#ffffff", fontsize=13)
     # The right panel looks AT the eye, so its left is the eye's right. Mirroring
@@ -464,7 +481,9 @@ def main():
           f"reach {reach[0]:.1f}/{reach[1]:.1f} deg")
 
     # --- run -------------------------------------------------------------
-    v, xy, n_split = sequence(a.duration, a.dt, seed=a.seed)
+    v, xy, cuts = sequence(a.duration, a.dt, seed=a.seed)
+    bounds = [0] + list(cuts) + [len(v)]
+    labels = [f"{mo.replace('_', '-')}  {sp}" for mo, sp in PHASES]
     tgt = xy * scale                                        # target, in degrees
     with torch.no_grad():
         u = torch.tensor(v[None])
@@ -472,9 +491,11 @@ def main():
         cmd = eye.equilibrium(m)                            # the red trace
     x = x[0].numpy(); m = m[0].numpy(); R = R[0].numpy(); cmd = cmd[0].numpy()
     err = np.linalg.norm(x[:, :2] - tgt, axis=-1)
-    print(f"[test] |err| mean {err.mean():.2f} deg   "
-          f"first half {err[:n_split].mean():.2f}   second {err[n_split:].mean():.2f}   "
-          f"mean |torsion| {np.abs(x[:, 2]).mean():.2f} deg")
+    per = [float(err[bounds[i]:bounds[i + 1]].mean()) for i in range(len(labels))]
+    print(f"[test] |err| mean {err.mean():.2f} deg   mean |torsion| "
+          f"{np.abs(x[:, 2]).mean():.2f} deg")
+    for lb, e in zip(labels, per):
+        print(f"         {lb:22s} {e:.3f} deg")
 
     if a.emit_spec:
         emit_spec(m, a.dt, a.tag, a.eye_dir)
@@ -526,7 +547,7 @@ def main():
         if not isinstance(view, SurfaceView):
             art["txt_ang"].set_text(f"θ {x[k,0]:+6.2f}   φ {x[k,1]:+6.2f}   "
                                     f"ψ {x[k,2]:+6.2f}  deg")
-        art["phase"].set_text("continue" if k < n_split else "stop-and-go")
+        art["phase"].set_text(labels[max(0, int(np.searchsorted(cuts, k, "right")))])
         fig.canvas.draw()
         w.append_data(np.asarray(fig.canvas.buffer_rgba())[..., :3].copy())
     w.close(); plt.close(fig)
@@ -535,8 +556,7 @@ def main():
     rep = out.replace(".mp4", ".json")
     json.dump({"tag": a.tag, "kind": eye.kind, "n_act": eye.n_act,
                "err_mean_deg": float(err.mean()),
-               "err_continue_deg": float(err[:n_split].mean()),
-               "err_stop_and_go_deg": float(err[n_split:].mean()),
+               "err_by_phase_deg": dict(zip(labels, per)),
                "mean_abs_torsion_deg": float(np.abs(x[:, 2]).mean()),
                "reach_deg": [float(r) for r in reach],
                "duration_per_half_s": a.duration, "seed": a.seed},
