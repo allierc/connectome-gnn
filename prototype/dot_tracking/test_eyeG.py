@@ -693,6 +693,13 @@ def main():
     w.close(); plt.close(fig)
     if view is not None:
         view.close()
+    # keep the traces: the movie is the only record otherwise, and a figure of
+    # these curves cannot be made from an mp4
+    np.savez_compressed(out.replace(".mp4", ".npz"),
+                        t=np.arange(len(x)) * a.dt, target=tgt, command=cmd,
+                        gaze=x, drives=m, cuts=np.asarray(cuts),
+                        labels=np.array(labels, dtype=object),
+                        reach=np.asarray(reach), scale=scale, dt=a.dt)
     rep = out.replace(".mp4", ".json")
     json.dump({"tag": a.tag, "kind": eye.kind, "n_act": eye.n_act,
                "err_mean_deg": float(err.mean()),
