@@ -33,18 +33,52 @@
 \maketitle
 \section*{The larval zebrafish oculomotor integrator: circuit, task, and training}
 
-Working document for the \texttt{feat/oculomotor} branch. It records what the circuit is taken to be, what the network will be asked to compute, and how the training data is generated. 
-Figure~\ref{fig:connectome} is the source reconstruction and the sub-circuit taken from it. Source reconstruction: \texttt{Oculomotor\_sortedData\_081126.pkl}, 2949 cells, 42 cell types, 44,584 edges (density 0.51 \%). Selected sub-circuit: \texttt{config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml}, 285 cells, 8 types.
+Working document for the \texttt{feat/oculomotor} branch. It records what the circuit is
+taken to be, what the network will be asked to compute, and how the training data is
+generated.
+Figure~\ref{fig:connectome} is the source reconstruction and the sub-circuit taken from it.
+Source reconstruction: \texttt{Oculomotor\_sortedData\_081126.pkl}, 2949 cells, 42 cell
+types, 44,584 edges (density 0.51 \%). Selected sub-circuit:
+\texttt{config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml}, 285 cells, 8 types.
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_oculomotor_circuit.png}
-\caption{\small \textbf{The oculomotor reconstruction and the sub-circuit modelled here.} (a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then output, and within a type left hemisphere before right. Colour carries the biology: blue = afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink = motor output. (c) The same sub-circuit signed by the Dale assignment of section 1.4 --- each synapse coloured by the sign of its \emph{presynaptic} cell, blue excitatory, red inhibitory, shade log-scaled in synaptic area. This is what the model multiplies, $\hat W_{ij} = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})$, and the support mask of (b) cannot show it. Because the sign belongs to the column, the panel reads as vertical bands: the two \texttt{INTG\_contra} types are a solid red block, and it is visibly the only inhibition the 285 cells contain. Rows are postsynaptic, columns presynaptic in all three. Regenerate with \texttt{python scripts/plot\_oculomotor\_connectome.py --config config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml --out figures/zebrafish/fig\_oculomotor\_circuit.png}.}
+\caption{\small \textbf{The oculomotor reconstruction and the sub-circuit modelled here.}
+(a) All 2949 cells, ordered by the 16 coarse cell-type families, support mask of the
+synapse-area matrix. (b) The 285-cell sub-circuit, ordered afferent then recurrent then
+output, and within a type left hemisphere before right. Colour carries the biology: blue =
+afferent, green = excitatory recurrent, red/orange = inhibitory recurrent, purple/pink =
+motor output. (c) The same sub-circuit signed by the Dale assignment of section 1.4 --- each
+synapse coloured by the sign of its \emph{presynaptic} cell, blue excitatory, red
+inhibitory, shade log-scaled in synaptic area. This is what the model multiplies, $\hat
+W_{ij} = |\hat S_{ij}|\,\mathrm{sign}(W^{\mathrm{con}}_{ij})$, and the support mask of (b)
+cannot show it. Because the sign belongs to the column, the panel reads as vertical bands:
+the two \texttt{INTG\_contra} types are a solid red block, and it is visibly the only
+inhibition the 285 cells contain. Rows are postsynaptic, columns presynaptic in all three.
+Regenerate with \texttt{python scripts/plot\_oculomotor\_connectome.py --config
+config/zebrafish/zebrafish\_om\_intg\_285\_v1.yaml --out
+figures/zebrafish/fig\_oculomotor\_circuit.png}.}
 \label{fig:connectome}
 \end{figure}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_1_oculomotor_overview.png}
-\caption{\small \textbf{The oculomotor circuit.} \textbf{(a)} All 285 skeletons from the neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue, ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN pink. \textbf{(b)} The cell bodies alone, same view --- the AF5 somas sit well anterior of the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement). \textbf{(c, d)} The same skeletons and somas recoloured by Dale sign: blue excitatory (233 cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral integrator of section 1.4, and the two rows together are the claim being made --- that the E/I split is by projection laterality, not by anatomical position. \textbf{(e)} The computation of section 4 end to end: the target velocity $(\dot x,\dot y)$ enters through $\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked continuous-time rate dynamics with mutual inhibition across the midline, $\hat W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences $u_\theta,u_\varphi$ drive the eye to the gaze angles $(\theta,\varphi)$. LR and MR have a pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out. Regenerate with \texttt{python figures/zebrafish/fig\_1\_oculomotor\_overview.py}.}
+\caption{\small \textbf{The oculomotor circuit.} \textbf{(a)} All 285 skeletons from the
+neuprint-fish2 reconstruction, dorsal view, coloured by role: AF5 afferents blue,
+ipsilateral (excitatory) INTG green, contralateral (inhibitory) INTG red, AMN purple, AIN
+pink. \textbf{(b)} The cell bodies alone, same view --- the AF5 somas sit well anterior of
+the integrator/motor cluster (radii scaled x0.3 for legibility, not a measurement).
+\textbf{(c, d)} The same skeletons and somas recoloured by Dale sign: blue excitatory (233
+cells), red inhibitory (52 cells). The inhibitory population is exactly the contralateral
+integrator of section 1.4, and the two rows together are the claim being made --- that the
+E/I split is by projection laterality, not by anatomical position. \textbf{(e)} The
+computation of section 4 end to end: the target velocity $(\dot x,\dot y)$ enters through
+$\hat W^{\mathrm{in}}$ on the AF5 afferents, the INTG pool integrates under sign-locked
+continuous-time rate dynamics with mutual inhibition across the midline, $\hat
+W^{\mathrm{out}}$ reads non-negative motor drives, and the push-pull differences
+$u_\theta,u_\varphi$ drive the eye to the gaze angles $(\theta,\varphi)$. LR and MR have a
+pool in these 285 cells; SR and IR would come from OMN, which section 1.5 leaves out.
+Regenerate with \texttt{python figures/zebrafish/fig\_1\_oculomotor\_overview.py}.}
 \label{fig:circuit}
 \end{figure}
 
@@ -52,9 +86,17 @@ Figure~\ref{fig:connectome} is the source reconstruction and the sub-circuit tak
 
 \subsubsection*{1.1 Three pools}
 
-Anatomy for all 285 cells was fetched from neuprint-fish2 and is shown in Figure~\ref{fig:circuit}. It had to be keyed on bodyId rather than cell type: the server does not carry the reconstruction's type names --- \texttt{INTG\_ipsi\_m} is \texttt{INTGip1} there, \texttt{INTG\_contra\_m} is \texttt{INTGco1} --- and the two AF5 populations carry no type at all, so a type query returns 142 of 285 cells and drops the whole afferent stage. All 285 bodyIds resolve.
+Anatomy for all 285 cells was fetched from neuprint-fish2 and is shown in
+Figure~\ref{fig:circuit}. It had to be keyed on bodyId rather than cell type: the server
+does not carry the reconstruction's type names --- \texttt{INTG\_ipsi\_m} is
+\texttt{INTGip1} there, \texttt{INTG\_contra\_m} is \texttt{INTGco1} --- and the two AF5
+populations carry no type at all, so a type query returns 142 of 285 cells and drops the
+whole afferent stage. All 285 bodyIds resolve.
 
-The 285 cells divide into an input stage, a recurrent integrator and a motor output stage. Throughout, \textbf{the afferents} means the input stage and nothing else --- the 41 AF5 cells, the only ones the external drive reaches --- and section 1.2 shows that calling them afferent is a measurement rather than a label.
+The 285 cells divide into an input stage, a recurrent integrator and a motor output stage.
+Throughout, \textbf{the afferents} means the input stage and nothing else --- the 41 AF5
+cells, the only ones the external drive reaches --- and section 1.2 shows that calling them
+afferent is a measurement rather than a label.
 
 \begin{center}\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}\toprule
@@ -64,54 +106,116 @@ recurrent & \texttt{INTG\_ipsi\_m} (38), \texttt{INTG\_ipsi\_i} (27), \texttt{IN
 output & \texttt{AMN} (92), \texttt{AIN} (35) & 127 & excitatory \\
 \bottomrule\end{tabularx}\end{center}
 
-Within the sub-circuit there are 5013 edges, a density of 6.2 \% --- an order of magnitude above the 0.51 \% of the full reconstruction. That concentration is what one expects of a recurrent integrator core plus its dedicated input and output stages, and it is the first (weak) evidence that the selection is a circuit rather than an arbitrary subset.
+Within the sub-circuit there are 5013 edges, a density of 6.2 \% --- an order of magnitude
+above the 0.51 \% of the full reconstruction. That concentration is what one expects of a
+recurrent integrator core plus its dedicated input and output stages, and it is the first
+(weak) evidence that the selection is a circuit rather than an arbitrary subset.
 
 \subsubsection*{1.2 AF5 is an afferent, and the wiring says so}
 
-The two AF5 populations are the pretectal arborization field that carries optokinetic drive. Their afferent status is not assumed. In the measured matrix, AF5 sends 88.2 \% of its outgoing synaptic area into the INTG/AMN/AIN core and receives 1/178th as much back (6.89e5 out against 3.87e3 in). This is the same asymmetry test that confirmed the matrix orientation using the retinal ganglion cells, which are 15.4x more outgoing than incoming.
+The two AF5 populations are the pretectal arborization field that carries optokinetic drive.
+Their afferent status is not assumed. In the measured matrix, AF5 sends 88.2 \% of its
+outgoing synaptic area into the INTG/AMN/AIN core and receives 1/178th as much back (6.89e5
+out against 3.87e3 in). This is the same asymmetry test that confirmed the matrix
+orientation using the retinal ganglion cells, which are 15.4x more outgoing than incoming.
 
-Both AF5 types are left/right balanced --- \texttt{AF5\_ipsi} 15 L / 14 R, \texttt{AF5\_contra} 6 L / 6 R --- so a bilateral input gate is expressible. This is worth stating because it is not generally true in this dataset: \texttt{RGC\_AF7} is reconstructed in the left hemisphere only (804 L / 0 R) and could not support a symmetric gate.
+Both AF5 types are left/right balanced --- \texttt{AF5\_ipsi} 15 L / 14 R,
+\texttt{AF5\_contra} 6 L / 6 R --- so a bilateral input gate is expressible. This is worth
+stating because it is not generally true in this dataset: \texttt{RGC\_AF7} is reconstructed
+in the left hemisphere only (804 L / 0 R) and could not support a symmetric gate.
 
 \subsubsection*{1.3 What drives the afferents --- claim, and an open one}
 
-The direction selectivity below is the circuit owner's description, not a measurement in this file. The combination rule is explicitly unresolved.
+The direction selectivity below is the circuit owner's description, not a measurement in
+this file. The combination rule is explicitly unresolved.
 
 \begin{itemize}\setlength{\itemsep}{1pt}
-  \item \textbf{\texttt{AF5\_ipsi}} --- the left pool is driven by rightward-eye motion that is leftward and/or forward; the right pool by leftward-eye motion that is rightward and/or forward.
-  \item \textbf{\texttt{AF5\_contra}} --- the left pool is driven by rightward-eye motion that is rightward and/or backward; the right pool by leftward-eye motion that is leftward and/or backward.
+\item \textbf{\texttt{AF5\_ipsi}} --- the left pool is driven by rightward-eye motion that
+is leftward and/or forward; the right pool by leftward-eye motion that is rightward and/or
+forward.
+\item \textbf{\texttt{AF5\_contra}} --- the left pool is driven by rightward-eye motion that
+is rightward and/or backward; the right pool by leftward-eye motion that is leftward and/or
+backward.
 \end{itemize}
 
-Whether the two conditions combine as AND, OR or XOR is \textbf{not known}. This is not a detail to be settled by a default: it decides whether a single afferent unit reports a conjunction (a narrow direction tuning) or a disjunction (a broad one), and therefore how much of the direction computation the recurrent circuit has to do itself. Until it is resolved, the input model should carry it as an explicit switch and the three variants should be trained and compared.
+Whether the two conditions combine as AND, OR or XOR is \textbf{not known}. This is not a
+detail to be settled by a default: it decides whether a single afferent unit reports a
+conjunction (a narrow direction tuning) or a disjunction (a broad one), and therefore how
+much of the direction computation the recurrent circuit has to do itself. Until it is
+resolved, the input model should carry it as an explicit switch and the three variants
+should be trained and compared.
 
 \subsubsection*{1.4 The integrator, and why the E/I split is by laterality}
 
-The four INTG types are the velocity-to-angle integrator. The sign assignment follows their projection laterality: \textbf{ipsilateral projections excitatory, contralateral projections inhibitory}. That is the classical integrator motif --- two half-integrators, one per hemisphere, each self-exciting locally and inhibiting its opposite number across the midline. Mutual inhibition is what lets the pair hold a \emph{signed} eye angle on a single positive-rate substrate. Panels (c) and (d) of Figure~\ref{fig:circuit} plot the assignment on the anatomy --- blue excitatory, red inhibitory --- and what they show is that it is not readable from position: the 52 inhibitory cells are interdigitated with the 233 excitatory ones in the same hindbrain column, which is why the split has to be asserted per cell type rather than inferred from where a soma sits.
+The four INTG types are the velocity-to-angle integrator. The sign assignment follows their
+projection laterality: \textbf{ipsilateral projections excitatory, contralateral projections
+inhibitory}. That is the classical integrator motif --- two half-integrators, one per
+hemisphere, each self-exciting locally and inhibiting its opposite number across the
+midline. Mutual inhibition is what lets the pair hold a \emph{signed} eye angle on a single
+positive-rate substrate. Panels (c) and (d) of Figure~\ref{fig:circuit} plot the assignment
+on the anatomy --- blue excitatory, red inhibitory --- and what they show is that it is not
+readable from position: the 52 inhibitory cells are interdigitated with the 233 excitatory
+ones in the same hindbrain column, which is why the split has to be asserted per cell type
+rather than inferred from where a soma sits.
 
-This is a Dale assignment by cell type, exactly as in the heading-direction circuit, where \texttt{\_ZHD\_INH\_PREFIXES} in \texttt{connectome\_loaders.py} encodes the claim that the r1pi/dIPN cells are GABAergic. Neither is a measurement. The difference is that here the claim is written in the config, per type, where it can be reviewed and flipped, rather than in a tuple of string prefixes inside a loader.
+This is a Dale assignment by cell type, exactly as in the heading-direction circuit, where
+\texttt{\_ZHD\_INH\_PREFIXES} in \texttt{connectome\_loaders.py} encodes the claim that the
+r1pi/dIPN cells are GABAergic. Neither is a measurement. The difference is that here the
+claim is written in the config, per type, where it can be reviewed and flipped, rather than
+in a tuple of string prefixes inside a loader.
 
 \subsubsection*{1.5 The output stage, and what it cannot reach}
 
-Throughout, \textbf{the eye} means everything downstream of the last neuron --- the globe, its six muscles, the orbital tissue and their mechanics. What matters is the boundary rather than the word: the circuit's output is a set of muscle drives, the eye turns them into angles, and the eye is measured and frozen while the circuit is learned. The engineering literature, and several of the sources cited later, call this the \emph{plant}; it is the same thing. Section 4.2 identifies it.
+Throughout, \textbf{the eye} means everything downstream of the last neuron --- the globe,
+its six muscles, the orbital tissue and their mechanics. What matters is the boundary rather
+than the word: the circuit's output is a set of muscle drives, the eye turns them into
+angles, and the eye is measured and frozen while the circuit is learned. The engineering
+literature, and several of the sources cited later, call this the \emph{plant}; it is the
+same thing. Section 4.2 identifies it.
 
-The eye takes \textbf{six} drives and returns \textbf{three} angles --- horizontal, vertical and torsion, recovered from the material points by a Kabsch fit (\texttt{eye\_pose}) --- so the readout of step 5 has six rows. The 285 cells fill two of them:
+The eye takes \textbf{six} drives and returns \textbf{three} angles --- horizontal, vertical
+and torsion, recovered from the material points by a Kabsch fit (\texttt{eye\_pose}) --- so
+the readout of step 5 has six rows. The 285 cells fill two of them:
 
 \begin{itemize}\setlength{\itemsep}{1pt}
-  \item \texttt{AMN} (92 cells) drives the \textbf{lateral rectus} (\texttt{LR}), which abducts the eye;
-  \item \texttt{AIN} (35 cells) drives the \textbf{medial rectus} (\texttt{MR}), which adducts it.
+\item \texttt{AMN} (92 cells) drives the \textbf{lateral rectus} (\texttt{LR}), which
+abducts the eye;
+\item \texttt{AIN} (35 cells) drives the \textbf{medial rectus} (\texttt{MR}), which adducts
+it.
 \end{itemize}
 
-\textbf{The other four rows have no source in this pool.} SR, IR, SO and IO are innervated by the oculomotor nucleus \texttt{OMN}, 207 cells in this reconstruction and not in the selection (section 1.6). This is a gap between the circuit and the eye rather than a limitation of either: the eye is fully six-muscle and the model of section 4 drives it as such, but a circuit built only from these 285 cells can command a strict subset of what the eye can do. Every trained controller in section 5 therefore stands in for the missing rows --- it emits all six drives from a free recurrent network --- and closing that gap means adding \texttt{OMN} to \texttt{circuit.cell\_types}.
+\textbf{The other four rows have no source in this pool.} SR, IR, SO and IO are innervated
+by the oculomotor nucleus \texttt{OMN}, 207 cells in this reconstruction and not in the
+selection (section 1.6). This is a gap between the circuit and the eye rather than a
+limitation of either: the eye is fully six-muscle and the model of section 4 drives it as
+such, but a circuit built only from these 285 cells can command a strict subset of what the
+eye can do. Every trained controller in section 5 therefore stands in for the missing rows
+--- it emits all six drives from a free recurrent network --- and closing that gap means
+adding \texttt{OMN} to \texttt{circuit.cell\_types}.
 
-Which four are missing matters. On eye G the two obliques are the torsion pair, SO reaching $+8.7^{\circ}$ of torsion against $4.0$ of vertical and IO $-8.2$ against $2.9$, so the muscles the pool cannot reach are exactly the ones that set $\psi$. A circuit restricted to AMN and AIN cannot control torsion at all; it can only avoid provoking it.
+Which four are missing matters. On eye G the two obliques are the torsion pair, SO reaching
+$+8.7^{\circ}$ of torsion against $4.0$ of vertical and IO $-8.2$ against $2.9$, so the
+muscles the pool cannot reach are exactly the ones that set $\psi$. A circuit restricted to
+AMN and AIN cannot control torsion at all; it can only avoid provoking it.
 
-\textbf{A second simplification, in the two rows we do have.} \texttt{AIN} are abducens \emph{internuclear} neurons. In vivo they are not motor neurons: they project across the midline to \texttt{OMN}, whose motor neurons innervate the medial rectus. Treating \texttt{AIN} as driving MR therefore collapses a two-synapse pathway into one and drops the sign inversion and delay the missing synapse would contribute. That is a legitimate modelling choice, but it should be stated in any write-up, and the control is the same one: add \texttt{OMN} and check whether the fitted dynamics change.
+\textbf{A second simplification, in the two rows we do have.} \texttt{AIN} are abducens
+\emph{internuclear} neurons. In vivo they are not motor neurons: they project across the
+midline to \texttt{OMN}, whose motor neurons innervate the medial rectus. Treating
+\texttt{AIN} as driving MR therefore collapses a two-synapse pathway into one and drops the
+sign inversion and delay the missing synapse would contribute. That is a legitimate
+modelling choice, but it should be stated in any write-up, and the control is the same one:
+add \texttt{OMN} and check whether the fitted dynamics change.
 
 \subsubsection*{1.6 What is not in the pool}
 
 Two omissions are deliberate and one of them constrains the task:
 
 \begin{itemize}\setlength{\itemsep}{1pt}
-  \item \textbf{\texttt{Burst\_T1A/T1B/T8/T9/T10}} (74 cells) are the saccadic burst generators --- the source of the brief velocity command that a saccadic integrator integrates. They are excluded, so in the current pool the only anatomically defined input is the optokinetic AF5 drive. A saccade-driven task would have to inject velocity directly into INTG, which is a modelling choice, not a connectome-derived pathway.
+\item \textbf{\texttt{Burst\_T1A/T1B/T8/T9/T10}} (74 cells) are the saccadic burst
+generators --- the source of the brief velocity command that a saccadic integrator
+integrates. They are excluded, so in the current pool the only anatomically defined input is
+the optokinetic AF5 drive. A saccade-driven task would have to inject velocity directly into
+INTG, which is a modelling choice, not a connectome-derived pathway.
   \item \textbf{\texttt{OMN}} (207 cells), as described in \S{}1.5.
 \end{itemize}
 
@@ -119,7 +223,10 @@ Two omissions are deliberate and one of them constrains the task:
 
 \subsubsection*{2.1 What the network computes}
 
-The oculomotor integrator converts an eye-\textbf{velocity} command into an eye-\textbf{angle} command: the motor neurons must hold a rate proportional to the angle long after the velocity signal has gone. Written as the leaky integral of the drive, per axis,
+The oculomotor integrator converts an eye-\textbf{velocity} command into an
+eye-\textbf{angle} command: the motor neurons must hold a rate proportional to the angle
+long after the velocity signal has gone. Written as the leaky integral of the drive, per
+axis,
 
 \begin{equation}
 \label{eq:leaky-integral}
@@ -128,24 +235,48 @@ The oculomotor integrator converts an eye-\textbf{velocity} command into an eye-
 \frac{d\varphi}{dt} = -\frac{\varphi}{\tau} + s_\varphi\,\dot y(t)
 \end{equation}
 
-where $(\theta,\varphi)$ are the horizontal and vertical eye angles and $(\dot x,\dot y)$ the target velocity --- the notation of section 4, in which $v$ is reserved for membrane voltage. The quantity of interest is $\tau$, the time constant over which the eye angle leaks back to centre. A perfect integrator is $\tau = \infty$; the biological integrator is finite, and measuring what $\tau$ the connectome-constrained circuit can support is the point of the exercise.
+where $(\theta,\varphi)$ are the horizontal and vertical eye angles and $(\dot x,\dot y)$
+the target velocity --- the notation of section 4, in which $v$ is reserved for membrane
+voltage. The quantity of interest is $\tau$, the time constant over which the eye angle
+leaks back to centre. A perfect integrator is $\tau = \infty$; the biological integrator is
+finite, and measuring what $\tau$ the connectome-constrained circuit can support is the
+point of the exercise.
 
 \subsubsection*{2.2 Saccades versus optokinetic drive}
 
 The two natural stimulus regimes differ, and the choice interacts with \S{}1.6:
 
 \begin{itemize}\setlength{\itemsep}{1pt}
-  \item \textbf{Optokinetic}: sustained whole-field motion, the drive AF5 actually carries. Slow, continuous velocity --- the regime the selected pool supports anatomically.
-  \item \textbf{Saccadic}: brief high-velocity pulses separated by fixations, the classical integrator probe. This is the regime the burst generators serve, and they are not in the pool.
+\item \textbf{Optokinetic}: sustained whole-field motion, the drive AF5 actually carries.
+Slow, continuous velocity --- the regime the selected pool supports anatomically.
+\item \textbf{Saccadic}: brief high-velocity pulses separated by fixations, the classical
+integrator probe. This is the regime the burst generators serve, and they are not in the
+pool.
 \end{itemize}
 
-The swim generator's stimulus is a Poisson train of boxcar impulses (\texttt{swim\_rate\_hz}, \texttt{swim\_duration\_s}) --- structurally a saccade train already. So the saccadic regime is reachable by reparameterising the existing generator rather than writing a new one; what is missing is anatomy for the input, not code.
+The swim generator's stimulus is a Poisson train of boxcar impulses
+(\texttt{swim\_rate\_hz}, \texttt{swim\_duration\_s}) --- structurally a saccade train
+already. So the saccadic regime is reachable by reparameterising the existing generator
+rather than writing a new one; what is missing is anatomy for the input, not code.
 
 \subsubsection*{2.3 The open-loop problem}
 
-Coarsely: the circuit is asked to keep a moving target centred on the fovea while being told only how fast the target is moving, never where it is. That is the situation the anatomy puts it in. AF5 is a motion-sensitive arborization field --- it reports optokinetic \emph{velocity} --- and nothing in the selected 285-cell pool reports where the target actually is. A controller with position feedback can always correct, so its errors do not accumulate; a controller given velocity alone must reconstruct the angle by integration and has nothing to check the result against. Drift is therefore not a failure of the circuit but a property of the problem, and the meaningful question is not whether the target is held but for how long.
+Coarsely: the circuit is asked to keep a moving target centred on the fovea while being told
+only how fast the target is moving, never where it is. That is the situation the anatomy
+puts it in. AF5 is a motion-sensitive arborization field --- it reports optokinetic
+\emph{velocity} --- and nothing in the selected 285-cell pool reports where the target
+actually is. A controller with position feedback can always correct, so its errors do not
+accumulate; a controller given velocity alone must reconstruct the angle by integration and
+has nothing to check the result against. Drift is therefore not a failure of the circuit but
+a property of the problem, and the meaningful question is not whether the target is held but
+for how long.
 
-More specifically, take the horizontal axis and write the target eccentricity $\theta^{\star}(t)$, the gaze $\theta(t)$, and the retinal error $\varepsilon = \theta^{\star} - \theta$; the vertical axis is the same with $\varphi$. Every trial starts foveated at the centre, $\theta(0)=\theta^{\star}(0)=0$. The eye here is idealised as rate control: the motor command sets gaze \emph{velocity}, so gaze angle is its integral. The ideal controller is then
+More specifically, take the horizontal axis and write the target eccentricity
+$\theta^{\star}(t)$, the gaze $\theta(t)$, and the retinal error $\varepsilon =
+\theta^{\star} - \theta$; the vertical axis is the same with $\varphi$. Every trial starts
+foveated at the centre, $\theta(0)=\theta^{\star}(0)=0$. The eye here is idealised as rate
+control: the motor command sets gaze \emph{velocity}, so gaze angle is its integral. The
+ideal controller is then
 
 \begin{equation}
 \label{eq:ideal-tracking}
@@ -154,7 +285,9 @@ More specifically, take the horizontal axis and write the target eccentricity $\
 \varepsilon(t) = 0 \ \ \forall\, t
 \end{equation}
 
-and tracking is exact. The interesting cases are the three ways a biological integrator departs from it, each of which produces a different growth law for $|\varepsilon|$ --- which is what makes them separable from a single measured trace.
+and tracking is exact. The interesting cases are the three ways a biological integrator
+departs from it, each of which produces a different growth law for $|\varepsilon|$ --- which
+is what makes them separable from a single measured trace.
 
 \textbf{Gain.} If the velocity-to-angle conversion is miscalibrated by a factor $k$,
 
@@ -165,18 +298,32 @@ and tracking is exact. The interesting cases are the three ways a biological int
 \varepsilon(t) = (1-k)\,\big[\theta^{\star}(t)-\theta^{\star}(0)\big]
 \end{equation}
 
-The error is proportional to the \emph{displacement} from the start, not to the distance travelled, because integration is linear. In a bounded workspace displacement is capped by the arena, so this error is self-limiting: in our geometry the target reaches a median 1.16 arena units from the centre, and $|1-k|$ must exceed 0.52 before the target can leave a 0.6-unit fovea at all. A realistic miscalibration of a few percent is invisible. Gain is not what loses the target.
+The error is proportional to the \emph{displacement} from the start, not to the distance
+travelled, because integration is linear. In a bounded workspace displacement is capped by
+the arena, so this error is self-limiting: in our geometry the target reaches a median 1.16
+arena units from the centre, and $|1-k|$ must exceed 0.52 before the target can leave a
+0.6-unit fovea at all. A realistic miscalibration of a few percent is invisible. Gain is not
+what loses the target.
 
-\textbf{Leak.} A real integrator is imperfect and relaxes toward its rest state with a time constant $\tau$:
+\textbf{Leak.} A real integrator is imperfect and relaxes toward its rest state with a time
+constant $\tau$:
 
 \begin{equation}
 \label{eq:leak-error}
 \frac{d\theta}{dt} = -\frac{\theta}{\tau} + \dot\theta^{\star}(t)
 \end{equation}
 
-In the frequency domain this is a \emph{high-pass} on target eccentricity, corner frequency $1/\tau$. Sustained excursions are under-represented, so the error saturates rather than growing without bound, and gaze is a shrunken, centre-biased copy of the truth. The counterintuitive consequence is that \emph{slow} targets are lost first, because their motion is exactly the low-frequency content the leak removes. Measured: at $\tau = 2$ s a fast target is never lost within 20 s while a slow one goes at 5.9 s, and the slow case needs $\tau \geq 8$ s to survive. $\tau$ is the quantity the INTG pool exists to make long, and this is the curve that says how long is long enough.
+In the frequency domain this is a \emph{high-pass} on target eccentricity, corner frequency
+$1/\tau$. Sustained excursions are under-represented, so the error saturates rather than
+growing without bound, and gaze is a shrunken, centre-biased copy of the truth. The
+counterintuitive consequence is that \emph{slow} targets are lost first, because their
+motion is exactly the low-frequency content the leak removes. Measured: at $\tau = 2$ s a
+fast target is never lost within 20 s while a slow one goes at 5.9 s, and the slow case
+needs $\tau \geq 8$ s to survive. $\tau$ is the quantity the INTG pool exists to make long,
+and this is the curve that says how long is long enough.
 
-\textbf{Noise.} If the integrated velocity carries a white perturbation of intensity $\sigma$,
+\textbf{Noise.} If the integrated velocity carries a white perturbation of intensity
+$\sigma$,
 
 \begin{equation}
 \label{eq:noise-error}
@@ -184,19 +331,38 @@ In the frequency domain this is a \emph{high-pass} on target eccentricity, corne
 \qquad \langle \xi(t)\,\xi(t')\rangle = \delta(t-t')
 \end{equation}
 
-the error is a random walk: $\mathrm{std}[\varepsilon(T)] = \sigma\sqrt{T}$ per axis, unbounded but with zero mean. It is the only one of the three that cannot be corrected by better calibration and the only one that averages away across trials, so it is invisible to any analysis that pools trials before measuring drift.
+the error is a random walk: $\mathrm{std}[\varepsilon(T)] = \sigma\sqrt{T}$ per axis,
+unbounded but with zero mean. It is the only one of the three that cannot be corrected by
+better calibration and the only one that averages away across trials, so it is invisible to
+any analysis that pools trials before measuring drift.
 
-Three growth laws --- bounded-linear, saturating, and square-root --- over one shared quantity. A drift trace measured from the real circuit can therefore be \emph{classified}, not merely reported, which is the point of setting the problem up this way. \texttt{prototype/dot\_tracking/openloop.py} implements the gain and leak cases and measures the survival time \texttt{t\_lose}, the first moment $|\varepsilon|$ exceeds the fovea; the noise case is stated here for completeness but is not in the prototype, since a zero-mean drift is better measured against recorded data than against a simulation of itself.
+Three growth laws --- bounded-linear, saturating, and square-root --- over one shared
+quantity. A drift trace measured from the real circuit can therefore be \emph{classified},
+not merely reported, which is the point of setting the problem up this way.
+\texttt{prototype/dot\_tracking/openloop.py} implements the gain and leak cases and measures
+the survival time \texttt{t\_lose}, the first moment $|\varepsilon|$ exceeds the fovea; the
+noise case is stated here for completeness but is not in the prototype, since a zero-mean
+drift is better measured against recorded data than against a simulation of itself.
 
 \subsection*{3. The training dataset}
 
 \subsubsection*{3.1 Where it comes from}
 
-Task data is generated by \texttt{GNN\_Main.py -o generate <config>}, which reaches \texttt{data\_generate} -> \texttt{data\_generate\_task} (dispatch on \texttt{task.task\_type}) -> \texttt{\_generate\_swim\_integration\_task}, all in \texttt{src/connectome\_gnn/generators/graph\_data\_generator.py}.
+Task data is generated by \texttt{GNN\_Main.py -o generate <config>}, which reaches
+\texttt{data\_generate} -> \texttt{data\_generate\_task} (dispatch on
+\texttt{task.task\_type}) -> \texttt{\_generate\_swim\_integration\_task}, all in
+\texttt{src/connectome\_gnn/generators/graph\_data\_generator.py}.
 
-The critical property: \textbf{generation is connectome-agnostic}. The generator writes \texttt{stimulus.zarr} of shape (trials, T, channels) and \texttt{target.zarr} of shape (trials, T, columns) --- pure time series, with no notion of a neuron. The circuit appears only as a \texttt{circuit\_provenance.json} written beside the splits, recording the circuit name, cell count and the SHA-256 of \texttt{J\_effective}, so a dataset can later be checked against the circuit a checkpoint was trained on.
+The critical property: \textbf{generation is connectome-agnostic}. The generator writes
+\texttt{stimulus.zarr} of shape (trials, T, channels) and \texttt{target.zarr} of shape
+(trials, T, columns) --- pure time series, with no notion of a neuron. The circuit appears
+only as a \texttt{circuit\_provenance.json} written beside the splits, recording the circuit
+name, cell count and the SHA-256 of \texttt{J\_effective}, so a dataset can later be checked
+against the circuit a checkpoint was trained on.
 
-The consequence for planning: the dataset can be generated and inspected \textbf{before} the circuit registry entry, the connectome CSVs or the E/I assignment exist. That is the cheapest next step on this branch.
+The consequence for planning: the dataset can be generated and inspected \textbf{before} the
+circuit registry entry, the connectome CSVs or the E/I assignment exist. That is the
+cheapest next step on this branch.
 
 \subsubsection*{3.2 Parameters that define it}
 
@@ -213,18 +379,38 @@ parameter & meaning \\\midrule
 \texttt{seed} & stimulus RNG; fixed across baseline and comparison runs \\
 \bottomrule\end{tabularx}\end{center}
 
-\texttt{training.task\_targets} then projects the on-disk superset down to the columns a given run trains on, so one dataset serves several sub-tasks.
+\texttt{training.task\_targets} then projects the on-disk superset down to the columns a
+given run trains on, so one dataset serves several sub-tasks.
 
 \subsection*{4. The whole model in one notation}
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eye_schematic.png}
-\caption{\small \textbf{The eye, and the symbols of the model.} \textbf{(a)} Eye G at rest, near-anterior view, drawn by the surface renderer from the scanned geometry rather than schematised: the translucent globe, the lens, and the six straps as the Blender reconstruction places them. Muscle actions in the legend are the ones stage 0 measured, not the textbook ones --- SO elevates and torts positive here, IO depresses, because both obliques pull from the rostral orbit with no trochlea to reverse the superior one. Only the horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The four faint muscles exist in the eye but receive no command. The two axes the model uses are marked: horizontal gaze $\theta$, positive in abduction, and vertical gaze $\varphi$. \textbf{(b)} Every symbol of the nine steps below, in the order the signal meets them: the target velocity $(\dot x,\dot y)$, the input map $\hat W^{\mathrm{in}}$ onto the AF5 afferents, the sign-locked recurrent core, the output map $\hat W^{\mathrm{out}}$ onto four non-negative motor pools, the push-pull commands $u_\theta,u_\varphi$, the frozen per-axis eye, and the loss on the gaze angles $(\theta,\varphi)$ --- after the eye, not on the command. Regenerate with \texttt{python fit\_plant.py} and \texttt{python fig\_eye\_schematic.py} in \texttt{Plexus/prototype/eye}.}
+\caption{\small \textbf{The eye, and the symbols of the model.} \textbf{(a)} Eye G at rest,
+near-anterior view, drawn by the surface renderer from the scanned geometry rather than
+schematised: the translucent globe, the lens, and the six straps as the Blender
+reconstruction places them. Muscle actions in the legend are the ones stage 0 measured, not
+the textbook ones --- SO elevates and torts positive here, IO depresses, because both
+obliques pull from the rostral orbit with no trochlea to reverse the superior one. Only the
+horizontal pair is innervated by this circuit: LR abducts (positive gaze), MR adducts. The
+four faint muscles exist in the eye but receive no command. The two axes the model uses are
+marked: horizontal gaze $\theta$, positive in abduction, and vertical gaze $\varphi$.
+\textbf{(b)} Every symbol of the nine steps below, in the order the signal meets them: the
+target velocity $(\dot x,\dot y)$, the input map $\hat W^{\mathrm{in}}$ onto the AF5
+afferents, the sign-locked recurrent core, the output map $\hat W^{\mathrm{out}}$ onto four
+non-negative motor pools, the push-pull commands $u_\theta,u_\varphi$, the frozen per-axis
+eye, and the loss on the gaze angles $(\theta,\varphi)$ --- after the eye, not on the
+command. Regenerate with \texttt{python fit\_plant.py} and \texttt{python
+fig\_eye\_schematic.py} in \texttt{Plexus/prototype/eye}.}
 \label{fig:symbols}
 \end{figure}
 
 
-Written in the formalism of \texttt{neurips.tex}, with the symbols laid out in Figure~\ref{fig:symbols}, so the oculomotor circuit and the flyvis work can be read side by side. Every stage from the two numbers the circuit is given to the two angles it is scored on is written out below, because the intermediate quantities are where the modelling choices are, and they are invisible in any summary that jumps from "velocity in" to "angle out".
+Written in the formalism of \texttt{neurips.tex}, with the symbols laid out in
+Figure~\ref{fig:symbols}, so the oculomotor circuit and the flyvis work can be read side by
+side. Every stage from the two numbers the circuit is given to the two angles it is scored
+on is written out below, because the intermediate quantities are where the modelling choices
+are, and they are invisible in any summary that jumps from "velocity in" to "angle out".
 
 \begin{center}\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}\toprule
@@ -246,9 +432,13 @@ $C,\,K$ & --- & the eye's mechanics, $3\times3$ each \\
 $\theta,\varphi,\psi$ & deg & \textbf{eye angles} --- horizontal, vertical, torsion \\
 \bottomrule\end{tabularx}\end{center}
 
-A hat marks a learned quantity. $v$ is the membrane voltage throughout and never a velocity; the velocities are $\dot x$ and $\dot y$, and the eye's orientation is the pair $(\theta,\varphi)$, horizontal first.
+A hat marks a learned quantity. $v$ is the membrane voltage throughout and never a velocity;
+the velocities are $\dot x$ and $\dot y$, and the eye's orientation is the pair
+$(\theta,\varphi)$, horizontal first.
 
-\textbf{Step 0 --- the world sets the angles.} The target moves in a bounded arena in units, and each axis is mapped to degrees by its own scale, because the eye's reachable travel is not the same horizontally and vertically (section 4.2):
+\textbf{Step 0 --- the world sets the angles.} The target moves in a bounded arena in units,
+and each axis is mapped to degrees by its own scale, because the eye's reachable travel is
+not the same horizontally and vertically (section 4.2):
 
 \begin{equation}
 \label{eq:world-scale}
@@ -259,14 +449,19 @@ A hat marks a learned quantity. $v$ is the membrane voltage throughout and never
 \theta^{\star}(0)=\varphi^{\star}(0)=0
 \end{equation}
 
-\textbf{Step 1 --- what the circuit is given.} Only the velocity, never the position. This is the open-loop premise of section 2.3 written as a vector:
+\textbf{Step 1 --- what the circuit is given.} Only the velocity, never the position. This
+is the open-loop premise of section 2.3 written as a vector:
 
 \begin{equation}
 \label{eq:input-vector}
 \mathbf{u}(t) \;=\; \big(\dot x(t),\ \dot y(t)\big)^{\!\top} \in \mathbb{R}^{2}
 \end{equation}
 
-\textbf{Step 2 --- the input map $\hat W^{\mathrm{in}}$.} The drive enters only through the AF5 afferents $\mathcal{A}$ ($|\mathcal{A}|=41$). That restriction is the whole content of "connectome-constrained input": a free input layer would let the optimiser inject velocity wherever it is most convenient, which is exactly the degree of freedom the anatomy is supposed to remove:
+\textbf{Step 2 --- the input map $\hat W^{\mathrm{in}}$.} The drive enters only through the
+AF5 afferents $\mathcal{A}$ ($|\mathcal{A}|=41$). That restriction is the whole content of
+"connectome-constrained input": a free input layer would let the optimiser inject velocity
+wherever it is most convenient, which is exactly the degree of freedom the anatomy is
+supposed to remove:
 
 \begin{equation}
 \label{eq:input-map}
@@ -276,9 +471,13 @@ A hat marks a learned quantity. $v$ is the membrane voltage throughout and never
 \qquad \mathcal{A}=\mathcal{A}_{\mathrm{AF5}}^{L}\cup\mathcal{A}_{\mathrm{AF5}}^{R}
 \end{equation}
 
-so $\hat W^{\mathrm{in}}$ is $285\times 2$ with $41\times 2 = 82$ free entries out of 570. Componentwise, neuron $i$ receives $I_i = \hat W^{\mathrm{in}}_{i1}\dot x + \hat W^{\mathrm{in}}_{i2}\dot y$, and the direction tuning of section 1.3 --- still a claim --- is what says whether that row should be free or fixed to a preferred direction.
+so $\hat W^{\mathrm{in}}$ is $285\times 2$ with $41\times 2 = 82$ free entries out of 570.
+Componentwise, neuron $i$ receives $I_i = \hat W^{\mathrm{in}}_{i1}\dot x + \hat
+W^{\mathrm{in}}_{i2}\dot y$, and the direction tuning of section 1.3 --- still a claim ---
+is what says whether that row should be free or fixed to a preferred direction.
 
-\textbf{Step 3 --- the circuit.} The $N=285$ neurons obey the same rate equation as Eq. (1) of \texttt{neurips.tex}:
+\textbf{Step 3 --- the circuit.} The $N=285$ neurons obey the same rate equation as Eq. (1)
+of \texttt{neurips.tex}:
 
 \begin{equation}
 \label{eq:circuit}
@@ -288,9 +487,12 @@ so $\hat W^{\mathrm{in}}$ is $285\times 2$ with $41\times 2 = 82$ free entries o
 \qquad r_j=\rho(v_j)
 \end{equation}
 
-with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonlinearity --- $\mathrm{ReLU}$ in the constrained model, $\tanh$ in the prototype of section 5.
+with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonlinearity ---
+$\mathrm{ReLU}$ in the constrained model, $\tanh$ in the prototype of section 5.
 
-\textbf{Step 4 --- the sign lock.} Only the magnitudes are learned; the signs are the measured Dale assignment of section 1.4, plotted in panels (c) and (d) of Figure 1, so $\hat W$ never leaves the connectome's sign pattern:
+\textbf{Step 4 --- the sign lock.} Only the magnitudes are learned; the signs are the
+measured Dale assignment of section 1.4, plotted in panels (c) and (d) of Figure 1, so $\hat
+W$ never leaves the connectome's sign pattern:
 
 \begin{align}
 \label{eq:sign-lock}
@@ -303,7 +505,8 @@ with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonline
 \end{cases}
 \end{align}
 
-\textbf{Step 5 --- the output map $\hat W^{\mathrm{out}}$.} The motor pools are read as six non-negative drives, one per muscle, in the order \texttt{eye\_anatomy} uses:
+\textbf{Step 5 --- the output map $\hat W^{\mathrm{out}}$.} The motor pools are read as six
+non-negative drives, one per muscle, in the order \texttt{eye\_anatomy} uses:
 
 \begin{equation}
 \label{eq:output-map}
@@ -313,9 +516,21 @@ with $\mathcal{N}_i$ the presynaptic partners of $i$ and $\rho$ the rate nonline
 \hat W^{\mathrm{out}}_{:,i} = \mathbf{0}\ \ \ \forall\, i\notin\mathcal{M}
 \end{equation}
 
-with $[\cdot]_+$ a rectifier ($\mathrm{softplus}$ in the trained controller) enforcing $m_\bullet\ge 0$, and $\mathcal{M}$ the motor pool, so $\hat W^{\mathrm{out}}$ is $6\times N$ with columns live only on motor cells. In the selected 285 cells $\mathcal{M}$ is AMN (92 cells) and AIN (35), which between them innervate LR and MR; \textbf{the other four rows have no anatomical pool here}, since SR, IR, SO and IO are driven by OMN, which section 1.5 leaves out of the selection. The six-drive form is written because the eye is six-muscle and because the controller of section 5 emits six; the constrained circuit as currently scoped can fill two of the rows and reaching the rest means adding OMN to \texttt{circuit.cell\_types}.
+with $[\cdot]_+$ a rectifier ($\mathrm{softplus}$ in the trained controller) enforcing
+$m_\bullet\ge 0$, and $\mathcal{M}$ the motor pool, so $\hat W^{\mathrm{out}}$ is $6\times
+N$ with columns live only on motor cells. In the selected 285 cells $\mathcal{M}$ is AMN (92
+cells) and AIN (35), which between them innervate LR and MR; \textbf{the other four rows
+have no anatomical pool here}, since SR, IR, SO and IO are driven by OMN, which section 1.5
+leaves out of the selection. The six-drive form is written because the eye is six-muscle and
+because the controller of section 5 emits six; the constrained circuit as currently scoped
+can fill two of the rows and reaching the rest means adding OMN to
+\texttt{circuit.cell\_types}.
 
-\textbf{Step 6 --- the static map $g$.} The six drives set an equilibrium pose $\mathbf{x}_\infty = g(\mathbf{m})$. It is called a \emph{map} and not a gain: it is the function that says where the eye comes to rest for a given set of drives, one component $g^{k}$ per angle, each a quadratic whose coefficients are measured rather than assumed (section 4.2):
+\textbf{Step 6 --- the static map $g$.} The six drives set an equilibrium pose
+$\mathbf{x}_\infty = g(\mathbf{m})$. It is called a \emph{map} and not a gain: it is the
+function that says where the eye comes to rest for a given set of drives, one component
+$g^{k}$ per angle, each a quadratic whose coefficients are measured rather than assumed
+(section 4.2):
 
 \begin{equation}
 \label{eq:static-map}
@@ -324,9 +539,18 @@ x^{k}_{\infty}(t)\;=\;g^{k}\big(\mathbf{m}(t)\big)\;=\; \sum_{i=1}^{6} a^{k}_{i}
 \qquad k\in\{\theta,\varphi,\psi\}
 \end{equation}
 
-27 coefficients per angle, 81 in all. \textbf{This is where the push-pull went.} Earlier versions of this model imposed it --- one signed command per axis, $u_\theta = m_{\mathrm{LR}} - m_{\mathrm{MR}}$ --- so that a signed angle could be carried on non-negative rates. It is no longer imposed, it is an outcome: an antagonist pair shows up as $a^{k}_{i}$ of opposite sign, and co-contraction, which no signed scalar can express, shows up in $b^{k}_{ij}$. Two of the six muscles turn out to act mainly on $\psi$, which is why there are three angles here and not two.
+27 coefficients per angle, 81 in all. \textbf{This is where the push-pull went.} Earlier
+versions of this model imposed it --- one signed command per axis, $u_\theta =
+m_{\mathrm{LR}} - m_{\mathrm{MR}}$ --- so that a signed angle could be carried on
+non-negative rates. It is no longer imposed, it is an outcome: an antagonist pair shows up
+as $a^{k}_{i}$ of opposite sign, and co-contraction, which no signed scalar can express,
+shows up in $b^{k}_{ij}$. Two of the six muscles turn out to act mainly on $\psi$, which is
+why there are three angles here and not two.
 
-\textbf{Step 7 --- the mechanics.} The eye swings to that equilibrium under one linear second-order system on all three angles at once, with $C$ and $K$ identified in section 4.2 and \textbf{frozen} --- registered as buffers, not parameters, because the body is measured and letting the optimiser retune it would defeat the point:
+\textbf{Step 7 --- the mechanics.} The eye swings to that equilibrium under one linear
+second-order system on all three angles at once, with $C$ and $K$ identified in section 4.2
+and \textbf{frozen} --- registered as buffers, not parameters, because the body is measured
+and letting the optimiser retune it would defeat the point:
 
 \begin{equation}
 \label{eq:mechanics}
@@ -337,13 +561,45 @@ x^{k}_{\infty}(t)\;=\;g^{k}\big(\mathbf{m}(t)\big)\;=\; \sum_{i=1}^{6} a^{k}_{i}
 C,K\in\mathbb{R}^{3\times 3}
 \end{equation}
 
-$C$ and $K$ are full rather than diagonal, so one axis may drag on another, which two independent per-axis plants cannot express.
+$C$ and $K$ are full rather than diagonal, so one axis may drag on another, which two
+independent per-axis plants cannot express.
 
-\textbf{Steps 6 and 7 are the Hammerstein cascade,} the standard first move of block-oriented system identification, and for an eye it is also the classical description --- Robinson (1964, 1981), whose linear plant and pulse-step command section 4.1 gives the provenance of. What is new here is only that both blocks are multi-input and multi-output: $g$ takes six drives instead of one signed command, and $C,K$ act on three angles instead of one. The reason the split is worth keeping at that width is the same as at width one --- $g$ is memoryless, so \eqref{eq:static-map} can be measured entirely from holds, with no differential equation anywhere in the fit, while \eqref{eq:mechanics} is measured from the transients those same holds already contain.
+\textbf{Steps 6 and 7 are the Hammerstein cascade,} the standard first move of
+block-oriented system identification, and for an eye it is also the classical description
+--- Robinson (1964, 1981), whose linear plant and pulse-step command section 4.1 gives the
+provenance of. What is new here is only that both blocks are multi-input and multi-output:
+$g$ takes six drives instead of one signed command, and $C,K$ act on three angles instead of
+one. The reason the split is worth keeping at that width is the same as at width one --- $g$
+is memoryless, so \eqref{eq:static-map} can be measured entirely from holds, with no
+differential equation anywhere in the fit, while \eqref{eq:mechanics} is measured from the
+transients those same holds already contain.
 
-\textbf{Alternatives, and what the classical model leaves out.} Reversing the blocks gives a \emph{Wiener} model, dynamics then nonlinearity, which is the wrong way round here: the nonlinearity is in the muscle and the muscle is upstream of the globe. Wrapping both ends gives Hammerstein--Wiener, and letting the dynamics themselves be nonlinear gives a NARX or neural-ODE eye; both are more general and neither is yet demanded by a residual of $0.15^{\circ}$. The extension the data does point at is linear-parameter-varying --- co-contraction stiffens the eye, so $C$ and $K$ should be scheduled on total drive $\mathbf{1}^{\!\top}\mathbf{m}$, which is the one stage of the protocol still outstanding. As for the age of the references, the structure has held: a static muscle nonlinearity into linear orbital mechanics is still the working model and the pulse-step is still how saccadic commands are written. Two of its details have not. Muscle tension relaxes over time scales from tens of milliseconds to seconds rather than the two poles a second-order block allows (Sklavos, Porrill, Kaneko and Dean, 2005), so \eqref{eq:mechanics} cannot hold an angle for tens of seconds --- tolerable here only because the integration lives in the circuit and not in the eye, which is the whole point of section 5. And rectus paths are constrained by connective-tissue pulleys (Demer and colleagues, from 1995), which eye G has as an operator but not in effect: \texttt{muscle\_sleeve} is in its spec with stiffness $k=0$, so the straps run free and their moment arms vary with gaze in a way a real orbit's do not. Both are parameterised through their Cholesky factors, $K = L_K L_K^{\!\top} + \varepsilon I$ and $C = L_C L_C^{\!\top}$, which makes them positive definite and the eye therefore stable by construction for any values the fit reaches.
+\textbf{Alternatives, and what the classical model leaves out.} Reversing the blocks gives a
+\emph{Wiener} model, dynamics then nonlinearity, which is the wrong way round here: the
+nonlinearity is in the muscle and the muscle is upstream of the globe. Wrapping both ends
+gives Hammerstein--Wiener, and letting the dynamics themselves be nonlinear gives a NARX or
+neural-ODE eye; both are more general and neither is yet demanded by a residual of
+$0.15^{\circ}$. The extension the data does point at is linear-parameter-varying ---
+co-contraction stiffens the eye, so $C$ and $K$ should be scheduled on total drive
+$\mathbf{1}^{\!\top}\mathbf{m}$, which is the one stage of the protocol still outstanding.
+As for the age of the references, the structure has held: a static muscle nonlinearity into
+linear orbital mechanics is still the working model and the pulse-step is still how saccadic
+commands are written. Two of its details have not. Muscle tension relaxes over time scales
+from tens of milliseconds to seconds rather than the two poles a second-order block allows
+(Sklavos, Porrill, Kaneko and Dean, 2005), so \eqref{eq:mechanics} cannot hold an angle for
+tens of seconds --- tolerable here only because the integration lives in the circuit and not
+in the eye, which is the whole point of section 5. And rectus paths are constrained by
+connective-tissue pulleys (Demer and colleagues, from 1995), which eye G has as an operator
+but not in effect: \texttt{muscle\_sleeve} is in its spec with stiffness $k=0$, so the
+straps run free and their moment arms vary with gaze in a way a real orbit's do not. Both
+are parameterised through their Cholesky factors, $K = L_K L_K^{\!\top} + \varepsilon I$ and
+$C = L_C L_C^{\!\top}$, which makes them positive definite and the eye therefore stable by
+construction for any values the fit reaches.
 
-\textbf{Step 8 --- the objective.} Supervision is on the eye angles \emph{after} the eye, never on the command. Two of the three are matched to the target; the third is penalised toward zero, because six drives against two supervised angles would otherwise leave the network free to wander:
+\textbf{Step 8 --- the objective.} Supervision is on the eye angles \emph{after} the eye,
+never on the command. Two of the three are matched to the target; the third is penalised
+toward zero, because six drives against two supervised angles would otherwise leave the
+network free to wander:
 
 \begin{equation}
 \label{eq:loss}
@@ -352,9 +608,15 @@ $C$ and $K$ are full rather than diagonal, so one axis may drag on another, whic
 \;+\;\lambda_\psi\,\frac{1}{T}\sum_{t=1}^{T}\psi_t^{2}
 \end{equation}
 
-The torsion term is Donders' law in its simplest form, and section 5.1 says what $\lambda_\psi$ is set to and why. Putting the loss after the eye is what makes the network learn the eye's inverse rather than a velocity command: the gradient reaches $\hat W,\hat W^{\mathrm{in}},\hat W^{\mathrm{out}}$ through the static map and through the mechanics, so a different eye trains a different controller --- which section 5.2 turns into a measurement.
+The torsion term is Donders' law in its simplest form, and section 5.1 says what
+$\lambda_\psi$ is set to and why. Putting the loss after the eye is what makes the network
+learn the eye's inverse rather than a velocity command: the gradient reaches $\hat W,\hat
+W^{\mathrm{in}},\hat W^{\mathrm{out}}$ through the static map and through the mechanics, so
+a different eye trains a different controller --- which section 5.2 turns into a
+measurement.
 
-\textbf{Step 9 --- discretisation and initial condition.} Forward Euler at $\Delta t = 1/60$ s for the circuit, and for the eye the same step with the damping taken \emph{implicitly}:
+\textbf{Step 9 --- discretisation and initial condition.} Forward Euler at $\Delta t = 1/60$
+s for the circuit, and for the eye the same step with the damping taken \emph{implicitly}:
 
 \begin{equation}
 \label{eq:euler-circuit}
@@ -371,33 +633,92 @@ v_i(t{+}\Delta t) = v_i(t) + \frac{\Delta t}{\tau_i}
 \mathbf{x}\;\leftarrow\;\mathbf{x}+\Delta t\,\dot{\mathbf{x}}
 \end{equation}
 
-The implicit damping is not a refinement. Taken explicitly the rollout is stable only while $\Delta t\,\lambda_{\max}(C) < 2$, and a fit that minimises error at one timestep will walk $C$ up to that edge --- ours reached $1.980$ at the $9$ ms of the recorded holds --- and then diverge when the controller rolls the same eye out at $1/60$ s, where the product is $3.67$. Taking it implicitly removes the limit and, more to the point, makes a fitted $C$ mean the same thing at both timesteps.
+The implicit damping is not a refinement. Taken explicitly the rollout is stable only while
+$\Delta t\,\lambda_{\max}(C) < 2$, and a fit that minimises error at one timestep will walk
+$C$ up to that edge --- ours reached $1.980$ at the $9$ ms of the recorded holds --- and
+then diverge when the controller rolls the same eye out at $1/60$ s, where the product is
+$3.67$. Taking it implicitly removes the limit and, more to the point, makes a fitted $C$
+mean the same thing at both timesteps.
 
-$v_i(0)=0$ has to \emph{mean} "eye centred", which is why every trajectory in the corpus starts at the centre (section 5.1). Nothing is carried between trials.
+$v_i(0)=0$ has to \emph{mean} "eye centred", which is why every trajectory in the corpus
+starts at the centre (section 5.1). Nothing is carried between trials.
 
-Two differences from the flyvis setting are worth naming. There the supervision is on $dv_i/dt$ of \emph{every} neuron, because the simulator provides the full state; here it is on two scalars at the far end of an eye, so the circuit is constrained only through its behavioural consequence. And there $\hat{W}$ is what is being recovered from activity, whereas here $\hat{W}$ is fixed in sign by the connectome and only its magnitudes, $\hat W^{\mathrm{in}}$ and $\hat W^{\mathrm{out}}$ are free. The oculomotor problem is thus the better-posed of the two: fewer unknowns, but a much narrower observation.
+Two differences from the flyvis setting are worth naming. There the supervision is on
+$dv_i/dt$ of \emph{every} neuron, because the simulator provides the full state; here it is
+on two scalars at the far end of an eye, so the circuit is constrained only through its
+behavioural consequence. And there $\hat{W}$ is what is being recovered from activity,
+whereas here $\hat{W}$ is fixed in sign by the connectome and only its magnitudes, $\hat
+W^{\mathrm{in}}$ and $\hat W^{\mathrm{out}}$ are free. The oculomotor problem is thus the
+better-posed of the two: fewer unknowns, but a much narrower observation.
 
-\textbf{What the trained controller of section 5 instantiates.} The same nine steps with the connectome removed, which is what makes the anatomy's cost measurable later: $N=64$ free units in place of the 285 cells, $\rho=\tanh$, $\hat W$ dense and initialised at zero with no sign lock, $\hat W^{\mathrm{in}}$ a dense $64\times2$ layer instead of 82 entries on AF5 rows, $\hat W^{\mathrm{out}}$ a dense $6\times64$ layer with all six muscle rows live. Steps 6 to 9 --- the measured static map, the frozen $3\times3$ mechanics, the loss on $(\theta,\varphi)$ with $\psi$ penalised, the Euler step from $v=0$ --- are identical, so the gap between the two is attributable to the anatomy and to nothing else.
+\textbf{What the trained controller of section 5 instantiates.} The same nine steps with the
+connectome removed, which is what makes the anatomy's cost measurable later: $N=64$ free
+units in place of the 285 cells, $\rho=\tanh$, $\hat W$ dense and initialised at zero with
+no sign lock, $\hat W^{\mathrm{in}}$ a dense $64\times2$ layer instead of 82 entries on AF5
+rows, $\hat W^{\mathrm{out}}$ a dense $6\times64$ layer with all six muscle rows live. Steps
+6 to 9 --- the measured static map, the frozen $3\times3$ mechanics, the loss on
+$(\theta,\varphi)$ with $\psi$ penalised, the Euler step from $v=0$ --- are identical, so
+the gap between the two is attributable to the anatomy and to nothing else.
 
 \subsubsection*{4.1 The eye model}
 
-The circuit's output is muscle drive, not an eye angle, so the mechanics has to be in the loop --- and the MPM eye cannot be: its grid scatter is in-place, so it is not differentiable, and one trial costs more than all 7250 gradient updates of section 5.1. It is replaced by the reduced model of \eqref{eq:mechanics}, fitted by \texttt{fit\_plant.py} from the probe runs in \texttt{Plexus/prototype/eye/archive/}. Steps 6 and 7 together are the \textbf{lateral-horizontal Hammerstein model}: two antagonist pairs, two scalar commands, two independent single-input eyes.
+The circuit's output is muscle drive, not an eye angle, so the mechanics has to be in the
+loop --- and the MPM eye cannot be: its grid scatter is in-place, so it is not
+differentiable, and one trial costs more than all 7250 gradient updates of section 5.1. It
+is replaced by the reduced model of \eqref{eq:mechanics}, fitted by \texttt{fit\_plant.py}
+from the probe runs in \texttt{Plexus/prototype/eye/archive/}. Steps 6 and 7 together are
+the \textbf{lateral-horizontal Hammerstein model}: two antagonist pairs, two scalar
+commands, two independent single-input eyes.
 
-Putting the whole nonlinearity in a memoryless block and leaving the dynamics linear is the \textbf{Hammerstein} structure --- the standard first move of block-oriented nonlinear system identification (Narendra and Gallman 1966; Bai 1998; Giri and Bai 2010), which dominates practice because it keeps the linear factor a transfer function, with every tool of linear systems theory intact, while the nonlinear factor stays a curve fitted pointwise. For an eye the split is anatomical rather than convenient: the nonlinearity is muscle and memoryless, the dynamics are globe and orbital tissue and near-linear at these rotations. It is also the classical oculomotor model --- Robinson (1964, 1981), with later work arguing the real eye carries more time scales than second order allows (Sklavos, Porrill, Kaneko and Dean, 2005).
+Putting the whole nonlinearity in a memoryless block and leaving the dynamics linear is the
+\textbf{Hammerstein} structure --- the standard first move of block-oriented nonlinear
+system identification (Narendra and Gallman 1966; Bai 1998; Giri and Bai 2010), which
+dominates practice because it keeps the linear factor a transfer function, with every tool
+of linear systems theory intact, while the nonlinear factor stays a curve fitted pointwise.
+For an eye the split is anatomical rather than convenient: the nonlinearity is muscle and
+memoryless, the dynamics are globe and orbital tissue and near-linear at these rotations. It
+is also the classical oculomotor model --- Robinson (1964, 1981), with later work arguing
+the real eye carries more time scales than second order allows (Sklavos, Porrill, Kaneko and
+Dean, 2005).
 
-The factorisation earns its keep here --- across mechanical configurations of the MPM eye the mechanics barely move, $\omega_n = 9.5$ to $11.1$ rad s$^{-1}$ and $\zeta = 0.22$ to $0.32$, while the static gain ranges over 14 to 23 degrees of travel. A configuration changes $\Phi$, not the ODE, so one set of dynamics covers a sweep. At $\zeta \approx 0.3$ the modelled eye is underdamped and rings at about 1.5 Hz; real eyes are overdamped, so that is a property of the MPM configuration rather than of a fish.
+The factorisation earns its keep here --- across mechanical configurations of the MPM eye
+the mechanics barely move, $\omega_n = 9.5$ to $11.1$ rad s$^{-1}$ and $\zeta = 0.22$ to
+$0.32$, while the static gain ranges over 14 to 23 degrees of travel. A configuration
+changes $\Phi$, not the ODE, so one set of dynamics covers a sweep. At $\zeta \approx 0.3$
+the modelled eye is underdamped and rings at about 1.5 Hz; real eyes are overdamped, so that
+is a property of the MPM configuration rather than of a fish.
 
-$\Phi$ and the mechanics are fitted \textbf{jointly}, against whole trajectories. The alternative --- read the plateaus for $\Phi$, then fit the transient --- needs settled plateaus, and this archive has none, for the reason given below.
+$\Phi$ and the mechanics are fitted \textbf{jointly}, against whole trajectories. The
+alternative --- read the plateaus for $\Phi$, then fit the transient --- needs settled
+plateaus, and this archive has none, for the reason given below.
 
-\textbf{Second order wins, by about a factor of 3.} Against the first-order alternative $\tau\dot\theta + \theta = \Phi_\theta(u_\theta)$ --- viscosity and an elastic restoring force, no globe inertia --- the RMS error is 1.2--2.6 deg at first order against 0.41--0.77 at second, on every configuration that fits at all.
+\textbf{Second order wins, by about a factor of 3.} Against the first-order alternative
+$\tau\dot\theta + \theta = \Phi_\theta(u_\theta)$ --- viscosity and an elastic restoring
+force, no globe inertia --- the RMS error is 1.2--2.6 deg at first order against 0.41--0.77
+at second, on every configuration that fits at all.
 
-This is not a matter of degrees of freedom. A first-order system is monotone towards its target and \emph{cannot overshoot}, while the MPM eye overshoots and rings. Only the inertial term can produce that. And the fit has to be \textbf{per configuration}: pooled it gives RMS 5.05 deg and a static curve with plateaus at +16, +13 and +3 degrees for the same command; fitted separately, 0.41 to 0.77 deg.
+This is not a matter of degrees of freedom. A first-order system is monotone towards its
+target and \emph{cannot overshoot}, while the MPM eye overshoots and rings. Only the
+inertial term can produce that. And the fit has to be \textbf{per configuration}: pooled it
+gives RMS 5.05 deg and a static curve with plateaus at +16, +13 and +3 degrees for the same
+command; fitted separately, 0.41 to 0.77 deg.
 
 \paragraph{What the eye does to a moving target}
 
-Three traces recur from here on, and Figure~\ref{fig:traces} is where to see them: \textbf{black} the target $\theta^{\star}$, \textbf{red} the command $\theta_\infty$ of \eqref{eq:static-map} --- the angle the eye \emph{would} settle at if the drives froze --- and \textbf{blue} the gaze $\theta$ of \eqref{eq:mechanics}, where the eye actually is. (The movies use the same red and blue on a black ground, so the target is white there and black here; it is the same quantity.) At the speeds the task uses red and blue sit almost on top of each other, which looks as though the eye were doing nothing at all. It is not, and what it is doing instead follows from step 7 in three lines.
+Three traces recur from here on, and Figure~\ref{fig:traces} is where to see them:
+\textbf{black} the target $\theta^{\star}$, \textbf{red} the command $\theta_\infty$ of
+\eqref{eq:static-map} --- the angle the eye \emph{would} settle at if the drives froze ---
+and \textbf{blue} the gaze $\theta$ of \eqref{eq:mechanics}, where the eye actually is. (The
+movies use the same red and blue on a black ground, so the target is white there and black
+here; it is the same quantity.) At the speeds the task uses red and blue sit almost on top
+of each other, which looks as though the eye were doing nothing at all. It is not, and what
+it is doing instead follows from step 7 in three lines.
 
-\textbf{From the mechanics to a transfer function.} \eqref{eq:mechanics} is a linear differential equation, so take its Laplace transform. Writing $X(s)$ for the transform of the gaze $\mathbf{x}(t)$ and $X_\infty(s)$ for that of the commanded equilibrium, and starting from rest so the initial-condition terms vanish, $\dot{\mathbf{x}}\mapsto sX$ and $\ddot{\mathbf{x}}\mapsto s^{2}X$, so
+\textbf{From the mechanics to a transfer function.} \eqref{eq:mechanics} is a linear
+differential equation, so take its Laplace transform. Writing $X(s)$ for the transform of
+the gaze $\mathbf{x}(t)$ and $X_\infty(s)$ for that of the commanded equilibrium, and
+starting from rest so the initial-condition terms vanish, $\dot{\mathbf{x}}\mapsto sX$ and
+$\ddot{\mathbf{x}}\mapsto s^{2}X$, so
 
 \begin{equation}
 \label{eq:laplace}
@@ -415,15 +736,30 @@ H(s)\;=\;\big(s^{2}I + Cs + K\big)^{-1}K
 H(s)=\frac{\omega_n^{2}}{s^{2}+2\zeta\omega_n s+\omega_n^{2}}\text{)}
 \end{equation}
 
-$s$ is a frequency: $s=i\omega$ asks what the eye does to a command oscillating at $\omega$, and $s=0$ what it does to one that never changes. Two properties of $H$ are the whole story.
+$s$ is a frequency: $s=i\omega$ asks what the eye does to a command oscillating at $\omega$,
+and $s=0$ what it does to one that never changes. Two properties of $H$ are the whole story.
 
-\textbf{First: it does not shrink the target.} Put $s=0$ in \eqref{eq:transfer} and every term carrying an $s$ vanishes, leaving $H(0)=K^{-1}K=I$: held still, the eye rests exactly at the angle the static map asked for.
+\textbf{First: it does not shrink the target.} Put $s=0$ in \eqref{eq:transfer} and every
+term carrying an $s$ vanishes, leaving $H(0)=K^{-1}K=I$: held still, the eye rests exactly
+at the angle the static map asked for.
 
-That is a property of the model, not a discovery about the eye. The same $K$ on both sides of \eqref{eq:mechanics} is a choice: $\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is just as linear and gives $H(0)=K^{-1}B$. What the choice buys is that $\mathbf{x}_\infty$ \emph{means} the angle the eye settles at, so unity gain at zero frequency is bookkeeping rather than evidence.
+That is a property of the model, not a discovery about the eye. The same $K$ on both sides
+of \eqref{eq:mechanics} is a choice:
+$\ddot{\mathbf{x}}+C\dot{\mathbf{x}}+K\mathbf{x}=B\,\mathbf{x}_\infty$ with $B\neq K$ is
+just as linear and gives $H(0)=K^{-1}B$. What the choice buys is that $\mathbf{x}_\infty$
+\emph{means} the angle the eye settles at, so unity gain at zero frequency is bookkeeping
+rather than evidence.
 
-The empirical content moves to the static map $g$ of step 6, where it belongs and where it is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$ degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest where $g$ predicts. What could break it is not a wrong gain but a wrong premise: hysteresis, slow drift, or holds that never settle would mean no static map fits at all. That is precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
+The empirical content moves to the static map $g$ of step 6, where it belongs and where it
+is measured: $g$ is fitted to settled holds, and its residual --- $0.15$, $0.16$ and $0.08$
+degrees against ranges of 10 to 18 --- is the actual statement that this eye comes to rest
+where $g$ predicts. What could break it is not a wrong gain but a wrong premise: hysteresis,
+slow drift, or holds that never settle would mean no static map fits at all. That is
+precisely what the settled criterion (peak-to-peak $\le 0.05^{\circ}$) and the protocol's
+revisit-in-a-different-order check exist to catch, and on eye G all 109 holds passed.
 
-\textbf{Second: it delays it.} Since $H$ is not the identity at nonzero $s$, ask what it \emph{is} for small $s$. Factor $K$ out of \eqref{eq:transfer}:
+\textbf{Second: it delays it.} Since $H$ is not the identity at nonzero $s$, ask what it
+\emph{is} for small $s$. Factor $K$ out of \eqref{eq:transfer}:
 
 \begin{equation}
 \label{eq:transfer-factored}
@@ -441,18 +777,29 @@ H(s)\;=\;I-K^{-1}C\,s+O(s^{2})
 \Delta = K^{-1}C
 \end{equation}
 
-the last step of \eqref{eq:delay} because $e^{-\Delta s}=I-\Delta s+O(s^{2})$ has the same first-order term. Multiplying by $e^{-\Delta s}$ in the frequency domain \emph{is} shifting by $\Delta$ in time, so to first order the eye returns its command unchanged, $\Delta$ later.
+the last step of \eqref{eq:delay} because $e^{-\Delta s}=I-\Delta s+O(s^{2})$ has the same
+first-order term. Multiplying by $e^{-\Delta s}$ in the frequency domain \emph{is} shifting
+by $\Delta$ in time, so to first order the eye returns its command unchanged, $\Delta$
+later.
 
-\textbf{The assumption, stated.} \eqref{eq:delay} is a \textbf{low-frequency} expansion and nothing else: it needs $\lVert K^{-1}Cs\rVert$ and $\lVert K^{-1}s^{2}\rVert$ both small, which for $s=i\omega$ means
+\textbf{The assumption, stated.} \eqref{eq:delay} is a \textbf{low-frequency} expansion and
+nothing else: it needs $\lVert K^{-1}Cs\rVert$ and $\lVert K^{-1}s^{2}\rVert$ both small,
+which for $s=i\omega$ means
 
 \begin{equation}
 \label{eq:lowfreq}
 \omega \;\ll\; \omega_n \;=\; \sqrt{\lambda_{\min}(K)}
 \end{equation}
 
---- the target must move slowly \emph{compared with the eye's own natural frequency}, not slowly in absolute terms. It is not a large-$\omega$ or a small-damping assumption, and it says nothing about how far the eye moves, only how fast. On eye G, $\omega_n$ runs 5.8 to 7.3 rad\,s$^{-1}$ and the approximation holds to 5\,\% up to 0.26 Hz and to 10\,\% up to 0.36 Hz, i.e. while $\omega/\omega_n \lesssim 0.3$. Above that it fails in a specific and measurable way, and the table below is where it does.
+--- the target must move slowly \emph{compared with the eye's own natural frequency}, not
+slowly in absolute terms. It is not a large-$\omega$ or a small-damping assumption, and it
+says nothing about how far the eye moves, only how fast. On eye G, $\omega_n$ runs 5.8 to
+7.3 rad\,s$^{-1}$ and the approximation holds to 5\,\% up to 0.26 Hz and to 10\,\% up to
+0.36 Hz, i.e. while $\omega/\omega_n \lesssim 0.3$. Above that it fails in a specific and
+measurable way, and the table below is where it does.
 
-\textbf{Measured on eye G.} Driving one axis with a small sinusoid and reading the phase and amplitude of the response, against the closed form above:
+\textbf{Measured on eye G.} Driving one axis with a small sinusoid and reading the phase and
+amplitude of the response, against the closed form above:
 
 \begin{center}\small
 \begin{tabular}{lllll}\toprule
@@ -465,23 +812,69 @@ target & lag $\theta$ & lag $\varphi$ & gain $|H_{\theta}|$ & gain $|H_{\varphi}
 1.50 Hz & 255 ms & 242 ms & 0.564 & 0.694 \\
 \bottomrule\end{tabular}\end{center}
 
-with $\Delta=K^{-1}C$ of \eqref{eq:delay} predicting 127 ms in $\theta$, 118 in $\varphi$ and 137 in $\psi$ --- the low-frequency rows to within a millisecond.
+with $\Delta=K^{-1}C$ of \eqref{eq:delay} predicting 127 ms in $\theta$, 118 in $\varphi$
+and 137 in $\psi$ --- the low-frequency rows to within a millisecond.
 
-Read it downward. Below about 0.3 Hz the eye is a pure delay of an eighth of a second at unity gain, and red and blue are the same curve shifted by eight frames at 60 Hz (Figure~\ref{fig:traces}a). Between 0.3 and 1 Hz the gain \emph{rises} --- rises, not falls, because $\zeta\approx0.4$ is still underdamped, so the response peaks near $\omega_n$ before it rolls off --- and the delay grows with it. Past the peak the eye simply cannot keep up: at 1.5 Hz it returns barely half of what it is asked for.
+Read it downward. Below about 0.3 Hz the eye is a pure delay of an eighth of a second at
+unity gain, and red and blue are the same curve shifted by eight frames at 60 Hz
+(Figure~\ref{fig:traces}a). Between 0.3 and 1 Hz the gain \emph{rises} --- rises, not falls,
+because $\zeta\approx0.4$ is still underdamped, so the response peaks near $\omega_n$ before
+it rolls off --- and the delay grows with it. Past the peak the eye simply cannot keep up:
+at 1.5 Hz it returns barely half of what it is asked for.
 
-Three things follow for reading the movies. The eighth-second delay is why red and blue separate visibly on eye G --- clearest in Figure~\ref{fig:traces}b, where the gaze reaches each new angle a third of a second after the command asks for it --- where they nearly coincided on the earlier, faster eye, whose 54 ms was three frames rather than eight. The rise in gain, not any lag, is what the small loops at direction reversals are: the command turns, the eye carries past it, and the two traces part company for as long as the ringing lasts. And $\Delta = K^{-1}C$ is not a new quantity --- it is the same matrix that section 5.2 measures as the controller's \emph{pulse gain}, arrived at there from the trained network rather than from the eye, and the two agree to 8\,\%.
+Three things follow for reading the movies. The eighth-second delay is why red and blue
+separate visibly on eye G --- clearest in Figure~\ref{fig:traces}b, where the gaze reaches
+each new angle a third of a second after the command asks for it --- where they nearly
+coincided on the earlier, faster eye, whose 54 ms was three frames rather than eight. The
+rise in gain, not any lag, is what the small loops at direction reversals are: the command
+turns, the eye carries past it, and the two traces part company for as long as the ringing
+lasts. And $\Delta = K^{-1}C$ is not a new quantity --- it is the same matrix that section
+5.2 measures as the controller's \emph{pulse gain}, arrived at there from the trained
+network rather than from the eye, and the two agree to 8\,\%.
 
 \subsubsection*{4.2 Characterising the MPM eye}
 
-The lateral-horizontal Hammerstein model of steps 6 and 7 assumes the eye is two independent axes driven by two signed scalars. The measurements say it is not. On eye G the superior oblique produces $+8.66$ degrees of torsion at full drive against $3.95$ of vertical, and the inferior oblique $-8.21$ against $2.88$: torsion is the \emph{largest} action of two of the six muscles. A model with no torsion coordinate cannot represent that, and a model with two commands cannot be told about it. This section is the replacement --- the model, the protocol that identifies it, and what eye G measured.
+The lateral-horizontal Hammerstein model of steps 6 and 7 assumes the eye is two independent
+axes driven by two signed scalars. The measurements say it is not. On eye G the superior
+oblique produces $+8.66$ degrees of torsion at full drive against $3.95$ of vertical, and
+the inferior oblique $-8.21$ against $2.88$: torsion is the \emph{largest} action of two of
+the six muscles. A model with no torsion coordinate cannot represent that, and a model with
+two commands cannot be told about it. This section is the replacement --- the model, the
+protocol that identifies it, and what eye G measured.
 
-The aim is a procedure rather than a description of one eye. Something will replace eye G; nothing here should need re-deriving when it does. It is executable as \texttt{Plexus/prototype/eye/characterise\_eye.py}, and \texttt{PROTOCOL\_eye\_characterisation.md} beside it is the prose version.
+The aim is a procedure rather than a description of one eye. Something will replace eye G;
+nothing here should need re-deriving when it does. It is executable as
+\texttt{Plexus/prototype/eye/characterise\_eye.py}, and
+\texttt{PROTOCOL\_eye\_characterisation.md} beside it is the prose version.
 
 \paragraph{The eye being characterised}
 
-Eye G is an MLS-MPM eye whose geometry is \textbf{scanned rather than generated}: the globe and the six extraocular straps are filled with material points inside the meshes of a Blender reconstruction of a 96\,hpf larval head (\texttt{260802\_s2\_EYE\_MUSCLES\_MODEL.blend}), by the two seed operators \texttt{blend\_globe} and \texttt{blend\_muscles} of \texttt{blend\_mpm\_ops.py}. They are drop-in replacements for the analytic \texttt{eye\_anatomy} / \texttt{muscle\_morphogenesis} pair, so the rest of the plant --- pose readout, drive, contraction, socket, the shared grid --- is model F's mechanics unchanged. What changes is where the tissue is. Its material parameters are model F's throughout: the globe is layered, Young's modulus $45$ in the core, $130$ at mid-depth and $420$ in the sclera, and each of the six straps is elastic at $240$ --- the \emph{muscles are not stiffness-free}, and their contraction is an active stress on an elastic body, not a kinematic prescription. What \emph{is} set to zero is the connective-tissue sleeve: \texttt{muscle\_sleeve} appears in the spec with $k=0$, so the pulleys of Demer and colleagues are declared and inert, and the straps run free between arc fractions $0.70$ and $0.88$. The orbit holds the globe at $k=5000$ against fat at $4000$, and the tendons anchor to bone at $9000$.
+Eye G is an MLS-MPM eye whose geometry is \textbf{scanned rather than generated}: the globe
+and the six extraocular straps are filled with material points inside the meshes of a
+Blender reconstruction of a 96\,hpf larval head
+(\texttt{260802\_s2\_EYE\_MUSCLES\_MODEL.blend}), by the two seed operators
+\texttt{blend\_globe} and \texttt{blend\_muscles} of \texttt{blend\_mpm\_ops.py}. They are
+drop-in replacements for the analytic \texttt{eye\_anatomy} / \texttt{muscle\_morphogenesis}
+pair, so the rest of the plant --- pose readout, drive, contraction, socket, the shared grid
+--- is model F's mechanics unchanged. What changes is where the tissue is. Its material
+parameters are model F's throughout: the globe is layered, Young's modulus $45$ in the core,
+$130$ at mid-depth and $420$ in the sclera, and each of the six straps is elastic at $240$
+--- the \emph{muscles are not stiffness-free}, and their contraction is an active stress on
+an elastic body, not a kinematic prescription. What \emph{is} set to zero is the
+connective-tissue sleeve: \texttt{muscle\_sleeve} appears in the spec with $k=0$, so the
+pulleys of Demer and colleagues are declared and inert, and the straps run free between arc
+fractions $0.70$ and $0.88$. The orbit holds the globe at $k=5000$ against fat at $4000$,
+and the tendons anchor to bone at $9000$.
 
-Two properties of that geometry matter for everything below, and both were measured rather than assumed. The \textbf{insertions are right}: driven in the four cardinal synergies the eye moves where the anatomy says it should, in all four (Figure~\ref{fig:charac}a). And the eye is \textbf{contact-limited rather than drive-limited}: scaling the globe by $1.2$ about its own centre buries the tendons in the sclera and costs $81\,\%$ of the temporal excursion, scaling it by $0.85$ collapses the nasal one from $8.5$ to $0.7$ degrees, and raising the drive $\times 1.5$ makes the globe lose $6.4\,\%$ of its radius and returns \texttt{NaN} strain. The working point is as hard as this geometry can be driven, which is why the workspace below is taken as given and characterised rather than tuned.
+Two properties of that geometry matter for everything below, and both were measured rather
+than assumed. The \textbf{insertions are right}: driven in the four cardinal synergies the
+eye moves where the anatomy says it should, in all four (Figure~\ref{fig:charac}a). And the
+eye is \textbf{contact-limited rather than drive-limited}: scaling the globe by $1.2$ about
+its own centre buries the tendons in the sclera and costs $81\,\%$ of the temporal
+excursion, scaling it by $0.85$ collapses the nasal one from $8.5$ to $0.7$ degrees, and
+raising the drive $\times 1.5$ makes the globe lose $6.4\,\%$ of its radius and returns
+\texttt{NaN} strain. The working point is as hard as this geometry can be driven, which is
+why the workspace below is taken as given and characterised rather than tuned.
 
 \paragraph{The shape of the model, coarsest first}
 
@@ -494,9 +887,13 @@ The eye takes six muscle drives and returns three angles:
 \label{eq:eye-io}
 \end{equation}
 
-horizontal, vertical and torsion, in degrees. The drives are one-sided because muscles pull and do not push, which is why the static map \eqref{eq:static-map} takes them one-sided rather than as the signed differences earlier versions used.
+horizontal, vertical and torsion, in degrees. The drives are one-sided because muscles pull
+and do not push, which is why the static map \eqref{eq:static-map} takes them one-sided
+rather than as the signed differences earlier versions used.
 
-The single structural assumption is that the eye is a \textbf{static map followed by linear mechanics}. Where the eye eventually comes to rest is a nonlinear function of the drives; how it gets there is linear:
+The single structural assumption is that the eye is a \textbf{static map followed by linear
+mechanics}. Where the eye eventually comes to rest is a nonlinear function of the drives;
+how it gets there is linear:
 
 \begin{equation}
 \mathbf{x}_{\infty}=g(\mathbf{m}),
@@ -505,11 +902,17 @@ The single structural assumption is that the eye is a \textbf{static map followe
 \label{eq:hammerstein}
 \end{equation}
 
-Hold the muscles at a fixed activation and the eye settles somewhere --- that is $g$. Change the activation and the globe swings to the new resting place with an overshoot and a ring --- that is $C$ and $K$. That is \eqref{eq:static-map} and \eqref{eq:mechanics} of section 4, and the reason for splitting it that way is given there: $g$ is memoryless, so it can be measured entirely from holds.
+Hold the muscles at a fixed activation and the eye settles somewhere --- that is $g$. Change
+the activation and the globe swings to the new resting place with an overshoot and a ring
+--- that is $C$ and $K$. That is \eqref{eq:static-map} and \eqref{eq:mechanics} of section
+4, and the reason for splitting it that way is given there: $g$ is memoryless, so it can be
+measured entirely from holds.
 
 \paragraph{The static map, as measured}
 
-Six inputs is too many to write in closed form and too few for a blind network to fit affordably, so the function is decomposed by interaction order --- the functional ANOVA of Hoeffding (1948) and Sobol' (1993):
+Six inputs is too many to write in closed form and too few for a blind network to fit
+affordably, so the function is decomposed by interaction order --- the functional ANOVA of
+Hoeffding (1948) and Sobol' (1993):
 
 \begin{equation}
 g(\mathbf{m})=
@@ -520,9 +923,18 @@ g(\mathbf{m})=
 \label{eq:anova}
 \end{equation}
 
-The marginals $\phi_i$ are measured one muscle at a time (Figure~\ref{fig:charac}b) and the pair terms are screened against the additive prediction $\phi_i+\phi_j$ (Figure~\ref{fig:charac}c). \textbf{On eye G the screen refuted additivity outright}: all fifteen pairs exceed the flag threshold, with residuals from $0.09$ to $1.03$ degrees against a numerical floor of $0.03$ --- the same hold integrated at two substeps --- concentrated in the horizontal axis. The protocol's own stop rule applies at more than eight, so the pairwise grid it prescribes was abandoned rather than expanded: sixty more holds would have bought fifteen bilinear terms and never left the pairwise faces of the cube.
+The marginals $\phi_i$ are measured one muscle at a time (Figure~\ref{fig:charac}b) and the
+pair terms are screened against the additive prediction $\phi_i+\phi_j$
+(Figure~\ref{fig:charac}c). \textbf{On eye G the screen refuted additivity outright}: all
+fifteen pairs exceed the flag threshold, with residuals from $0.09$ to $1.03$ degrees
+against a numerical floor of $0.03$ --- the same hold integrated at two substeps ---
+concentrated in the horizontal axis. The protocol's own stop rule applies at more than
+eight, so the pairwise grid it prescribes was abandoned rather than expanded: sixty more
+holds would have bought fifteen bilinear terms and never left the pairwise faces of the
+cube.
 
-What replaced it is a design over the whole cube. With every pair interacting, the parsimonious form is a quadratic in all six drives,
+What replaced it is a design over the whole cube. With every pair interacting, the
+parsimonious form is a quadratic in all six drives,
 
 \begin{equation}
 g^{k}(\mathbf{m})=\sum_{i=1}^{6} a^{k}_{i}\,m_i
@@ -531,13 +943,33 @@ g^{k}(\mathbf{m})=\sum_{i=1}^{6} a^{k}_{i}\,m_i
 \label{eq:quadratic}
 \end{equation}
 
-$27$ coefficients per angle ($6$ linear, $6$ square, $15$ cross) and no intercept, because zero drive is the rest pose by construction. It is identified from a scrambled Sobol design of $64$ points in $[0,1]^6$ --- deterministic, so the design is in the file rather than in a seed --- and it fits to $0.15$, $0.16$ and $0.08$ degrees rms in $\theta,\varphi,\psi$ (Figure~\ref{fig:charac}d, and Table~\ref{tab:stages}), against $0.54$, $0.62$ and $0.47$ for the linear map. That is roughly $1\,\%$ of each axis's range and five times the numerical floor. Nothing in $g$ is constrained to be monotone; monotonicity is \textbf{checked and reported}, not imposed.
+$27$ coefficients per angle ($6$ linear, $6$ square, $15$ cross) and no intercept, because
+zero drive is the rest pose by construction. It is identified from a scrambled Sobol design
+of $64$ points in $[0,1]^6$ --- deterministic, so the design is in the file rather than in a
+seed --- and it fits to $0.15$, $0.16$ and $0.08$ degrees rms in $\theta,\varphi,\psi$
+(Figure~\ref{fig:charac}d, and Table~\ref{tab:stages}), against $0.54$, $0.62$ and $0.47$
+for the linear map. That is roughly $1\,\%$ of each axis's range and five times the
+numerical floor. Nothing in $g$ is constrained to be monotone; monotonicity is
+\textbf{checked and reported}, not imposed.
 
-That residual carries more weight than a goodness-of-fit number usually does, and section 4.1 says why. Writing the mechanics as \eqref{eq:mechanics}, with the same $K$ on both sides, forces unity gain at zero frequency --- so "the eye comes to rest exactly where it was told to" is true of the \emph{model} by construction and is no evidence about the eye at all. What that construction does is make $\mathbf{x}_\infty$ \emph{mean} the angle the eye settles at, which hands the entire empirical claim to $g$. These three numbers are it: they are the statement that this eye, held still, rests where $g$ predicts, to about one part in a hundred of its own range.
+That residual carries more weight than a goodness-of-fit number usually does, and section
+4.1 says why. Writing the mechanics as \eqref{eq:mechanics}, with the same $K$ on both
+sides, forces unity gain at zero frequency --- so "the eye comes to rest exactly where it
+was told to" is true of the \emph{model} by construction and is no evidence about the eye at
+all. What that construction does is make $\mathbf{x}_\infty$ \emph{mean} the angle the eye
+settles at, which hands the entire empirical claim to $g$. These three numbers are it: they
+are the statement that this eye, held still, rests where $g$ predicts, to about one part in
+a hundred of its own range.
 
 \paragraph{The mechanics, and what is still open}
 
-$C$ and $K$ of \eqref{eq:hammerstein} are fitted from the transients the holds already contain: every hold is a step from rest followed by a release, recorded at full rate, so the $109$ runs of Table~\ref{tab:stages} carry $109$ step responses spread across the reachable workspace. Only co-contraction is genuinely missing --- two drive patterns matched to the same final pose but different total drive $s=\mathbf{1}^{\!\top}\mathbf{m}$ --- which is what would say whether the mechanics must be written $C(s),K(s)$. That is three runs, and it is the one block of the protocol still outstanding.
+$C$ and $K$ of \eqref{eq:hammerstein} are fitted from the transients the holds already
+contain: every hold is a step from rest followed by a release, recorded at full rate, so the
+$109$ runs of Table~\ref{tab:stages} carry $109$ step responses spread across the reachable
+workspace. Only co-contraction is genuinely missing --- two drive patterns matched to the
+same final pose but different total drive $s=\mathbf{1}^{\!\top}\mathbf{m}$ --- which is
+what would say whether the mechanics must be written $C(s),K(s)$. That is three runs, and it
+is the one block of the protocol still outstanding.
 
 \paragraph{What eye G measured}
 
@@ -555,32 +987,75 @@ derisk & 4 & substep, and the size levers & $2.0\!\times\!10^{-4}$ within $0.03^
 3 & 3 & co-contraction $\to$ $C(s),K(s)$ & outstanding \\\midrule
 & \textbf{109} & & $0$ unsettled holds \\
 \bottomrule\end{tabularx}
-\caption{\small The characterisation of eye G, by stage. Every hold keeps its spec, its raw \texttt{curves.npz} and a VTK movie in \texttt{Plexus/prototype/eye/archive/eye\_G/charac/}; \texttt{holds.npz} and \texttt{report.json} are the assembled forms. Hold length is derived per eye as $\max(2.0\,\mathrm{s},\,1.5\times\text{slowest settling})$ rather than fixed, which is the error that invalidated every earlier characterisation.}
+\caption{\small The characterisation of eye G, by stage. Every hold keeps its spec, its raw
+\texttt{curves.npz} and a VTK movie in \texttt{Plexus/prototype/eye/archive/eye\_G/charac/};
+\texttt{holds.npz} and \texttt{report.json} are the assembled forms. Hold length is derived
+per eye as $\max(2.0\,\mathrm{s},\,1.5\times\text{slowest settling})$ rather than fixed,
+which is the error that invalidated every earlier characterisation.}
 \label{tab:stages}
 \end{table}
 
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eyeG_characterisation.png}
-\caption{\small \textbf{Eye G, characterised.} \textbf{(a)} Stage 0-lite: the four cardinal synergies driven open loop, each arrow the settled gaze excursion, the dashed box the workspace they span --- $15.9^{\circ}$ horizontal by $24.2^{\circ}$ vertical, against the $15/10$ the task needs. All four move the eye in the direction the insertions predict, which is what says the scanned anatomy is right. \textbf{(b)} Stage 1: the six marginals on each muscle's own dominant axis. The plant is nearly dead below $u\approx0.25$ and does most of its work in the upper half of the drive range, so a linearisation about rest is wrong in the direction that matters. \textbf{(c)} Stage 2a: the residual of each pair against its additive prediction, per angle, with the flag threshold and the numerical floor. All fifteen pairs interact, mostly in horizontal. \textbf{(d)} Stage 6d: the quadratic $g$ of \eqref{eq:quadratic} fitted over $64$ Sobol points in $[0,1]^6$, measured against fitted. Regenerate with \texttt{python Plexus/prototype/eye/fig\_eyeG\_charac.py}.}
+\caption{\small \textbf{Eye G, characterised.} \textbf{(a)} Stage 0-lite: the four cardinal
+synergies driven open loop, each arrow the settled gaze excursion, the dashed box the
+workspace they span --- $15.9^{\circ}$ horizontal by $24.2^{\circ}$ vertical, against the
+$15/10$ the task needs. All four move the eye in the direction the insertions predict, which
+is what says the scanned anatomy is right. \textbf{(b)} Stage 1: the six marginals on each
+muscle's own dominant axis. The plant is nearly dead below $u\approx0.25$ and does most of
+its work in the upper half of the drive range, so a linearisation about rest is wrong in the
+direction that matters. \textbf{(c)} Stage 2a: the residual of each pair against its
+additive prediction, per angle, with the flag threshold and the numerical floor. All fifteen
+pairs interact, mostly in horizontal. \textbf{(d)} Stage 6d: the quadratic $g$ of
+\eqref{eq:quadratic} fitted over $64$ Sobol points in $[0,1]^6$, measured against fitted.
+Regenerate with \texttt{python Plexus/prototype/eye/fig\_eyeG\_charac.py}.}
 \label{fig:charac}
 \end{figure}
 
 \paragraph{What it changed upstream}
 
-All of this is already in section 4's steps rather than pending: step 5 reads six non-negative drives rather than four, $\hat W^{\rm out}\in\mathbb{R}^{6\times N}$; steps 6 and 7 are the static map and the $3\times3$ mechanics in place of two independent single-input eyes, with $g$, $C$ and $K$ frozen buffers; and step 8 carries the torsion penalty, because six drives against two supervised angles leave a four-dimensional set of muscle patterns producing the same gaze. Torsion is not an optional third channel here --- SO's largest action is $+8.7^{\circ}$ of it against $4.0$ of vertical, and IO's is $-8.2$ against $2.9$ --- so a two-angle model does not describe this eye at all.
+All of this is already in section 4's steps rather than pending: step 5 reads six
+non-negative drives rather than four, $\hat W^{\rm out}\in\mathbb{R}^{6\times N}$; steps 6
+and 7 are the static map and the $3\times3$ mechanics in place of two independent
+single-input eyes, with $g$, $C$ and $K$ frozen buffers; and step 8 carries the torsion
+penalty, because six drives against two supervised angles leave a four-dimensional set of
+muscle patterns producing the same gaze. Torsion is not an optional third channel here ---
+SO's largest action is $+8.7^{\circ}$ of it against $4.0$ of vertical, and IO's is $-8.2$
+against $2.9$ --- so a two-angle model does not describe this eye at all.
 
 \paragraph{When an eye is good enough}
 
-The same numbers for every eye, reported by the fit: the fraction of holds that settled, held-out rms per axis, the fraction of the command cube where the fitted map is monotone in each muscle's dominant axis, the reachable span per axis against the $15$ and $10$ degrees the task needs, the eigenvalues of $(C,K)$, and the size of the interaction terms against the marginals. Eye G passes the first four; its interaction terms are large, which is a property of the plant the controller must be trained through rather than a defect of the measurement.
+The same numbers for every eye, reported by the fit: the fraction of holds that settled,
+held-out rms per axis, the fraction of the command cube where the fitted map is monotone in
+each muscle's dominant axis, the reachable span per axis against the $15$ and $10$ degrees
+the task needs, the eigenvalues of $(C,K)$, and the size of the interaction terms against
+the marginals. Eye G passes the first four; its interaction terms are large, which is a
+property of the plant the controller must be trained through rather than a defect of the
+measurement.
 \subsection*{5. Learning the controller}
 
-The task is \textbf{supervised, not reinforcement}, and it is worth being explicit about why, because the instinct to reach for RL here is strong and wrong. In open loop the correct output is known in closed form at every timestep --- given the velocity stream, the target eye angle is its integral. And the environment does not react to the agent: the dot moves the same way whatever the eye does. With no feedback loop and no unknown to explore, this is sequence-to-sequence regression trained by backpropagation through time. RL would recover the same gradient information with far more variance and no compensating benefit.
+The task is \textbf{supervised, not reinforcement}, and it is worth being explicit about
+why, because the instinct to reach for RL here is strong and wrong. In open loop the correct
+output is known in closed form at every timestep --- given the velocity stream, the target
+eye angle is its integral. And the environment does not react to the agent: the dot moves
+the same way whatever the eye does. With no feedback loop and no unknown to explore, this is
+sequence-to-sequence regression trained by backpropagation through time. RL would recover
+the same gradient information with far more variance and no compensating benefit.
 
-Closed loop does introduce a loop, but not a reason to change method: the eye is \texttt{gaze = integral of command}, which is differentiable, so one simply backpropagates through it. RL earns its place only where the objective stops being differentiable --- driving the MPM soft-body eye of \texttt{Plexus/prototype/eye} without backpropagating through the simulator, or choosing \emph{when} to make a catch-up saccade, which is a discrete decision rather than a continuous command. Smooth pursuit is regression; saccade timing is a policy.
+Closed loop does introduce a loop, but not a reason to change method: the eye is
+\texttt{gaze = integral of command}, which is differentiable, so one simply backpropagates
+through it. RL earns its place only where the objective stops being differentiable ---
+driving the MPM soft-body eye of \texttt{Plexus/prototype/eye} without backpropagating
+through the simulator, or choosing \emph{when} to make a catch-up saccade, which is a
+discrete decision rather than a continuous command. Smooth pursuit is regression; saccade
+timing is a policy.
 
 \subsubsection*{5.1 How the recurrent models are trained}
 
-Everything the controller learns comes from one scalar. It is \eqref{eq:loss} of step 8, written out again here because it is what every choice below optimises, with $(\theta_t,\varphi_t,\psi_t)$ the gaze the eye actually reaches and $(\theta^{\star}_t,\varphi^{\star}_t)$ the target eccentricity of \eqref{eq:world-scale}:
+Everything the controller learns comes from one scalar. It is \eqref{eq:loss} of step 8,
+written out again here because it is what every choice below optimises, with
+$(\theta_t,\varphi_t,\psi_t)$ the gaze the eye actually reaches and
+$(\theta^{\star}_t,\varphi^{\star}_t)$ the target eccentricity of \eqref{eq:world-scale}:
 
 \begin{equation}
 \label{eq:loss-again}
@@ -591,13 +1066,24 @@ Everything the controller learns comes from one scalar. It is \eqref{eq:loss} of
 \qquad \lambda_\psi=0.05
 \end{equation}
 
-Note where the angles come from: $\theta,\varphi,\psi$ are the output of \eqref{eq:mechanics}, so the gradient reaches $\hat W$, $\hat W^{\mathrm{in}}$ and $\hat W^{\mathrm{out}}$ \emph{through} the eye. The eye's own coefficients are buffers rather than parameters and never move. The torsion term is the only part of the loss that is not a tracking error, and it is there because six drives against two supervised angles leaves a four-dimensional set of muscle patterns producing the same gaze; $\lambda_\psi$ picks one, and picking the untwisted one is Donders' law in its simplest form.
+Note where the angles come from: $\theta,\varphi,\psi$ are the output of
+\eqref{eq:mechanics}, so the gradient reaches $\hat W$, $\hat W^{\mathrm{in}}$ and $\hat
+W^{\mathrm{out}}$ \emph{through} the eye. The eye's own coefficients are buffers rather than
+parameters and never move. The torsion term is the only part of the loss that is not a
+tracking error, and it is there because six drives against two supervised angles leaves a
+four-dimensional set of muscle patterns producing the same gaze; $\lambda_\psi$ picks one,
+and picking the untwisted one is Donders' law in its simplest form.
 
 Three choices about how that loss is optimised are load-bearing.
 
-The state starts at $v_i = 0$ for every neuron on every trial, never learned and never carried between trials. That is why the corpus is centre-started: $v_i = 0$ has to \emph{mean} "eye centred", so that the initial condition and the task agree. The loss is dense --- every timestep from $t=0$, not an endpoint --- which is what makes the teacher informative at every moment rather than only at the end.
+The state starts at $v_i = 0$ for every neuron on every trial, never learned and never
+carried between trials. That is why the corpus is centre-started: $v_i = 0$ has to
+\emph{mean} "eye centred", so that the initial condition and the task agree. The loss is
+dense --- every timestep from $t=0$, not an endpoint --- which is what makes the teacher
+informative at every moment rather than only at the end.
 
-The horizon grows during training, always as a prefix from $t=0$ rather than a sliding window:
+The horizon grows during training, always as a prefix from $t=0$ rather than a sliding
+window:
 
 \begin{center}\small
 \begin{tabular}{lll}\toprule
@@ -608,9 +1094,17 @@ epochs & horizon &  \\\midrule
 187-249 & 480 steps & 8.0 s \\
 \bottomrule\end{tabular}\end{center}
 
-Each stage re-runs from $v_i = 0$ and truncates; there is no truncated BPTT and no carried state. Gradients flow through the whole unroll --- 480 sequential steps at the last stage, no detach --- with Adam at 2e-3 decayed by cosine to zero, gradient-norm clipping at 1.0, batch 128, so 29 updates per epoch and 7250 in total. The curriculum is not a refinement, it is the reason this trains: at the full 8 s horizon from a cold start the gradient of the integral vanishes, and beginning at 2 s makes the 8 s case reachable. It is the same device as \texttt{n\_steps\_schedule} in the heading-direction configs.
+Each stage re-runs from $v_i = 0$ and truncates; there is no truncated BPTT and no carried
+state. Gradients flow through the whole unroll --- 480 sequential steps at the last stage,
+no detach --- with Adam at 2e-3 decayed by cosine to zero, gradient-norm clipping at 1.0,
+batch 128, so 29 updates per epoch and 7250 in total. The curriculum is not a refinement, it
+is the reason this trains: at the full 8 s horizon from a cold start the gradient of the
+integral vanishes, and beginning at 2 s makes the 8 s case reachable. It is the same device
+as \texttt{n\_steps\_schedule} in the heading-direction configs.
 
-\textbf{What is trained, and what it reaches.} Two controllers, identical but for the eye between them and the width of the readout --- four synergy drives against the light eye, six muscle drives against the quadratic one:
+\textbf{What is trained, and what it reaches.} Two controllers, identical but for the eye
+between them and the width of the readout --- four synergy drives against the light eye, six
+muscle drives against the quadratic one:
 
 \begin{center}\small
 \begin{tabular}{lllll}\toprule
@@ -619,25 +1113,67 @@ Each stage re-runs from $v_i = 0$ and truncates; there is no truncated BPTT and 
 \texttt{eyeG\_light} & 4 synergies & 0.121° & 0.24° & 0.80° \\
 \bottomrule\end{tabular}\end{center}
 
-The corpus column is the 960-trial held-out set, seeds disjoint from training by construction. The test sequence is 48 s of six regimes run continuously --- a 5$^{\circ}$ circle clockwise then anticlockwise, then smooth pursuit and stop-and-go at each of two speeds --- joined in velocity so the target never jumps and the state carries across every transition. It is six times the horizon either controller was trained at, and the growth between the two columns is open-loop drift accumulating as section 2.3 says it must.
+The corpus column is the 960-trial held-out set, seeds disjoint from training by
+construction. The test sequence is 48 s of six regimes run continuously --- a 5$^{\circ}$
+circle clockwise then anticlockwise, then smooth pursuit and stop-and-go at each of two
+speeds --- joined in velocity so the target never jumps and the state carries across every
+transition. It is six times the horizon either controller was trained at, and the growth
+between the two columns is open-loop drift accumulating as section 2.3 says it must.
 
-The six-muscle readout beats the four-synergy one twice over --- better tracking \emph{and} a twenty-fifth of the torsion --- because with six independent drives the controller can null the torsion against the gaze error instead of trading one for the other. On four synergies it cannot: dropping $\lambda_\psi$ from 0.05 to 0.005 buys 31\,\% of the tracking error and costs three times the torsion, which is the trade in plain view.
+The six-muscle readout beats the four-synergy one twice over --- better tracking \emph{and}
+a twenty-fifth of the torsion --- because with six independent drives the controller can
+null the torsion against the gaze error instead of trading one for the other. On four
+synergies it cannot: dropping $\lambda_\psi$ from 0.05 to 0.005 buys 31\,\% of the tracking
+error and costs three times the torsion, which is the trade in plain view.
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_eyeG_traces.png}
-\caption{\small \textbf{The six-drive controller on eye G, three regimes.} Horizontal angle only, four seconds of each, drawn from the same rollout the movies play. Black is the target $\theta^{\star}$, blue the gaze $\theta$ of \eqref{eq:mechanics}, red the command $\theta_\infty$ of \eqref{eq:static-map} --- the angle the eye would settle at if the drives froze. \textbf{(a)} Smooth pursuit: blue sits on black, and red departs from both only at the direction reversals, where the pulse of section 5.2 is needed. \textbf{(b)} Saccades at 0.5 Hz: the gaze reaches each new angle in about a third of a second and overshoots slightly, and the command is a doublet reaching $\pm35^{\circ}$ --- an order of magnitude beyond the $\pm2.8^{\circ}$ excursion, which is why the axis is scaled to the target and the gaze and the command leaves the panel. \textbf{(c)} Saccades at 4 Hz, where the half-period of 125 ms is the eye's own group delay of 127 ms: the gaze is still travelling toward one target when the next arrives, so it never reaches either and tracking has stopped in any useful sense. Regenerate with \texttt{python fig\_eyeG\_traces.py} in \texttt{prototype/dot\_tracking}.}
+\caption{\small \textbf{The six-drive controller on eye G, three regimes.} Horizontal angle
+only, four seconds of each, drawn from the same rollout the movies play. Black is the target
+$\theta^{\star}$, blue the gaze $\theta$ of \eqref{eq:mechanics}, red the command
+$\theta_\infty$ of \eqref{eq:static-map} --- the angle the eye would settle at if the drives
+froze. \textbf{(a)} Smooth pursuit: blue sits on black, and red departs from both only at
+the direction reversals, where the pulse of section 5.2 is needed. \textbf{(b)} Saccades at
+0.5 Hz: the gaze reaches each new angle in about a third of a second and overshoots
+slightly, and the command is a doublet reaching $\pm35^{\circ}$ --- an order of magnitude
+beyond the $\pm2.8^{\circ}$ excursion, which is why the axis is scaled to the target and the
+gaze and the command leaves the panel. \textbf{(c)} Saccades at 4 Hz, where the half-period
+of 125 ms is the eye's own group delay of 127 ms: the gaze is still travelling toward one
+target when the next arrives, so it never reaches either and tracking has stopped in any
+useful sense. Regenerate with \texttt{python fig\_eyeG\_traces.py} in
+\texttt{prototype/dot\_tracking}.}
 \label{fig:traces}
 \end{figure}
 
-One result inside the sequence is worth pulling out, because it is a prediction of section 2.3 confirmed on a trained network rather than on an analytic lesion. \textbf{Fast targets are tracked better than slow ones}: on the light controller, smooth pursuit at the fast speed gives $0.19^{\circ}$ against $0.36^{\circ}$ at the middle speed. A leaky integrator is a high-pass on target angle, so it is the \emph{low}-frequency content that the leak removes, and slow targets are lost first. The six-muscle controller shows the same ordering far more weakly, $0.11^{\circ}$ against $0.12^{\circ}$, which is what a better integrator should look like. The circles, a constant-turn regime neither controller has ever seen --- the corpus is splines and straight segments --- cost nothing beyond that: $0.07$ and $0.09^{\circ}$ on the six-muscle eye.
+One result inside the sequence is worth pulling out, because it is a prediction of section
+2.3 confirmed on a trained network rather than on an analytic lesion. \textbf{Fast targets
+are tracked better than slow ones}: on the light controller, smooth pursuit at the fast
+speed gives $0.19^{\circ}$ against $0.36^{\circ}$ at the middle speed. A leaky integrator is
+a high-pass on target angle, so it is the \emph{low}-frequency content that the leak
+removes, and slow targets are lost first. The six-muscle controller shows the same ordering
+far more weakly, $0.11^{\circ}$ against $0.12^{\circ}$, which is what a better integrator
+should look like. The circles, a constant-turn regime neither controller has ever seen ---
+the corpus is splines and straight segments --- cost nothing beyond that: $0.07$ and
+$0.09^{\circ}$ on the six-muscle eye.
 
 \paragraph{Regularisation: almost none, and one that is missing}
 
-There is no weight decay, no penalty on $\hat W$, no spectral normalisation and no dropout. The only two terms that are not the tracking error are the torsion penalty of \eqref{eq:loss-again}, which is a task constraint rather than a capacity one, and gradient-norm clipping at 1.0, which is a stability device.
+There is no weight decay, no penalty on $\hat W$, no spectral normalisation and no dropout.
+The only two terms that are not the tracking error are the torsion penalty of
+\eqref{eq:loss-again}, which is a task constraint rather than a capacity one, and
+gradient-norm clipping at 1.0, which is a stability device.
 
-That is defensible for capacity: train and validation error agree once put in the same units, so the network was never overfitting and a capacity regulariser would buy nothing. It would matter for \textbf{identifiability} rather than for fit --- many recurrent matrices integrate, and nothing here selects among them --- but in the constrained circuit that job is done by the sign lock \eqref{eq:sign-lock}, so the free-$\hat W$ controller is the wrong place to start adding priors.
+That is defensible for capacity: train and validation error agree once put in the same
+units, so the network was never overfitting and a capacity regulariser would buy nothing. It
+would matter for \textbf{identifiability} rather than for fit --- many recurrent matrices
+integrate, and nothing here selects among them --- but in the constrained circuit that job
+is done by the sign lock \eqref{eq:sign-lock}, so the free-$\hat W$ controller is the wrong
+place to start adding priors.
 
-What \emph{is} missing is a regulariser on the \textbf{drives}, and it is not cosmetic. The eye is characterised on $m\in[0,1]^{6}$ --- every hold in the protocol is at a level of 1 or below --- and above that the fitted quadratic simply extrapolates. The trained controllers do not stay inside:
+What \emph{is} missing is a regulariser on the \textbf{drives}, and it is not cosmetic. The
+eye is characterised on $m\in[0,1]^{6}$ --- every hold in the protocol is at a level of 1 or
+below --- and above that the fitted quadratic simply extrapolates. The trained controllers
+do not stay inside:
 
 \begin{center}\small
 \begin{tabular}{lll}\toprule
@@ -646,15 +1182,32 @@ What \emph{is} missing is a regulariser on the \textbf{drives}, and it is not co
 \texttt{eyeG\_light} & 4.16 & \textbf{77 \%} \\
 \bottomrule\end{tabular}\end{center}
 
-The readout is a softplus, which is unbounded above, and nothing in the loss objects. So the light controller spends three-quarters of its time in a regime where the eye model is pure extrapolation, and both leave it entirely on the step probe of section 5.2, where the command reaches 26 degrees against a 7-degree workspace. The real plant is known to behave badly there and not merely to be unmeasured: driving eye G at 1.5 times its working amplitude costs 6.4 \% of the globe's radius, takes peak muscle shortening from 26 \% to 74 \%, and makes two of the four cardinal synergies fail outright.
+The readout is a softplus, which is unbounded above, and nothing in the loss objects. So the
+light controller spends three-quarters of its time in a regime where the eye model is pure
+extrapolation, and both leave it entirely on the step probe of section 5.2, where the
+command reaches 26 degrees against a 7-degree workspace. The real plant is known to behave
+badly there and not merely to be unmeasured: driving eye G at 1.5 times its working
+amplitude costs 6.4 \% of the globe's radius, takes peak muscle shortening from 26 \% to 74
+\%, and makes two of the four cardinal synergies fail outright.
 
-The fix is a hinge on the drive, $\lambda_m \sum_t \|[\mathbf{m}_t-1]_+\|^2$, which is free inside the characterised box and grows outside it. It should cost accuracy --- the pulse the network needs at a reversal is exactly what pushes $m$ past 1 --- and that trade is the point: a controller that tracks to 0.05 degrees by commanding a plant model outside its own validity is reporting a number about the extrapolation, not about the eye.
+The fix is a hinge on the drive, $\lambda_m \sum_t \|[\mathbf{m}_t-1]_+\|^2$, which is free
+inside the characterised box and grows outside it. It should cost accuracy --- the pulse the
+network needs at a reversal is exactly what pushes $m$ past 1 --- and that trade is the
+point: a controller that tracks to 0.05 degrees by commanding a plant model outside its own
+validity is reporting a number about the extrapolation, not about the eye.
 
 \subsubsection*{5.2 The controller rediscovered the pulse-step}
 
-Watching the trained network drive the eye turns up something the training never asked for. Whenever the target reverses direction the \textbf{command} swings wildly while the \textbf{gaze} barely moves off the target: over the sharpest 3 \% of turns the gap between command and gaze grows 3.9 times, from 0.56 to 2.18 degrees, while the gaze error grows only 1.33 times, 0.098 to 0.130. The obvious reading is that the motor output has gone unstable and the eye's own smoothing rescues it.
+Watching the trained network drive the eye turns up something the training never asked for.
+Whenever the target reverses direction the \textbf{command} swings wildly while the
+\textbf{gaze} barely moves off the target: over the sharpest 3 \% of turns the gap between
+command and gaze grows 3.9 times, from 0.56 to 2.18 degrees, while the gaze error grows only
+1.33 times, 0.098 to 0.130. The obvious reading is that the motor output has gone unstable
+and the eye's own smoothing rescues it.
 
-It is not instability. It is the eye's inverse, and the inverse has a closed form, so the claim is falsifiable. Rearranging the mechanics of \eqref{eq:mechanics} for the command that would place the gaze exactly on a wanted trajectory $\mathbf{x}^{\star}(t)$ gives
+It is not instability. It is the eye's inverse, and the inverse has a closed form, so the
+claim is falsifiable. Rearranging the mechanics of \eqref{eq:mechanics} for the command that
+would place the gaze exactly on a wanted trajectory $\mathbf{x}^{\star}(t)$ gives
 
 \begin{equation}
 \label{eq:inverse}
@@ -664,61 +1217,139 @@ It is not instability. It is the eye's inverse, and the inverse has a closed for
 \;+\;K^{-1}\ddot{\mathbf{x}}^{\star}
 \end{equation}
 
-Read it in plain terms: to hold the eye somewhere, ask for that place; to move it, ask for somewhere \emph{further}, in proportion to how fast you want to go; and to start or stop the movement, add a term proportional to the acceleration. A step in $\mathbf{x}^{\star}$ makes the velocity term of \eqref{eq:inverse} a pulse and the acceleration term a doublet, and what is left afterwards is the step. \textbf{That is Robinson's pulse-step}, falling out of the algebra rather than being designed in --- the same pulse-step section 4.1 credits Robinson (1964, 1981) with, as the command that inverts the linear eye. Nothing in this model was told about it.
+Read it in plain terms: to hold the eye somewhere, ask for that place; to move it, ask for
+somewhere \emph{further}, in proportion to how fast you want to go; and to start or stop the
+movement, add a term proportional to the acceleration. A step in $\mathbf{x}^{\star}$ makes
+the velocity term of \eqref{eq:inverse} a pulse and the acceleration term a doublet, and
+what is left afterwards is the step. \textbf{That is Robinson's pulse-step}, falling out of
+the algebra rather than being designed in --- the same pulse-step section 4.1 credits
+Robinson (1964, 1981) with, as the command that inverts the linear eye. Nothing in this
+model was told about it.
 
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{../figures/zebrafish/fig_pulse_step.png}
-\caption{\small \textbf{The controller learned the eye's inverse, not a tracking habit.} \textbf{(a)} A step probe: the target steps 4° and holds. The corpus contains no steps --- it is splines at three speeds --- so this regime is new to the network. The command goes to $+26°$, brakes to $-14°$, then settles on the $+4°$ step, while the gaze rises smoothly to the target: accelerate, brake, hold. The doublet is the $K^{-1}\ddot x^{\star}$ term and the offset that survives it is $x^{\star}$. \textbf{(b)} The network's command against the closed-form inverse above, evaluated with the eye's own $K$ and $C$ and \textbf{no free parameters}: $R^2 = 0.945$. Fitting $A_0, A_1, A_2$ freely reaches only 0.952, so the analytic matrices cost essentially nothing. \textbf{(c)} The velocity gain $A_1$ of each network against its own $K^{-1}C$. The two eyes differ by 46 \% in measured pulse gain (133 against 193 ms) and each matches its own plant; a pulse that was a habit of the architecture or of the corpus would be the same in both. \textbf{(d)} Necessity: drive each eye with the pulse-free command $x^{\star}$ and the tracking error rises 5.9$\times$ on the deep eye (0.101 $\rightarrow$ 0.592°) and 3.5$\times$ on the light one. Regenerate with \texttt{python fig\_pulse\_step.py} in \texttt{prototype/dot\_tracking}.}
+\caption{\small \textbf{The controller learned the eye's inverse, not a tracking habit.}
+\textbf{(a)} A step probe: the target steps 4° and holds. The corpus contains no steps ---
+it is splines at three speeds --- so this regime is new to the network. The command goes to
+$+26°$, brakes to $-14°$, then settles on the $+4°$ step, while the gaze rises smoothly to
+the target: accelerate, brake, hold. The doublet is the $K^{-1}\ddot x^{\star}$ term and the
+offset that survives it is $x^{\star}$. \textbf{(b)} The network's command against the
+closed-form inverse above, evaluated with the eye's own $K$ and $C$ and \textbf{no free
+parameters}: $R^2 = 0.945$. Fitting $A_0, A_1, A_2$ freely reaches only 0.952, so the
+analytic matrices cost essentially nothing. \textbf{(c)} The velocity gain $A_1$ of each
+network against its own $K^{-1}C$. The two eyes differ by 46 \% in measured pulse gain (133
+against 193 ms) and each matches its own plant; a pulse that was a habit of the architecture
+or of the corpus would be the same in both. \textbf{(d)} Necessity: drive each eye with the
+pulse-free command $x^{\star}$ and the tracking error rises 5.9$\times$ on the deep eye
+(0.101 $\rightarrow$ 0.592°) and 3.5$\times$ on the light one. Regenerate with
+\texttt{python fig\_pulse\_step.py} in \texttt{prototype/dot\_tracking}.}
 \label{fig:pulse}
 \end{figure}
 
-\textbf{Why "learned" rather than "built in".} Four things have to be true at once, and each is measured in Figure~\ref{fig:pulse}.
+\textbf{Why "learned" rather than "built in".} Four things have to be true at once, and each
+is measured in Figure~\ref{fig:pulse}.
 
-\emph{The shape is not memorised.} The corpus is splines at three speeds and contains no steps at all; the step probe of Figure~\ref{fig:pulse}a is a regime the network has never been in, and it produces the pulse-step there.
+\emph{The shape is not memorised.} The corpus is splines at three speeds and contains no
+steps at all; the step probe of Figure~\ref{fig:pulse}a is a regime the network has never
+been in, and it produces the pulse-step there.
 
-\emph{The coefficients are the plant's.} Regressing the command freely on the target and its first two derivatives, as \eqref{eq:inverse} would have it, $\mathbf{m}_{\rm cmd}\approx A_0\mathbf{x}^{\star} + A_1\dot{\mathbf{x}}^{\star} + A_2\ddot{\mathbf{x}}^{\star}$, reaches $R^2 = 0.952$; \emph{replacing} the fitted $A_1, A_2$ with the analytic $K^{-1}C$ and $K^{-1}$ of \eqref{eq:inverse} --- no free parameters at all --- still reaches 0.945. The network's velocity gain is 133 ms against the plant's 123. Note the regressor is the \textbf{target}, not the achieved gaze: regressing on the gaze would be circular, since the equation above makes that an identity for any command whatsoever.
+\emph{The coefficients are the plant's.} Regressing the command freely on the target and its
+first two derivatives, as \eqref{eq:inverse} would have it, $\mathbf{m}_{\rm cmd}\approx
+A_0\mathbf{x}^{\star} + A_1\dot{\mathbf{x}}^{\star} + A_2\ddot{\mathbf{x}}^{\star}$, reaches
+$R^2 = 0.952$; \emph{replacing} the fitted $A_1, A_2$ with the analytic $K^{-1}C$ and
+$K^{-1}$ of \eqref{eq:inverse} --- no free parameters at all --- still reaches 0.945. The
+network's velocity gain is 133 ms against the plant's 123. Note the regressor is the
+\textbf{target}, not the achieved gaze: regressing on the gaze would be circular, since the
+equation above makes that an identity for any command whatsoever.
 
-\emph{It is this eye's inverse, not an eye's.} The deep and light controllers were trained identically on the same corpus and differ only in the eye between them. Their pulse gains differ by 46 \%, 133 against 193 ms, and each tracks its own $K^{-1}C$, 123 against 170. An architectural habit would not know which plant it was attached to.
+\emph{It is this eye's inverse, not an eye's.} The deep and light controllers were trained
+identically on the same corpus and differ only in the eye between them. Their pulse gains
+differ by 46 \%, 133 against 193 ms, and each tracks its own $K^{-1}C$, 123 against 170. An
+architectural habit would not know which plant it was attached to.
 
-\emph{The loss had no alternative.} Driving the same eye with the pulse-free command --- just $\mathbf{x}^{\star}$, no velocity or acceleration term --- costs a factor of 5.9 in tracking error on the deep eye and 3.5 on the light one. The pulse is not decoration the optimiser could have skipped.
+\emph{The loss had no alternative.} Driving the same eye with the pulse-free command ---
+just $\mathbf{x}^{\star}$, no velocity or acceleration term --- costs a factor of 5.9 in
+tracking error on the deep eye and 3.5 on the light one. The pulse is not decoration the
+optimiser could have skipped.
 
-Two structural points make the result sharper. Nothing in the architecture supplies $\dot{\mathbf{x}}^{\star}$ or $\ddot{\mathbf{x}}^{\star}$: the readout is a static map of the rates, so the velocity term has to come from the input --- which \emph{is} the target velocity, scaled --- while the angle term must be integrated out of it and the acceleration term differentiated out of it, both by the recurrent dynamics alone. And $K$ and $C$ appear nowhere in the loss; they are buffers inside a frozen eye the gradient passes \emph{through}. The controller inferred them from the only thing it was ever shown, which is how far the gaze ended up from the target.
+Two structural points make the result sharper. Nothing in the architecture supplies
+$\dot{\mathbf{x}}^{\star}$ or $\ddot{\mathbf{x}}^{\star}$: the readout is a static map of
+the rates, so the velocity term has to come from the input --- which \emph{is} the target
+velocity, scaled --- while the angle term must be integrated out of it and the acceleration
+term differentiated out of it, both by the recurrent dynamics alone. And $K$ and $C$ appear
+nowhere in the loss; they are buffers inside a frozen eye the gradient passes
+\emph{through}. The controller inferred them from the only thing it was ever shown, which is
+how far the gaze ended up from the target.
 
-One last thing worth naming. The recurrent matrix is initialised at exactly zero and every per-neuron time constant is free to grow, so the network could in principle have put this in its membranes. It did not: what it built is an inverse model of the body it is attached to, from a velocity stream and a squared error at the far end of that body, and nothing else.
+One last thing worth naming. The recurrent matrix is initialised at exactly zero and every
+per-neuron time constant is free to grow, so the network could in principle have put this in
+its membranes. It did not: what it built is an inverse model of the body it is attached to,
+from a velocity stream and a squared error at the far end of that body, and nothing else.
 
 \subsection*{6. Progress, 11 August 2026}
 
-Opened the branch \texttt{feat/oculomotor} and put the zebrafish configs back under version control --- 254 of them had been absent from every worktree since the \texttt{config/zebrafish} bind-mount was commented out of \texttt{devcontainer.json}, which left no figure script able to resolve a run config. Traced how the 917-cell heading-direction circuit was actually built (the colleagues' pickle, not the neuPrint query the filenames suggest) and wrote that up as \texttt{HOWTO\_add\_oculomotor\_circuit.md}, since the same five inputs are needed again here. Read the new \texttt{Oculomotor\_sortedData\_081126.pkl}: 2949 cells, 42 types, 5 keys, no per-cell ordering variable; confirmed its matrix orientation empirically rather than assuming it. Selected the sub-circuit in two steps --- first the 244-cell INTG/AMN/AIN core, then 285 cells once AF5 was added, which gave the pool the afferent stage it had been missing. Introduced \texttt{CellTypeSpec} so each type's pool, Dale sign, L/R split and role live in the config where they can be reviewed, rather than in hardcoded prefix tuples inside the loader. Rendered the connectivity figure of Figure~\ref{fig:connectome}, and wrote this note.
+Opened the branch \texttt{feat/oculomotor} and put the zebrafish configs back under version
+control --- 254 of them had been absent from every worktree since the
+\texttt{config/zebrafish} bind-mount was commented out of \texttt{devcontainer.json}, which
+left no figure script able to resolve a run config. Traced how the 917-cell
+heading-direction circuit was actually built (the colleagues' pickle, not the neuPrint query
+the filenames suggest) and wrote that up as \texttt{HOWTO\_add\_oculomotor\_circuit.md},
+since the same five inputs are needed again here. Read the new
+\texttt{Oculomotor\_sortedData\_081126.pkl}: 2949 cells, 42 types, 5 keys, no per-cell
+ordering variable; confirmed its matrix orientation empirically rather than assuming it.
+Selected the sub-circuit in two steps --- first the 244-cell INTG/AMN/AIN core, then 285
+cells once AF5 was added, which gave the pool the afferent stage it had been missing.
+Introduced \texttt{CellTypeSpec} so each type's pool, Dale sign, L/R split and role live in
+the config where they can be reviewed, rather than in hardcoded prefix tuples inside the
+loader. Rendered the connectivity figure of Figure~\ref{fig:connectome}, and wrote this
+note.
 
-Nothing has been trained, and no connectome CSVs exist yet. The five decisions below are what stand between this document and a first run.
+Nothing has been trained, and no connectome CSVs exist yet. The five decisions below are
+what stand between this document and a first run.
 
 \subsection*{7. What has to be decided next}
 
 \begin{enumerate}\setlength{\itemsep}{1pt}
-  \item \textbf{The AF5 combination rule} (\S{}1.3) --- AND, OR or XOR. Blocks the input model.
-  \item \textbf{Whether \texttt{OMN} joins the pool} (\S{}1.5) --- decides whether \texttt{AIN} -> medial rectus is one synapse or two.
-  \item \textbf{Whether \texttt{Burst\_*} joins the pool} (\S{}1.6) --- decides whether the saccadic regime has an anatomical input or an injected one.
-  \item \textbf{The readout convention} --- a scalar eye angle, or innervation of the \texttt{LR}/\texttt{MR} pair coupled to the soft-body eye.
-  \item \textbf{The target leak \texttt{xi\_tau\_s}} --- a free parameter, or the quantity to be fitted against recorded eye angle.
+\item \textbf{The AF5 combination rule} (\S{}1.3) --- AND, OR or XOR. Blocks the input
+model.
+\item \textbf{Whether \texttt{OMN} joins the pool} (\S{}1.5) --- decides whether
+\texttt{AIN} -> medial rectus is one synapse or two.
+\item \textbf{Whether \texttt{Burst\_*} joins the pool} (\S{}1.6) --- decides whether the
+saccadic regime has an anatomical input or an injected one.
+\item \textbf{The readout convention} --- a scalar eye angle, or innervation of the
+\texttt{LR}/\texttt{MR} pair coupled to the soft-body eye.
+\item \textbf{The target leak \texttt{xi\_tau\_s}} --- a free parameter, or the quantity to
+be fitted against recorded eye angle.
 \end{enumerate}
 
 \subsection*{Appendix. What a contraction is, in the MPM eye}
 
-Section 4.2 treats the MPM eye as a black box that turns six drives into three angles. This appendix says what the box does, because two things that decide whether the eye works at all --- how hard a muscle may pull, and how its two ends are held --- are properties of the discretisation as much as of the anatomy.
+Section 4.2 treats the MPM eye as a black box that turns six drives into three angles. This
+appendix says what the box does, because two things that decide whether the eye works at all
+--- how hard a muscle may pull, and how its two ends are held --- are properties of the
+discretisation as much as of the anatomy.
 
 \paragraph{The cycle, and where a muscle enters it}
 
-The plant is MLS-MPM (Hu et al., 2018): material points carry the state, a background grid carries the momentum exchange, and the grid is rebuilt from scratch every substep. One substep of $\Delta t_{\rm sub}$ --- eye G runs $\Delta t_{\rm sub}=1.2\times10^{-4}$ s inside a frame of $\Delta t = 3\times10^{-3}$ s, so $25$ substeps per frame --- is
+The plant is MLS-MPM (Hu et al., 2018): material points carry the state, a background grid
+carries the momentum exchange, and the grid is rebuilt from scratch every substep. One
+substep of $\Delta t_{\rm sub}$ --- eye G runs $\Delta t_{\rm sub}=1.2\times10^{-4}$ s
+inside a frame of $\Delta t = 3\times10^{-3}$ s, so $25$ substeps per frame --- is
 
 \begin{enumerate}\itemsep0pt
-\item body forces on the particles, $\mathbf{v}_p \leftarrow \mathbf{v}_p + \Delta t_{\rm sub}(\mathbf{a}^{\rm ext}_p - c\,\mathbf{v}_p)$, where $\mathbf{a}^{\rm ext}$ collects every operator that emits \texttt{mpm\_acceleration} --- the socket, the origin anchor, the sleeve, the drag;
+\item body forces on the particles, $\mathbf{v}_p \leftarrow \mathbf{v}_p + \Delta t_{\rm
+sub}(\mathbf{a}^{\rm ext}_p - c\,\mathbf{v}_p)$, where $\mathbf{a}^{\rm ext}$ collects every
+operator that emits \texttt{mpm\_acceleration} --- the socket, the origin anchor, the
+sleeve, the drag;
 \item stress from the deformation gradient $F_p$;
 \item scatter to the grid (P2G);
 \item grid update: momentum to velocity, walls and damping;
-\item gather back (G2P): new $\mathbf{v}_p$ and $C_p$, then $F_p \leftarrow (I + \Delta t_{\rm sub} C_p)F_p$ and advection.
+\item gather back (G2P): new $\mathbf{v}_p$ and $C_p$, then $F_p \leftarrow (I + \Delta
+t_{\rm sub} C_p)F_p$ and advection.
 \end{enumerate}
 
-A muscle enters at step 2 and nowhere else. The elastic stress is fixed corotated, with $R_p$ the polar rotation of $F_p$,
+A muscle enters at step 2 and nowhere else. The elastic stress is fixed corotated, with
+$R_p$ the polar rotation of $F_p$,
 
 \begin{equation}
 \boldsymbol\tau^{\rm el}_p \;=\; 2\mu_p (F_p - R_p)F_p^{\!\top} \;+\; \lambda_p J_p (J_p-1)\,I ,
@@ -733,11 +1364,21 @@ and \texttt{muscle\_contract} adds a second term to it, on the muscle's own part
 \label{eq:active}
 \end{equation}
 
-Every symbol is a quantity the model already has: $a_{m}\in[0,1]$ is the activation of the muscle this point belongs to, integrated by \texttt{oculomotor\_drive} (or held fixed by \texttt{muscle\_probe} during characterisation); $\mathbf{f}_p$ is the point's fibre direction, measured by \texttt{blend\_muscles} as the local gradient of the geodesic fibre coordinate $s_p\in[0,1]$ ($0$ at the origin, $1$ at the insertion); $A$ is the peak active stress (\texttt{amplitude}, $67$ on eye G); $w_m$ a per-muscle weight, all ones on the scanned plant because the measured cross-sections already carry the relative strengths; $T(s)=\sin(\pi s)^{1/2}$ tapers the drive to zero at both caps, so the tendons are passive and the belly pulls; and $[1+\beta(\lambda-1)]_+$ with $\lambda_p=\|F_p\mathbf{f}_p\|$ is the force--length relation, off in eye G ($\beta=0$).
+Every symbol is a quantity the model already has: $a_{m}\in[0,1]$ is the activation of the
+muscle this point belongs to, integrated by \texttt{oculomotor\_drive} (or held fixed by
+\texttt{muscle\_probe} during characterisation); $\mathbf{f}_p$ is the point's fibre
+direction, measured by \texttt{blend\_muscles} as the local gradient of the geodesic fibre
+coordinate $s_p\in[0,1]$ ($0$ at the origin, $1$ at the insertion); $A$ is the peak active
+stress (\texttt{amplitude}, $67$ on eye G); $w_m$ a per-muscle weight, all ones on the
+scanned plant because the measured cross-sections already carry the relative strengths;
+$T(s)=\sin(\pi s)^{1/2}$ tapers the drive to zero at both caps, so the tendons are passive
+and the belly pulls; and $[1+\beta(\lambda-1)]_+$ with $\lambda_p=\|F_p\mathbf{f}_p\|$ is
+the force--length relation, off in eye G ($\beta=0$).
 
 \paragraph{Why a stress and not a force: the affine tensor}
 
-The scatter is where this becomes mechanics. Each particle deposits on its $27$ neighbouring nodes, weighted by the quadratic B-spline $w_{ip}$:
+The scatter is where this becomes mechanics. Each particle deposits on its $27$ neighbouring
+nodes, weighted by the quadratic B-spline $w_{ip}$:
 
 \begin{equation}
 (m\mathbf{v})_i \;\mathrel{+}=\; w_{ip}\Big[\,m_p\mathbf{v}_p \;+\; \mathbb{A}_p\,(\mathbf{x}_i-\mathbf{x}_p)\Big],
@@ -746,29 +1387,81 @@ The scatter is where this becomes mechanics. Each particle deposits on its $27$ 
 \label{eq:affine}
 \end{equation}
 
-$\mathbb{A}_p$ is a $3\times3$ \emph{linear map from offset to impulse}, and it holds two things that look unrelated: $C_p$, the APIC velocity gradient, and the stress. They add because MLS shape functions make $\nabla w_{ip}\propto w_{ip}(\mathbf{x}_i-\mathbf{x}_p)/\Delta x^2$, so the discrete internal force $-\nabla\!\cdot\!\boldsymbol\tau$ already has the form ``matrix times offset''. One scatter therefore carries both, and \textbf{adding to the stress is adding to the affine tensor}.
+$\mathbb{A}_p$ is a $3\times3$ \emph{linear map from offset to impulse}, and it holds two
+things that look unrelated: $C_p$, the APIC velocity gradient, and the stress. They add
+because MLS shape functions make $\nabla w_{ip}\propto
+w_{ip}(\mathbf{x}_i-\mathbf{x}_p)/\Delta x^2$, so the discrete internal force
+$-\nabla\!\cdot\!\boldsymbol\tau$ already has the form ``matrix times offset''. One scatter
+therefore carries both, and \textbf{adding to the stress is adding to the affine tensor}.
 
-Read the active term through \eqref{eq:affine}. Since $\boldsymbol\sigma^{\rm act}=g\,\mathbf{f}\mathbf{f}^{\!\top}$ is rank one, a node at offset $\Delta\mathbf{x}$ receives
+Read the active term through \eqref{eq:affine}. Since $\boldsymbol\sigma^{\rm
+act}=g\,\mathbf{f}\mathbf{f}^{\!\top}$ is rank one, a node at offset $\Delta\mathbf{x}$
+receives
 
 \begin{equation}
 -\,\frac{4\Delta t_{\rm sub}V^0 g}{\Delta x^{2}}\;\mathbf{f}\,\big(\mathbf{f}\cdot\Delta\mathbf{x}\big),
 \label{eq:rank1}
 \end{equation}
 
-so a node ahead along $\mathbf{f}$ is pushed backwards and one behind is pushed forwards: both are pulled toward the particle. Summed along a strap the interior cancels and only the two ends survive --- a uniaxial tension along the fibre, which is what a muscle is. No force is ever applied to a muscle as an object, and the eye moves because the \emph{divergence} of a stress field reaches the sclera.
+so a node ahead along $\mathbf{f}$ is pushed backwards and one behind is pushed forwards:
+both are pulled toward the particle. Summed along a strap the interior cancels and only the
+two ends survive --- a uniaxial tension along the fibre, which is what a muscle is. No force
+is ever applied to a muscle as an object, and the eye moves because the \emph{divergence} of
+a stress field reaches the sclera.
 
 \paragraph{One grid, and what attachment means}
 
-Globe, muscles and (in the pinned-origin variant) bone are separate SETS but share one \texttt{mpm\_grid}: the stock \texttt{mpm\_scatter} writes it and the \texttt{accumulate} implementation adds to it, so momentum crosses between bodies wherever their particles fall in the same cells. That is the entire contact model, and it has a consequence worth stating plainly: \textbf{overlap is a weld}. With the artist's raw geometry, $17\,\%$ of SR's points, $21\,\%$ of IR's and $11\,\%$ of IO's lie inside the retina surface, and the eye barely turns --- $5.9/6.0/7.7$ degrees against commands of $25/16/9$. \texttt{blend\_muscles} therefore holds the belly a clearance \texttt{standoff}$\,=0.008$ clear of the globe (the role of Tenon's capsule, over which a muscle slides) and embeds only the distal cap, \texttt{embed}$\,=-0.006$, which is what makes the insertion an attachment rather than a contact.
+Globe, muscles and (in the pinned-origin variant) bone are separate SETS but share one
+\texttt{mpm\_grid}: the stock \texttt{mpm\_scatter} writes it and the \texttt{accumulate}
+implementation adds to it, so momentum crosses between bodies wherever their particles fall
+in the same cells. That is the entire contact model, and it has a consequence worth stating
+plainly: \textbf{overlap is a weld}. With the artist's raw geometry, $17\,\%$ of SR's
+points, $21\,\%$ of IR's and $11\,\%$ of IO's lie inside the retina surface, and the eye
+barely turns --- $5.9/6.0/7.7$ degrees against commands of $25/16/9$.
+\texttt{blend\_muscles} therefore holds the belly a clearance \texttt{standoff}$\,=0.008$
+clear of the globe (the role of Tenon's capsule, over which a muscle slides) and embeds only
+the distal cap, \texttt{embed}$\,=-0.006$, which is what makes the insertion an attachment
+rather than a contact.
 
-The proximal cap is the other end and it is not the same kind of object. \texttt{bone\_anchor} holds the points with $s<0.10$ to their rest positions with a penalty spring, $\mathbf{a}=k(\mathbf{x}^{\rm rest}-\mathbf{x})-c\,\mathbf{v}$, $k=9000$, $c=60$. A penalty yields under exactly the load it exists to resist: on a minimal rig the anchored cap slid $0.063$ world units off its bone while the load moved $0.0007$, and stiffening does not fix it --- at $k=3\times10^{5}$ the run destabilises before the slip stops. The alternative, implemented as \texttt{bone\_from\_origins} plus \texttt{pin\_region [clamp]}, gives the origin a \emph{body}: one bone nodule per muscle swallowing its cap, joined to the shared grid and pinned kinematically ($\mathbf{x}\leftarrow\mathbf{x}^{\rm rest}$, $\mathbf{v}\leftarrow0$ each substep), so the origin is held the way the tendon is. On the eye it costs $6$--$19\,\%$ of the synergy excursions rather than gaining, because the globe is already held by the socket and the orbital fat; the rig and the eye disagree because they load the attachment differently, and both numbers are kept.
+The proximal cap is the other end and it is not the same kind of object.
+\texttt{bone\_anchor} holds the points with $s<0.10$ to their rest positions with a penalty
+spring, $\mathbf{a}=k(\mathbf{x}^{\rm rest}-\mathbf{x})-c\,\mathbf{v}$, $k=9000$, $c=60$. A
+penalty yields under exactly the load it exists to resist: on a minimal rig the anchored cap
+slid $0.063$ world units off its bone while the load moved $0.0007$, and stiffening does not
+fix it --- at $k=3\times10^{5}$ the run destabilises before the slip stops. The alternative,
+implemented as \texttt{bone\_from\_origins} plus \texttt{pin\_region [clamp]}, gives the
+origin a \emph{body}: one bone nodule per muscle swallowing its cap, joined to the shared
+grid and pinned kinematically ($\mathbf{x}\leftarrow\mathbf{x}^{\rm rest}$,
+$\mathbf{v}\leftarrow0$ each substep), so the origin is held the way the tendon is. On the
+eye it costs $6$--$19\,\%$ of the synergy excursions rather than gaining, because the globe
+is already held by the socket and the orbital fat; the rig and the eye disagree because they
+load the attachment differently, and both numbers are kept.
 
 \paragraph{The parameters, and what they are worth}
 
-Stiffness enters as Lamé parameters, per particle, from a Young's modulus and $\nu=0.2$: $\mu = E/2(1+\nu)$, $\lambda = E\nu/[(1+\nu)(1-2\nu)]$. Eye G carries sclera $E=420$, choroid $130$, vitreous $45$, cornea $320$, lens $520$, muscle $240$, and $1600$ for a bone nodule --- and the last is not a stiffness to tune: rigidity there comes from the pinning, and the substep caps a usable modulus near $2000$ whatever is asked for. Particle volume $V^0_p$ is the measured mesh volume divided by the points seeded in it, so the six straps differ by a factor of two in $V^0$ exactly as their scanned cross-sections do; mass is $\rho V^0$ with $\rho=1$ ($2$ for bone).
+Stiffness enters as Lamé parameters, per particle, from a Young's modulus and $\nu=0.2$:
+$\mu = E/2(1+\nu)$, $\lambda = E\nu/[(1+\nu)(1-2\nu)]$. Eye G carries sclera $E=420$,
+choroid $130$, vitreous $45$, cornea $320$, lens $520$, muscle $240$, and $1600$ for a bone
+nodule --- and the last is not a stiffness to tune: rigidity there comes from the pinning,
+and the substep caps a usable modulus near $2000$ whatever is asked for. Particle volume
+$V^0_p$ is the measured mesh volume divided by the points seeded in it, so the six straps
+differ by a factor of two in $V^0$ exactly as their scanned cross-sections do; mass is $\rho
+V^0$ with $\rho=1$ ($2$ for bone).
 
-The one dimensionless number that matters is $A/E_{\rm muscle} = 67/240 = 0.28$: peak active stress against the muscle's own modulus. It cannot be raised much. At $\times1.5$ the globe loses $6.4\,\%$ of its radius, peak shortening goes $26\to74\,\%$ and \texttt{strain\_p99} returns \texttt{NaN}; at $\times2$ the radius loss is $16\,\%$. The reason is \eqref{eq:affine}: the stress enters scaled by $4\Delta t_{\rm sub}V^0/\Delta x^{2}$, so raising $A$ raises the node velocity produced per substep, and past a point the strap deforms faster than the substep resolves. Grid resolution is the other side of the same constraint --- $112^3$ over the unit box gives $\Delta x = 8.9\times10^{-3}$, about $13$ cells across the globe's equatorial semi-axis and $2$--$3$ across a strap, which is the coarsest that still separates a muscle from the sclera it slides on.
+The one dimensionless number that matters is $A/E_{\rm muscle} = 67/240 = 0.28$: peak active
+stress against the muscle's own modulus. It cannot be raised much. At $\times1.5$ the globe
+loses $6.4\,\%$ of its radius, peak shortening goes $26\to74\,\%$ and \texttt{strain\_p99}
+returns \texttt{NaN}; at $\times2$ the radius loss is $16\,\%$. The reason is
+\eqref{eq:affine}: the stress enters scaled by $4\Delta t_{\rm sub}V^0/\Delta x^{2}$, so
+raising $A$ raises the node velocity produced per substep, and past a point the strap
+deforms faster than the substep resolves. Grid resolution is the other side of the same
+constraint --- $112^3$ over the unit box gives $\Delta x = 8.9\times10^{-3}$, about $13$
+cells across the globe's equatorial semi-axis and $2$--$3$ across a strap, which is the
+coarsest that still separates a muscle from the sclera it slides on.
 
-So the eye is \textbf{contact-limited, not drive-limited}, and that is a statement about the discretisation as much as about the anatomy: what bounds the workspace is how much stress the tissue can carry before the substep loses it, and how much of each strap is welded to the globe rather than free to shorten.
+So the eye is \textbf{contact-limited, not drive-limited}, and that is a statement about the
+discretisation as much as about the anatomy: what bounds the workspace is how much stress
+the tissue can carry before the substep loses it, and how much of each strap is welded to
+the globe rather than free to shorten.
 
 \end{document}
