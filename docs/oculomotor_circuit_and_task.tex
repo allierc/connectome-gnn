@@ -702,4 +702,73 @@ Nothing has been trained, and no connectome CSVs exist yet. The five decisions b
   \item \textbf{The target leak \texttt{xi\_tau\_s}} --- a free parameter, or the quantity to be fitted against recorded eye angle.
 \end{enumerate}
 
+\subsection*{Appendix B. What a contraction is, in the MPM eye}
+
+Section 4.2 treats the MPM eye as a black box that turns six drives into three angles. This appendix says what the box does, because two things that decide whether the eye works at all --- how hard a muscle may pull, and how its two ends are held --- are properties of the discretisation as much as of the anatomy.
+
+\paragraph{The cycle, and where a muscle enters it}
+
+The plant is MLS-MPM (Hu et al., 2018): material points carry the state, a background grid carries the momentum exchange, and the grid is rebuilt from scratch every substep. One substep of $\Delta t_{\rm sub}$ --- eye G runs $\Delta t_{\rm sub}=1.2\times10^{-4}$ s inside a frame of $\Delta t = 3\times10^{-3}$ s, so $25$ substeps per frame --- is
+
+\begin{enumerate}\itemsep0pt
+\item body forces on the particles, $\mathbf{v}_p \leftarrow \mathbf{v}_p + \Delta t_{\rm sub}(\mathbf{a}^{\rm ext}_p - c\,\mathbf{v}_p)$, where $\mathbf{a}^{\rm ext}$ collects every operator that emits \texttt{mpm\_acceleration} --- the socket, the origin anchor, the sleeve, the drag;
+\item stress from the deformation gradient $F_p$;
+\item scatter to the grid (P2G);
+\item grid update: momentum to velocity, walls and damping;
+\item gather back (G2P): new $\mathbf{v}_p$ and $C_p$, then $F_p \leftarrow (I + \Delta t_{\rm sub} C_p)F_p$ and advection.
+\end{enumerate}
+
+A muscle enters at step 2 and nowhere else. The elastic stress is fixed corotated, with $R_p$ the polar rotation of $F_p$,
+
+\begin{equation}
+\boldsymbol\tau^{\rm el}_p \;=\; 2\mu_p (F_p - R_p)F_p^{\!\top} \;+\; \lambda_p J_p (J_p-1)\,I ,
+\qquad J_p=\det F_p ,
+\label{eq:corot}
+\end{equation}
+
+and \texttt{muscle\_contract} adds a second term to it, on the muscle's own particles only:
+
+\begin{equation}
+\boldsymbol\tau_p \;=\; \boldsymbol\tau^{\rm el}_p \;+\; \underbrace{A\,w_{m(p)}\,a_{m(p)}\;T(s_p)\;\big[1+\beta(\lambda_p-1)\big]_+\;\mathbf{f}_p\mathbf{f}_p^{\!\top}}_{\textstyle \boldsymbol\sigma^{\rm act}_p} .
+\label{eq:active}
+\end{equation}
+
+Every symbol is a quantity the model already has: $a_{m}\in[0,1]$ is the activation of the muscle this point belongs to, integrated by \texttt{oculomotor\_drive} (or held fixed by \texttt{muscle\_probe} during characterisation); $\mathbf{f}_p$ is the point's fibre direction, measured by \texttt{blend\_muscles} as the local gradient of the geodesic fibre coordinate $s_p\in[0,1]$ ($0$ at the origin, $1$ at the insertion); $A$ is the peak active stress (\texttt{amplitude}, $67$ on eye G); $w_m$ a per-muscle weight, all ones on the scanned plant because the measured cross-sections already carry the relative strengths; $T(s)=\sin(\pi s)^{1/2}$ tapers the drive to zero at both caps, so the tendons are passive and the belly pulls; and $[1+\beta(\lambda-1)]_+$ with $\lambda_p=\|F_p\mathbf{f}_p\|$ is the force--length relation, off in eye G ($\beta=0$).
+
+\paragraph{Why a stress and not a force: the affine tensor}
+
+The scatter is where this becomes mechanics. Each particle deposits on its $27$ neighbouring nodes, weighted by the quadratic B-spline $w_{ip}$:
+
+\begin{equation}
+(m\mathbf{v})_i \;\mathrel{+}=\; w_{ip}\Big[\,m_p\mathbf{v}_p \;+\; \mathbb{A}_p\,(\mathbf{x}_i-\mathbf{x}_p)\Big],
+\qquad
+\mathbb{A}_p \;=\; m_p C_p \;-\; \frac{4\,\Delta t_{\rm sub}}{\Delta x^{2}}\,V^{0}_p\,\boldsymbol\tau_p .
+\label{eq:affine}
+\end{equation}
+
+$\mathbb{A}_p$ is a $3\times3$ \emph{linear map from offset to impulse}, and it holds two things that look unrelated: $C_p$, the APIC velocity gradient, and the stress. They add because MLS shape functions make $\nabla w_{ip}\propto w_{ip}(\mathbf{x}_i-\mathbf{x}_p)/\Delta x^2$, so the discrete internal force $-\nabla\!\cdot\!\boldsymbol\tau$ already has the form ``matrix times offset''. One scatter therefore carries both, and \textbf{adding to the stress is adding to the affine tensor}.
+
+Read the active term through \eqref{eq:affine}. Since $\boldsymbol\sigma^{\rm act}=g\,\mathbf{f}\mathbf{f}^{\!\top}$ is rank one, a node at offset $\Delta\mathbf{x}$ receives
+
+\begin{equation}
+-\,\frac{4\Delta t_{\rm sub}V^0 g}{\Delta x^{2}}\;\mathbf{f}\,\big(\mathbf{f}\cdot\Delta\mathbf{x}\big),
+\label{eq:rank1}
+\end{equation}
+
+so a node ahead along $\mathbf{f}$ is pushed backwards and one behind is pushed forwards: both are pulled toward the particle. Summed along a strap the interior cancels and only the two ends survive --- a uniaxial tension along the fibre, which is what a muscle is. No force is ever applied to a muscle as an object, and the eye moves because the \emph{divergence} of a stress field reaches the sclera.
+
+\paragraph{One grid, and what attachment means}
+
+Globe, muscles and (in the pinned-origin variant) bone are separate SETS but share one \texttt{mpm\_grid}: the stock \texttt{mpm\_scatter} writes it and the \texttt{accumulate} implementation adds to it, so momentum crosses between bodies wherever their particles fall in the same cells. That is the entire contact model, and it has a consequence worth stating plainly: \textbf{overlap is a weld}. With the artist's raw geometry, $17\,\%$ of SR's points, $21\,\%$ of IR's and $11\,\%$ of IO's lie inside the retina surface, and the eye barely turns --- $5.9/6.0/7.7$ degrees against commands of $25/16/9$. \texttt{blend\_muscles} therefore holds the belly a clearance \texttt{standoff}$\,=0.008$ clear of the globe (the role of Tenon's capsule, over which a muscle slides) and embeds only the distal cap, \texttt{embed}$\,=-0.006$, which is what makes the insertion an attachment rather than a contact.
+
+The proximal cap is the other end and it is not the same kind of object. \texttt{bone\_anchor} holds the points with $s<0.10$ to their rest positions with a penalty spring, $\mathbf{a}=k(\mathbf{x}^{\rm rest}-\mathbf{x})-c\,\mathbf{v}$, $k=9000$, $c=60$. A penalty yields under exactly the load it exists to resist: on a minimal rig the anchored cap slid $0.063$ world units off its bone while the load moved $0.0007$, and stiffening does not fix it --- at $k=3\times10^{5}$ the run destabilises before the slip stops. The alternative, implemented as \texttt{bone\_from\_origins} plus \texttt{pin\_region [clamp]}, gives the origin a \emph{body}: one bone nodule per muscle swallowing its cap, joined to the shared grid and pinned kinematically ($\mathbf{x}\leftarrow\mathbf{x}^{\rm rest}$, $\mathbf{v}\leftarrow0$ each substep), so the origin is held the way the tendon is. On the eye it costs $6$--$19\,\%$ of the synergy excursions rather than gaining, because the globe is already held by the socket and the orbital fat; the rig and the eye disagree because they load the attachment differently, and both numbers are kept.
+
+\paragraph{The parameters, and what they are worth}
+
+Stiffness enters as Lamé parameters, per particle, from a Young's modulus and $\nu=0.2$: $\mu = E/2(1+\nu)$, $\lambda = E\nu/[(1+\nu)(1-2\nu)]$. Eye G carries sclera $E=420$, choroid $130$, vitreous $45$, cornea $320$, lens $520$, muscle $240$, and $1600$ for a bone nodule --- and the last is not a stiffness to tune: rigidity there comes from the pinning, and the substep caps a usable modulus near $2000$ whatever is asked for. Particle volume $V^0_p$ is the measured mesh volume divided by the points seeded in it, so the six straps differ by a factor of two in $V^0$ exactly as their scanned cross-sections do; mass is $\rho V^0$ with $\rho=1$ ($2$ for bone).
+
+The one dimensionless number that matters is $A/E_{\rm muscle} = 67/240 = 0.28$: peak active stress against the muscle's own modulus. It cannot be raised much. At $\times1.5$ the globe loses $6.4\,\%$ of its radius, peak shortening goes $26\to74\,\%$ and \texttt{strain\_p99} returns \texttt{NaN}; at $\times2$ the radius loss is $16\,\%$. The reason is \eqref{eq:affine}: the stress enters scaled by $4\Delta t_{\rm sub}V^0/\Delta x^{2}$, so raising $A$ raises the node velocity produced per substep, and past a point the strap deforms faster than the substep resolves. Grid resolution is the other side of the same constraint --- $112^3$ over the unit box gives $\Delta x = 8.9\times10^{-3}$, about $13$ cells across the globe's equatorial semi-axis and $2$--$3$ across a strap, which is the coarsest that still separates a muscle from the sclera it slides on.
+
+So the eye is \textbf{contact-limited, not drive-limited}, and that is a statement about the discretisation as much as about the anatomy: what bounds the workspace is how much stress the tissue can carry before the substep loses it, and how much of each strap is welded to the globe rather than free to shorten.
+
 \end{document}
