@@ -29,22 +29,6 @@ from connectome_gnn.models.neural_ode_wrapper import (
 )
 from connectome_gnn.models.recurrent_step import recurrent_loss
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.training_utils import build_lr_scheduler, build_model, dale_law_score, determine_load_fields, enforce_dale_law, find_latest_epoch_checkpoint, load_flyvis_data
-from connectome_gnn.models.utils import (
-    ANSI_GREEN,
-    ANSI_ORANGE,
-    ANSI_RED,
-    ANSI_RESET,
-    ANSI_YELLOW,
-    LossRegularizer,
-    _NGP_QUICK_FREQ,
-    _batch_frames,
-    _quick_ngp_pearson,
-    analyze_data_svd,
-    model_family,
-    r2_color,
-    set_trainable_parameters,
-)
 from connectome_gnn.plot import (
     plot_jacobian_w_scatter,
     plot_metrics,
@@ -61,6 +45,36 @@ from connectome_gnn.utils import (
     create_log_dir,
     graphs_data_path,
     to_numpy,
+)
+from connectome_gnn.models.utils import (
+    ANSI_GREEN,
+    ANSI_ORANGE,
+    ANSI_RED,
+    ANSI_RESET,
+    ANSI_YELLOW,
+    _NGP_QUICK_FREQ,
+    _batch_frames,
+    _quick_ngp_pearson,
+    analyze_data_svd,
+    model_family,
+    r2_color,
+    set_trainable_parameters,
+)
+
+from connectome_gnn.models.training_utils import (
+    build_lr_scheduler,
+    build_model,
+    dale_law_score,
+    determine_load_fields,
+    enforce_dale_law,
+    find_latest_epoch_checkpoint,
+    init_hidden_neurons,
+    init_training_data,
+    init_training_model,
+    init_training_optimizer,
+    init_training_params,
+    init_training_regularizer,
+    load_flyvis_data,
 )
 
 _logger = get_logger(__name__)
@@ -151,392 +165,120 @@ def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
             model._ngp_cache_pos(x)
 
 
-def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
-    if torch.cuda.is_available():
-        torch.set_float32_matmul_precision('high')
+def data_train_gnn(
+    config,
+    erase,
+    best_model,
+    device,
+    log_file=None,
+    resume=False,
+):
+
+    # ------------------------------------------------------------
+    # initialization
+    # ------------------------------------------------------------
+
+    train = init_training_params(config)
 
     sim = config.simulation
-    tc = config.training
+    training = config.training
     model_config = config.graph_model
 
-    replace_with_cluster = 'replace' in tc.sparsity
-    umap_cluster_active = tc.umap_cluster_method != 'none'
+    # Training values still used directly by the epoch loop.
+    lr = train.lr
+    lr_update = train.lr_update
+    lr_embedding = train.lr_embedding
+    lr_W = train.lr_W
+    lr_NNR_f = train.lr_NNR_f
 
-    torch.random.fork_rng(devices=device)
-    torch.random.manual_seed(config.training.seed)
+    has_visual_field = train.has_visual_field
+    test_neural_field = train.test_neural_field
+    replace_with_cluster = train.replace_with_cluster
+    umap_cluster_active = train.umap_cluster_active
 
-    default_style.apply_globally()
-
-    if 'visual' in model_config.field_type:
-        has_visual_field = True
-        if 'instantNGP' in model_config.field_type:
-            _logger.info('train with visual field instantNGP')
-        else:
-            _logger.info('train with visual field NNR')
-    else:
-        has_visual_field = False
-    if 'test' in model_config.field_type:
-        test_neural_field = True
-        _logger.info('train with test field NNR')
-    else:
-        test_neural_field = False
-
-    log_dir, logger = create_log_dir(config, erase)
-
-    load_fields = determine_load_fields(config)
-    x_ts, _ , type_list = load_flyvis_data(
-        config.dataset, split='train', fields=load_fields,
-        training_selected_neurons=tc.training_selected_neurons,
-        selected_neuron_ids=tc.selected_neuron_ids if tc.training_selected_neurons else None,
-        measurement_noise_level=sim.measurement_noise_level,
+    log_dir, logger = create_log_dir(
+        config,
+        erase,
     )
-    # Derivative target from the OBSERVED voltages. The stored y_list holds the
-    # analytic drift f(v[t]) with the process noise stripped out (generator adds
-    # xi_t to v AFTER writing the state), i.e. an oracle no experiment can supply.
-    # The finite difference is what the data actually measures:
-    #   (v[t+1] - v[t]) / dt = f(v[t]) + xi_t/dt
-    _v = x_ts.voltage.numpy()                          # (T, N) float32, CPU
-    y_ts = np.zeros_like(_v)                           # (T, N)
-    y_ts[:-1] = (_v[1:] - _v[:-1]) / sim.delta_t
-    y_ts[-1] = y_ts[-2]                                # last frame has no successor;
-    y_ts = y_ts[..., None]                             # (T, N, 1), matches y_list
 
+    data = init_training_data(
+        config,
+        device,
+        log_dir,
+        logger,
+    )
 
-    # get n_neurons and n_frames from data, not config file
-    n_neurons = x_ts.n_neurons
-    config.simulation.n_neurons = n_neurons
-    n_frames_raw = x_ts.n_frames
-    sim.n_frames = n_frames_raw
-    _logger.info(f'dataset: {n_frames_raw} frames,  n neurons: {n_neurons}')
-    logger.info(f'n neurons: {n_neurons}')
+    x_ts = data.x_ts
+    y_ts = data.y_ts
+    y_ts_gpu = data.y_ts_gpu
+    type_list = data.type_list
+    ode_params = data.ode_params
+    n_neurons = data.n_neurons
+    n_frames = data.n_frames
+    xnorm = data.xnorm
+    ynorm = data.ynorm
+    edges = data.edges
+    gt_weights = data.gt_weights
 
-    # Subsample every time_step frames for recurrent training to reduce GPU memory.
-    # After subsampling, consecutive frames in x_ts are time_step original steps apart,
-    # so the BPTT unroll of time_step steps spans exactly the same physical duration
-    # as before, but GPU memory scales with n_frames/time_step instead of n_frames.
-    # recurrent_full_stimulus (observation-cadence sweep): keep the full 20ms data
-    # so the K-step BPTT unroll can feed the known native-rate stimulus and be
-    # supervised only at the K-th step. In that mode we must NOT subsample.
-    _full_stim = getattr(tc, 'recurrent_full_stimulus', False)
-    stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1 and not _full_stim) else 1
-    if stride > 1:
-        from tqdm import tqdm as _tqdm
-        _fields_to_stride = ['voltage', 'stimulus', 'calcium', 'fluorescence', 'noise']
-        print(f"\033[93msubsampling dataset: {n_frames_raw} frames → {n_frames_raw // stride} frames "
-              f"(1 every {stride} steps for recurrent training with time_step={stride})\033[0m")
-        for _field in _tqdm(_fields_to_stride, desc='subsampling x_ts', ncols=150):
-            _val = getattr(x_ts, _field)
-            if _val is not None:
-                setattr(x_ts, _field, _val[::stride])
-        y_ts = y_ts[::stride]
-        sim.n_frames = x_ts.n_frames  # update after subsampling
+    model, start_epoch = init_training_model(
+        config,
+        data,
+        device,
+        log_dir,
+        best_model=best_model,
+        resume=resume,
+    )
 
-    # Compute xnorm on CPU before moving to GPU (avoids OOM from temporary
-    # boolean mask + filtered copy needing ~2x voltage memory)
-    xnorm = x_ts.xnorm
-    assert not torch.isnan(x_ts.voltage).any(), "voltage contains NaN — cannot train"
-    assert not np.isnan(y_ts).any(), "derivative targets contain NaN — cannot train"
-    x_ts = x_ts.to(device)
-    # Block 01: temporal voltage denoising (reduces measurement noise in GNN input)
-    _denoise_alpha = float(getattr(tc, 'coeff_voltage_denoise_alpha', 0.0))
-    if _denoise_alpha > 0:
-        from connectome_gnn.LLM_code.staging.block_01.temporal_voltage_denoise import temporal_voltage_denoise
-        x_ts.voltage = (1 - _denoise_alpha) * x_ts.voltage + _denoise_alpha * temporal_voltage_denoise(x_ts.voltage)
-        _logger.info(f'voltage denoising applied: alpha={_denoise_alpha}')
-    y_ts_gpu = torch.from_numpy(y_ts).float().to(device)  # pre-convert once; avoids per-iter cudaStreamSynchronize
-    torch.save(xnorm, os.path.join(log_dir, 'xnorm.pt'))
-    _logger.info(f'xnorm: {to_numpy(xnorm):0.3f}')
-    logger.info(f'xnorm: {to_numpy(xnorm)}')
-    xnorm = float(xnorm)  # Python float so compiled functions avoid .item()
-    ynorm = torch.tensor(1.0, device=device)
-    torch.save(ynorm, os.path.join(log_dir, 'ynorm.pt'))
-    _logger.info(f'ynorm: {to_numpy(ynorm):0.3f}')
-    logger.info(f'ynorm: {to_numpy(ynorm)}')
-    ynorm = float(ynorm)
-
-    # SVD analysis of activity and visual stimuli (skip if already exists)
-    svd_plot_path = os.path.join(log_dir, 'results', 'svd_analysis.png')
-    if not os.path.exists(svd_plot_path):
-        analyze_data_svd(x_ts, log_dir, config=config, logger=logger, is_flyvis=True)
-    else:
-        _logger.info(f'svd analysis already exists: {svd_plot_path}')
-
-    # Load edges early so n_edges is correct before model creation
-    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
-    signal_model = config.graph_model.signal_model_name
-    try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisODEParams
-    try:
-        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-    except TypeError:
-        # Schema mismatch — on-disk ode_params.pt was saved with a different
-        # dataclass (typical when the same signal_model_name maps to two
-        # different ODE param schemas, e.g. `drosophila_cx` is registered to
-        # both DrosophilaCxODEParams (legacy Hulse-Beiran teacher) and to
-        # the simpler FlyVisODEParams (voltage-recovery flow). Fall back to
-        # FlyVisODEParams which only requires edge_index / W / tau_i / V_i_rest.
-        _logger.info(
-            f'ode_params schema mismatch for {OdeParamsCls.__name__}; '
-            f'falling back to FlyVisODEParams'
+    optimizer, lr_scheduler, n_total_params = (
+        init_training_optimizer(
+            config,
+            model,
         )
-        ode_params = FlyVisODEParams.load(graphs_data_path(config.dataset), device=device)
-    gt_weights = ode_params.W
-    gt_edges = ode_params.edge_index
-
-    _G = '\033[92m'; _R = '\033[91m'; _X = '\033[0m'
-    _match = gt_edges.shape[1] == sim.n_edges
-    _c = _G if _match else _R
-    print(f"{_c}[TRAIN] loaded ode_params: edge_index={gt_edges.shape}  W={gt_weights.shape}  "
-          f"config.n_edges={sim.n_edges}  {'OK' if _match else 'MISMATCH'}{_X}")
-
-    # Optionally replace GT edges with fully connected graph
-    if not tc.use_gt_edges:
-        src = torch.arange(n_neurons, device=device).repeat_interleave(n_neurons)
-        dst = torch.arange(n_neurons, device=device).repeat(n_neurons)
-        # Remove self-loops
-        mask = src != dst
-        edges = torch.stack([src[mask], dst[mask]], dim=0)
-        _logger.info(f'fully connected edges: {edges.shape[1]} (GT had {gt_edges.shape[1]})')
-        config.simulation.n_edges = edges.shape[1]
-        # Remap GT weights to fully connected edge ordering for R² evaluation
-        gt_weight_map = torch.zeros(edges.shape[1], device=device)
-        gt_edge_set = {}
-        for k in range(gt_edges.shape[1]):
-            gt_edge_set[(gt_edges[0, k].item(), gt_edges[1, k].item())] = gt_weights[k]
-        for k in range(edges.shape[1]):
-            key = (edges[0, k].item(), edges[1, k].item())
-            if key in gt_edge_set:
-                gt_weight_map[k] = gt_edge_set[key]
-        gt_weights = gt_weight_map
-    else:
-        edges = gt_edges
-        actual_n_edges = edges.shape[1]
-        expected_total = sim.n_edges + sim.n_extra_null_edges
-        if actual_n_edges == expected_total and sim.n_extra_null_edges > 0:
-            _logger.info(f'null edges in data: {sim.n_edges} base + {sim.n_extra_null_edges} null = {actual_n_edges}')
-            # Model W must cover all edges (real + null); update n_edges so build_model
-            # allocates W of size actual_n_edges, not just the base n_edges.
-            config.simulation.n_edges = actual_n_edges
-            config.simulation.n_extra_null_edges = 0
-        elif actual_n_edges != sim.n_edges:
-            _logger.info(f'n_edges mismatch: config={sim.n_edges}, actual={actual_n_edges} — using actual')
-            print(f"{_R}[TRAIN] n_edges override: config={sim.n_edges} → actual={actual_n_edges}{_X}")
-            config.simulation.n_edges = actual_n_edges
-
-    print(f"{_G}[TRAIN] edges for model: {edges.shape}  config.n_edges now={config.simulation.n_edges}{_X}")
-
-    # Save training edges so tester uses the same graph
-    torch.save(edges, os.path.join(log_dir, 'training_edges.pt'))
-    torch.save(gt_weights, os.path.join(log_dir, 'gt_weights.pt'))
-    print(f"{_G}[TRAIN] saved training_edges.pt: {edges.shape}  gt_weights.pt: {gt_weights.shape}{_X}")
-
-    # Resolve checkpoint path. --resume auto-detects the latest completed
-    # per-epoch checkpoint and continues at the next epoch; otherwise an
-    # explicit pretrained_model from config is used (best_model no longer
-    # drives training resume — it stays a test-time epoch selector).
-    checkpoint_path = None
-    _resumed_epoch = -1
-    if resume:
-        checkpoint_path, _resumed_epoch = find_latest_epoch_checkpoint(log_dir, tc.n_runs)
-        if checkpoint_path is None:
-            _logger.warning('--resume: no per-epoch checkpoint found; starting from epoch 0')
-    elif tc.pretrained_model != '':
-        checkpoint_path = tc.pretrained_model
-
-    reset_epoch = (tc.pretrained_model != '' and not resume)
-    model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
-    if resume and checkpoint_path is not None:
-        start_epoch = _resumed_epoch + 1   # continue at the next epoch
-        _logger.info(f'--resume: loaded {checkpoint_path}; resuming at epoch {start_epoch}')
-    _w = model.W if hasattr(model, 'W') else None
-    _w_match = _w is not None and _w.shape[0] == config.simulation.n_edges
-    _c = _G if _w_match else _R
-    print(f"{_c}[TRAIN] model.W={_w.shape if _w is not None else 'N/A'}  "
-          f"config.n_edges={config.simulation.n_edges}  "
-          f"{'OK' if _w_match else 'MISMATCH'}{_X}")
-
-    # Branch-0 hard Eq-10 sign-lock: register the GT connectome sign on the
-    # model from ode_params.W so messages use |W|·sign_GT. gt_weights is in the
-    # same edge order as model.W (use_gt_edges=True path). No-op otherwise.
-    if getattr(model, 'lock_edge_signs_from_connectome', False):
-        model.set_edge_sign_from_weights(gt_weights)
-        _frac_neg = float((model._edge_sign < 0).float().mean())
-        print(f"{_G}[TRAIN] Eq-10 hard sign-lock ON: registered {tuple(model._edge_sign.shape)} "
-              f"GT signs (frac_neg={_frac_neg:.3f}){_X}")
-        _logger.info(f'Eq-10 hard sign-lock: |W|·sign_GT, frac_neg={_frac_neg:.3f}')
-    list_loss = []
-
-    # Initialize embedding with equidistant points per cell type
-    if tc.embedding_cell_type_init:
-        from connectome_gnn.utils import get_equidistant_points
-        n_types = sim.n_neuron_types
-        emb_dim = config.graph_model.embedding_dim
-        if emb_dim != 2:
-            _logger.warning(f'embedding_cell_type_init requires embedding_dim=2, got {emb_dim} — skipping')
-        else:
-            scale = tc.embedding_cell_type_scale
-            ex, ey = get_equidistant_points(n_types)
-            equidist_pts = np.stack([ex, ey], axis=1) * scale  # (n_types, 2)
-            type_ids = type_list.squeeze(-1).long().cpu().numpy()  # (n_neurons,)
-            with torch.no_grad():
-                model.a.copy_(torch.tensor(equidist_pts[type_ids], dtype=torch.float32, device=device))
-            _logger.info(f'embedding initialized with equidistant points for {n_types} cell types')
-
-    # Freeze embedding if requested (must be done before optimizer build)
-    if tc.fix_embedding:
-        model.a.requires_grad_(False)
-        _logger.info('embedding is fixed (requires_grad=False, excluded from optimizer)')
-
-    # W init mode info
-    w_init_mode = getattr(tc, 'w_init_mode', 'randn')
-    if w_init_mode != 'randn':
-        w_init_scale = getattr(tc, 'w_init_scale', 1.0)
-        _logger.info(f'W init mode: {w_init_mode}' + (f' (scale={w_init_scale})' if w_init_mode == 'randn_scaled' else ''))
-
-    # === LLM-MODIFIABLE: OPTIMIZER SETUP START ===
-    # Change optimizer type, learning rate schedule, parameter groups
-
-    n_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    _logger.info(f'total parameters: {n_total_params:,}')
-    lr = tc.lr
-    if tc.lr_update == 0:
-        lr_update = tc.lr
-    else:
-        lr_update = tc.lr_update
-    lr_embedding = tc.lr_embedding
-    lr_W = tc.lr_W
-    lr_NNR_f = tc.lr_NNR_f
-
-    # Two-phase NNR schedule (SIREN-style).
-    #   tc.training_NNR_start_epoch > 0  -> NNR (NNR_f and NNR_hidden) is
-    #     frozen at lr_NNR_f_start during the warmup epochs [0, start_epoch),
-    #     then catches up at full lr_NNR_f from epoch=start_epoch onward.
-    #   The catch-up switch is fired by the existing alternate_training block
-    #     below (which also scales the GNN lr's by alternate_lr_ratio so the
-    #     graph backbone stops drifting while the NNR converges).
-    nnr_warmup_epochs = int(getattr(tc, 'training_NNR_start_epoch', 0))
-    lr_NNR_f_start = float(getattr(tc, 'lr_NNR_f_start', 0.0))
-    lr_NNR_f_init = lr_NNR_f_start if nnr_warmup_epochs > 0 else lr_NNR_f
-
-    _logger.info(
-        f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, '
-        f'lr_embedding {lr_embedding}, lr_NNR_f {lr_NNR_f_init} '
-        f'(NNR warmup: {nnr_warmup_epochs} epoch(s) at {lr_NNR_f_start}, '
-        f'then {lr_NNR_f})'
     )
 
-    optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr,
-                                                         lr_update=lr_update, lr_W=lr_W, lr_NNR_f=lr_NNR_f_init)
 
-    lr_scheduler = build_lr_scheduler(optimizer, config)
-    scheduler_type = getattr(tc, 'lr_scheduler', 'none')
-    if scheduler_type != 'none':
-        _logger.info(f'LR scheduler: {scheduler_type}')
-    # === LLM-MODIFIABLE: OPTIMIZER SETUP END ===
-    model.train()
+    ids = torch.arange(
+        n_neurons,
+        device=device,
+    )
 
-    net = f"{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs.pt"
-    _logger.info(f'network: {net}')
-    _logger.info(f'initial tc.batch_size: {tc.batch_size}')
 
-    ids = torch.arange(n_neurons, device=device)
+    hidden_ids, visible_ids, anchor_ids = init_hidden_neurons(
+        config,
+        model,
+        n_neurons,
+        log_dir,
+        device,
+    )
 
-    # --- Hidden neuron setup ---
-    hidden_ids = None
-    visible_ids = ids  # default: all neurons visible
-    _hidden_frac = getattr(model_config, 'hidden_neuron_fraction', 0.0)
-    has_hidden_neurons = _hidden_frac > 0.0
-    if has_hidden_neurons:
-        _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
-        if os.path.exists(_hidden_path):
-            hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
-            logger.info(f'loaded {len(hidden_ids)} hidden neurons from checkpoint')
-        else:
-            _rng = np.random.RandomState(sim.seed)
-            _candidates = np.arange(sim.n_input_neurons, n_neurons)
-            _n_hidden = int(len(_candidates) * _hidden_frac)
-            _hidden_np = np.sort(_rng.choice(_candidates, size=_n_hidden, replace=False))
-            hidden_ids = torch.from_numpy(_hidden_np).long().to(device)
-            torch.save(hidden_ids, _hidden_path)
-            logger.info(f'sampled {len(hidden_ids)} hidden neurons ({_hidden_frac*100:.1f}%), saved')
-        _hidden_mask = torch.zeros(n_neurons, dtype=torch.bool, device=device)
-        _hidden_mask[hidden_ids] = True
-        visible_ids = ids[~_hidden_mask]
-        _logger.info(f'hidden neurons: {len(hidden_ids)}/{n_neurons}, visible for loss: {len(visible_ids)}')
+    has_hidden_neurons = (
+        hidden_ids is not None
+    )
 
-    # --- Anchor neuron setup ---
-    # Anchors are OBSERVED neurons whose GT voltages directly supervise the
-    # NGP-T / SIREN-T backbone. Not cheating: anchors are sampled from the
-    # visible (non-hidden) set.
-    anchor_ids = None
-    _inr_type_hidden = getattr(model_config, 'inr_type_hidden', 'none')
-    _anchor_inner_model = model._orig_mod if hasattr(model, '_orig_mod') else model
     has_anchor_neurons = (
-        has_hidden_neurons
-        and bool(getattr(tc, 'train_with_anchor_neurons', False))
-        and _inr_type_hidden in ('siren_t', 'ngp_t')
-        and getattr(_anchor_inner_model, 'n_anchor', 0) > 0
+        anchor_ids is not None
     )
-    if has_anchor_neurons:
-        _anchor_path = os.path.join(log_dir, 'anchor_neuron_ids.pt')
-        _n_anchor = int(_anchor_inner_model.n_anchor)
-        if os.path.exists(_anchor_path):
-            anchor_ids = torch.load(_anchor_path, map_location=device, weights_only=True)
-            if len(anchor_ids) != _n_anchor:
-                _logger.warning(f'anchor_ids size {len(anchor_ids)} != model.n_anchor {_n_anchor}; re-sampling')
-                anchor_ids = None
-        if anchor_ids is None:
-            _rng = np.random.RandomState(sim.seed + 1)
-            _candidates = np.setdiff1d(
-                np.arange(sim.n_input_neurons, n_neurons),
-                hidden_ids.cpu().numpy(),
-            )
-            _n_anchor_eff = min(_n_anchor, len(_candidates))
-            _anchor_np = np.sort(_rng.choice(_candidates, size=_n_anchor_eff, replace=False))
-            anchor_ids = torch.from_numpy(_anchor_np).long().to(device)
-            torch.save(anchor_ids, _anchor_path)
-            _logger.info(f'sampled {len(anchor_ids)} anchor neurons, saved')
-        else:
-            _logger.info(f'loaded {len(anchor_ids)} anchor neurons from checkpoint')
 
-    if tc.coeff_W_sign > 0:
-        index_weight = []
-        for i in range(n_neurons):
-            # get source neurons that connect to neuron i
-            mask = edges[1] == i
-            index_weight.append(edges[0][mask])
+    regularizer = init_training_regularizer(
+        config,
+        data,
+        device,
+    )
 
-    _logger.info(f'coeff_W_L1: {tc.coeff_W_L1} coeff_g_phi_diff: {tc.coeff_g_phi_diff} coeff_f_theta_diff: {tc.coeff_f_theta_diff}')
-     # proximal L1 info
-    coeff_proximal = getattr(tc, 'coeff_W_L1_proximal', 0.0)
-    if coeff_proximal > 0:
-        _logger.info(f'proximal L1 soft-thresholding on W: coeff={coeff_proximal}')
+    # ------------------------------------------------------------
+    # remaining lightweight training setup
+    # ------------------------------------------------------------
 
-    _logger.info("start training ...")
-
-    check_and_clear_memory(device=device, iteration_number=0, every_n_iterations=1, memory_percentage_threshold=0.6)
-    # torch.autograd.set_detect_anomaly(True)
+    loss_components = {
+        'loss': []
+    }
 
     list_loss_regul = []
 
-    regularizer = LossRegularizer(
-        train_config=tc,
-        model_config=model_config,
-        activity_column=3,  # flyvis uses column 3 for activity
-        plot_frequency=1,   # will be updated per epoch
-        n_neurons=n_neurons,
-        trainer_type='flyvis',
-        dataset=config.dataset,
-        type_list=type_list,
-        n_neuron_types=sim.n_neuron_types,
-    )
-    regularizer.set_activity_stats(x_ts, device)
-    regularizer.move_type_list_to_device(device)
+    training_start_time = time.time()
 
     # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
-    if tc.torch_compile:
+    if training.torch_compile:
         # 'reduce-overhead' enables CUDA graphs, which pin static buffers and
         # conflict with activation checkpointing's recompute-in-backward (the
         # GNN rollout uses torch.utils.checkpoint to fit memory). Use plain
@@ -565,10 +307,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     # Total iter count across all epochs — read by the LLM poller to display
     # iter=I/total in the periodic [metrics] line. Mirrors the Niter formula
     # used inside the epoch loop (deterministic per epoch).
-    _Niter_per_epoch = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
-    if tc.max_iterations_per_epoch > 0:
-        _Niter_per_epoch = min(_Niter_per_epoch, tc.max_iterations_per_epoch)
-    _total_iter = _Niter_per_epoch * tc.n_epochs
+    _Niter_per_epoch = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
+    if training.max_iterations_per_epoch > 0:
+        _Niter_per_epoch = min(_Niter_per_epoch, training.max_iterations_per_epoch)
+    _total_iter = _Niter_per_epoch * training.n_epochs
     with open(os.path.join(log_dir, 'tmp_training', 'total_iter.txt'), 'w') as f:
         f.write(str(_total_iter))
 
@@ -585,23 +327,23 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         return 'nan' if x is None else f'{x:.6f}'
 
     # Valid frame range for sampling (matches np.random.randint logic it replaces)
-    _frame_min_k = tc.time_window
-    _stride_subsample = tc.recurrent_training and tc.time_step > 1
-    _target_offset = 1 if _stride_subsample else tc.time_step
+    _frame_min_k = training.time_window
+    _stride_subsample = training.recurrent_training and training.time_step > 1
+    _target_offset = 1 if _stride_subsample else training.time_step
     _frame_max_k = sim.n_frames - 4 - _target_offset  # exclusive upper bound
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
     embedding_frozen = False
     unfreeze_at_iteration = -1
 
-    _profiling = tc.profiling
+    _profiling = training.profiling
     _profiler_trace_dir = os.path.join(log_dir, 'profiler_traces')
     if _profiling:
         os.makedirs(_profiler_trace_dir, exist_ok=True)
 
-    for epoch in range(start_epoch, tc.n_epochs):
+    for epoch in range(start_epoch, training.n_epochs):
 
-        Niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
+        Niter = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
         plot_frequency = max(1, int(Niter // 20))
         # Heavy R² checkpoint cadence — doubled (Niter//10 → Niter//20) so
         # nnr_plot.png gets twice the V_rest/τ-clean steps. Heavy plots
@@ -615,11 +357,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
               f'(early-phase every {early_r2_frequency} iterations)')
 
         # TRUNCATE ITERATIONS but only if config parameter says so.
-        if tc.max_iterations_per_epoch > 0:
-            Niter = min(Niter, tc.max_iterations_per_epoch)
+        if training.max_iterations_per_epoch > 0:
+            Niter = min(Niter, training.max_iterations_per_epoch)
         # Compute unfreeze point for this epoch if embedding was frozen by UMAP clustering
-        if embedding_frozen and tc.umap_cluster_fix_embedding_ratio > 0:
-            unfreeze_at_iteration = int(Niter * tc.umap_cluster_fix_embedding_ratio)
+        if embedding_frozen and training.umap_cluster_fix_embedding_ratio > 0:
+            unfreeze_at_iteration = int(Niter * training.umap_cluster_fix_embedding_ratio)
         else:
             unfreeze_at_iteration = -1
 
@@ -629,14 +371,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         _total_regul_gpu = torch.zeros((), device=device)
         k = 0
 
-        loss_noise_level = tc.loss_noise_level * (0.95 ** epoch)
+        loss_noise_level = training.loss_noise_level * (0.95 ** epoch)
         regularizer.set_epoch(epoch, plot_frequency, Niter=Niter)
 
         # Per-epoch resampling of measurement noise: overwrite x_ts.noise with a
         # fresh Gaussian realisation seeded by sim.seed + epoch so the GNN sees
         # an independent noise draw on every pass. Replaces the fixed noise.zarr
         # realisation; only active when measurement noise is enabled.
-        if tc.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
+        if training.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
             _noise_gen = torch.Generator(device=x_ts.noise.device).manual_seed(int(sim.seed) + int(epoch))
             x_ts.noise = (torch.randn(x_ts.noise.shape, generator=_noise_gen,
                                        dtype=x_ts.noise.dtype, device=x_ts.noise.device)
@@ -644,8 +386,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             _logger.info(f'epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})')
 
         # Two-phase training: epoch 0 = full LRs, epoch 1+ = reduce W/MLP, keep SIREN
-        if tc.alternate_training and epoch >= 1:
-            phase_mult = tc.alternate_lr_ratio
+        if training.alternate_training and epoch >= 1:
+            phase_mult = training.alternate_lr_ratio
             optimizer, n_total_params = set_trainable_parameters(
                 model=model,
                 lr_embedding=lr_embedding * phase_mult,
@@ -658,8 +400,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             _logger.info(f'Phase 1 (SIREN focus): W/MLP LRs *= {phase_mult}, NNR_f LR = {lr_NNR_f}')
 
         # Reproducible per-epoch frame sampling (replaces bare np.random.randint)
-        epoch_rng = np.random.RandomState((tc.seed + epoch) % (2**32))
-        frame_indices = epoch_rng.randint(0, _frame_range, size=Niter * tc.batch_size) + _frame_min_k
+        epoch_rng = np.random.RandomState((training.seed + epoch) % (2**32))
+        frame_indices = epoch_rng.randint(0, _frame_range, size=Niter * training.batch_size) + _frame_min_k
 
         last_connectivity_r2 = None
         last_connectivity_r2_visible = None
@@ -677,7 +419,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         field_slope = None
         pbar = trange(Niter, ncols=150)
         # Dale's law enforcement: 3 evenly spaced interventions per epoch
-        dale_enabled = getattr(tc, 'dale_law', False)
+        dale_enabled = getattr(training, 'dale_law', False)
         if dale_enabled:
             dale_checkpoints = {int(Niter * f) for f in (0.25, 0.5, 0.75)}
             dale_checkpoints.discard(0)
@@ -713,23 +455,23 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # Defaults (warmup=0, ramp=0) preserve the legacy "always inject"
         # behavior — non-NGP runs and uncondiguered NGP runs follow the
         # exact same code path they used before this rewrite.
-        _warmup_inject_iter_frac = float(getattr(tc, 'warmup_inject_nnr_iter_frac', 0.0))
-        _warmup_inject_ramp_frac = float(getattr(tc, 'warmup_inject_nnr_ramp_iter_frac', 0.0))
+        _warmup_inject_iter_frac = float(getattr(training, 'warmup_inject_nnr_iter_frac', 0.0))
+        _warmup_inject_ramp_frac = float(getattr(training, 'warmup_inject_nnr_ramp_iter_frac', 0.0))
         if _warmup_inject_iter_frac > 0.0:
             _warmup_inject_iter = int(Niter * _warmup_inject_iter_frac)
         else:
-            _warmup_inject_iter = int(getattr(tc, 'warmup_inject_nnr_iter', 0))
+            _warmup_inject_iter = int(getattr(training, 'warmup_inject_nnr_iter', 0))
         if _warmup_inject_ramp_frac > 0.0:
             _warmup_inject_ramp = int(Niter * _warmup_inject_ramp_frac)
         else:
-            _warmup_inject_ramp = int(getattr(tc, 'warmup_inject_nnr_ramp_iter', 0))
+            _warmup_inject_ramp = int(getattr(training, 'warmup_inject_nnr_ramp_iter', 0))
 
         # LR-damping V-schedule. Fired only when an NGP injection switch is
         # configured (_warmup_inject_iter > 0) AND a damping window length is
         # set (_warmup_inject_ramp > 0). lr_damping_factor controls the depth
         # of the V (default 100.0 → /100 at the trough; one knob covers both
         # legs, recovery just multiplies back by the same factor).
-        _lr_damping_factor = float(getattr(tc, 'lr_damping_factor', 100.0))
+        _lr_damping_factor = float(getattr(training, 'lr_damping_factor', 100.0))
         _lr_damping_active = (_warmup_inject_iter > 0
                               and _warmup_inject_ramp > 0
                               and _lr_damping_factor > 1.0)
@@ -823,7 +565,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # Unfreeze embedding at the midpoint after UMAP clustering froze it
             if embedding_frozen and N == unfreeze_at_iteration:
                 embedding_frozen = False
-                lr_embedding = tc.lr_embedding
+                lr_embedding = training.lr_embedding
                 optimizer, n_total_params = set_trainable_parameters(
                     model=model, lr_embedding=lr_embedding, lr=lr,
                     lr_update=lr_update, lr_W=lr_W)
@@ -832,7 +574,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             optimizer.zero_grad()
 
             # Recurrent training (standard or multi-start) — delegated to recurrent_step
-            if tc.recurrent_training and not tc.neural_ODE_training:
+            if training.recurrent_training and not training.neural_ODE_training:
                 loss, regul_val = recurrent_loss(
                     model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=visible_ids,
                     frame_indices=frame_indices, iter_idx=N, config=config,
@@ -841,9 +583,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     hidden_ids=hidden_ids,
                 )
                 loss.backward()
-                if hasattr(tc, 'grad_clip_W') and tc.grad_clip_W > 0 and hasattr(model, 'W'):
+                if hasattr(tc, 'grad_clip_W') and training.grad_clip_W > 0 and hasattr(model, 'W'):
                     if model.W.grad is not None:
-                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
+                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
                 optimizer.step()
                 if dale_enabled and N in dale_checkpoints:
                     enforce_dale_law(model, edges)
@@ -872,7 +614,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if is_regular_r2 and N > 0:
                     _intermediate_path = os.path.join(
                         log_dir, 'models',
-                        f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+                        f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt')
                     os.makedirs(os.path.dirname(_intermediate_path), exist_ok=True)
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
@@ -1014,15 +756,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             regularizer.reset_iteration(device=device)
 
             # Consecutive batch: pick one random start, use batch_size consecutive frames
-            if tc.consecutive_batch:
-                k_start = int(frame_indices[N * tc.batch_size])
+            if training.consecutive_batch:
+                k_start = int(frame_indices[N * training.batch_size])
 
-            for batch in range(tc.batch_size):
+            for batch in range(training.batch_size):
 
-                if tc.consecutive_batch:
+                if training.consecutive_batch:
                     k = k_start + batch
                 else:
-                    k = int(frame_indices[N * tc.batch_size + batch])
+                    k = int(frame_indices[N * training.batch_size + batch])
 
                 x = x_ts.frame(k)
 
@@ -1035,8 +777,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if has_hidden_neurons:
                     _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
 
-                if tc.time_window > 0:
-                    x_temporal = x_ts.voltage[k - tc.time_window + 1: k + 1].T
+                if training.time_window > 0:
+                    x_temporal = x_ts.voltage[k - training.time_window + 1: k + 1].T
                     # x stays as NeuronState; x_temporal passed separately to temporal model
 
                 if has_visual_field:
@@ -1057,8 +799,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     )
                     loss = loss + regul_loss
 
-                if tc.recurrent_training or tc.neural_ODE_training:
-                    y = x_ts.voltage[k + 1 if _stride_subsample else k + tc.time_step].unsqueeze(-1)
+                if training.recurrent_training or training.neural_ODE_training:
+                    y = x_ts.voltage[k + 1 if _stride_subsample else k + training.time_step].unsqueeze(-1)
                 elif test_neural_field:
                     y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                 else:
@@ -1111,7 +853,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 loss = loss + update_regul
 
 
-                if tc.neural_ODE_training:
+                if training.neural_ODE_training:
 
                     ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
                     ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
@@ -1121,8 +863,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         edge_index=edges,
                         x_ts=x_ts,
                         k_batch=k_batch,
-                        time_step=tc.time_step,
-                        batch_size=tc.batch_size,
+                        time_step=training.time_step,
+                        batch_size=training.batch_size,
                         n_neurons=n_neurons,
                         ids_batch=ids_batch,
                         delta_t=sim.delta_t,
@@ -1130,11 +872,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         data_id=data_id,
                         has_visual_field=has_visual_field,
                         y_batch=y_batch,
-                        noise_level=tc.noise_recurrent_level,
-                        ode_method=tc.ode_method,
-                        rtol=tc.ode_rtol,
-                        atol=tc.ode_atol,
-                        adjoint=tc.ode_adjoint,
+                        noise_level=training.noise_recurrent_level,
+                        ode_method=training.ode_method,
+                        rtol=training.ode_rtol,
+                        atol=training.ode_atol,
+                        adjoint=training.ode_adjoint,
                         iteration=N,
                         state_clamp=ode_state_clamp,
                         stab_lambda=ode_stab_lambda
@@ -1142,15 +884,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     loss = loss + ode_loss
 
 
-                elif tc.recurrent_training:
+                elif training.recurrent_training:
 
-                    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+                    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
 
-                    if tc.time_step > 1:
-                        for step in range(tc.time_step - 1):
+                    if training.time_step > 1:
+                        for step in range(training.time_step - 1):
                             neurons_per_sample = state_batch[0].n_neurons
 
-                            for b in range(tc.batch_size):
+                            for b in range(training.batch_size):
                                 start_idx = b * neurons_per_sample
                                 end_idx = (b + 1) * neurons_per_sample
 
@@ -1173,9 +915,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             batched_state, batched_edges = _batch_frames(state_batch, edges)
                             pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
 
-                            pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+                            pred_x = pred_x + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
 
-                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * tc.time_step)).norm(2)
+                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * training.time_step)).norm(2)
 
                 else:
 
@@ -1197,7 +939,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
                         pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)  # (B, n_anchor)
                         gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
-                        loss = loss + tc.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
+                        loss = loss + training.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
 
 
                 # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
@@ -1205,14 +947,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 loss.backward()
 
                 # debug gradient check for neural ODE training
-                if tc.neural_ODE_training and (N % 500 == 0):
+                if training.neural_ODE_training and (N % 500 == 0):
                     debug_check_gradients(model, loss, N)
 
                 # W-specific gradient clipping: clip W gradients to force optimizer
                 # to adjust lin_update (which contains V_rest/tau) instead of W
-                if hasattr(tc, 'grad_clip_W') and tc.grad_clip_W > 0 and hasattr(model, 'W'):
+                if hasattr(training, 'grad_clip_W') and training.grad_clip_W > 0 and hasattr(model, 'W'):
                     if model.W.grad is not None:
-                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=tc.grad_clip_W)
+                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
 
                 optimizer.step()
                 if dale_enabled and N in dale_checkpoints:
@@ -1248,10 +990,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         'epoch_boundaries': list(regularizer.epoch_boundaries),
                     }, os.path.join(log_dir, 'loss_components.pt'))
 
-                    if tc.save_all_checkpoints:
+                    if training.save_all_checkpoints:
                         torch.save(
                             {'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
-                            os.path.join(log_dir, 'models', f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}_{N}.pt'))
+                            os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt'))
 
                 # R2 checkpoint: regular interval + early-phase extra points
                 is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
@@ -1266,7 +1008,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if is_regular_r2:
                     _intermediate_path = os.path.join(
                         log_dir, 'models',
-                        f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt')
+                        f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt')
                     os.makedirs(os.path.dirname(_intermediate_path), exist_ok=True)
                     torch.save({'model_state_dict': model.state_dict(),
                                 'optimizer_state_dict': optimizer.state_dict()},
@@ -1416,10 +1158,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                     if last_connectivity_r2 is not None:
                         pbar.set_postfix_str(f'{r2_color(last_connectivity_r2)}R²={last_connectivity_r2:.3f}{ANSI_RESET}')
-                    if tc.save_all_checkpoints:
+                    if training.save_all_checkpoints:
                         torch.save(
                             {'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
-                            os.path.join(log_dir, 'models', f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}_{N}.pt'))
+                            os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt'))
 
             # check_and_clear_memory(device=device, iteration_number=N, every_n_iterations=Niter // 50, memory_percentage_threshold=0.6)
             if _profiling:
@@ -1445,7 +1187,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             epoch, epoch_total_loss, epoch_pred_loss, epoch_regul_loss))
         torch.save({'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict()},
-                   os.path.join(log_dir, 'models', f'best_model_with_{tc.n_runs - 1}_graphs_{epoch}.pt'))
+                   os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt'))
 
         if has_visual_field and hasattr(model, 'NNR_f'):
             torch.save(model.NNR_f.state_dict(),
@@ -1462,7 +1204,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # Plot 1: Loss
         ax1 = fig.add_subplot(2, 3, 1)
         ax1.plot(list_loss, color=default_style.foreground, linewidth=default_style.line_width)
-        ax1.set_xlim([0, tc.n_epochs])
+        ax1.set_xlim([0, training.n_epochs])
         default_style.ylabel(ax1, 'loss')
         default_style.xlabel(ax1, 'epochs')
 
@@ -1470,9 +1212,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
         if replace_with_cluster:
 
-            if (epoch % tc.sparsity_freq == tc.sparsity_freq - 1) & (epoch < tc.n_epochs - tc.sparsity_freq):
+            if (epoch % training.sparsity_freq == training.sparsity_freq - 1) & (epoch < training.n_epochs - training.sparsity_freq):
                 _logger.info('replace embedding with clusters ...')
-                eps = tc.cluster_distance_threshold
+                eps = training.cluster_distance_threshold
                 results = clustering_evaluation(to_numpy(model.a), type_list, eps=eps)
                 _logger.info(f"eps={eps}: {results['n_clusters_found']} clusters, "
                       f"accuracy={results['accuracy']:.3f}")
@@ -1499,25 +1241,25 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 plt.yticks([])
                 plt.text(0.5, 0.9, f"eps={eps}: {results['n_clusters_found']} clusters, accuracy={results['accuracy']:.3f}")
 
-                if tc.fix_cluster_embedding:
+                if training.fix_cluster_embedding:
                     lr_embedding = 1.0E-10
                     # the embedding is fixed for 1 epoch
 
             else:
-                lr = tc.lr
-                lr_embedding = tc.lr_embedding
-                lr_W = tc.lr_W
+                lr = training.lr
+                lr_embedding = training.lr_embedding
+                lr_W = training.lr_W
 
             logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}')
             optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W)
 
         if umap_cluster_active:
-            if (epoch % tc.umap_cluster_freq == tc.umap_cluster_freq - 1) & (epoch < tc.n_epochs - 1):
+            if (epoch % training.umap_cluster_freq == training.umap_cluster_freq - 1) & (epoch < training.n_epochs - 1):
                 _logger.info('UMAP cluster reassign ...')
                 umap_results = umap_cluster_reassign(
                     model, config, x_ts, edges, n_neurons, type_list, device, logger=logger,
-                    reinit_mlps=tc.umap_cluster_reinit_mlps,
-                    relearn_epochs=tc.umap_cluster_relearn_epochs)
+                    reinit_mlps=training.umap_cluster_reinit_mlps,
+                    relearn_epochs=training.umap_cluster_relearn_epochs)
 
                 if umap_results is not None:
                     fig.add_subplot(2, 3, 6)
@@ -1534,7 +1276,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     plt.yticks([])
                     plt.title(f"{umap_results['n_clusters']} cl, acc={umap_results['accuracy']:.3f}", fontsize=10)
 
-                if tc.umap_cluster_fix_embedding or tc.umap_cluster_fix_embedding_ratio > 0:
+                if training.umap_cluster_fix_embedding or training.umap_cluster_fix_embedding_ratio > 0:
                     lr_embedding = 1.0E-10
                     embedding_frozen = True
 
@@ -1555,19 +1297,19 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     if log_file is not None:
         log_file.write(f"training_time_min: {training_time_min:.1f}\n")
-        log_file.write(f"n_epochs: {tc.n_epochs}\n")
-        log_file.write(f"data_augmentation_loop: {tc.data_augmentation_loop}\n")
-        log_file.write(f"recurrent_training: {tc.recurrent_training}\n")
-        log_file.write(f"batch_size: {tc.batch_size}\n")
-        log_file.write(f"lr_W: {tc.lr_W}\n")
-        log_file.write(f"lr: {tc.lr}\n")
-        log_file.write(f"lr_embedding: {tc.lr_embedding}\n")
-        log_file.write(f"coeff_g_phi_diff: {tc.coeff_g_phi_diff}\n")
-        log_file.write(f"coeff_g_phi_norm: {tc.coeff_g_phi_norm}\n")
-        log_file.write(f"coeff_g_phi_weight_L1: {tc.coeff_g_phi_weight_L1}\n")
-        log_file.write(f"coeff_f_theta_weight_L1: {tc.coeff_f_theta_weight_L1}\n")
-        log_file.write(f"coeff_f_theta_weight_L2: {tc.coeff_f_theta_weight_L2}\n")
-        log_file.write(f"coeff_W_L1: {tc.coeff_W_L1}\n")
+        log_file.write(f"n_epochs: {training.n_epochs}\n")
+        log_file.write(f"data_augmentation_loop: {training.data_augmentation_loop}\n")
+        log_file.write(f"recurrent_training: {training.recurrent_training}\n")
+        log_file.write(f"batch_size: {training.batch_size}\n")
+        log_file.write(f"lr_W: {training.lr_W}\n")
+        log_file.write(f"lr: {training.lr}\n")
+        log_file.write(f"lr_embedding: {training.lr_embedding}\n")
+        log_file.write(f"coeff_g_phi_diff: {training.coeff_g_phi_diff}\n")
+        log_file.write(f"coeff_g_phi_norm: {training.coeff_g_phi_norm}\n")
+        log_file.write(f"coeff_g_phi_weight_L1: {training.coeff_g_phi_weight_L1}\n")
+        log_file.write(f"coeff_f_theta_weight_L1: {training.coeff_f_theta_weight_L1}\n")
+        log_file.write(f"coeff_f_theta_weight_L2: {training.coeff_f_theta_weight_L2}\n")
+        log_file.write(f"coeff_W_L1: {training.coeff_W_L1}\n")
         log_file.write(f"dale_law: {getattr(tc, 'dale_law', False)}\n")
         dale_score = dale_law_score(model, edges)
         log_file.write(f"dale_law_score: {dale_score:.4f}\n")
