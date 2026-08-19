@@ -191,11 +191,6 @@ def data_train_gnn(
     lr_W = train.lr_W
     lr_NNR_f = train.lr_NNR_f
 
-    has_visual_field = train.has_visual_field
-    test_neural_field = train.test_neural_field
-    replace_with_cluster = train.replace_with_cluster
-    umap_cluster_active = train.umap_cluster_active
-
     log_dir, logger = create_log_dir(
         config,
         erase,
@@ -236,12 +231,7 @@ def data_train_gnn(
         )
     )
 
-
-    ids = torch.arange(
-        n_neurons,
-        device=device,
-    )
-
+    ids = torch.arange(n_neurons, device=device)
 
     hidden_ids, visible_ids, anchor_ids = init_hidden_neurons(
         config,
@@ -579,7 +569,7 @@ def data_train_gnn(
                     model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=visible_ids,
                     frame_indices=frame_indices, iter_idx=N, config=config,
                     device=device, xnorm=xnorm, ynorm=ynorm,
-                    regularizer=regularizer, has_visual_field=has_visual_field,
+                    regularizer=regularizer, has_visual_field=train.has_visual_field,
                     hidden_ids=hidden_ids,
                 )
                 loss.backward()
@@ -781,7 +771,7 @@ def data_train_gnn(
                     x_temporal = x_ts.voltage[k - training.time_window + 1: k + 1].T
                     # x stays as NeuronState; x_temporal passed separately to temporal model
 
-                if has_visual_field:
+                if train.has_visual_field:
                     visual_input = model.forward_visual(x, k)
                     x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
                     x.stimulus[model.n_input_neurons:] = 0
@@ -801,7 +791,7 @@ def data_train_gnn(
 
                 if training.recurrent_training or training.neural_ODE_training:
                     y = x_ts.voltage[k + 1 if _stride_subsample else k + training.time_step].unsqueeze(-1)
-                elif test_neural_field:
+                elif train.test_neural_field:
                     y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
                 else:
                     y = y_ts_gpu[k] / ynorm
@@ -814,7 +804,7 @@ def data_train_gnn(
                 y_list.append(y)
                 ids_list.append(visible_ids + ids_index)
                 k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
-                if test_neural_field:
+                if train.test_neural_field:
                     visual_input_list.append(visual_input)
                 ids_index += n
 
@@ -826,7 +816,7 @@ def data_train_gnn(
 
             _total_regul_gpu = _total_regul_gpu + loss.detach()  # regul-only at this point
 
-            if test_neural_field:
+            if train.test_neural_field:
                 visual_input_batch = torch.cat(visual_input_list, dim=0)
                 loss = loss + (visual_input_batch - y_batch).norm(2)
 
@@ -870,7 +860,7 @@ def data_train_gnn(
                         delta_t=sim.delta_t,
                         device=device,
                         data_id=data_id,
-                        has_visual_field=has_visual_field,
+                        has_visual_field=train.has_visual_field,
                         y_batch=y_batch,
                         noise_level=training.noise_recurrent_level,
                         ode_method=training.ode_method,
@@ -902,7 +892,7 @@ def data_train_gnn(
 
                                 k_current = k_batch[start_idx, 0].item() + step + 1
 
-                                if has_visual_field:
+                                if train.has_visual_field:
                                     visual_input_next = model.forward_visual(state_batch[b], k_current)
                                     state_batch[b].stimulus[:model.n_input_neurons] = visual_input_next.squeeze(-1)
                                     state_batch[b].stimulus[model.n_input_neurons:] = 0
@@ -1014,7 +1004,7 @@ def data_train_gnn(
                                 'optimizer_state_dict': optimizer.state_dict()},
                                _intermediate_path)
 
-                if (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'mlp':
+                if (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'mlp':
                     from connectome_gnn.metrics import compute_jacobian_connectivity_r2
                     last_connectivity_r2 = compute_jacobian_connectivity_r2(
                         model, x_ts, ode_params, n_neurons=n_neurons, device=device)
@@ -1027,7 +1017,7 @@ def data_train_gnn(
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'linear':
+                elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'linear':
                     last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
                         model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -1041,7 +1031,7 @@ def data_train_gnn(
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
                     _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not test_neural_field and model_family(model) == 'gnn':
+                elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'gnn':
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
                     last_connectivity_r2_visible = _r2_visible
                     if _h_r2 is not None:
@@ -1151,7 +1141,7 @@ def data_train_gnn(
                     if bar_parts:
                         pbar.set_postfix_str(' '.join(bar_parts))
 
-                if (has_visual_field) & (N in plot_iterations):
+                if (train.has_visual_field) & (N in plot_iterations):
                     field_R2, field_slope = render_visual_field_video(
                         model, x_ts, sim, log_dir, epoch, N, logger)
 
@@ -1189,7 +1179,7 @@ def data_train_gnn(
                     'optimizer_state_dict': optimizer.state_dict()},
                    os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt'))
 
-        if has_visual_field and hasattr(model, 'NNR_f'):
+        if train.has_visual_field and hasattr(model, 'NNR_f'):
             torch.save(model.NNR_f.state_dict(),
                        os.path.join(log_dir, 'models', f'inr_stimulus_{epoch}.pt'))
 
@@ -1210,7 +1200,7 @@ def data_train_gnn(
 
         plot_training_summary_panels(fig, log_dir, Niter=Niter)
 
-        if replace_with_cluster:
+        if train.replace_with_cluster:
 
             if (epoch % training.sparsity_freq == training.sparsity_freq - 1) & (epoch < training.n_epochs - training.sparsity_freq):
                 _logger.info('replace embedding with clusters ...')
@@ -1253,7 +1243,7 @@ def data_train_gnn(
             logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}')
             optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W)
 
-        if umap_cluster_active:
+        if train.umap_cluster_active:
             if (epoch % training.umap_cluster_freq == training.umap_cluster_freq - 1) & (epoch < training.n_epochs - 1):
                 _logger.info('UMAP cluster reassign ...')
                 umap_results = umap_cluster_reassign(
