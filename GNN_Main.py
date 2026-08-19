@@ -145,7 +145,7 @@ if __name__ == "__main__":
     else:
         best_model = ''
         task = task = 'train'
-        config_list = ['zebrafish_hd_si_gnn_ipn12_c0_gcamp']  #flyvis_noise_005_blank50_heaviside_var_cv00
+        config_list = ['flyvis_noise_005_conductance_cv00'] 
         test_config_name = None
 
     if task == 'cv':
@@ -366,37 +366,4 @@ if __name__ == "__main__":
 
 
 
-
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005 --n_seeds 5"
-
-
-# python GNN_Main.py -o cv flyvis_noise_005 --n_seeds 10
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 "python GNN_Main.py -o train null_edges_cross"
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/Graph/connectome-gnn/config/fly/flyvis_noise_005"
-
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 \
-#   -o logs/cv_cross.out -e logs/cv_cross.err \
-#   "bash run_cv_null_edges_cross.sh"
-
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 10:00 -Is "python GNN_Main.py -o train_test_plot null_edges_cross"
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is  -o logs/cv_cross.out -e logs/cv_cross.err   "bash run_cv_null_edges_cross.sh"
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o cv /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005 --n_seeds 5 "
-
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_stride_5_yt_Claude_00"
-
-# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot full_eye_flywireRF_proximal_nulls_noise_005"
-
-# export GNN_OUTPUT_ROOT=graphs_data
-# unset GNN_OUTPUT_ROOT
-# CUDA_VISIBLE_DEVICES=1 python GNN_Main.py -o train_test_plot flyvis_noise_005_hidden_010_ngp_anchors --output_root /groups/saalfeld/home/allierc/GraphData
-# CUDA_VISIBLE_DEVICES=0 python GNN_Main.py -o train_test_plot flyvis_noise_005_ss0 --output_root /groups/saalfeld/home/allierc/GraphData 
-# python GNN_Main.py -o test   /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_blank50_unified_cv00   --output_root /groups/saalfeld/home/allierc/GraphData
-# bsub -n 2 -gpu "num=1" -q gpu_h100 -W 6000 -Is "python GNN_Main.py -o generate_train_test_plot hybrid_flywireRF_variants --force"
-
-# bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o plot config/fly/full_eye_flywireRF_proximal_nulls_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o train_test_plot config/fly/full_eye_flywireRF_proximal_nulls_known_ode_noise_005 --force"
-#  bsub -n 8 -gpu "num=1" -q gpu_a100 -W 6000 -Is "python GNN_Main.py -o test_plot config/fly/e8_flywireRF_proximal_nulls_known_ode_noise_005 --force"
-# python GNN_Main.py -o plot flyvis_noise_free_blank50_unified_cv00
-
-# python GNN_Main.py -o train flyvis_noise_005_blank50_heaviside_var_cv00
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 10:00 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_nominal_cv00"
