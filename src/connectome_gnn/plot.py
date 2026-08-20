@@ -26,10 +26,8 @@ from connectome_gnn.metrics import (  # noqa: F401
     r2_scatter_text,
     ANATOMICAL_ORDER,
     INDEX_TO_NAME,
-    _avg_postsynaptic_embedding,
     _batched_mlp_eval,
     _build_f_theta_features,
-    _build_g_phi_features,
     _vectorized_linear_fit,
     _vectorized_linspace,
     compute_activity_stats,
@@ -39,6 +37,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_grad_msg,
     derive_tau,
     derive_vrest,
+    eval_g_phi_over_domain,
     extract_f_theta_slopes,
     extract_g_phi_slopes,
     get_model_W,
@@ -283,8 +282,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
         gt_v_range: (n_pts,) x values for gt_curves.
         type_names: list of type name strings for legend.
         edges: (2, E) edge index — required when signal_model_name is
-            flyvis_conductance, to build each neuron's real postsynaptic embedding ai
-            (see `_avg_postsynaptic_embedding`) instead of a self-pair ai=aj.
+            flyvis_conductance (see `eval_g_phi_over_domain`).
     """
     model_config = config.graph_model
     n_pts = 1000
@@ -295,22 +293,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     rr_1d = torch.linspace(config.plotting.xlim[0], config.plotting.xlim[1], n_pts, device=device)
     rr = rr_1d.unsqueeze(0).expand(n_sel, -1)
 
-    post_fn = (lambda x: x ** 2) if model_config.g_phi_positive else None
-    model_a = model.a[neuron_ids]
-
-    if 'flyvis_conductance' in model_config.signal_model_name:
-        if edges is None:
-            raise ValueError("plot_g_phi: flyvis_conductance requires `edges` to build the postsynaptic embedding ai")
-        model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_sel)
-        build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
-            rr_f, emb_f, model_config.signal_model_name, emb_i_flat=emb_i_f)
-    else:
-        model_a_i = None
-        build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, model_config.signal_model_name)
-
-    func = _batched_mlp_eval(
-        model.g_phi, model_a, rr,
-        build_fn, device, post_fn=post_fn, model_a_i=model_a_i)
+    func = eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=edges)
 
     type_np = to_numpy(type_list).astype(int).ravel()
     x_np = to_numpy(rr_1d)
@@ -2456,19 +2439,19 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         # Connectivity: single solid line.
         ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1.2,
                    label=r'$R^2_W$')
-        # V_rest: solid = no-outlier (clean), dashed = raw (with outliers).
+        # V_rest: solid = wo outlier (clean), dashed = raw (with outliers).
         ax_r2.plot(r2_iters, vrest_clean_vals, color='#1f77b4', linewidth=1.2,
-                   label=r'$R^2_{V_{rest}}$ (no outl.)')
+                   label=r'$R^2_{V_{rest}}$ (wo outlier)')
         ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_{V_{rest}}$ (raw)')
-        # τ: solid = no-outlier (clean), dashed = raw.
+        # τ: solid = wo outlier (clean), dashed = raw.
         ax_r2.plot(r2_iters, tau_clean_vals, color='#2ca02c', linewidth=1.2,
-                   label=r'$R^2_\tau$ (no outl.)')
+                   label=r'$R^2_\tau$ (wo outlier)')
         ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_\tau$ (raw)')
-        ax_r2.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
+        ax_r2.axhline(y=0.9, color='gray', linestyle='--', alpha=0.4, linewidth=1)
         ax_r2.set_ylim(-0.05, 1.05)
         style.xlabel(ax_r2, 'iteration')
         style.ylabel(ax_r2, r'$R^2$')
