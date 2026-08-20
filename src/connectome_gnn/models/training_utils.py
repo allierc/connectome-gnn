@@ -1281,27 +1281,6 @@ def init_training_data(
     )
 
     # -------------------------------------------------------------------------
-    # SVD analysis
-    # -------------------------------------------------------------------------
-
-    svd_plot_path = os.path.join(
-        log_dir,
-        'results',
-        'svd_analysis.png',
-    )
-
-    if not os.path.exists(
-        svd_plot_path
-    ):
-        analyze_data_svd(
-            x_ts,
-            log_dir,
-            config=config,
-            logger=logger,
-            is_flyvis=True,
-        )
-
-    # -------------------------------------------------------------------------
     # Load ground-truth ODE / connectome information
     # -------------------------------------------------------------------------
 
