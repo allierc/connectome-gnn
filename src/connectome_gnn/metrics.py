@@ -822,6 +822,164 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
     }
 
 
+def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
+    """Per-(edge, real frame) local gradient d(g_phi)/d(vj) at the actual
+    (vi, vj, ai, aj) the network visits — the per-edge, per-frame analogue of
+    `evaluate_g_phi_curves`'s single global 1D-sweep slope.
+
+    Mirrors `compute_grad_msg`'s real-frame sampling (autograd at sampled
+    real frames, not a synthetic domain), but for g_phi's own presynaptic
+    sensitivity, over ALL real edges at once per frame (cheap — one forward
+    through the small g_phi MLP per frame).
+
+    Args:
+        edges: (2, E) edge index — src (presynaptic, j) / dst (postsynaptic, i).
+        x_ts: NeuronTimeSeries with the real voltage recording.
+        n_frames: number of real frames to sample (autograd call each).
+        seed: RNG seed for frame sampling (reproducible).
+
+    Returns dict, each (E, n_frames) except j_ids/i_ids which are (E,):
+        j_ids, i_ids: int arrays — presynaptic / postsynaptic neuron per edge.
+        vj, vi: real voltage at the sampled frames.
+        g_phi: g_phi output at (vi, vj, ai, aj) — squared if g_phi_positive,
+            matching what actually enters the message.
+        grad_vj: d(g_phi)/d(vj) at that point (post-squaring if applicable).
+    """
+    signal_model_name = config.graph_model.signal_model_name
+    g_phi_positive = config.graph_model.g_phi_positive
+    device = model.a.device
+
+    src = edges[0].to(device)   # j — presynaptic
+    dst = edges[1].to(device)   # i — postsynaptic
+    n_edges = edges.shape[1]
+
+    rng = np.random.default_rng(seed)
+    n_frames = min(n_frames, x_ts.n_frames)
+    frame_idx = rng.choice(x_ts.n_frames, size=n_frames, replace=False)
+
+    voltage = x_ts.voltage.to(device)   # (T, N)
+    ai = model.a[dst]
+    aj = model.a[src]
+
+    vj_all = torch.zeros(n_edges, n_frames, device=device)
+    vi_all = torch.zeros(n_edges, n_frames, device=device)
+    g_phi_all = torch.zeros(n_edges, n_frames, device=device)
+    grad_all = torch.zeros(n_edges, n_frames, device=device)
+
+    for f_idx, k in enumerate(frame_idx):
+        vj_k = voltage[k, src].clone().detach().requires_grad_(True)   # (E,)
+        vi_k = voltage[k, dst].clone().detach()
+
+        if 'flyvis_conductance' in signal_model_name:
+            in_features = torch.cat([vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai, aj], dim=1)
+        else:
+            in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
+
+        out = model.g_phi(in_features.float())
+        if g_phi_positive:
+            out = out ** 2
+        grad = torch.autograd.grad(out.sum(), vj_k, retain_graph=False, create_graph=False)[0]
+
+        vj_all[:, f_idx] = vj_k.detach()
+        vi_all[:, f_idx] = vi_k
+        g_phi_all[:, f_idx] = out.detach().squeeze(-1)
+        grad_all[:, f_idx] = grad.detach()
+
+    return {
+        'j_ids': to_numpy(src),
+        'i_ids': to_numpy(dst),
+        'vj': to_numpy(vj_all),
+        'vi': to_numpy(vi_all),
+        'g_phi': to_numpy(g_phi_all),
+        'grad_vj': to_numpy(grad_all),
+    }
+
+
+def compute_g_phi_fd_slope(model, config, edges, x_ts, n_frames=32, seed=0):
+    """Per-edge local slope d(g_phi)/d(vj), estimated by finite differences
+    on real, co-occurring (vi, vj, g_phi) samples from
+    `sample_g_phi_vi_vj_observed` — the empirical counterpart to
+    `compute_g_phi_edge_grad`'s analytic autograd gradient.
+
+    For each edge, sorts its own sampled frames by vj and differences
+    consecutive points: slope = d(g_phi) / d(vj) between neighbors. Since
+    vi varies (uncontrolled) between the two differenced points, this is
+    noisier than the autograd version — large outliers appear whenever two
+    neighbors happen to be close in vj — so callers should filter/trim
+    before averaging (see `compute_g_phi_correction_conductance`).
+
+    Returns dict, each (E, n_frames-1) except j_ids/i_ids which are (E,):
+        j_ids, i_ids: int arrays — presynaptic / postsynaptic neuron per edge.
+        vj, vi, g_phi: midpoint values of each differenced pair.
+        grad_vj: the finite-difference slope.
+    """
+    res = sample_g_phi_vi_vj_observed(model, config, edges, x_ts,
+                                      n_edges=edges.shape[1], n_frames=n_frames, seed=seed)
+    vj, vi, g_phi = res['vj'], res['vi'], res['g_phi']
+
+    order = np.argsort(vj, axis=1)
+    vj_s = np.take_along_axis(vj, order, axis=1)
+    vi_s = np.take_along_axis(vi, order, axis=1)
+    g_s = np.take_along_axis(g_phi, order, axis=1)
+
+    d_vj = np.diff(vj_s, axis=1)
+    d_g = np.diff(g_s, axis=1)
+    eps = 1e-6
+    slope = d_g / np.where(np.abs(d_vj) < eps, eps, d_vj)
+
+    return {
+        'j_ids': res['edge_ij'][:, 1].astype(np.int64),   # j — presynaptic
+        'i_ids': res['edge_ij'][:, 0].astype(np.int64),   # i — postsynaptic
+        'vj': 0.5 * (vj_s[:, :-1] + vj_s[:, 1:]),
+        'vi': 0.5 * (vi_s[:, :-1] + vi_s[:, 1:]),
+        'g_phi': 0.5 * (g_s[:, :-1] + g_s[:, 1:]),
+        'grad_vj': slope,
+    }
+
+
+def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, n_frames=32, seed=0):
+    """Per-neuron g_phi correction factor eta_j for flyvis_conductance,
+    replacing the single global 1D-sweep affine fit (`evaluate_g_phi_curves`)
+    used by other flyvis variants — g_phi depends on both endpoints here, so
+    a synthetic vi=0 sweep with an averaged ai isn't representative.
+
+    Method (selected by a three-way comparison against the 1D-sweep and an
+    autograd-gradient method — see dev_g_phi_w_correction.py): finite-
+    difference d(g_phi)/d(vj) on real (edge, frame) pairs
+    (`compute_g_phi_fd_slope`), restricted to the physically active region
+    (vj>0) and to slopes consistent with the monotonicity prior (slope>0),
+    then a 10-90 percentile-trimmed mean per presynaptic neuron j — trimming
+    rejects the large local-slope outliers introduced by vi's uncontrolled
+    variation between the two finite-difference points. Achieved R^2(W) =
+    0.875 vs 0.873 for the 1D-sweep baseline, and matched an independently
+    derived autograd-gradient method (0.876) on flyvis_noise_005_conductance_cv00.
+
+    Returns:
+        (n_neurons,) numpy array — one correction factor per neuron;
+        neurons with no surviving (edge, frame) samples default to 1.0.
+    """
+    raw = compute_g_phi_fd_slope(model, config, edges, x_ts, n_frames=n_frames, seed=seed)
+    j_ids, vj, grad = raw['j_ids'], raw['vj'], raw['grad_vj']
+
+    active_mask = (vj > 0) & (grad > 0)
+    j_flat = np.repeat(j_ids, vj.shape[1])[active_mask.ravel()]
+    grad_flat = grad.ravel()[active_mask.ravel()]
+
+    eta = np.ones(n_neurons, dtype=np.float32)
+    order = np.argsort(j_flat, kind='stable')
+    j_sorted = j_flat[order]
+    grad_sorted = grad_flat[order]
+    unique_js, start_idx = np.unique(j_sorted, return_index=True)
+    groups = np.split(grad_sorted, start_idx[1:])
+
+    for j, vals in zip(unique_js, groups):
+        lo, hi = np.percentile(vals, [10, 90])
+        trimmed = vals[(vals >= lo) & (vals <= hi)]
+        eta[j] = trimmed.mean() if trimmed.size else vals.mean()
+
+    return eta
+
+
 def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Extract linear slope of g_phi for each neuron j (vectorized).
 
@@ -1334,22 +1492,32 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
     # 1. Activity statistics
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
 
-    # 2. Evaluate g_phi curves and fit model-specific parameters
-    v_ranges, g_phi_curves, valid = evaluate_g_phi_curves(
-        model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
-
-    if ode_params is not None:
-        g_phi_fitted = ode_params.fit_g_phi_curves(v_ranges, g_phi_curves)
-    else:
-        # Fallback: linear slope (legacy behavior)
-        rr_t = torch.tensor(v_ranges, dtype=torch.float32)
-        func_t = torch.tensor(g_phi_curves, dtype=torch.float32)
-        slopes, _ = _vectorized_linear_fit(rr_t, func_t)
-        slopes[~valid] = 1.0
+    # 2. g_phi correction factor per presynaptic neuron j
+    if 'flyvis_conductance' in config.graph_model.signal_model_name:
+        # g_phi depends on both endpoints here (vi, vj, ai, aj) — a
+        # synthetic vi=0 domain sweep isn't representative, so this uses
+        # real (edge, frame) local slopes instead. See
+        # compute_g_phi_correction_conductance for the method and the
+        # comparison that selected it.
+        slopes = compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons)
         g_phi_fitted = {'correction': slopes, 'slopes': slopes}
+    else:
+        v_ranges, g_phi_curves, valid = evaluate_g_phi_curves(
+            model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
+
+        if ode_params is not None:
+            g_phi_fitted = ode_params.fit_g_phi_curves(v_ranges, g_phi_curves)
+        else:
+            # Fallback: linear slope (legacy behavior)
+            rr_t = torch.tensor(v_ranges, dtype=torch.float32)
+            func_t = torch.tensor(g_phi_curves, dtype=torch.float32)
+            slopes, _ = _vectorized_linear_fit(rr_t, func_t)
+            slopes[~valid] = 1.0
+            g_phi_fitted = {'correction': slopes, 'slopes': slopes}
+
+        g_phi_fitted['correction'][~valid] = 1.0
 
     g_phi_correction = g_phi_fitted['correction']
-    g_phi_correction[~valid] = 1.0
 
     # 3. f_theta slopes
     slopes_f_theta, offsets_f_theta = extract_f_theta_slopes(
