@@ -13,7 +13,7 @@ import torch
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LambdaLR
 
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.utils import set_trainable_parameters
+from connectome_gnn.models.utils import _quick_ngp_pearson, set_trainable_parameters
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, sort_key
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 from dataclasses import dataclass, field
@@ -51,7 +51,7 @@ class TrainingMetrics:
 
 
 @dataclass
-class NGPSchedule:
+class HiddenInjectionSchedule:
     """
     NGP hidden-voltage injection and GNN LR-damping schedule.
 
@@ -108,7 +108,7 @@ class EpochState:
       - reset at every epoch.
 
     It does not contain persistent training state such as the model,
-    optimizer, regularizer, or NGP schedule.
+    optimizer, regularizer, or hidden-injection schedule.
     """
 
     # Iteration / plotting schedule
@@ -482,7 +482,7 @@ def init_training_runtime(
     )
 
 
-def init_ngp_schedule(training, Niter):
+def init_hidden_injection_schedule(training, Niter):
     """
     Build the NGP injection + GNN LR-damping schedule.
 
@@ -585,7 +585,7 @@ def init_ngp_schedule(training, Niter):
                 )
             )
 
-    return NGPSchedule(
+    return HiddenInjectionSchedule(
         warmup_iter=warmup_iter,
         ramp_iter=ramp_iter,
         damping_factor=damping_factor,
@@ -597,102 +597,46 @@ def init_ngp_schedule(training, Niter):
     )
 
 
-def update_ngp_lr(
-    optimizer,
-    ngp_schedule,
-    iteration,
-    previous_multiplier,
-):
-    """
-    Apply the NGP LR-damping V-schedule.
+def apply_lr_damping(hs, optimizer, base_lrs, N, previous_lr_multiplier, previous_injection_active):
+    """Advance the hidden-injection schedule by one iteration.
+
+    Computes whether hidden-voltage injection is active at iteration N,
+    updates the damped optimizer param-group LRs when the multiplier
+    changes, and prints the warmup->inject / damp->recover / recover->nominal
+    stage transitions.
 
     Returns:
-        current_multiplier
+        injection_active, lr_multiplier
     """
+    injection_active = hs.warmup_iter <= 0 or N >= hs.warmup_iter
 
-    if not ngp_schedule.damping_active:
-        return 1.0
-
-    if (
-        iteration < ngp_schedule.warmup_iter
-        or iteration >= ngp_schedule.ramp_end
-    ):
-        multiplier = 1.0
-
-    elif iteration < ngp_schedule.ramp_mid:
-
-        progress = (
-            float(
-                iteration
-                - ngp_schedule.warmup_iter
-            )
-            / float(
-                ngp_schedule.ramp_iter
-            )
-        )
-
-        multiplier = (
-            1.0
-            + (
-                1.0
-                / ngp_schedule.damping_factor
-                - 1.0
-            )
-            * progress
-        )
-
+    if not hs.damping_active:
+        lr_multiplier = 1.0
+    elif N < hs.warmup_iter or N >= hs.ramp_end:
+        lr_multiplier = 1.0
+    elif N < hs.ramp_mid:
+        progress = float(N - hs.warmup_iter) / float(hs.ramp_iter)
+        lr_multiplier = 1.0 + (1.0 / hs.damping_factor - 1.0) * progress
     else:
+        progress = float(N - hs.ramp_mid) / float(hs.ramp_iter)
+        lr_multiplier = 1.0 / hs.damping_factor + (1.0 - 1.0 / hs.damping_factor) * progress
 
-        progress = (
-            float(
-                iteration
-                - ngp_schedule.ramp_mid
-            )
-            / float(
-                ngp_schedule.ramp_iter
-            )
-        )
-
-        multiplier = (
-            1.0
-            / ngp_schedule.damping_factor
-            + (
-                1.0
-                - 1.0
-                / ngp_schedule.damping_factor
-            )
-            * progress
-        )
-
-    if (
-        multiplier != previous_multiplier
-        and multiplier != 1.0
-    ):
+    if hs.damping_active and lr_multiplier != previous_lr_multiplier:
         for param_group in optimizer.param_groups:
-            if (
-                param_group.get("name")
-                in ngp_schedule.damp_groups
-            ):
-                param_group["lr"] = (
-                    param_group["base_lr"]
-                    * multiplier
-                )
+            if param_group.get("name") in hs.damp_groups:
+                param_group["lr"] = base_lrs[id(param_group)] * lr_multiplier
 
-    elif (
-        multiplier != previous_multiplier
-        and previous_multiplier != 1.0
-    ):
-        for param_group in optimizer.param_groups:
-            if (
-                param_group.get("name")
-                in ngp_schedule.damp_groups
-            ):
-                param_group["lr"] = (
-                    param_group["base_lr"]
-                    * multiplier
-                )
+    if hs.warmup_iter > 0 and previous_injection_active is False and injection_active:
+        if hs.damping_active:
+            print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on; GNN-LR V-schedule starts).")
+        else:
+            print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on).")
+    elif hs.damping_active and N == hs.ramp_mid and hs.warmup_iter > 0:
+        print(f"\n[NGP inject] iter {N}: LR damping -> recovery.")
+    elif hs.damping_active and N == hs.ramp_end and hs.warmup_iter > 0:
+        print(f"\n[NGP inject] iter {N}: GNN LR back to nominal.")
 
-    return multiplier
+    return injection_active, lr_multiplier
 
 
 def format_metric(value):
@@ -2015,3 +1959,102 @@ def init_hidden_neurons(
         visible_ids,
         anchor_ids,
     )
+
+def inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
+    """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
+
+    Mutates x.voltage[hidden_ids] in place. injection_active is binary:
+    phase 1 → False, phase 2 → True. The smooth absorption of the new
+    input distribution at the phase 1→2 transition is handled by the
+    LR-damping V-schedule on the GNN param groups, not by ramping the
+    injection magnitude here.
+
+    Phase 1 (injection_active=False): hidden voltages are zero-silenced
+    (identical to the no-NGP baseline). NGP/SIREN still trains via the
+    anchor loss elsewhere in the step, which routes through the spatial
+    NGP position cache — normally primed inside forward_hidden, so it is
+    primed here instead (idempotent) to keep that path populated.
+
+    Phase 2 (injection_active=True): NGP/SIREN forward_hidden predicts the
+    hidden voltages directly, and gradients flow back through injection.
+    """
+    if model.NNR_hidden is not None and injection_active:
+        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+    else:
+        x.voltage[hidden_ids] = 0.0
+        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
+            model._ngp_cache_pos(x)
+
+
+class HiddenNeuronHandler:
+    """Owns hidden/anchor neuron selection and mediates their voltage
+    through the model's NGP/SIREN hidden-neuron generator (model.NNR_hidden).
+
+    `model` is passed to each call rather than stored on the handler,
+    since torch.compile rebinds the trainer's `model` variable to a
+    wrapper after this handler is constructed.
+    """
+
+    def __init__(self, config, model, n_neurons, log_dir, device):
+        self.hidden_ids, self.visible_ids, self.anchor_ids = init_hidden_neurons(
+            config, model, n_neurons, log_dir, device
+        )
+
+    @classmethod
+    def from_ids(cls, hidden_ids, anchor_ids=None, visible_ids=None):
+        """Build a handler directly from already-loaded ids, bypassing the
+        config-driven sampling in `init_hidden_neurons`. Used at eval/test
+        time, where hidden/anchor ids are loaded from a trained run's
+        log_dir rather than sampled fresh."""
+        self = cls.__new__(cls)
+        self.hidden_ids = hidden_ids
+        self.anchor_ids = anchor_ids
+        self.visible_ids = visible_ids
+        return self
+
+    @property
+    def has_hidden(self):
+        return self.hidden_ids is not None
+
+    @property
+    def has_anchor(self):
+        return self.anchor_ids is not None
+
+    def inject_hidden(self, model, x, k, injection_active):
+        """No-op when there are no hidden neurons. See `inject_hidden_voltage`
+        for the phase-transition rationale."""
+        if self.has_hidden:
+            inject_hidden_voltage(model, x, k, self.hidden_ids, injection_active)
+
+    def zero_hidden(self, state):
+        """Silence hidden-neuron voltage on a rolled-forward recurrent state."""
+        if self.has_hidden:
+            state.voltage[self.hidden_ids] = 0.0
+
+    def anchor_residual(self, model, k_starts, x_ts):
+        """(pred - gt) anchor voltage residual, or None if anchors are disabled."""
+        if not self.has_anchor:
+            return None
+        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=self.anchor_ids)
+        gt_a = x_ts.voltage[k_starts[:, None], self.anchor_ids[None, :]]
+        return pred_a - gt_a
+
+    def quick_pearson(self, model, x_ts, device):
+        """Lightweight Pearson r for the hidden/anchor NGP fit. Returns
+        (hidden_r2, hidden_std, anchor_r2, anchor_std), each None where not
+        computable (no hidden neurons / NNR_hidden not yet initialised)."""
+        if not self.has_hidden or getattr(model, 'NNR_hidden', None) is None:
+            return None, None, None, None
+
+        hidden_r2, hidden_std = _quick_ngp_pearson(
+            model, x_ts, self.hidden_ids, use_anchor=False, device=device, return_stats=True
+        )
+
+        anchor_r2 = anchor_std = None
+        if self.has_anchor:
+            anchor_r2, anchor_std = _quick_ngp_pearson(
+                model, x_ts, self.anchor_ids, use_anchor=True, device=device, return_stats=True
+            )
+
+        return hidden_r2, hidden_std, anchor_r2, anchor_std
+

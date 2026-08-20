@@ -54,7 +54,6 @@ from connectome_gnn.models.utils import (
     ANSI_YELLOW,
     _NGP_QUICK_FREQ,
     _batch_frames,
-    _quick_ngp_pearson,
     analyze_data_svd,
     model_family,
     r2_color,
@@ -62,6 +61,8 @@ from connectome_gnn.models.utils import (
 )
 
 from connectome_gnn.models.training_utils import (
+    HiddenNeuronHandler,
+    apply_lr_damping,
     build_lr_scheduler,
     build_model,
     dale_law_score,
@@ -70,8 +71,7 @@ from connectome_gnn.models.training_utils import (
     find_latest_epoch_checkpoint,
     format_metric,
     init_epoch_state,
-    init_hidden_neurons,
-    init_ngp_schedule,
+    init_hidden_injection_schedule,
     init_training_data,
     init_training_model,
     init_training_optimizer,
@@ -143,32 +143,6 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
     _logger.info("training completed.")
 
 
-def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
-    """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
-
-    Mutates x.voltage[hidden_ids] in place. injection_active is binary:
-    phase 1 → False, phase 2 → True. The smooth absorption of the new
-    input distribution at the phase 1→2 transition is handled by the
-    LR-damping V-schedule on the GNN param groups, not by ramping the
-    injection magnitude here.
-
-    Phase 1 (injection_active=False): hidden voltages are zero-silenced
-    (identical to the no-NGP baseline). NGP/SIREN still trains via the
-    anchor loss elsewhere in the step, which routes through the spatial
-    NGP position cache — normally primed inside forward_hidden, so it is
-    primed here instead (idempotent) to keep that path populated.
-
-    Phase 2 (injection_active=True): NGP/SIREN forward_hidden predicts the
-    hidden voltages directly, and gradients flow back through injection.
-    """
-    if model.NNR_hidden is not None and injection_active:
-        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
-    else:
-        x.voltage[hidden_ids] = 0.0
-        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
-            model._ngp_cache_pos(x)
-
-
 def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
     # =====================================================================
     # INITIALIZATION
@@ -228,11 +202,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     ids = torch.arange(n_neurons, device=device)
 
-    hidden_ids, visible_ids, anchor_ids = init_hidden_neurons(config, model, n_neurons, log_dir, device)
-
-    has_hidden_neurons = hidden_ids is not None
-
-    has_anchor_neurons = anchor_ids is not None
+    hn = HiddenNeuronHandler(config, model, n_neurons, log_dir, device)
 
     # ---------------------------------------------------------------------
     # Regularizer
@@ -352,55 +322,70 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             _logger.info(f"epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})")
 
         # -----------------------------------------------------------------
-        # Alternate training
+        # Circuit LR damping (let the SIRENs learn their inputs first)
+        #
+        # After epoch 0, damp the circuit-side LRs (embedding, message MLP,
+        # update MLP, connectivity W) by alternate_lr_ratio, while leaving
+        # the SIREN/NGP generators — NNR_f (visual-field input) and
+        # NNR_hidden (hidden-neuron voltage), both driven by lr_NNR_f — at
+        # their nominal rate. This gives the SIRENs room to converge on
+        # what they're estimating (visual input / hidden voltage) before
+        # the circuit fit locks onto a still-noisy estimate of either.
         # -----------------------------------------------------------------
 
         if training.alternate_training and epoch >= 1:
-            phase_mult = training.alternate_lr_ratio
+            circuit_lr_damp = training.alternate_lr_ratio
 
             optimizer, n_total_params = set_trainable_parameters(
                 model=model,
-                lr_embedding=(lr_embedding * phase_mult),
-                lr=(lr * phase_mult),
-                lr_update=(lr_update * phase_mult),
-                lr_W=(lr_W * phase_mult),
+                lr_embedding=(lr_embedding * circuit_lr_damp),
+                lr=(lr * circuit_lr_damp),
+                lr_update=(lr_update * circuit_lr_damp),
+                lr_W=(lr_W * circuit_lr_damp),
                 lr_NNR_f=lr_NNR_f,
             )
 
             lr_scheduler = build_lr_scheduler(optimizer, config)
 
-            _logger.info(f"Phase 1 (SIREN focus): W/MLP LRs *= {phase_mult}, NNR_f LR = {lr_NNR_f}")
+            _logger.info(
+                f"circuit LR damped x{circuit_lr_damp} (embedding/MLP/W); "
+                f"SIREN LR unchanged at {lr_NNR_f} (NNR_f/NNR_hidden)"
+            )
 
         # -----------------------------------------------------------------
-        # NGP injection + LR-damping schedule
+        # Hidden-injection schedule: when hn.inject_hidden switches from
+        # zero-silencing hidden neurons to NGP/SIREN-predicted voltage
+        # (warmup_iter), plus the matching V-shaped LR damp on the circuit
+        # param groups (embedding/W/MLP) so the sudden new input doesn't
+        # destabilize training at that transition.
         # -----------------------------------------------------------------
 
-        ngp_schedule = init_ngp_schedule(training, Niter)
+        hidden_injection_schedule = init_hidden_injection_schedule(training, Niter)
 
-        if ngp_schedule.warmup_iter > 0:
+        if hidden_injection_schedule.warmup_iter > 0:
             print(
                 "NGP binary-inject schedule: "
                 f"warmup [0, "
-                f"{ngp_schedule.warmup_iter}) "
+                f"{hidden_injection_schedule.warmup_iter}) "
                 "NGP off + nominal LR, "
                 f"inject ON at "
-                f"{ngp_schedule.warmup_iter}."
+                f"{hidden_injection_schedule.warmup_iter}."
             )
 
-            if ngp_schedule.damping_active:
+            if hidden_injection_schedule.damping_active:
                 print(
                     "  LR-damping V on "
-                    f"{ngp_schedule.damp_groups}: "
+                    f"{hidden_injection_schedule.damp_groups}: "
                     f"damp ["
-                    f"{ngp_schedule.warmup_iter}, "
-                    f"{ngp_schedule.ramp_mid}) "
+                    f"{hidden_injection_schedule.warmup_iter}, "
+                    f"{hidden_injection_schedule.ramp_mid}) "
                     f"base -> "
-                    f"base/{ngp_schedule.damping_factor:g}, "
+                    f"base/{hidden_injection_schedule.damping_factor:g}, "
                     f"recover ["
-                    f"{ngp_schedule.ramp_mid}, "
-                    f"{ngp_schedule.ramp_end}) "
+                    f"{hidden_injection_schedule.ramp_mid}, "
+                    f"{hidden_injection_schedule.ramp_end}) "
                     f"base/"
-                    f"{ngp_schedule.damping_factor:g}"
+                    f"{hidden_injection_schedule.damping_factor:g}"
                     " -> base."
                 )
 
@@ -437,57 +422,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
         for N in pbar:
             # -------------------------------------------------------------
-            # NGP injection state
+            # Hidden-injection state + LR damping (see init_hidden_injection_schedule)
             # -------------------------------------------------------------
 
-            injection_active = ngp_schedule.warmup_iter <= 0 or N >= ngp_schedule.warmup_iter
-
-            # -------------------------------------------------------------
-            # NGP LR damping
-            # -------------------------------------------------------------
-
-            if ngp_schedule.damping_active:
-                if N < ngp_schedule.warmup_iter or N >= ngp_schedule.ramp_end:
-                    lr_multiplier = 1.0
-
-                elif N < ngp_schedule.ramp_mid:
-                    progress = float(N - ngp_schedule.warmup_iter) / float(ngp_schedule.ramp_iter)
-
-                    lr_multiplier = 1.0 + (1.0 / ngp_schedule.damping_factor - 1.0) * progress
-
-                else:
-                    progress = float(N - ngp_schedule.ramp_mid) / float(ngp_schedule.ramp_iter)
-
-                    lr_multiplier = (
-                        1.0 / ngp_schedule.damping_factor + (1.0 - 1.0 / ngp_schedule.damping_factor) * progress
-                    )
-
-            else:
-                lr_multiplier = 1.0
-
-            if ngp_schedule.damping_active and lr_multiplier != previous_lr_multiplier:
-                for param_group in optimizer.param_groups:
-                    if param_group.get("name") in ngp_schedule.damp_groups:
-                        param_group["lr"] = base_lrs[id(param_group)] * lr_multiplier
-
-                previous_lr_multiplier = lr_multiplier
-
-            # -------------------------------------------------------------
-            # NGP stage transitions
-            # -------------------------------------------------------------
-
-            if ngp_schedule.warmup_iter > 0 and previous_injection_active is False and injection_active:
-                if ngp_schedule.damping_active:
-                    print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on; GNN-LR V-schedule starts).")
-
-                else:
-                    print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on).")
-
-            elif ngp_schedule.damping_active and N == ngp_schedule.ramp_mid and ngp_schedule.warmup_iter > 0:
-                print(f"\n[NGP inject] iter {N}: LR damping -> recovery.")
-
-            elif ngp_schedule.damping_active and N == ngp_schedule.ramp_end and ngp_schedule.warmup_iter > 0:
-                print(f"\n[NGP inject] iter {N}: GNN LR back to nominal.")
+            injection_active, previous_lr_multiplier = apply_lr_damping(
+                hidden_injection_schedule, optimizer, base_lrs, N, previous_lr_multiplier, previous_injection_active
+            )
 
             previous_injection_active = injection_active
 
@@ -518,7 +458,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     x_ts=x_ts,
                     y_ts=y_ts,
                     edges=edges,
-                    ids=visible_ids,
+                    ids=hn.visible_ids,
                     frame_indices=epoch_state.frame_indices,
                     iter_idx=N,
                     config=config,
@@ -527,7 +467,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     ynorm=ynorm,
                     regularizer=regularizer,
                     has_visual_field=(train.has_visual_field),
-                    hidden_ids=hidden_ids,
+                    hn=hn,
                 )
 
                 loss.backward()
@@ -633,8 +573,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         n_neurons=n_neurons,
                         n_neuron_types=(sim.n_neuron_types),
                         ode_params=ode_params,
-                        hidden_ids=hidden_ids,
-                        anchor_ids=anchor_ids,
+                        hidden_ids=hn.hidden_ids,
+                        anchor_ids=hn.anchor_ids,
                     )
 
                     if hidden_r2 is not None:
@@ -683,14 +623,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 hidden_quick_std = None
                 anchor_quick_std = None
 
-                if (
-                    has_hidden_neurons
-                    and getattr(model, "NNR_hidden", None) is not None
-                    and N > 0
-                    and N % _NGP_QUICK_FREQ == 0
-                ):
-                    hidden_quick, hidden_quick_std = _quick_ngp_pearson(
-                        model, x_ts, hidden_ids, use_anchor=False, device=device, return_stats=True
+                if N > 0 and N % _NGP_QUICK_FREQ == 0:
+                    hidden_quick, hidden_quick_std, anchor_quick, anchor_quick_std = hn.quick_pearson(
+                        model, x_ts, device
                     )
 
                     if hidden_quick is not None:
@@ -698,15 +633,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                         ngp_quick_updated = True
 
-                    if has_anchor_neurons:
-                        anchor_quick, anchor_quick_std = _quick_ngp_pearson(
-                            model, x_ts, anchor_ids, use_anchor=True, device=device, return_stats=True
-                        )
+                    if anchor_quick is not None:
+                        epoch_state.metrics.anchor_r2 = anchor_quick
 
-                        if anchor_quick is not None:
-                            epoch_state.metrics.anchor_r2 = anchor_quick
-
-                            ngp_quick_updated = True
+                        ngp_quick_updated = True
 
                 if ngp_quick_updated:
                     with open(metrics_log_path, "a") as f:
@@ -738,7 +668,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                 if metrics_changed:
                     plot_metrics(
-                        log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(ngp_schedule.stages)
+                        log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(hidden_injection_schedule.stages)
                     )
 
                 # ---------------------------------------------------------
@@ -861,8 +791,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # Hidden neurons
                 # ---------------------------------------------------------
 
-                if has_hidden_neurons:
-                    _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
+                hn.inject_hidden(model, x, k, injection_active)
 
                 # ---------------------------------------------------------
                 # Temporal window
@@ -931,7 +860,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                 y_list.append(y)
 
-                ids_list.append(visible_ids + ids_index)
+                ids_list.append(hn.visible_ids + ids_index)
 
                 k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
 
@@ -1058,8 +987,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                                 state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
 
-                                if has_hidden_neurons:
-                                    state_batch[b].voltage[hidden_ids] = 0.0
+                                hn.zero_hidden(state_batch[b])
 
                                 k_current = k_batch[start_idx, 0].item() + step + 1
 
@@ -1107,16 +1035,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     #
                     # This preserves the behavior of the current implementation.
 
-                    if has_anchor_neurons and getattr(training, "coeff_anchor_voltage", 0.0) > 0:
+                    if hn.has_anchor and getattr(training, "coeff_anchor_voltage", 0.0) > 0:
                         n_per = state_batch[0].n_neurons
 
                         k_starts = k_batch[::n_per, 0].to(torch.long)
 
-                        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)
+                        anchor_residual = hn.anchor_residual(model, k_starts, x_ts)
 
-                        gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]
-
-                        loss = loss + training.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
+                        loss = loss + training.coeff_anchor_voltage * anchor_residual.norm(2)
 
             # =============================================================
             # BACKWARD / STEP
@@ -1276,8 +1202,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     n_neurons=n_neurons,
                     n_neuron_types=(sim.n_neuron_types),
                     ode_params=ode_params,
-                    hidden_ids=hidden_ids,
-                    anchor_ids=anchor_ids,
+                    hidden_ids=hn.hidden_ids,
+                    anchor_ids=hn.anchor_ids,
                 )
 
                 if hidden_r2 is not None:
@@ -1337,14 +1263,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             hidden_quick_std = None
             anchor_quick_std = None
 
-            if (
-                has_hidden_neurons
-                and getattr(model, "NNR_hidden", None) is not None
-                and N > 0
-                and N % _NGP_QUICK_FREQ == 0
-            ):
-                hidden_quick, hidden_quick_std = _quick_ngp_pearson(
-                    model, x_ts, hidden_ids, use_anchor=False, device=device, return_stats=True
+            if N > 0 and N % _NGP_QUICK_FREQ == 0:
+                hidden_quick, hidden_quick_std, anchor_quick, anchor_quick_std = hn.quick_pearson(
+                    model, x_ts, device
                 )
 
                 if hidden_quick is not None:
@@ -1352,15 +1273,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                     ngp_quick_updated = True
 
-                if has_anchor_neurons:
-                    anchor_quick, anchor_quick_std = _quick_ngp_pearson(
-                        model, x_ts, anchor_ids, use_anchor=True, device=device, return_stats=True
-                    )
+                if anchor_quick is not None:
+                    epoch_state.metrics.anchor_r2 = anchor_quick
 
-                    if anchor_quick is not None:
-                        epoch_state.metrics.anchor_r2 = anchor_quick
-
-                        ngp_quick_updated = True
+                    ngp_quick_updated = True
 
             if ngp_quick_updated:
                 with open(metrics_log_path, "a") as f:
@@ -1391,7 +1307,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 metrics_changed = True
 
             if metrics_changed:
-                plot_metrics(log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(ngp_schedule.stages))
+                plot_metrics(log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(hidden_injection_schedule.stages))
 
             # -------------------------------------------------------------
             # Progress bar
