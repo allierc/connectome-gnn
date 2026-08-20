@@ -676,21 +676,56 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
 #  Slope extraction
 # ------------------------------------------------------------------ #
 
+def eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=None):
+    """Evaluate g_phi over a caller-supplied per-neuron voltage domain.
+
+    Shared core of `evaluate_g_phi_curves` — factored out so callers that
+    need a non-default domain (e.g. a wider range for plotting, vs. the
+    activity-range domain used for slope fitting) can reuse the same
+    flyvis_conductance-aware feature construction instead of duplicating it.
+
+    Args:
+        rr: (N, n_pts) tensor of per-neuron voltage values to sweep (vj).
+
+    For flyvis_conductance, g_phi depends on both endpoints (vi, vj, ai, aj);
+    ai is built as each neuron's real average postsynaptic-partner embedding
+    via `edges` (see `_avg_postsynaptic_embedding`), not a self-pair ai=aj.
+    `edges` is required in that case.
+
+    Returns:
+        (N, n_pts) tensor of g_phi outputs.
+    """
+    signal_model_name = config.graph_model.signal_model_name
+    g_phi_positive = config.graph_model.g_phi_positive
+    post_fn = (lambda x: x ** 2) if g_phi_positive else None
+    model_a = model.a[:n_neurons]
+
+    if 'flyvis_conductance' in signal_model_name:
+        if edges is None:
+            raise ValueError(
+                "eval_g_phi_over_domain: flyvis_conductance requires `edges` to build the postsynaptic embedding ai"
+            )
+        model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_neurons)
+        build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
+            rr_f, emb_f, signal_model_name, emb_i_flat=emb_i_f)
+    else:
+        model_a_i = None
+        build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, signal_model_name)
+
+    return _batched_mlp_eval(model.g_phi, model_a, rr,
+                             build_fn, device, post_fn=post_fn, model_a_i=model_a_i)  # (N, n_pts)
+
+
 def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Evaluate learned g_phi curves over each neuron's activity range.
 
-    For flyvis_conductance, g_phi depends on both endpoints (vi, vj, ai, aj); ai is
-    built as each neuron's real average postsynaptic-partner embedding via
-    `edges` (see `_avg_postsynaptic_embedding`), not a self-pair ai=aj.
-    `edges` is required in that case.
+    See `eval_g_phi_over_domain` for the flyvis_conductance / `edges` note.
 
     Returns:
         v_ranges: (N, n_pts) numpy array of voltage grids per neuron.
         curves: (N, n_pts) numpy array of g_phi outputs.
         valid: (N,) bool array — neurons with positive activity range.
     """
-    signal_model_name = config.graph_model.signal_model_name
-    g_phi_positive = config.graph_model.g_phi_positive
     n_pts = 1000
 
     mu = to_numpy(mu_activity).astype(np.float32) if torch.is_tensor(mu_activity) else np.asarray(mu_activity, dtype=np.float32)
@@ -703,26 +738,88 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
     ends[~valid] = 1.0
 
     rr = _vectorized_linspace(starts, ends, n_pts, device)  # (N, n_pts)
-
-    post_fn = (lambda x: x ** 2) if g_phi_positive else None
-    model_a = model.a[:n_neurons]
-
-    if 'flyvis_conductance' in signal_model_name:
-        if edges is None:
-            raise ValueError(
-                "evaluate_g_phi_curves: flyvis_conductance requires `edges` to build the postsynaptic embedding ai"
-            )
-        model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_neurons)
-        build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
-            rr_f, emb_f, signal_model_name, emb_i_flat=emb_i_f)
-    else:
-        model_a_i = None
-        build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, signal_model_name)
-
-    func = _batched_mlp_eval(model.g_phi, model_a, rr,
-                             build_fn, device, post_fn=post_fn, model_a_i=model_a_i)  # (N, n_pts)
+    func = eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=edges)
 
     return to_numpy(rr), to_numpy(func), valid
+
+
+def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames=2000, seed=0):
+    """Evaluate learned g_phi at REAL, co-occurring (vi(t), vj(t)) pairs for a
+    sample of real edges — not an independent (vi, vj) grid.
+
+    Diagnostic for whether flyvis_conductance's MLP(ai, aj, vi, vj) actually
+    learned a vi-dependent (conductance-like, e.g. ReLU(vi-vj-threshold))
+    function that matters where real activity lives, or collapsed to a
+    vj-only function matching the true flyvis synapse ReLU(vj). Connected
+    neurons i, j are typically correlated, so the region of the (vi, vj)
+    plane real activity actually visits is not the full independent-grid
+    rectangle — a grid answers "does g_phi depend on vi anywhere," this
+    answers "does it depend on vi where the network actually operates,"
+    which is the one that matters for the correction/interpretation.
+
+    Real (ai, aj) per sampled edge, not synthetic — consistent with
+    `_avg_postsynaptic_embedding`'s "use the real graph" principle.
+
+    Args:
+        edges: (2, E) edge index tensor — src (presynaptic, j) / dst
+            (postsynaptic, i).
+        x_ts: NeuronTimeSeries with the real voltage recording (T, N).
+        n_edges: number of real edges to sample (one panel each).
+        n_frames: number of time frames to subsample per edge (real
+            observed (vi, vj) pairs — subsampled for compute, not every
+            frame).
+        seed: RNG seed for edge/frame sampling (reproducible panel
+            selection).
+
+    Returns:
+        dict with:
+            edge_ij: (n_edges, 2) int array of (i, j) sampled — i=post, j=pre.
+            vi / vj: (n_edges, n_frames) numpy arrays — observed voltage
+                pairs, same time indices for both (co-occurring).
+            g_phi: (n_edges, n_frames) numpy array — g_phi at those pairs.
+    """
+    signal_model_name = config.graph_model.signal_model_name
+    g_phi_positive = config.graph_model.g_phi_positive
+    device = model.a.device
+    emb_dim = model.a.shape[1]
+
+    rng = np.random.default_rng(seed)
+    n_edges_total = edges.shape[1]
+    sel = rng.choice(n_edges_total, size=min(n_edges, n_edges_total), replace=False)
+    src = edges[0, sel].to(device)   # j — presynaptic
+    dst = edges[1, sel].to(device)   # i — postsynaptic
+    n_e = len(sel)
+
+    n_frames = min(n_frames, x_ts.n_frames)
+    frame_idx = torch.from_numpy(rng.choice(x_ts.n_frames, size=n_frames, replace=False)).to(device).long()
+
+    voltage = x_ts.voltage.to(device)                    # (T, N)
+    vi = voltage[frame_idx][:, dst].T.contiguous()        # (n_e, n_frames)
+    vj = voltage[frame_idx][:, src].T.contiguous()        # (n_e, n_frames)
+
+    ai_flat = model.a[dst].unsqueeze(1).expand(-1, n_frames, -1).reshape(-1, emb_dim)
+    aj_flat = model.a[src].unsqueeze(1).expand(-1, n_frames, -1).reshape(-1, emb_dim)
+    vi_flat = vi.reshape(-1, 1)
+    vj_flat = vj.reshape(-1, 1)
+
+    if 'flyvis_conductance' in signal_model_name:
+        in_features = torch.cat([vi_flat, vj_flat, ai_flat, aj_flat], dim=1)
+    else:
+        in_features = torch.cat([vj_flat, aj_flat], dim=1)
+
+    with torch.no_grad():
+        out = model.g_phi(in_features.float())
+        if g_phi_positive:
+            out = out ** 2
+
+    g_phi_vals = out.reshape(n_e, n_frames)
+
+    return {
+        'edge_ij': np.stack([to_numpy(dst), to_numpy(src)], axis=1),
+        'vi': to_numpy(vi),
+        'vj': to_numpy(vj),
+        'g_phi': to_numpy(g_phi_vals),
+    }
 
 
 def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
