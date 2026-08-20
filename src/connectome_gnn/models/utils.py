@@ -400,7 +400,7 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
     # Multiplicative (v*1.05) flips direction for negative voltages.
     delta_v = 0.05 * max(float(xnorm), 1e-6)
 
-    if signal_model_name == 'flyvis_B':
+    if signal_model_name == 'flyvis_conductance':
         perm_indices = torch.randperm(n_neurons, device=model.a.device)
         in_features = torch.cat((voltage_all, voltage_all, model.a, model.a[perm_indices]), dim=1)
         in_features_next = torch.cat((voltage_all, voltage_all + delta_v, model.a, model.a[perm_indices]), dim=1)

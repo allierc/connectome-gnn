@@ -283,7 +283,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
         gt_v_range: (n_pts,) x values for gt_curves.
         type_names: list of type name strings for legend.
         edges: (2, E) edge index — required when signal_model_name is
-            flyvis_B, to build each neuron's real postsynaptic embedding ai
+            flyvis_conductance, to build each neuron's real postsynaptic embedding ai
             (see `_avg_postsynaptic_embedding`) instead of a self-pair ai=aj.
     """
     model_config = config.graph_model
@@ -298,9 +298,9 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     post_fn = (lambda x: x ** 2) if model_config.g_phi_positive else None
     model_a = model.a[neuron_ids]
 
-    if 'flyvis_B' in model_config.signal_model_name:
+    if 'flyvis_conductance' in model_config.signal_model_name:
         if edges is None:
-            raise ValueError("plot_g_phi: flyvis_B requires `edges` to build the postsynaptic embedding ai")
+            raise ValueError("plot_g_phi: flyvis_conductance requires `edges` to build the postsynaptic embedding ai")
         model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_sel)
         build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
             rr_f, emb_f, model_config.signal_model_name, emb_i_flat=emb_i_f)

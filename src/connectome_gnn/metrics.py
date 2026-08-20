@@ -593,14 +593,14 @@ def _build_g_phi_features(rr_flat, emb_flat, signal_model_name, emb_i_flat=None)
     """Build input features for g_phi MLP.
 
     rr_flat / emb_flat: swept presynaptic voltage vj and embedding aj.
-    emb_i_flat: postsynaptic embedding ai — required for flyvis_B, where
+    emb_i_flat: postsynaptic embedding ai — required for flyvis_conductance, where
         g_phi(vi=0, vj, ai, aj) depends on both endpoints. Should be a real
         partner embedding (see `_avg_postsynaptic_embedding`), not aj again.
     """
-    if 'flyvis_B' in signal_model_name:
+    if 'flyvis_conductance' in signal_model_name:
         if emb_i_flat is None:
             raise ValueError(
-                "_build_g_phi_features: flyvis_B requires emb_i_flat (postsynaptic embedding)"
+                "_build_g_phi_features: flyvis_conductance requires emb_i_flat (postsynaptic embedding)"
             )
         return torch.cat([rr_flat * 0, rr_flat, emb_i_flat, emb_flat], dim=1)
     else:
@@ -612,7 +612,7 @@ def _avg_postsynaptic_embedding(model_a, edges, n_neurons):
 
     ai_avg[j] = mean(model_a[dst]) over edges with src == j. Used to build a
     representative ai for g_phi(vi=0, vj, ai, aj) when g_phi depends on both
-    endpoints (flyvis_B) — real partners, not aj=ai. Neurons with no outgoing
+    endpoints (flyvis_conductance) — real partners, not aj=ai. Neurons with no outgoing
     edges fall back to their own embedding.
     """
     src, dst = edges[0], edges[1]
@@ -679,7 +679,7 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
 def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Evaluate learned g_phi curves over each neuron's activity range.
 
-    For flyvis_B, g_phi depends on both endpoints (vi, vj, ai, aj); ai is
+    For flyvis_conductance, g_phi depends on both endpoints (vi, vj, ai, aj); ai is
     built as each neuron's real average postsynaptic-partner embedding via
     `edges` (see `_avg_postsynaptic_embedding`), not a self-pair ai=aj.
     `edges` is required in that case.
@@ -707,10 +707,10 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
     post_fn = (lambda x: x ** 2) if g_phi_positive else None
     model_a = model.a[:n_neurons]
 
-    if 'flyvis_B' in signal_model_name:
+    if 'flyvis_conductance' in signal_model_name:
         if edges is None:
             raise ValueError(
-                "evaluate_g_phi_curves: flyvis_B requires `edges` to build the postsynaptic embedding ai"
+                "evaluate_g_phi_curves: flyvis_conductance requires `edges` to build the postsynaptic embedding ai"
             )
         model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_neurons)
         build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
