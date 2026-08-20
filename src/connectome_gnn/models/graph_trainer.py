@@ -54,7 +54,6 @@ from connectome_gnn.models.utils import (
     ANSI_YELLOW,
     _NGP_QUICK_FREQ,
     _batch_frames,
-    analyze_data_svd,
     model_family,
     r2_color,
     set_trainable_parameters,
