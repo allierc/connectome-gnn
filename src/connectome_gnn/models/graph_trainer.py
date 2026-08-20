@@ -68,12 +68,16 @@ from connectome_gnn.models.training_utils import (
     determine_load_fields,
     enforce_dale_law,
     find_latest_epoch_checkpoint,
+    format_metric,
+    init_epoch_state,
     init_hidden_neurons,
+    init_ngp_schedule,
     init_training_data,
     init_training_model,
     init_training_optimizer,
     init_training_params,
     init_training_regularizer,
+    init_training_runtime,
     load_flyvis_data,
 )
 
@@ -174,9 +178,9 @@ def data_train_gnn(
     resume=False,
 ):
 
-    # ------------------------------------------------------------
-    # initialization
-    # ------------------------------------------------------------
+    # =====================================================================
+    # INITIALIZATION
+    # =====================================================================
 
     train = init_training_params(config)
 
@@ -184,7 +188,7 @@ def data_train_gnn(
     training = config.training
     model_config = config.graph_model
 
-    # Training values still used directly by the epoch loop.
+    # Derived training values used repeatedly in the loop.
     lr = train.lr
     lr_update = train.lr_update
     lr_embedding = train.lr_embedding
@@ -195,6 +199,10 @@ def data_train_gnn(
         config,
         erase,
     )
+
+    # ---------------------------------------------------------------------
+    # Data
+    # ---------------------------------------------------------------------
 
     data = init_training_data(
         config,
@@ -208,12 +216,19 @@ def data_train_gnn(
     y_ts_gpu = data.y_ts_gpu
     type_list = data.type_list
     ode_params = data.ode_params
+
     n_neurons = data.n_neurons
     n_frames = data.n_frames
+
     xnorm = data.xnorm
     ynorm = data.ynorm
+
     edges = data.edges
     gt_weights = data.gt_weights
+
+    # ---------------------------------------------------------------------
+    # Model
+    # ---------------------------------------------------------------------
 
     model, start_epoch = init_training_model(
         config,
@@ -224,6 +239,10 @@ def data_train_gnn(
         resume=resume,
     )
 
+    # ---------------------------------------------------------------------
+    # Optimizer
+    # ---------------------------------------------------------------------
+
     optimizer, lr_scheduler, n_total_params = (
         init_training_optimizer(
             config,
@@ -231,14 +250,23 @@ def data_train_gnn(
         )
     )
 
-    ids = torch.arange(n_neurons, device=device)
+    # ---------------------------------------------------------------------
+    # Neuron IDs
+    # ---------------------------------------------------------------------
 
-    hidden_ids, visible_ids, anchor_ids = init_hidden_neurons(
-        config,
-        model,
+    ids = torch.arange(
         n_neurons,
-        log_dir,
-        device,
+        device=device,
+    )
+
+    hidden_ids, visible_ids, anchor_ids = (
+        init_hidden_neurons(
+            config,
+            model,
+            n_neurons,
+            log_dir,
+            device,
+        )
     )
 
     has_hidden_neurons = (
@@ -249,1064 +277,3091 @@ def data_train_gnn(
         anchor_ids is not None
     )
 
+    # ---------------------------------------------------------------------
+    # Regularizer
+    # ---------------------------------------------------------------------
+
     regularizer = init_training_regularizer(
         config,
         data,
         device,
     )
 
-    # ------------------------------------------------------------
-    # remaining lightweight training setup
-    # ------------------------------------------------------------
+    # =====================================================================
+    # RUNTIME SETUP
+    # =====================================================================
 
     loss_components = {
-        'loss': []
+        "loss": []
     }
 
     list_loss_regul = []
 
     training_start_time = time.time()
 
-    # Try to compile with torch.compile if enabled, but fall back to non-compiled if Triton fails
-    if training.torch_compile:
-        # 'reduce-overhead' enables CUDA graphs, which pin static buffers and
-        # conflict with activation checkpointing's recompute-in-backward (the
-        # GNN rollout uses torch.utils.checkpoint to fit memory). Use plain
-        # 'default' mode for checkpointed models — same Triton kernels, no
-        # CUDA-graph memory/capture.
-        _ckpt = bool(getattr(model, 'grad_checkpoint', False))
-        _mode = 'default' if _ckpt else 'reduce-overhead'
-        model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
-        regularizer.compute = torch.compile(regularizer.compute, mode='reduce-overhead', fullgraph=True)
-        regularizer.compute_update_regul = torch.compile(regularizer.compute_update_regul, mode='reduce-overhead', fullgraph=True)
-        logger.info(f"torch.compile enabled (mode={_mode}, grad_checkpoint={_ckpt})")
-    else:
-        logger.info("torch.compile disabled via config (torch_compile: false)")
+    (
+        metrics_log_path,
+        nnr_pearson_log_path,
+        frame_sampling,
+        profiler_trace_dir,
+    ) = init_training_runtime(
+        log_dir=log_dir,
+        sim=sim,
+        training=training,
+    )
 
-    loss_components = {'loss': []}
-
-    training_start_time = time.time()
-
-    # Metrics log: tracks R2 evolution over training iterations
-    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
-    with open(metrics_log_path, 'w') as f:
-        f.write('iteration,connectivity_r2,vrest_r2,tau_r2,hidden_nnr_pearson,anchor_nnr_pearson,'
-                'vrest_r2_clean,n_out_vrest,n_total_vrest,'
-                'tau_r2_clean,n_out_tau,n_total_tau\n')
-
-    # Total iter count across all epochs — read by the LLM poller to display
-    # iter=I/total in the periodic [metrics] line. Mirrors the Niter formula
-    # used inside the epoch loop (deterministic per epoch).
-    _Niter_per_epoch = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
-    if training.max_iterations_per_epoch > 0:
-        _Niter_per_epoch = min(_Niter_per_epoch, training.max_iterations_per_epoch)
-    _total_iter = _Niter_per_epoch * training.n_epochs
-    with open(os.path.join(log_dir, 'tmp_training', 'total_iter.txt'), 'w') as f:
-        f.write(str(_total_iter))
-
-    # NNR pearson log: tracks per-neuron Pearson r mean ± SD across
-    # training iterations (populated only when an NGP/SIREN hidden head
-    # is active). Consumed by plot_signal_loss to draw the mean+SD panel.
-    nnr_pearson_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
-    with open(nnr_pearson_log_path, 'w') as f:
-        f.write('iteration,hidden_pearson_mean,hidden_pearson_std,'
-                'anchor_pearson_mean,anchor_pearson_std\n')
-
-    def _fmt_metric(x):
-        """Format optional float for metrics.log CSV ('nan' when None)."""
-        return 'nan' if x is None else f'{x:.6f}'
-
-    # Valid frame range for sampling (matches np.random.randint logic it replaces)
-    _frame_min_k = training.time_window
-    _stride_subsample = training.recurrent_training and training.time_step > 1
-    _target_offset = 1 if _stride_subsample else training.time_step
-    _frame_max_k = sim.n_frames - 4 - _target_offset  # exclusive upper bound
-    _frame_range = max(_frame_max_k - _frame_min_k, 1)
+    _profiling = training.profiling
+    _profiler_trace_dir = profiler_trace_dir
 
     embedding_frozen = False
     unfreeze_at_iteration = -1
 
-    _profiling = training.profiling
-    _profiler_trace_dir = os.path.join(log_dir, 'profiler_traces')
-    if _profiling:
-        os.makedirs(_profiler_trace_dir, exist_ok=True)
+    # ---------------------------------------------------------------------
+    # torch.compile
+    #
+    # Deterministic scatter_add prevents the CUDA-graph portion of
+    # reduce-overhead. Use normal "default" compilation in that case.
+    # ---------------------------------------------------------------------
 
-    for epoch in range(start_epoch, training.n_epochs):
+    if training.torch_compile:
 
-        Niter = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
-        plot_frequency = max(1, int(Niter // 20))
-        # Heavy R² checkpoint cadence — doubled (Niter//10 → Niter//20) so
-        # nnr_plot.png gets twice the V_rest/τ-clean steps. Heavy plots
-        # (embedding/W) still fire at the lower plot_frequency cadence.
-        connectivity_plot_frequency = max(1, int(Niter // 20))
-        # Early-phase R2: 4 extra checkpoints in [1, connectivity_plot_frequency)
-        early_r2_frequency = connectivity_plot_frequency // 5
-        n_plots_per_epoch = 4
-        plot_iterations = set(int(x) for x in np.linspace(Niter // n_plots_per_epoch, Niter - 1, n_plots_per_epoch)) if n_plots_per_epoch > 0 else set()
-        print(f'every {connectivity_plot_frequency} iterations: {Niter} iterations per epoch, plot '
-              f'(early-phase every {early_r2_frequency} iterations)')
-
-        # TRUNCATE ITERATIONS but only if config parameter says so.
-        if training.max_iterations_per_epoch > 0:
-            Niter = min(Niter, training.max_iterations_per_epoch)
-        # Compute unfreeze point for this epoch if embedding was frozen by UMAP clustering
-        if embedding_frozen and training.umap_cluster_fix_embedding_ratio > 0:
-            unfreeze_at_iteration = int(Niter * training.umap_cluster_fix_embedding_ratio)
-        else:
-            unfreeze_at_iteration = -1
-
-        total_loss = 0
-        total_loss_regul = 0
-        _total_loss_gpu = torch.zeros((), device=device)      # GPU accumulators — avoids per-iter .item() sync
-        _total_regul_gpu = torch.zeros((), device=device)
-        k = 0
-
-        loss_noise_level = training.loss_noise_level * (0.95 ** epoch)
-        regularizer.set_epoch(epoch, plot_frequency, Niter=Niter)
-
-        # Per-epoch resampling of measurement noise: overwrite x_ts.noise with a
-        # fresh Gaussian realisation seeded by sim.seed + epoch so the GNN sees
-        # an independent noise draw on every pass. Replaces the fixed noise.zarr
-        # realisation; only active when measurement noise is enabled.
-        if training.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
-            _noise_gen = torch.Generator(device=x_ts.noise.device).manual_seed(int(sim.seed) + int(epoch))
-            x_ts.noise = (torch.randn(x_ts.noise.shape, generator=_noise_gen,
-                                       dtype=x_ts.noise.dtype, device=x_ts.noise.device)
-                          * sim.measurement_noise_level)
-            _logger.info(f'epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})')
-
-        # Two-phase training: epoch 0 = full LRs, epoch 1+ = reduce W/MLP, keep SIREN
-        if training.alternate_training and epoch >= 1:
-            phase_mult = training.alternate_lr_ratio
-            optimizer, n_total_params = set_trainable_parameters(
-                model=model,
-                lr_embedding=lr_embedding * phase_mult,
-                lr=lr * phase_mult,
-                lr_update=lr_update * phase_mult,
-                lr_W=lr_W * phase_mult,
-                lr_NNR_f=lr_NNR_f,
+        _ckpt = bool(
+            getattr(
+                model,
+                "grad_checkpoint",
+                False,
             )
-            lr_scheduler = build_lr_scheduler(optimizer, config)
-            _logger.info(f'Phase 1 (SIREN focus): W/MLP LRs *= {phase_mult}, NNR_f LR = {lr_NNR_f}')
+        )
 
-        # Reproducible per-epoch frame sampling (replaces bare np.random.randint)
-        epoch_rng = np.random.RandomState((training.seed + epoch) % (2**32))
-        frame_indices = epoch_rng.randint(0, _frame_range, size=Niter * training.batch_size) + _frame_min_k
+        _use_cudagraphs = (
+            not _ckpt
+            and not training.deterministic
+        )
 
-        last_connectivity_r2 = None
-        last_connectivity_r2_visible = None
-        last_vrest_r2 = 0.0
-        last_tau_r2 = 0.0
-        last_vrest_r2_clean = float('nan')
-        last_tau_r2_clean = float('nan')
-        last_n_out_vrest = 0
-        last_n_total_vrest = 0
-        last_n_out_tau = 0
-        last_n_total_tau = 0
-        last_hidden_r2 = None
-        last_anchor_r2 = None
-        field_R2 = None
-        field_slope = None
-        pbar = trange(Niter, ncols=150)
-        # Dale's law enforcement: 3 evenly spaced interventions per epoch
-        dale_enabled = getattr(training, 'dale_law', False)
-        if dale_enabled:
-            dale_checkpoints = {int(Niter * f) for f in (0.25, 0.5, 0.75)}
-            dale_checkpoints.discard(0)
-        # === LLM-MODIFIABLE: TRAINING LOOP START ===
-        # Main training loop. Suggested changes: loss function, gradient clipping,
-        # data sampling strategy, LR scheduler steps, early stopping.
-        # Do NOT change: function signature, model construction, data loading, return values.
-        _prof_wait, _prof_warmup, _prof_active = 3, 2, 3
+        _mode = (
+            "reduce-overhead"
+            if _use_cudagraphs
+            else "default"
+        )
+
+        model = torch.compile(
+            model,
+            mode=_mode,
+            fullgraph=not _ckpt,
+        )
+
+        _reg_mode = (
+            "reduce-overhead"
+            if _use_cudagraphs
+            else "default"
+        )
+
+        regularizer.compute = torch.compile(
+            regularizer.compute,
+            mode=_reg_mode,
+            fullgraph=True,
+        )
+
+        regularizer.compute_update_regul = (
+            torch.compile(
+                regularizer.compute_update_regul,
+                mode=_reg_mode,
+                fullgraph=True,
+            )
+        )
+
+        logger.info(
+            "torch.compile enabled "
+            f"(mode={_mode}, "
+            f"regularizer_mode={_reg_mode}, "
+            f"grad_checkpoint={_ckpt}, "
+            f"deterministic={training.deterministic})"
+        )
+
+    else:
+
+        logger.info(
+            "torch.compile disabled via config "
+            "(torch_compile: false)"
+        )
+
+    # =====================================================================
+    # EPOCH LOOP
+    # =====================================================================
+
+    for epoch in range(
+        start_epoch,
+        training.n_epochs,
+    ):
+
+        # -----------------------------------------------------------------
+        # Number of iterations
+        # -----------------------------------------------------------------
+
+        Niter = int(
+            sim.n_frames
+            * training.data_augmentation_loop
+            // training.batch_size
+            * 0.2
+        )
+
+        if training.max_iterations_per_epoch > 0:
+            Niter = min(
+                Niter,
+                training.max_iterations_per_epoch,
+            )
+
+        plot_frequency = max(
+            1,
+            Niter // 20,
+        )
+
+        print(
+            f"every {max(1, Niter // 20)} iterations: "
+            f"{Niter} iterations per epoch, "
+            f"plot "
+            f"(early-phase every "
+            f"{max(1, (Niter // 20) // 5)} iterations)"
+        )
+
+        # -----------------------------------------------------------------
+        # Epoch state
+        #
+        # IMPORTANT:
+        #   total_loss_gpu and total_regul_gpu are created here.
+        #   They reset every epoch.
+        # -----------------------------------------------------------------
+
+        epoch_state = init_epoch_state(
+            epoch=epoch,
+            n_iter=Niter,
+            training=training,
+            frame_sampling=frame_sampling,
+            embedding_frozen=embedding_frozen,
+            regularizer=regularizer,
+            device=device,
+        )
+
+        plot_frequency = (
+            epoch_state.plot_frequency
+        )
+
+        connectivity_plot_frequency = (
+            epoch_state.connectivity_plot_frequency
+        )
+
+        early_r2_frequency = (
+            epoch_state.early_r2_frequency
+        )
+
+        plot_iterations = (
+            epoch_state.plot_iterations
+        )
+
+        frame_indices = (
+            epoch_state.frame_indices
+        )
+
+        loss_noise_level = (
+            epoch_state.loss_noise_level
+        )
+
+        dale_enabled = (
+            epoch_state.dale_enabled
+        )
+
+        dale_checkpoints = (
+            epoch_state.dale_checkpoints
+        )
+
+        metrics = (
+            epoch_state.metrics
+        )
+
+        # -----------------------------------------------------------------
+        # Measurement-noise resampling
+        # -----------------------------------------------------------------
+
+        if (
+            training.resample_noise_per_epoch
+            and sim.measurement_noise_level > 0
+            and x_ts.noise is not None
+        ):
+            noise_generator = (
+                torch.Generator(
+                    device=x_ts.noise.device
+                ).manual_seed(
+                    int(sim.seed) + int(epoch)
+                )
+            )
+
+            x_ts.noise = (
+                torch.randn(
+                    x_ts.noise.shape,
+                    generator=noise_generator,
+                    dtype=x_ts.noise.dtype,
+                    device=x_ts.noise.device,
+                )
+                * sim.measurement_noise_level
+            )
+
+            _logger.info(
+                f"epoch {epoch}: "
+                f"resampled measurement noise "
+                f"(seed={int(sim.seed) + int(epoch)})"
+            )
+
+        # -----------------------------------------------------------------
+        # Alternate training
+        # -----------------------------------------------------------------
+
+        if (
+            training.alternate_training
+            and epoch >= 1
+        ):
+            phase_mult = (
+                training.alternate_lr_ratio
+            )
+
+            optimizer, n_total_params = (
+                set_trainable_parameters(
+                    model=model,
+                    lr_embedding=(
+                        lr_embedding
+                        * phase_mult
+                    ),
+                    lr=(
+                        lr
+                        * phase_mult
+                    ),
+                    lr_update=(
+                        lr_update
+                        * phase_mult
+                    ),
+                    lr_W=(
+                        lr_W
+                        * phase_mult
+                    ),
+                    lr_NNR_f=lr_NNR_f,
+                )
+            )
+
+            lr_scheduler = (
+                build_lr_scheduler(
+                    optimizer,
+                    config,
+                )
+            )
+
+            _logger.info(
+                "Phase 1 (SIREN focus): "
+                f"W/MLP LRs *= {phase_mult}, "
+                f"NNR_f LR = {lr_NNR_f}"
+            )
+
+        # -----------------------------------------------------------------
+        # NGP injection + LR-damping schedule
+        # -----------------------------------------------------------------
+
+        ngp_schedule = (
+            init_ngp_schedule(
+                training,
+                Niter,
+            )
+        )
+
+        if ngp_schedule.warmup_iter > 0:
+
+            print(
+                "NGP binary-inject schedule: "
+                f"warmup [0, "
+                f"{ngp_schedule.warmup_iter}) "
+                "NGP off + nominal LR, "
+                f"inject ON at "
+                f"{ngp_schedule.warmup_iter}."
+            )
+
+            if ngp_schedule.damping_active:
+
+                print(
+                    "  LR-damping V on "
+                    f"{ngp_schedule.damp_groups}: "
+                    f"damp ["
+                    f"{ngp_schedule.warmup_iter}, "
+                    f"{ngp_schedule.ramp_mid}) "
+                    f"base -> "
+                    f"base/{ngp_schedule.damping_factor:g}, "
+                    f"recover ["
+                    f"{ngp_schedule.ramp_mid}, "
+                    f"{ngp_schedule.ramp_end}) "
+                    f"base/"
+                    f"{ngp_schedule.damping_factor:g}"
+                    " -> base."
+                )
+
+            else:
+
+                print(
+                    "  LR-damping V disabled."
+                )
+
+        # Base optimizer LRs.
+        base_lrs = {
+            id(param_group): param_group["base_lr"]
+            for param_group in optimizer.param_groups
+        }
+
+        previous_lr_multiplier = 1.0
+        previous_injection_active = None
+
+        # -----------------------------------------------------------------
+        # Profiling
+        # -----------------------------------------------------------------
+
+        pbar = trange(
+            Niter,
+            ncols=150,
+        )
+
         if _profiling:
-            _prof = torch.profiler.profile(
-                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(wait=_prof_wait, warmup=_prof_warmup, active=_prof_active, repeat=1),
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(_profiler_trace_dir, use_gzip=True),
+
+            profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                schedule=torch.profiler.schedule(
+                    wait=3,
+                    warmup=2,
+                    active=3,
+                    repeat=1,
+                ),
+                on_trace_ready=(
+                    torch.profiler.tensorboard_trace_handler(
+                        _profiler_trace_dir,
+                        use_gzip=True,
+                    )
+                ),
                 record_shapes=True,
                 with_stack=True,
                 profile_memory=True,
             )
-            _prof.start()
-        # NGP-injection schedule (two-phase, binary on/off).
-        #
-        # Phase 1 (N < warmup_inject_nnr_iter): hidden voltages are zero-silenced
-        # (NGP forward is not called for the GNN input — see assignment site
-        # below). NGP still trains via the anchor loss (which is gated by
-        # coeff_anchor_voltage, NOT by injection state), so by phase 2 the NGP
-        # already produces sensible per-(t,u,v) outputs at anchor positions
-        # via shared backbone weights.
-        #
-        # Phase 2 (N >= warmup_inject_nnr_iter): NGP injection is hard-on (no
-        # scalar α). The smooth absorption of the new input distribution is
-        # done by the LR-damping V (see below), not by ramping the injected
-        # signal magnitude.
-        #
-        # Defaults (warmup=0, ramp=0) preserve the legacy "always inject"
-        # behavior — non-NGP runs and uncondiguered NGP runs follow the
-        # exact same code path they used before this rewrite.
-        _warmup_inject_iter_frac = float(getattr(training, 'warmup_inject_nnr_iter_frac', 0.0))
-        _warmup_inject_ramp_frac = float(getattr(training, 'warmup_inject_nnr_ramp_iter_frac', 0.0))
-        if _warmup_inject_iter_frac > 0.0:
-            _warmup_inject_iter = int(Niter * _warmup_inject_iter_frac)
-        else:
-            _warmup_inject_iter = int(getattr(training, 'warmup_inject_nnr_iter', 0))
-        if _warmup_inject_ramp_frac > 0.0:
-            _warmup_inject_ramp = int(Niter * _warmup_inject_ramp_frac)
-        else:
-            _warmup_inject_ramp = int(getattr(training, 'warmup_inject_nnr_ramp_iter', 0))
 
-        # LR-damping V-schedule. Fired only when an NGP injection switch is
-        # configured (_warmup_inject_iter > 0) AND a damping window length is
-        # set (_warmup_inject_ramp > 0). lr_damping_factor controls the depth
-        # of the V (default 100.0 → /100 at the trough; one knob covers both
-        # legs, recovery just multiplies back by the same factor).
-        _lr_damping_factor = float(getattr(training, 'lr_damping_factor', 100.0))
-        _lr_damping_active = (_warmup_inject_iter > 0
-                              and _warmup_inject_ramp > 0
-                              and _lr_damping_factor > 1.0)
-        _damp_groups = ('W', 'f_theta', 'g_phi')   # only GNN groups are damped
-        # Cache base LRs so each iter we set pg['lr'] = base * lr_mult
-        # without compounding rounding errors over the loop.
-        _base_lrs = {id(pg): pg['base_lr'] for pg in optimizer.param_groups}
+            profiler.start()
 
-        # Stage boundaries surfaced as labeled verticals on metrics.png
-        # (right panel only). Empty when no NGP injection is configured.
-        _ngp_stages = []
-        if _warmup_inject_iter > 0:
-            _ramp_mid = _warmup_inject_iter + _warmup_inject_ramp
-            _ramp_end = _warmup_inject_iter + 2 * _warmup_inject_ramp
-            _ngp_stages.append((_warmup_inject_iter, 'inject'))
-            if _lr_damping_active:
-                _ngp_stages.append((_ramp_mid, 'trough'))
-                _ngp_stages.append((_ramp_end, 'recover'))
-            print(f'NGP binary-inject schedule: '
-                  f'warmup [0, {_warmup_inject_iter}) NGP off + nominal LR, '
-                  f'inject ON at {_warmup_inject_iter}.')
-            if _lr_damping_active:
-                print(f'  LR-damping V on {{{",".join(_damp_groups)}}}: '
-                      f'damp [{_warmup_inject_iter}, {_ramp_mid}) base→base/{_lr_damping_factor:g}, '
-                      f'recover [{_ramp_mid}, {_ramp_end}) base/{_lr_damping_factor:g}→base. '
-                      f'Niter={Niter}.')
-            else:
-                print(f'  LR-damping V disabled (ramp window or factor not set). Niter={Niter}.')
-
-        _prev_injection_active = None
-        _prev_lr_mult = 1.0
+        # =================================================================
+        # ITERATION LOOP
+        # =================================================================
 
         for N in pbar:
 
-            # Binary injection gate. Cheap — branchless via int compare —
-            # evaluated once per iteration in Python (not inside any
-            # torch.compile region).
-            injection_active = (_warmup_inject_iter <= 0) or (N >= _warmup_inject_iter)
+            # -------------------------------------------------------------
+            # NGP injection state
+            # -------------------------------------------------------------
 
-            # LR-damping V-schedule multiplier (applied to W/f_theta/g_phi
-            # param groups only). Outside the V window: 1.0 → no change vs
-            # legacy behavior. embedding/NNR_hidden/NNR_f always at 1.0.
-            if _lr_damping_active:
-                if N < _warmup_inject_iter or N >= _ramp_end:
-                    _lr_mult = 1.0
-                elif N < _ramp_mid:
-                    # Damping leg: linearly 1.0 → 1/factor.
-                    _t = float(N - _warmup_inject_iter) / float(_warmup_inject_ramp)
-                    _lr_mult = 1.0 + (1.0 / _lr_damping_factor - 1.0) * _t
+            injection_active = (
+                ngp_schedule.warmup_iter <= 0
+                or N >= ngp_schedule.warmup_iter
+            )
+
+            # -------------------------------------------------------------
+            # NGP LR damping
+            # -------------------------------------------------------------
+
+            if ngp_schedule.damping_active:
+
+                if (
+                    N < ngp_schedule.warmup_iter
+                    or N >= ngp_schedule.ramp_end
+                ):
+                    lr_multiplier = 1.0
+
+                elif N < ngp_schedule.ramp_mid:
+
+                    progress = (
+                        float(
+                            N
+                            - ngp_schedule.warmup_iter
+                        )
+                        / float(
+                            ngp_schedule.ramp_iter
+                        )
+                    )
+
+                    lr_multiplier = (
+                        1.0
+                        + (
+                            1.0
+                            / ngp_schedule.damping_factor
+                            - 1.0
+                        )
+                        * progress
+                    )
+
                 else:
-                    # Recovery leg: linearly 1/factor → 1.0.
-                    _t = float(N - _ramp_mid) / float(_warmup_inject_ramp)
-                    _lr_mult = (1.0 / _lr_damping_factor
-                                + (1.0 - 1.0 / _lr_damping_factor) * _t)
+
+                    progress = (
+                        float(
+                            N
+                            - ngp_schedule.ramp_mid
+                        )
+                        / float(
+                            ngp_schedule.ramp_iter
+                        )
+                    )
+
+                    lr_multiplier = (
+                        1.0
+                        / ngp_schedule.damping_factor
+                        + (
+                            1.0
+                            - 1.0
+                            / ngp_schedule.damping_factor
+                        )
+                        * progress
+                    )
+
             else:
-                _lr_mult = 1.0
 
-            # Apply the multiplier to the GNN param groups whenever it
-            # changes. Skipping when (_lr_mult == _prev_lr_mult) avoids the
-            # per-iter Python loop overhead 99% of training (mult is 1.0
-            # outside the V).
-            if _lr_damping_active and _lr_mult != _prev_lr_mult:
-                for pg in optimizer.param_groups:
-                    if pg.get('name') in _damp_groups:
-                        pg['lr'] = _base_lrs[id(pg)] * _lr_mult
-                _prev_lr_mult = _lr_mult
+                lr_multiplier = 1.0
 
-            # Announce injection-on transition once.
-            if (_warmup_inject_iter > 0
-                    and _prev_injection_active is False
-                    and injection_active):
-                if _lr_damping_active:
-                    print(f'\n[NGP inject] iter {N}: phase 1 → phase 2 '
-                          f'(NGP hard-on; GNN-LR V-schedule starts: '
-                          f'damp over {_warmup_inject_ramp} iters, '
-                          f'recover over {_warmup_inject_ramp} iters).')
+            if (
+                ngp_schedule.damping_active
+                and lr_multiplier
+                != previous_lr_multiplier
+            ):
+
+                for param_group in optimizer.param_groups:
+
+                    if (
+                        param_group.get("name")
+                        in ngp_schedule.damp_groups
+                    ):
+                        param_group["lr"] = (
+                            base_lrs[
+                                id(param_group)
+                            ]
+                            * lr_multiplier
+                        )
+
+                previous_lr_multiplier = (
+                    lr_multiplier
+                )
+
+            # -------------------------------------------------------------
+            # NGP stage transitions
+            # -------------------------------------------------------------
+
+            if (
+                ngp_schedule.warmup_iter > 0
+                and previous_injection_active is False
+                and injection_active
+            ):
+
+                if ngp_schedule.damping_active:
+
+                    print(
+                        f"\n[NGP inject] "
+                        f"iter {N}: "
+                        "phase 1 -> phase 2 "
+                        "(NGP hard-on; "
+                        "GNN-LR V-schedule starts)."
+                    )
+
                 else:
-                    print(f'\n[NGP inject] iter {N}: phase 1 → phase 2 '
-                          f'(NGP hard-on, no LR damping configured).')
-            elif (_lr_damping_active
-                    and N == _ramp_mid
-                    and _warmup_inject_iter > 0):
-                print(f'\n[NGP inject] iter {N}: GNN-LR damping leg → recovery leg '
-                      f'(at trough, base/{_lr_damping_factor:g}).')
-            elif (_lr_damping_active
-                    and N == _ramp_end
-                    and _warmup_inject_iter > 0):
-                print(f'\n[NGP inject] iter {N}: GNN-LR back to nominal.')
-            _prev_injection_active = injection_active
 
-            # Unfreeze embedding at the midpoint after UMAP clustering froze it
-            if embedding_frozen and N == unfreeze_at_iteration:
+                    print(
+                        f"\n[NGP inject] "
+                        f"iter {N}: "
+                        "phase 1 -> phase 2 "
+                        "(NGP hard-on)."
+                    )
+
+            elif (
+                ngp_schedule.damping_active
+                and N == ngp_schedule.ramp_mid
+                and ngp_schedule.warmup_iter > 0
+            ):
+
+                print(
+                    f"\n[NGP inject] "
+                    f"iter {N}: "
+                    "LR damping -> recovery."
+                )
+
+            elif (
+                ngp_schedule.damping_active
+                and N == ngp_schedule.ramp_end
+                and ngp_schedule.warmup_iter > 0
+            ):
+
+                print(
+                    f"\n[NGP inject] "
+                    f"iter {N}: "
+                    "GNN LR back to nominal."
+                )
+
+            previous_injection_active = (
+                injection_active
+            )
+
+            # -------------------------------------------------------------
+            # Embedding unfreeze
+            # -------------------------------------------------------------
+
+            if (
+                embedding_frozen
+                and N
+                == epoch_state.unfreeze_at_iteration
+            ):
+
                 embedding_frozen = False
-                lr_embedding = training.lr_embedding
-                optimizer, n_total_params = set_trainable_parameters(
-                    model=model, lr_embedding=lr_embedding, lr=lr,
-                    lr_update=lr_update, lr_W=lr_W)
-                _logger.debug(f'unfreezing embedding at iteration {N}/{Niter}')
+
+                lr_embedding = (
+                    training.lr_embedding
+                )
+
+                optimizer, n_total_params = (
+                    set_trainable_parameters(
+                        model=model,
+                        lr_embedding=lr_embedding,
+                        lr=lr,
+                        lr_update=lr_update,
+                        lr_W=lr_W,
+                    )
+                )
+
+                _logger.debug(
+                    f"unfreezing embedding at "
+                    f"iteration {N}/{Niter}"
+                )
 
             optimizer.zero_grad()
 
-            # Recurrent training (standard or multi-start) — delegated to recurrent_step
-            if training.recurrent_training and not training.neural_ODE_training:
-                loss, regul_val = recurrent_loss(
-                    model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=visible_ids,
-                    frame_indices=frame_indices, iter_idx=N, config=config,
-                    device=device, xnorm=xnorm, ynorm=ynorm,
-                    regularizer=regularizer, has_visual_field=train.has_visual_field,
-                    hidden_ids=hidden_ids,
+            # =============================================================
+            # RECURRENT TRAINING
+            # =============================================================
+
+            if (
+                training.recurrent_training
+                and not training.neural_ODE_training
+            ):
+
+                loss, regul_val = (
+                    recurrent_loss(
+                        model=model,
+                        x_ts=x_ts,
+                        y_ts=y_ts,
+                        edges=edges,
+                        ids=visible_ids,
+                        frame_indices=frame_indices,
+                        iter_idx=N,
+                        config=config,
+                        device=device,
+                        xnorm=xnorm,
+                        ynorm=ynorm,
+                        regularizer=regularizer,
+                        has_visual_field=(
+                            train.has_visual_field
+                        ),
+                        hidden_ids=hidden_ids,
+                    )
                 )
+
                 loss.backward()
-                if hasattr(tc, 'grad_clip_W') and training.grad_clip_W > 0 and hasattr(model, 'W'):
-                    if model.W.grad is not None:
-                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
+
+                if (
+                    hasattr(
+                        training,
+                        "grad_clip_W",
+                    )
+                    and training.grad_clip_W > 0
+                    and hasattr(model, "W")
+                    and model.W.grad is not None
+                ):
+                    torch.nn.utils.clip_grad_norm_(
+                        [model.W],
+                        max_norm=(
+                            training.grad_clip_W
+                        ),
+                    )
+
                 optimizer.step()
-                if dale_enabled and N in dale_checkpoints:
-                    enforce_dale_law(model, edges)
+
+                if (
+                    dale_enabled
+                    and N in dale_checkpoints
+                ):
+                    enforce_dale_law(
+                        model,
+                        edges,
+                    )
+
                 lr_scheduler.step()
-                _total_loss_gpu = _total_loss_gpu + loss.detach()
-                total_loss_regul += regul_val
+
+                _total_loss_gpu = (
+                    _total_loss_gpu
+                    + loss.detach()
+                )
+
+                total_loss_regul += (
+                    regul_val
+                )
+
                 regularizer.finalize_iteration()
 
                 if regularizer.should_record():
-                    _current_loss = loss.item()  # single sync per plot_frequency iters
-                    loss_components['loss'].append((_current_loss - regul_val) / n_neurons)
-                    plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
-                    plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
-                                    epoch_boundaries=regularizer.epoch_boundaries)
 
-                # R2 checkpoint
-                is_regular_r2 = (N % connectivity_plot_frequency == 0)
-                is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
-                model_name = model_config.signal_model_name
+                    current_loss = (
+                        loss.item()
+                    )
 
-                # Intermediate model checkpoint at every 1/10 of the epoch.
-                # Overwrites the same path used by the end-of-epoch save (line
-                # ~1019), so graph_tester (which picks the newest file in
-                # models/ by mtime) keeps working unchanged. Lets a recovery
-                # from a mid-training wedge cost at most one Niter/10 cycle.
+                    loss_components[
+                        "loss"
+                    ].append(
+                        (
+                            current_loss
+                            - regul_val
+                        )
+                        / n_neurons
+                    )
+
+                    plot_dict = {
+                        **regularizer.get_history(),
+                        "loss": (
+                            loss_components[
+                                "loss"
+                            ]
+                        ),
+                    }
+
+                    plot_signal_loss(
+                        plot_dict,
+                        log_dir,
+                        epoch=epoch,
+                        Niter=Niter,
+                        epoch_boundaries=(
+                            regularizer
+                            .epoch_boundaries
+                        ),
+                    )
+
+                is_regular_r2 = (
+                    N % connectivity_plot_frequency
+                    == 0
+                )
+
+                is_early_r2 = (
+                    N < connectivity_plot_frequency
+                    and N % early_r2_frequency == 0
+                )
+
                 if is_regular_r2 and N > 0:
-                    _intermediate_path = os.path.join(
-                        log_dir, 'models',
-                        f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt')
-                    os.makedirs(os.path.dirname(_intermediate_path), exist_ok=True)
-                    torch.save({'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict()},
-                               _intermediate_path)
-                if (is_regular_r2 or is_early_r2) and model_family(model) == 'linear':
-                    last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
-                        model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
-                    last_vrest_r2_clean = _dyn['vrest_r2_clean']
-                    last_tau_r2_clean   = _dyn['tau_r2_clean']
-                    last_n_out_vrest    = _dyn['n_out_vrest']
-                    last_n_total_vrest  = _dyn['n_total_vrest']
-                    last_n_out_tau      = _dyn['n_out_tau']
-                    last_n_total_tau    = _dyn['n_total_tau']
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
-                    _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and model_family(model) == 'gnn':
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
-                    last_connectivity_r2_visible = _r2_visible
-                    if _h_r2 is not None:
-                        last_hidden_r2 = _h_r2
-                    if _a_r2 is not None:
-                        last_anchor_r2 = _a_r2
-                    _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
-                    last_vrest_r2       = _dyn['vrest_r2']
-                    last_tau_r2         = _dyn['tau_r2']
-                    last_vrest_r2_clean = _dyn['vrest_r2_clean']
-                    last_tau_r2_clean   = _dyn['tau_r2_clean']
-                    last_n_out_vrest    = _dyn['n_out_vrest']
-                    last_n_total_vrest  = _dyn['n_total_vrest']
-                    last_n_out_tau      = _dyn['n_out_tau']
-                    last_n_total_tau    = _dyn['n_total_tau']
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
-                    _metrics_changed = True
+
+                    intermediate_path = os.path.join(
+                        log_dir,
+                        "models",
+                        f"best_model_with_"
+                        f"{training.n_runs - 1}"
+                        f"_graphs_{epoch}.pt",
+                    )
+
+                    os.makedirs(
+                        os.path.dirname(
+                            intermediate_path
+                        ),
+                        exist_ok=True,
+                    )
+
+                    torch.save(
+                        {
+                            "model_state_dict":
+                                model.state_dict(),
+                            "optimizer_state_dict":
+                                optimizer.state_dict(),
+                        },
+                        intermediate_path,
+                    )
+
+                if (
+                    is_regular_r2
+                    or is_early_r2
+                ) and model_family(model) == "linear":
+
+                    (
+                        metrics.connectivity_r2,
+                        metrics.tau_r2,
+                        metrics.vrest_r2,
+                        dynamics,
+                    ) = plot_training_linear(
+                        model,
+                        config,
+                        epoch,
+                        N,
+                        log_dir,
+                        device,
+                        gt_weights,
+                        n_neurons=n_neurons,
+                    )
+
+                    metrics.vrest_r2_clean = (
+                        dynamics["vrest_r2_clean"]
+                    )
+                    metrics.tau_r2_clean = (
+                        dynamics["tau_r2_clean"]
+                    )
+                    metrics.n_out_vrest = (
+                        dynamics["n_out_vrest"]
+                    )
+                    metrics.n_total_vrest = (
+                        dynamics["n_total_vrest"]
+                    )
+                    metrics.n_out_tau = (
+                        dynamics["n_out_tau"]
+                    )
+                    metrics.n_total_tau = (
+                        dynamics["n_total_tau"]
+                    )
+
+                    with open(
+                        metrics_log_path,
+                        "a",
+                    ) as f:
+                        f.write(
+                            f"{regularizer.iter_count},"
+                            f"{metrics.connectivity_r2:.6f},"
+                            f"{metrics.vrest_r2:.6f},"
+                            f"{metrics.tau_r2:.6f},"
+                            f"{format_metric(metrics.hidden_r2)},"
+                            f"{format_metric(metrics.anchor_r2)},"
+                            f"{format_metric(metrics.vrest_r2_clean)},"
+                            f"{metrics.n_out_vrest},"
+                            f"{metrics.n_total_vrest},"
+                            f"{format_metric(metrics.tau_r2_clean)},"
+                            f"{metrics.n_out_tau},"
+                            f"{metrics.n_total_tau}\n"
+                        )
+
+                    metrics_changed = True
+
+                elif (
+                    is_regular_r2
+                    or is_early_r2
+                ) and model_family(model) == "gnn":
+
+                    (
+                        metrics.connectivity_r2,
+                        metrics.connectivity_r2_visible,
+                        hidden_r2,
+                        anchor_r2,
+                    ) = plot_training_gnn(
+                        x_ts,
+                        model,
+                        config,
+                        epoch,
+                        N,
+                        log_dir,
+                        device,
+                        type_list,
+                        gt_weights,
+                        edges,
+                        n_neurons=n_neurons,
+                        n_neuron_types=(
+                            sim.n_neuron_types
+                        ),
+                        ode_params=ode_params,
+                        hidden_ids=hidden_ids,
+                        anchor_ids=anchor_ids,
+                    )
+
+                    if hidden_r2 is not None:
+                        metrics.hidden_r2 = (
+                            hidden_r2
+                        )
+
+                    if anchor_r2 is not None:
+                        metrics.anchor_r2 = (
+                            anchor_r2
+                        )
+
+                    dynamics = (
+                        compute_dynamics_r2(
+                            model,
+                            x_ts,
+                            config,
+                            device,
+                            n_neurons,
+                        )
+                    )
+
+                    metrics.vrest_r2 = (
+                        dynamics["vrest_r2"]
+                    )
+                    metrics.tau_r2 = (
+                        dynamics["tau_r2"]
+                    )
+                    metrics.vrest_r2_clean = (
+                        dynamics["vrest_r2_clean"]
+                    )
+                    metrics.tau_r2_clean = (
+                        dynamics["tau_r2_clean"]
+                    )
+                    metrics.n_out_vrest = (
+                        dynamics["n_out_vrest"]
+                    )
+                    metrics.n_total_vrest = (
+                        dynamics["n_total_vrest"]
+                    )
+                    metrics.n_out_tau = (
+                        dynamics["n_out_tau"]
+                    )
+                    metrics.n_total_tau = (
+                        dynamics["n_total_tau"]
+                    )
+
+                    with open(
+                        metrics_log_path,
+                        "a",
+                    ) as f:
+                        f.write(
+                            f"{regularizer.iter_count},"
+                            f"{format_metric(metrics.connectivity_r2)},"
+                            f"{format_metric(metrics.vrest_r2)},"
+                            f"{format_metric(metrics.tau_r2)},"
+                            f"{format_metric(metrics.hidden_r2)},"
+                            f"{format_metric(metrics.anchor_r2)},"
+                            f"{format_metric(metrics.vrest_r2_clean)},"
+                            f"{metrics.n_out_vrest},"
+                            f"{metrics.n_total_vrest},"
+                            f"{format_metric(metrics.tau_r2_clean)},"
+                            f"{metrics.n_out_tau},"
+                            f"{metrics.n_total_tau}\n"
+                        )
+
+                    metrics_changed = True
+
                 else:
-                    _metrics_changed = False
 
-                # Fast NGP Pearson refresh — independent of the heavy R²
-                # checkpoint above. Subsamples (64 neurons × 256 frames),
-                # one batched forward, no grad. Only fires when the model
-                # has a hidden-neuron INR. Also appends a metrics.log row
-                # so the runner's 300s collector picks the updated values
-                # up between heavy checkpoints.
-                _ngp_quick_updated = False
-                _h_quick_std = None
-                _a_quick_std = None
-                if (has_hidden_neurons
-                        and getattr(model, 'NNR_hidden', None) is not None
-                        and N > 0 and N % _NGP_QUICK_FREQ == 0):
-                    _h_quick, _h_quick_std = _quick_ngp_pearson(
-                        model, x_ts, hidden_ids,
-                        use_anchor=False, device=device, return_stats=True)
-                    if _h_quick is not None:
-                        last_hidden_r2 = _h_quick
-                        _ngp_quick_updated = True
+                    metrics_changed = False
+
+                # ---------------------------------------------------------
+                # Fast NGP Pearson refresh
+                # ---------------------------------------------------------
+
+                ngp_quick_updated = False
+                hidden_quick_std = None
+                anchor_quick_std = None
+
+                if (
+                    has_hidden_neurons
+                    and getattr(
+                        model,
+                        "NNR_hidden",
+                        None,
+                    ) is not None
+                    and N > 0
+                    and N % _NGP_QUICK_FREQ == 0
+                ):
+
+                    hidden_quick, hidden_quick_std = (
+                        _quick_ngp_pearson(
+                            model,
+                            x_ts,
+                            hidden_ids,
+                            use_anchor=False,
+                            device=device,
+                            return_stats=True,
+                        )
+                    )
+
+                    if hidden_quick is not None:
+
+                        metrics.hidden_r2 = (
+                            hidden_quick
+                        )
+
+                        ngp_quick_updated = True
+
                     if has_anchor_neurons:
-                        _a_quick, _a_quick_std = _quick_ngp_pearson(
-                            model, x_ts, anchor_ids,
-                            use_anchor=True, device=device, return_stats=True)
-                        if _a_quick is not None:
-                            last_anchor_r2 = _a_quick
-                            _ngp_quick_updated = True
-                if _ngp_quick_updated:
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},'
-                                f'{_fmt_metric(last_connectivity_r2)},'
-                                f'{_fmt_metric(last_vrest_r2)},'
-                                f'{_fmt_metric(last_tau_r2)},'
-                                f'{_fmt_metric(last_hidden_r2)},'
-                                f'{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},'
-                                f'{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
-                    with open(nnr_pearson_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},'
-                                f'{_fmt_metric(last_hidden_r2)},'
-                                f'{_fmt_metric(_h_quick_std)},'
-                                f'{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(_a_quick_std)}\n')
-                    _metrics_changed = True
 
-                # Refresh metrics.png whenever metrics.log / nnr_pearson.log
-                # gained a new row (heavy R² or quick NGP path).
-                if _metrics_changed:
-                    plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries,
-                                 ngp_stages=_ngp_stages)
+                        anchor_quick, anchor_quick_std = (
+                            _quick_ngp_pearson(
+                                model,
+                                x_ts,
+                                anchor_ids,
+                                use_anchor=True,
+                                device=device,
+                                return_stats=True,
+                            )
+                        )
 
-                if last_connectivity_r2 is not None or last_hidden_r2 is not None:
+                        if anchor_quick is not None:
+
+                            metrics.anchor_r2 = (
+                                anchor_quick
+                            )
+
+                            ngp_quick_updated = True
+
+                if ngp_quick_updated:
+
+                    with open(
+                        metrics_log_path,
+                        "a",
+                    ) as f:
+
+                        f.write(
+                            f"{regularizer.iter_count},"
+                            f"{format_metric(metrics.connectivity_r2)},"
+                            f"{format_metric(metrics.vrest_r2)},"
+                            f"{format_metric(metrics.tau_r2)},"
+                            f"{format_metric(metrics.hidden_r2)},"
+                            f"{format_metric(metrics.anchor_r2)},"
+                            f"{format_metric(metrics.vrest_r2_clean)},"
+                            f"{metrics.n_out_vrest},"
+                            f"{metrics.n_total_vrest},"
+                            f"{format_metric(metrics.tau_r2_clean)},"
+                            f"{metrics.n_out_tau},"
+                            f"{metrics.n_total_tau}\n"
+                        )
+
+                    with open(
+                        nnr_pearson_log_path,
+                        "a",
+                    ) as f:
+
+                        f.write(
+                            f"{regularizer.iter_count},"
+                            f"{format_metric(metrics.hidden_r2)},"
+                            f"{format_metric(hidden_quick_std)},"
+                            f"{format_metric(metrics.anchor_r2)},"
+                            f"{format_metric(anchor_quick_std)}\n"
+                        )
+
+                    metrics_changed = True
+
+                if metrics_changed:
+
+                    plot_metrics(
+                        log_dir,
+                        epoch_boundaries=(
+                            regularizer
+                            .epoch_boundaries
+                        ),
+                        ngp_stages=(
+                            ngp_schedule.stages
+                        ),
+                    )
+
+                # ---------------------------------------------------------
+                # Progress bar
+                # ---------------------------------------------------------
+
+                if (
+                    metrics.connectivity_r2
+                    is not None
+                    or metrics.hidden_r2
+                    is not None
+                ):
+
                     bar_parts = []
-                    if last_connectivity_r2 is not None:
-                        c_conn = r2_color(last_connectivity_r2)
-                        if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
-                            conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+
+                    if (
+                        metrics.connectivity_r2
+                        is not None
+                    ):
+
+                        conn_color = r2_color(
+                            metrics.connectivity_r2
+                        )
+
+                        if (
+                            metrics.connectivity_r2_visible
+                            is not None
+                            and abs(
+                                metrics.connectivity_r2_visible
+                                - metrics.connectivity_r2
+                            ) > 1e-4
+                        ):
+
+                            conn_string = (
+                                f"conn="
+                                f"{metrics.connectivity_r2:.3f}"
+                                f"("
+                                f"{metrics.connectivity_r2_visible:.3f}"
+                                f")"
+                            )
+
                         else:
-                            conn_str = f'conn={last_connectivity_r2:.3f}'
-                        bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
+
+                            conn_string = (
+                                f"conn="
+                                f"{metrics.connectivity_r2:.3f}"
+                            )
+
+                        bar_parts.append(
+                            f"{conn_color}"
+                            f"{conn_string}"
+                            f"{ANSI_RESET}"
+                        )
+
                         if ode_params.has_vrest():
-                            _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
+
+                            vr_pct = (
+                                100.0
+                                * metrics.n_out_vrest
+                                / metrics.n_total_vrest
+                                if metrics.n_total_vrest > 0
+                                else 0.0
+                            )
+
+                            bar_parts.append(
+                                f"{r2_color(metrics.vrest_r2_clean)}"
+                                f"Vr="
+                                f"{fmt_r2_bar(metrics.vrest_r2_clean)}"
+                                f"({vr_pct:.0f}%)"
+                                f"{ANSI_RESET}"
+                            )
+
                         if ode_params.has_tau():
-                            _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
-                    if last_hidden_r2 is not None or last_anchor_r2 is not None:
-                        # During warmup (injection_active=False), hidden
-                        # voltages are zero-silenced so hidden_nnr_pearson
-                        # against GT-injection rollout is meaningless; show
-                        # n/a. Anchor is trained throughout, show it.
+
+                            tau_pct = (
+                                100.0
+                                * metrics.n_out_tau
+                                / metrics.n_total_tau
+                                if metrics.n_total_tau > 0
+                                else 0.0
+                            )
+
+                            bar_parts.append(
+                                f"{r2_color(metrics.tau_r2_clean)}"
+                                f"τ="
+                                f"{fmt_r2_bar(metrics.tau_r2_clean)}"
+                                f"({tau_pct:.0f}%)"
+                                f"{ANSI_RESET}"
+                            )
+
+                    if (
+                        metrics.hidden_r2
+                        is not None
+                        or metrics.anchor_r2
+                        is not None
+                    ):
+
                         if not injection_active:
-                            if last_anchor_r2 is not None:
-                                nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
+
+                            if (
+                                metrics.anchor_r2
+                                is not None
+                            ):
+                                nnr_string = (
+                                    f"nnr=n/a"
+                                    f"({metrics.anchor_r2:.3f})"
+                                )
                             else:
-                                nnr_str = 'nnr=n/a'
-                            bar_parts.append(nnr_str)
-                        elif last_hidden_r2 is not None:
-                            if last_anchor_r2 is not None:
-                                nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
+                                nnr_string = "nnr=n/a"
+
+                            bar_parts.append(
+                                nnr_string
+                            )
+
+                        elif metrics.hidden_r2 is not None:
+
+                            if (
+                                metrics.anchor_r2
+                                is not None
+                            ):
+
+                                nnr_string = (
+                                    f"nnr="
+                                    f"{metrics.hidden_r2:.3f}"
+                                    f"("
+                                    f"{metrics.anchor_r2:.3f}"
+                                    f")"
+                                )
+
                             else:
-                                nnr_str = f'nnr={last_hidden_r2:.3f}'
-                            bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
+
+                                nnr_string = (
+                                    f"nnr="
+                                    f"{metrics.hidden_r2:.3f}"
+                                )
+
+                            bar_parts.append(
+                                f"{r2_color(metrics.hidden_r2)}"
+                                f"{nnr_string}"
+                                f"{ANSI_RESET}"
+                            )
+
                     if bar_parts:
-                        pbar.set_postfix_str(' '.join(bar_parts))
+                        pbar.set_postfix_str(
+                            " ".join(bar_parts)
+                        )
+
                 continue
+
+            # =============================================================
+            # STANDARD / GNN TRAINING
+            # =============================================================
 
             state_batch = []
             y_list = []
             ids_list = []
             k_list = []
             visual_input_list = []
+
             ids_index = 0
 
-            loss = torch.zeros((), device=device)
-            regularizer.reset_iteration(device=device)
+            loss = torch.zeros(
+                (),
+                device=device,
+            )
 
-            # Consecutive batch: pick one random start, use batch_size consecutive frames
+            regularizer.reset_iteration(
+                device=device
+            )
+
+            # -------------------------------------------------------------
+            # Consecutive batch
+            # -------------------------------------------------------------
+
             if training.consecutive_batch:
-                k_start = int(frame_indices[N * training.batch_size])
 
-            for batch in range(training.batch_size):
+                k_start = int(
+                    frame_indices[
+                        N * training.batch_size
+                    ]
+                )
+
+            for batch in range(
+                training.batch_size
+            ):
 
                 if training.consecutive_batch:
-                    k = k_start + batch
+
+                    k = (
+                        k_start
+                        + batch
+                    )
+
                 else:
-                    k = int(frame_indices[N * training.batch_size + batch])
+
+                    k = int(
+                        frame_indices[
+                            N * training.batch_size
+                            + batch
+                        ]
+                    )
 
                 x = x_ts.frame(k)
 
-                # Add measurement noise to observed voltage
-                if x.noise is not None and sim.measurement_noise_level > 0:
-                    x.voltage = x.voltage + x.noise
+                # ---------------------------------------------------------
+                # Measurement noise
+                # ---------------------------------------------------------
 
-                # Hidden neurons: predict via SIREN/NGP or zero-silence.
-                # See _inject_hidden_voltage for the phase 1/2 branching.
+                if (
+                    x.noise is not None
+                    and sim.measurement_noise_level > 0
+                ):
+                    x.voltage = (
+                        x.voltage
+                        + x.noise
+                    )
+
+                # ---------------------------------------------------------
+                # Hidden neurons
+                # ---------------------------------------------------------
+
                 if has_hidden_neurons:
-                    _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
+
+                    _inject_hidden_voltage(
+                        model,
+                        x,
+                        k,
+                        hidden_ids,
+                        injection_active,
+                    )
+
+                # ---------------------------------------------------------
+                # Temporal window
+                # ---------------------------------------------------------
 
                 if training.time_window > 0:
-                    x_temporal = x_ts.voltage[k - training.time_window + 1: k + 1].T
-                    # x stays as NeuronState; x_temporal passed separately to temporal model
+
+                    x_temporal = (
+                        x_ts.voltage[
+                            k
+                            - training.time_window
+                            + 1:
+                            k + 1
+                        ].T
+                    )
+
+                    # x stays as NeuronState;
+                    # x_temporal is passed separately if needed.
+
+                # ---------------------------------------------------------
+                # Visual field
+                # ---------------------------------------------------------
 
                 if train.has_visual_field:
-                    visual_input = model.forward_visual(x, k)
-                    x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
-                    x.stimulus[model.n_input_neurons:] = 0
 
-                if batch==0:  # apply regularization only once
-                    regul_loss = regularizer.compute(
-                        model=model,
-                        x=x,
-                        in_features=None,
-                        ids=ids,
-                        ids_batch=None,
-                        edges=edges,
-                        device=device,
-                        xnorm=xnorm
+                    visual_input = (
+                        model.forward_visual(
+                            x,
+                            k,
+                        )
                     )
-                    loss = loss + regul_loss
 
-                if training.recurrent_training or training.neural_ODE_training:
-                    y = x_ts.voltage[k + 1 if _stride_subsample else k + training.time_step].unsqueeze(-1)
+                    x.stimulus[
+                        :model.n_input_neurons
+                    ] = (
+                        visual_input.squeeze(-1)
+                    )
+
+                    x.stimulus[
+                        model.n_input_neurons:
+                    ] = 0
+
+                # ---------------------------------------------------------
+                # Regularization
+                # ---------------------------------------------------------
+
+                if batch == 0:
+
+                    regul_loss = (
+                        regularizer.compute(
+                            model=model,
+                            x=x,
+                            in_features=None,
+                            ids=ids,
+                            ids_batch=None,
+                            edges=edges,
+                            device=device,
+                            xnorm=xnorm,
+                        )
+                    )
+
+                    loss = (
+                        loss
+                        + regul_loss
+                    )
+
+                # ---------------------------------------------------------
+                # Target
+                # ---------------------------------------------------------
+
+                if (
+                    training.recurrent_training
+                    or training.neural_ODE_training
+                ):
+
+                    target_frame = (
+                        k + 1
+                        if (
+                            _stride_subsample
+                        )
+                        else (
+                            k
+                            + training.time_step
+                        )
+                    )
+
+                    y = (
+                        x_ts.voltage[
+                            target_frame
+                        ].unsqueeze(-1)
+                    )
+
                 elif train.test_neural_field:
-                    y = x_ts.stimulus[k, :sim.n_input_neurons].unsqueeze(-1)
-                else:
-                    y = y_ts_gpu[k] / ynorm
 
-                if loss_noise_level>0:
-                    y = y + torch.randn(y.shape, device=device) * loss_noise_level
+                    y = (
+                        x_ts.stimulus[
+                            k,
+                            :sim.n_input_neurons
+                        ].unsqueeze(-1)
+                    )
+
+                else:
+
+                    y = (
+                        y_ts_gpu[k]
+                        / ynorm
+                    )
+
+                if loss_noise_level > 0:
+
+                    y = (
+                        y
+                        + torch.randn(
+                            y.shape,
+                            device=device,
+                        )
+                        * loss_noise_level
+                    )
+
+                # ---------------------------------------------------------
+                # Accumulate batch
+                # ---------------------------------------------------------
 
                 state_batch.append(x)
+
                 n = x.n_neurons
+
                 y_list.append(y)
-                ids_list.append(visible_ids + ids_index)
-                k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
+
+                ids_list.append(
+                    visible_ids
+                    + ids_index
+                )
+
+                k_list.append(
+                    torch.ones(
+                        (n, 1),
+                        dtype=torch.int,
+                        device=device,
+                    )
+                    * k
+                )
+
                 if train.test_neural_field:
-                    visual_input_list.append(visual_input)
+
+                    visual_input_list.append(
+                        visual_input
+                    )
+
                 ids_index += n
 
+            # -----------------------------------------------------------------
+            # Batch assembly
+            # -----------------------------------------------------------------
 
-            data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
-            y_batch = torch.cat(y_list, dim=0)
-            ids_batch = torch.cat(ids_list, dim=0)
-            k_batch = torch.cat(k_list, dim=0)
+            data_id = torch.zeros(
+                (ids_index, 1),
+                dtype=torch.int,
+                device=device,
+            )
 
-            _total_regul_gpu = _total_regul_gpu + loss.detach()  # regul-only at this point
+            y_batch = torch.cat(
+                y_list,
+                dim=0,
+            )
+
+            ids_batch = torch.cat(
+                ids_list,
+                dim=0,
+            )
+
+            k_batch = torch.cat(
+                k_list,
+                dim=0,
+            )
+
+            epoch_state.total_regul_gpu = (
+                epoch_state.total_regul_gpu
+                + loss.detach()
+            )
+
+            # -----------------------------------------------------------------
+            # Visual-field testing
+            # -----------------------------------------------------------------
 
             if train.test_neural_field:
-                visual_input_batch = torch.cat(visual_input_list, dim=0)
-                loss = loss + (visual_input_batch - y_batch).norm(2)
 
+                visual_input_batch = (
+                    torch.cat(
+                        visual_input_list,
+                        dim=0,
+                    )
+                )
 
-            elif 'mlp_ode' in model_config.signal_model_name.lower():
-                batched_state, _ = _batch_frames(state_batch, edges)
-                batched_x = batched_state.to_packed()
-                pred = model(batched_x, data_id=data_id, return_all=False)
+                loss = (
+                    loss
+                    + (
+                        visual_input_batch
+                        - y_batch
+                    ).norm(2)
+                )
 
-                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+            # -----------------------------------------------------------------
+            # MLP ODE
+            # -----------------------------------------------------------------
 
-            elif 'mlp' in model_config.signal_model_name.lower():
-                batched_state, _ = _batch_frames(state_batch, edges)
-                pred = model(batched_state, data_id=data_id, return_all=False)
+            elif (
+                "mlp_ode"
+                in model_config.signal_model_name.lower()
+            ):
 
-                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+                batched_state, _ = (
+                    _batch_frames(
+                        state_batch,
+                        edges,
+                    )
+                )
 
-            else: # 'GNN' branch
+                batched_x = (
+                    batched_state.to_packed()
+                )
 
-                batched_state, batched_edges = _batch_frames(state_batch, edges)
-                pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+                pred = model(
+                    batched_x,
+                    data_id=data_id,
+                    return_all=False,
+                )
 
-                update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
-                loss = loss + update_regul
+                loss = (
+                    loss
+                    + (
+                        pred[ids_batch]
+                        - y_batch[ids_batch]
+                    ).norm(2)
+                )
 
+            # -----------------------------------------------------------------
+            # MLP
+            # -----------------------------------------------------------------
+
+            elif (
+                "mlp"
+                in model_config.signal_model_name.lower()
+            ):
+
+                batched_state, _ = (
+                    _batch_frames(
+                        state_batch,
+                        edges,
+                    )
+                )
+
+                pred = model(
+                    batched_state,
+                    data_id=data_id,
+                    return_all=False,
+                )
+
+                loss = (
+                    loss
+                    + (
+                        pred[ids_batch]
+                        - y_batch[ids_batch]
+                    ).norm(2)
+                )
+
+            # -----------------------------------------------------------------
+            # GNN
+            # -----------------------------------------------------------------
+
+            else:
+
+                batched_state, batched_edges = (
+                    _batch_frames(
+                        state_batch,
+                        edges,
+                    )
+                )
+
+                (
+                    pred,
+                    in_features,
+                    msg,
+                ) = model(
+                    batched_state,
+                    batched_edges,
+                    data_id=data_id,
+                    return_all=True,
+                )
+
+                update_regul = (
+                    regularizer.compute_update_regul(
+                        model,
+                        in_features,
+                        ids_batch,
+                        device,
+                    )
+                )
+
+                loss = (
+                    loss
+                    + update_regul
+                )
+
+                # -------------------------------------------------------------
+                # Neural ODE
+                # -------------------------------------------------------------
 
                 if training.neural_ODE_training:
 
-                    ode_state_clamp = getattr(tc, 'ode_state_clamp', 10.0)
-                    ode_stab_lambda = getattr(tc, 'ode_stab_lambda', 0.0)
-                    ode_loss, pred_x = neural_ode_loss(
-                        model=model,
-                        dataset_batch=state_batch,
-                        edge_index=edges,
-                        x_ts=x_ts,
-                        k_batch=k_batch,
-                        time_step=training.time_step,
-                        batch_size=training.batch_size,
-                        n_neurons=n_neurons,
-                        ids_batch=ids_batch,
-                        delta_t=sim.delta_t,
-                        device=device,
-                        data_id=data_id,
-                        has_visual_field=train.has_visual_field,
-                        y_batch=y_batch,
-                        noise_level=training.noise_recurrent_level,
-                        ode_method=training.ode_method,
-                        rtol=training.ode_rtol,
-                        atol=training.ode_atol,
-                        adjoint=training.ode_adjoint,
-                        iteration=N,
-                        state_clamp=ode_state_clamp,
-                        stab_lambda=ode_stab_lambda
+                    ode_state_clamp = (
+                        getattr(
+                            training,
+                            "ode_state_clamp",
+                            10.0,
+                        )
                     )
-                    loss = loss + ode_loss
 
+                    ode_stab_lambda = (
+                        getattr(
+                            training,
+                            "ode_stab_lambda",
+                            0.0,
+                        )
+                    )
+
+                    ode_loss, pred_x = (
+                        neural_ode_loss(
+                            model=model,
+                            dataset_batch=state_batch,
+                            edge_index=edges,
+                            x_ts=x_ts,
+                            k_batch=k_batch,
+                            time_step=training.time_step,
+                            batch_size=training.batch_size,
+                            n_neurons=n_neurons,
+                            ids_batch=ids_batch,
+                            delta_t=sim.delta_t,
+                            device=device,
+                            data_id=data_id,
+                            has_visual_field=(
+                                train.has_visual_field
+                            ),
+                            y_batch=y_batch,
+                            noise_level=(
+                                training.noise_recurrent_level
+                            ),
+                            ode_method=training.ode_method,
+                            rtol=training.ode_rtol,
+                            atol=training.ode_atol,
+                            adjoint=training.ode_adjoint,
+                            iteration=N,
+                            state_clamp=(
+                                ode_state_clamp
+                            ),
+                            stab_lambda=(
+                                ode_stab_lambda
+                            ),
+                        )
+                    )
+
+                    loss = (
+                        loss
+                        + ode_loss
+                    )
+
+                # -------------------------------------------------------------
+                # Recurrent GNN
+                # -------------------------------------------------------------
 
                 elif training.recurrent_training:
 
-                    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
+                    pred_x = (
+                        batched_state.voltage.unsqueeze(-1)
+                        + sim.delta_t
+                        * pred
+                        + training.noise_recurrent_level
+                        * torch.randn_like(pred)
+                    )
 
                     if training.time_step > 1:
-                        for step in range(training.time_step - 1):
-                            neurons_per_sample = state_batch[0].n_neurons
 
-                            for b in range(training.batch_size):
-                                start_idx = b * neurons_per_sample
-                                end_idx = (b + 1) * neurons_per_sample
+                        for step in range(
+                            training.time_step - 1
+                        ):
 
-                                state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
+                            neurons_per_sample = (
+                                state_batch[0].n_neurons
+                            )
+
+                            for b in range(
+                                training.batch_size
+                            ):
+
+                                start_idx = (
+                                    b
+                                    * neurons_per_sample
+                                )
+
+                                end_idx = (
+                                    (b + 1)
+                                    * neurons_per_sample
+                                )
+
+                                state_batch[b].voltage = (
+                                    pred_x[
+                                        start_idx:end_idx
+                                    ].squeeze()
+                                )
+
                                 if has_hidden_neurons:
-                                    state_batch[b].voltage[hidden_ids] = 0.0
 
-                                k_current = k_batch[start_idx, 0].item() + step + 1
+                                    state_batch[
+                                        b
+                                    ].voltage[
+                                        hidden_ids
+                                    ] = 0.0
 
-                                if train.has_visual_field:
-                                    visual_input_next = model.forward_visual(state_batch[b], k_current)
-                                    state_batch[b].stimulus[:model.n_input_neurons] = visual_input_next.squeeze(-1)
-                                    state_batch[b].stimulus[model.n_input_neurons:] = 0
+                                k_current = (
+                                    k_batch[
+                                        start_idx,
+                                        0,
+                                    ].item()
+                                    + step
+                                    + 1
+                                )
+
+                                if (
+                                    train.has_visual_field
+                                ):
+
+                                    visual_input_next = (
+                                        model.forward_visual(
+                                            state_batch[b],
+                                            k_current,
+                                        )
+                                    )
+
+                                    state_batch[
+                                        b
+                                    ].stimulus[
+                                        :model.n_input_neurons
+                                    ] = (
+                                        visual_input_next
+                                        .squeeze(-1)
+                                    )
+
+                                    state_batch[
+                                        b
+                                    ].stimulus[
+                                        model.n_input_neurons:
+                                    ] = 0
+
                                 else:
-                                    x_next = x_ts.frame(k_current)
-                                    state_batch[b].stimulus = x_next.stimulus
-                                    if x_next.optogenetics_stimulus is not None:
-                                        state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
 
-                            batched_state, batched_edges = _batch_frames(state_batch, edges)
-                            pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+                                    x_next = (
+                                        x_ts.frame(
+                                            k_current
+                                        )
+                                    )
 
-                            pred_x = pred_x + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
+                                    state_batch[
+                                        b
+                                    ].stimulus = (
+                                        x_next.stimulus
+                                    )
 
-                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * training.time_step)).norm(2)
+                                    if (
+                                        x_next.optogenetics_stimulus
+                                        is not None
+                                    ):
+
+                                        state_batch[
+                                            b
+                                        ].optogenetics_stimulus = (
+                                            x_next
+                                            .optogenetics_stimulus
+                                        )
+
+                            (
+                                batched_state,
+                                batched_edges,
+                            ) = _batch_frames(
+                                state_batch,
+                                edges,
+                            )
+
+                            (
+                                pred,
+                                in_features,
+                                msg,
+                            ) = model(
+                                batched_state,
+                                batched_edges,
+                                data_id=data_id,
+                                return_all=True,
+                            )
+
+                            pred_x = (
+                                pred_x
+                                + sim.delta_t
+                                * pred
+                                + training.noise_recurrent_level
+                                * torch.randn_like(
+                                    pred
+                                )
+                            )
+
+                    loss = (
+                        loss
+                        + (
+                            (
+                                pred_x[
+                                    ids_batch
+                                ]
+                                - y_batch[
+                                    ids_batch
+                                ]
+                            )
+                            / (
+                                sim.delta_t
+                                * training.time_step
+                            )
+                        ).norm(2)
+                    )
+
+                # -------------------------------------------------------------
+                # Standard one-step GNN loss
+                # -------------------------------------------------------------
 
                 else:
 
-                    loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
-                    # NB: the previous "hidden self-consistency" loss
-                    # ‖pred_h − target_h‖ where target_h = NGP's own prediction
-                    # has been removed. In phase 1 (v_h=0) pred_h is
-                    # delta_t · O(small) ≈ 0, so the gradient on NGP reduced to
-                    # an L2 ridge ‖NGP‖ that pinned NGP-hidden at the trivial
-                    # zero fixed point throughout training (verified
-                    # empirically: hidden_pearson stayed ≈ 0.02 across 320k
-                    # iters). NGP-hidden is now supervised only via (a) the
-                    # anchor loss (shared NNR backbone) and (b) backprop
-                    # through injection during phase 2 — both of which point
-                    # away from zero.
-                    # Anchor voltage loss: NGP-T/SIREN-T anchor outputs vs observed GT voltages
-                    if has_anchor_neurons and getattr(tc, 'coeff_anchor_voltage', 0.0) > 0:
-                        n_per = state_batch[0].n_neurons
-                        k_starts = k_batch[::n_per, 0].to(torch.long)                 # (B,)
-                        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)  # (B, n_anchor)
-                        gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]    # (B, n_anchor)
-                        loss = loss + training.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
+                    loss = (
+                        loss
+                        + (
+                            pred[ids_batch]
+                            - y_batch[ids_batch]
+                        ).norm(2)
+                    )
 
+                    # Hidden self-consistency loss intentionally removed.
+                    #
+                    # NGP-hidden is supervised through:
+                    #   1. anchor voltage loss
+                    #   2. backpropagation through hidden-voltage injection
+                    #
+                    # This preserves the behavior of the current implementation.
 
-                # === LLM-MODIFIABLE: BACKWARD AND STEP START ===
-                # Allowed changes: gradient clipping, LR scheduler step, loss scaling
-                loss.backward()
+                    if (
+                        has_anchor_neurons
+                        and getattr(
+                            training,
+                            "coeff_anchor_voltage",
+                            0.0,
+                        ) > 0
+                    ):
 
-                # debug gradient check for neural ODE training
-                if training.neural_ODE_training and (N % 500 == 0):
-                    debug_check_gradients(model, loss, N)
+                        n_per = (
+                            state_batch[
+                                0
+                            ].n_neurons
+                        )
 
-                # W-specific gradient clipping: clip W gradients to force optimizer
-                # to adjust lin_update (which contains V_rest/tau) instead of W
-                if hasattr(training, 'grad_clip_W') and training.grad_clip_W > 0 and hasattr(model, 'W'):
-                    if model.W.grad is not None:
-                        torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
+                        k_starts = (
+                            k_batch[
+                                ::n_per,
+                                0,
+                            ].to(torch.long)
+                        )
 
-                optimizer.step()
-                if dale_enabled and N in dale_checkpoints:
-                    enforce_dale_law(model, edges)
-                lr_scheduler.step()
-                # === LLM-MODIFIABLE: BACKWARD AND STEP END ===
+                        pred_a = (
+                            model.forward_anchor_batched(
+                                k_starts,
+                                anchor_ids=anchor_ids,
+                            )
+                        )
 
-                _total_loss_gpu = _total_loss_gpu + loss.detach()
-                _total_regul_gpu = _total_regul_gpu + regularizer.get_iteration_total_tensor().detach()
+                        gt_a = (
+                            x_ts.voltage[
+                                k_starts[:, None],
+                                anchor_ids[None, :],
+                            ]
+                        )
 
-                # finalize iteration to record history
-                regularizer.finalize_iteration()
+                        loss = (
+                            loss
+                            + training.coeff_anchor_voltage
+                            * (
+                                pred_a
+                                - gt_a
+                            ).norm(2)
+                        )
 
+            # =============================================================
+            # BACKWARD / STEP
+            # =============================================================
 
-                if regularizer.should_record():
-                    # get history from regularizer and add loss component
-                    current_loss = loss.item()  # single sync per plot_frequency iters
-                    regul_total_this_iter = regularizer.get_iteration_total()  # free after sync
-                    loss_components['loss'].append((current_loss - regul_total_this_iter) / n_neurons)
+            loss.backward()
 
-                    # merge loss_components with regularizer history for plotting
-                    plot_dict = {**regularizer.get_history(), 'loss': loss_components['loss']}
+            if (
+                training.neural_ODE_training
+                and N % 500 == 0
+            ):
+                debug_check_gradients(
+                    model,
+                    loss,
+                    N,
+                )
 
-                    # pass per-neuron normalized values to debug (to match dictionary values)
-                    plot_signal_loss(plot_dict, log_dir, epoch=epoch, Niter=Niter,
-                                   epoch_boundaries=regularizer.epoch_boundaries, debug=False,
-                                   current_loss=current_loss / n_neurons, current_regul=regul_total_this_iter / n_neurons,
-                                   total_loss=total_loss, total_loss_regul=total_loss_regul)
+            if (
+                hasattr(
+                    training,
+                    "grad_clip_W",
+                )
+                and training.grad_clip_W > 0
+                and hasattr(model, "W")
+                and model.W.grad is not None
+            ):
 
-                    # persist full loss decomposition so the plot can be regenerated
-                    torch.save({
+                torch.nn.utils.clip_grad_norm_(
+                    [model.W],
+                    max_norm=training.grad_clip_W,
+                )
+
+            optimizer.step()
+
+            if (
+                dale_enabled
+                and N in dale_checkpoints
+            ):
+                enforce_dale_law(
+                    model,
+                    edges,
+                )
+
+            lr_scheduler.step()
+
+            epoch_state.total_loss_gpu += loss.detach()
+
+            epoch_state.total_regul_gpu += (
+                regularizer
+                .get_iteration_total_tensor()
+                .detach()
+            )
+
+            regularizer.finalize_iteration()
+
+            # -------------------------------------------------------------
+            # Loss recording
+            # -------------------------------------------------------------
+
+            if regularizer.should_record():
+
+                current_loss = (
+                    loss.item()
+                )
+
+                regul_total_this_iter = (
+                    regularizer
+                    .get_iteration_total()
+                )
+
+                loss_components[
+                    "loss"
+                ].append(
+                    (
+                        current_loss
+                        - regul_total_this_iter
+                    )
+                    / n_neurons
+                )
+
+                plot_dict = {
+                    **regularizer.get_history(),
+                    "loss": (
+                        loss_components[
+                            "loss"
+                        ]
+                    ),
+                }
+
+                plot_signal_loss(
+                    plot_dict,
+                    log_dir,
+                    epoch=epoch,
+                    Niter=Niter,
+                    epoch_boundaries=(
+                        regularizer
+                        .epoch_boundaries
+                    ),
+                    debug=False,
+                    current_loss=(
+                        current_loss
+                        / n_neurons
+                    ),
+                    current_regul=(
+                        regul_total_this_iter
+                        / n_neurons
+                    ),
+                    total_loss=(
+                        epoch_state.total_loss_gpu
+                    ),
+                    total_loss_regul=(
+                        epoch_state.total_regul_gpu
+                    ),
+                )
+
+                torch.save(
+                    {
                         **plot_dict,
-                        'epoch_boundaries': list(regularizer.epoch_boundaries),
-                    }, os.path.join(log_dir, 'loss_components.pt'))
+                        "epoch_boundaries": list(
+                            regularizer
+                            .epoch_boundaries
+                        ),
+                    },
+                    os.path.join(
+                        log_dir,
+                        "loss_components.pt",
+                    ),
+                )
 
-                    if training.save_all_checkpoints:
-                        torch.save(
-                            {'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
-                            os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt'))
+                if training.save_all_checkpoints:
 
-                # R2 checkpoint: regular interval + early-phase extra points
-                is_regular_r2 = (N > 0) and (N % connectivity_plot_frequency == 0)
-                is_early_r2 = (N < connectivity_plot_frequency) and (N % early_r2_frequency == 0)
-                model_name = model_config.signal_model_name
+                    torch.save(
+                        {
+                            "model_state_dict":
+                                model.state_dict(),
+                            "optimizer_state_dict":
+                                optimizer.state_dict(),
+                        },
+                        os.path.join(
+                            log_dir,
+                            "models",
+                            f"best_model_with_"
+                            f"{training.n_runs - 1}"
+                            f"_graphs_{epoch}_{N}.pt",
+                        ),
+                    )
 
-                # Intermediate model checkpoint at every 1/10 of the epoch.
-                # Overwrites the same path used by the end-of-epoch save (line
-                # ~1019), so graph_tester (which picks the newest file in
-                # models/ by mtime) keeps working unchanged. Lets a recovery
-                # from a mid-training wedge cost at most one Niter/10 cycle.
-                if is_regular_r2:
-                    _intermediate_path = os.path.join(
-                        log_dir, 'models',
-                        f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt')
-                    os.makedirs(os.path.dirname(_intermediate_path), exist_ok=True)
-                    torch.save({'model_state_dict': model.state_dict(),
-                                'optimizer_state_dict': optimizer.state_dict()},
-                               _intermediate_path)
+            # =============================================================
+            # R2 / DYNAMICS CHECKPOINT
+            # =============================================================
 
-                if (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'mlp':
-                    from connectome_gnn.metrics import compute_jacobian_connectivity_r2
-                    last_connectivity_r2 = compute_jacobian_connectivity_r2(
-                        model, x_ts, ode_params, n_neurons=n_neurons, device=device)
-                    last_tau_r2 = 0.0
-                    last_vrest_r2 = 0.0
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'nan,0,0,nan,0,0\n')
-                    # W scatter plot using Jacobian
-                    plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
-                                            log_dir, epoch, N, device)
-                    _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'linear':
-                    last_connectivity_r2, last_tau_r2, last_vrest_r2, _dyn = plot_training_linear(
-                        model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
-                    last_vrest_r2_clean = _dyn['vrest_r2_clean']
-                    last_tau_r2_clean   = _dyn['tau_r2_clean']
-                    last_n_out_vrest    = _dyn['n_out_vrest']
-                    last_n_total_vrest  = _dyn['n_total_vrest']
-                    last_n_out_tau      = _dyn['n_out_tau']
-                    last_n_total_tau    = _dyn['n_total_tau']
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
-                    _metrics_changed = True
-                elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == 'gnn':
-                    last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
-                    last_connectivity_r2_visible = _r2_visible
-                    if _h_r2 is not None:
-                        last_hidden_r2 = _h_r2
-                    if _a_r2 is not None:
-                        last_anchor_r2 = _a_r2
-                    _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
-                    last_vrest_r2       = _dyn['vrest_r2']
-                    last_tau_r2         = _dyn['tau_r2']
-                    last_vrest_r2_clean = _dyn['vrest_r2_clean']
-                    last_tau_r2_clean   = _dyn['tau_r2_clean']
-                    last_n_out_vrest    = _dyn['n_out_vrest']
-                    last_n_total_vrest  = _dyn['n_total_vrest']
-                    last_n_out_tau      = _dyn['n_out_tau']
-                    last_n_total_tau    = _dyn['n_total_tau']
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
-                    _metrics_changed = True
-                else:
-                    _metrics_changed = False
+            is_regular_r2 = (
+                N > 0
+                and
+                N % connectivity_plot_frequency == 0
+            )
 
-                # Fast NGP Pearson refresh — independent of the heavy R²
-                # checkpoint above. Subsamples (64 neurons × 256 frames),
-                # one batched forward, no grad. Also appends a metrics.log
-                # row so the runner's 300s collector picks the updated
-                # values up between heavy checkpoints.
-                _ngp_quick_updated = False
-                _h_quick_std = None
-                _a_quick_std = None
-                if (has_hidden_neurons
-                        and getattr(model, 'NNR_hidden', None) is not None
-                        and N > 0 and N % _NGP_QUICK_FREQ == 0):
-                    _h_quick, _h_quick_std = _quick_ngp_pearson(
-                        model, x_ts, hidden_ids,
-                        use_anchor=False, device=device, return_stats=True)
-                    if _h_quick is not None:
-                        last_hidden_r2 = _h_quick
-                        _ngp_quick_updated = True
-                    if has_anchor_neurons:
-                        _a_quick, _a_quick_std = _quick_ngp_pearson(
-                            model, x_ts, anchor_ids,
-                            use_anchor=True, device=device, return_stats=True)
-                        if _a_quick is not None:
-                            last_anchor_r2 = _a_quick
-                            _ngp_quick_updated = True
-                if _ngp_quick_updated:
-                    with open(metrics_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},'
-                                f'{_fmt_metric(last_connectivity_r2)},'
-                                f'{_fmt_metric(last_vrest_r2)},'
-                                f'{_fmt_metric(last_tau_r2)},'
-                                f'{_fmt_metric(last_hidden_r2)},'
-                                f'{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(last_vrest_r2_clean)},'
-                                f'{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
-                    with open(nnr_pearson_log_path, 'a') as f:
-                        f.write(f'{regularizer.iter_count},'
-                                f'{_fmt_metric(last_hidden_r2)},'
-                                f'{_fmt_metric(_h_quick_std)},'
-                                f'{_fmt_metric(last_anchor_r2)},'
-                                f'{_fmt_metric(_a_quick_std)}\n')
-                    _metrics_changed = True
+            is_early_r2 = (
+                N < connectivity_plot_frequency
+                and
+                N % early_r2_frequency == 0
+            )
 
-                # Refresh metrics.png whenever metrics.log / nnr_pearson.log
-                # gained a new row (heavy R² or quick NGP path).
-                if _metrics_changed:
-                    plot_metrics(log_dir,
-                                 epoch_boundaries=regularizer.epoch_boundaries,
-                                 ngp_stages=_ngp_stages)
+            if (
+                is_regular_r2
+                and model_family(model) == "mlp"
+                and not train.test_neural_field
+            ):
 
-                if last_connectivity_r2 is not None or last_hidden_r2 is not None:
-                    bar_parts = []
-                    if last_connectivity_r2 is not None:
-                        c_conn = r2_color(last_connectivity_r2)
-                        if last_connectivity_r2_visible is not None and abs(last_connectivity_r2_visible - last_connectivity_r2) > 1e-4:
-                            conn_str = f'conn={last_connectivity_r2:.3f}({last_connectivity_r2_visible:.3f})'
+                from connectome_gnn.metrics import (
+                    compute_jacobian_connectivity_r2,
+                )
+
+                metrics.connectivity_r2 = (
+                    compute_jacobian_connectivity_r2(
+                        model,
+                        x_ts,
+                        ode_params,
+                        n_neurons=n_neurons,
+                        device=device,
+                    )
+                )
+
+                metrics.tau_r2 = 0.0
+                metrics.vrest_r2 = 0.0
+
+                with open(
+                    metrics_log_path,
+                    "a",
+                ) as f:
+
+                    f.write(
+                        f"{regularizer.iter_count},"
+                        f"{format_metric(metrics.connectivity_r2)},"
+                        f"{format_metric(metrics.vrest_r2)},"
+                        f"{format_metric(metrics.tau_r2)},"
+                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(metrics.anchor_r2)},"
+                        f"nan,0,0,nan,0,0\n"
+                    )
+
+                plot_jacobian_w_scatter(
+                    model,
+                    x_ts,
+                    ode_params,
+                    gt_weights,
+                    n_neurons,
+                    log_dir,
+                    epoch,
+                    N,
+                    device,
+                )
+
+                metrics_changed = True
+
+            elif (
+                (is_regular_r2 or is_early_r2)
+                and not train.test_neural_field
+                and model_family(model) == "linear"
+            ):
+
+                (
+                    metrics.connectivity_r2,
+                    metrics.tau_r2,
+                    metrics.vrest_r2,
+                    dynamics,
+                ) = plot_training_linear(
+                    model,
+                    config,
+                    epoch,
+                    N,
+                    log_dir,
+                    device,
+                    gt_weights,
+                    n_neurons=n_neurons,
+                )
+
+                metrics.vrest_r2_clean = (
+                    dynamics["vrest_r2_clean"]
+                )
+
+                metrics.tau_r2_clean = (
+                    dynamics["tau_r2_clean"]
+                )
+
+                metrics.n_out_vrest = (
+                    dynamics["n_out_vrest"]
+                )
+
+                metrics.n_total_vrest = (
+                    dynamics["n_total_vrest"]
+                )
+
+                metrics.n_out_tau = (
+                    dynamics["n_out_tau"]
+                )
+
+                metrics.n_total_tau = (
+                    dynamics["n_total_tau"]
+                )
+
+                with open(
+                    metrics_log_path,
+                    "a",
+                ) as f:
+
+                    f.write(
+                        f"{regularizer.iter_count},"
+                        f"{format_metric(metrics.connectivity_r2)},"
+                        f"{format_metric(metrics.vrest_r2)},"
+                        f"{format_metric(metrics.tau_r2)},"
+                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(metrics.vrest_r2_clean)},"
+                        f"{metrics.n_out_vrest},"
+                        f"{metrics.n_total_vrest},"
+                        f"{format_metric(metrics.tau_r2_clean)},"
+                        f"{metrics.n_out_tau},"
+                        f"{metrics.n_total_tau}\n"
+                    )
+
+                metrics_changed = True
+
+            elif (
+                (is_regular_r2 or is_early_r2)
+                and not train.test_neural_field
+                and model_family(model) == "gnn"
+            ):
+
+                (
+                    metrics.connectivity_r2,
+                    metrics.connectivity_r2_visible,
+                    hidden_r2,
+                    anchor_r2,
+                ) = plot_training_gnn(
+                    x_ts,
+                    model,
+                    config,
+                    epoch,
+                    N,
+                    log_dir,
+                    device,
+                    type_list,
+                    gt_weights,
+                    edges,
+                    n_neurons=n_neurons,
+                    n_neuron_types=(
+                        sim.n_neuron_types
+                    ),
+                    ode_params=ode_params,
+                    hidden_ids=hidden_ids,
+                    anchor_ids=anchor_ids,
+                )
+
+                if hidden_r2 is not None:
+                    metrics.hidden_r2 = hidden_r2
+
+                if anchor_r2 is not None:
+                    metrics.anchor_r2 = anchor_r2
+
+                # ---------------------------------------------------------
+                # KEEP HH/V_rest/tau diagnostics in Step 1.
+                # ---------------------------------------------------------
+
+                dynamics = (
+                    compute_dynamics_r2(
+                        model,
+                        x_ts,
+                        config,
+                        device,
+                        n_neurons,
+                    )
+                )
+
+                metrics.vrest_r2 = (
+                    dynamics["vrest_r2"]
+                )
+
+                metrics.tau_r2 = (
+                    dynamics["tau_r2"]
+                )
+
+                metrics.vrest_r2_clean = (
+                    dynamics["vrest_r2_clean"]
+                )
+
+                metrics.tau_r2_clean = (
+                    dynamics["tau_r2_clean"]
+                )
+
+                metrics.n_out_vrest = (
+                    dynamics["n_out_vrest"]
+                )
+
+                metrics.n_total_vrest = (
+                    dynamics["n_total_vrest"]
+                )
+
+                metrics.n_out_tau = (
+                    dynamics["n_out_tau"]
+                )
+
+                metrics.n_total_tau = (
+                    dynamics["n_total_tau"]
+                )
+
+                with open(
+                    metrics_log_path,
+                    "a",
+                ) as f:
+
+                    f.write(
+                        f"{regularizer.iter_count},"
+                        f"{format_metric(metrics.connectivity_r2)},"
+                        f"{format_metric(metrics.vrest_r2)},"
+                        f"{format_metric(metrics.tau_r2)},"
+                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(metrics.vrest_r2_clean)},"
+                        f"{metrics.n_out_vrest},"
+                        f"{metrics.n_total_vrest},"
+                        f"{format_metric(metrics.tau_r2_clean)},"
+                        f"{metrics.n_out_tau},"
+                        f"{metrics.n_total_tau}\n"
+                    )
+
+                metrics_changed = True
+
+            else:
+
+                metrics_changed = False
+
+            # -------------------------------------------------------------
+            # Fast NGP Pearson refresh
+            # -------------------------------------------------------------
+
+            ngp_quick_updated = False
+            hidden_quick_std = None
+            anchor_quick_std = None
+
+            if (
+                has_hidden_neurons
+                and getattr(
+                    model,
+                    "NNR_hidden",
+                    None,
+                ) is not None
+                and N > 0
+                and N % _NGP_QUICK_FREQ == 0
+            ):
+
+                hidden_quick, hidden_quick_std = (
+                    _quick_ngp_pearson(
+                        model,
+                        x_ts,
+                        hidden_ids,
+                        use_anchor=False,
+                        device=device,
+                        return_stats=True,
+                    )
+                )
+
+                if hidden_quick is not None:
+
+                    metrics.hidden_r2 = (
+                        hidden_quick
+                    )
+
+                    ngp_quick_updated = True
+
+                if has_anchor_neurons:
+
+                    anchor_quick, anchor_quick_std = (
+                        _quick_ngp_pearson(
+                            model,
+                            x_ts,
+                            anchor_ids,
+                            use_anchor=True,
+                            device=device,
+                            return_stats=True,
+                        )
+                    )
+
+                    if anchor_quick is not None:
+
+                        metrics.anchor_r2 = (
+                            anchor_quick
+                        )
+
+                        ngp_quick_updated = True
+
+            if ngp_quick_updated:
+
+                with open(
+                    metrics_log_path,
+                    "a",
+                ) as f:
+
+                    f.write(
+                        f"{regularizer.iter_count},"
+                        f"{format_metric(metrics.connectivity_r2)},"
+                        f"{format_metric(metrics.vrest_r2)},"
+                        f"{format_metric(metrics.tau_r2)},"
+                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(metrics.vrest_r2_clean)},"
+                        f"{metrics.n_out_vrest},"
+                        f"{metrics.n_total_vrest},"
+                        f"{format_metric(metrics.tau_r2_clean)},"
+                        f"{metrics.n_out_tau},"
+                        f"{metrics.n_total_tau}\n"
+                    )
+
+                with open(
+                    nnr_pearson_log_path,
+                    "a",
+                ) as f:
+
+                    f.write(
+                        f"{regularizer.iter_count},"
+                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(hidden_quick_std)},"
+                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(anchor_quick_std)}\n"
+                    )
+
+                metrics_changed = True
+
+            if metrics_changed:
+
+                plot_metrics(
+                    log_dir,
+                    epoch_boundaries=(
+                        regularizer
+                        .epoch_boundaries
+                    ),
+                    ngp_stages=(
+                        ngp_schedule.stages
+                    ),
+                )
+
+            # -------------------------------------------------------------
+            # Progress bar
+            # -------------------------------------------------------------
+
+            if (
+                metrics.connectivity_r2 is not None
+                or metrics.hidden_r2 is not None
+            ):
+
+                bar_parts = []
+
+                if (
+                    metrics.connectivity_r2
+                    is not None
+                ):
+
+                    conn_color = r2_color(
+                        metrics.connectivity_r2
+                    )
+
+                    if (
+                        metrics.connectivity_r2_visible
+                        is not None
+                        and abs(
+                            metrics.connectivity_r2_visible
+                            - metrics.connectivity_r2
+                        ) > 1e-4
+                    ):
+
+                        conn_string = (
+                            f"conn="
+                            f"{metrics.connectivity_r2:.3f}"
+                            f"("
+                            f"{metrics.connectivity_r2_visible:.3f}"
+                            f")"
+                        )
+
+                    else:
+
+                        conn_string = (
+                            f"conn="
+                            f"{metrics.connectivity_r2:.3f}"
+                        )
+
+                    bar_parts.append(
+                        f"{conn_color}"
+                        f"{conn_string}"
+                        f"{ANSI_RESET}"
+                    )
+
+                    if ode_params.has_vrest():
+
+                        vr_pct = (
+                            100.0
+                            * metrics.n_out_vrest
+                            / metrics.n_total_vrest
+                            if metrics.n_total_vrest > 0
+                            else 0.0
+                        )
+
+                        bar_parts.append(
+                            f"{r2_color(metrics.vrest_r2_clean)}"
+                            f"Vr="
+                            f"{fmt_r2_bar(metrics.vrest_r2_clean)}"
+                            f"({vr_pct:.0f}%)"
+                            f"{ANSI_RESET}"
+                        )
+
+                    if ode_params.has_tau():
+
+                        tau_pct = (
+                            100.0
+                            * metrics.n_out_tau
+                            / metrics.n_total_tau
+                            if metrics.n_total_tau > 0
+                            else 0.0
+                        )
+
+                        bar_parts.append(
+                            f"{r2_color(metrics.tau_r2_clean)}"
+                            f"τ="
+                            f"{fmt_r2_bar(metrics.tau_r2_clean)}"
+                            f"({tau_pct:.0f}%)"
+                            f"{ANSI_RESET}"
+                        )
+
+                if (
+                    metrics.hidden_r2 is not None
+                    or metrics.anchor_r2 is not None
+                ):
+
+                    if not injection_active:
+
+                        if metrics.anchor_r2 is not None:
+
+                            nnr_string = (
+                                f"nnr=n/a"
+                                f"({metrics.anchor_r2:.3f})"
+                            )
+
                         else:
-                            conn_str = f'conn={last_connectivity_r2:.3f}'
-                        bar_parts.append(f'{c_conn}{conn_str}{ANSI_RESET}')
-                        if ode_params.has_vrest():
-                            _vr_pct = (100.0 * last_n_out_vrest / last_n_total_vrest) if last_n_total_vrest > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_vrest_r2_clean)}Vr={fmt_r2_bar(last_vrest_r2_clean)}({_vr_pct:.0f}%){ANSI_RESET}')
-                        if ode_params.has_tau():
-                            _tau_pct = (100.0 * last_n_out_tau / last_n_total_tau) if last_n_total_tau > 0 else 0.0
-                            bar_parts.append(f'{r2_color(last_tau_r2_clean)}τ={fmt_r2_bar(last_tau_r2_clean)}({_tau_pct:.0f}%){ANSI_RESET}')
-                    if last_hidden_r2 is not None or last_anchor_r2 is not None:
-                        # During warmup (injection_active=False), hidden
-                        # voltages are zero-silenced so hidden_nnr_pearson
-                        # against GT-injection rollout is meaningless; show
-                        # n/a. Anchor is trained throughout, show it.
-                        if not injection_active:
-                            if last_anchor_r2 is not None:
-                                nnr_str = f'nnr=n/a({last_anchor_r2:.3f})'
-                            else:
-                                nnr_str = 'nnr=n/a'
-                            bar_parts.append(nnr_str)
-                        elif last_hidden_r2 is not None:
-                            if last_anchor_r2 is not None:
-                                nnr_str = f'nnr={last_hidden_r2:.3f}({last_anchor_r2:.3f})'
-                            else:
-                                nnr_str = f'nnr={last_hidden_r2:.3f}'
-                            bar_parts.append(f'{r2_color(last_hidden_r2)}{nnr_str}{ANSI_RESET}')
-                    if bar_parts:
-                        pbar.set_postfix_str(' '.join(bar_parts))
 
-                if (train.has_visual_field) & (N in plot_iterations):
-                    field_R2, field_slope = render_visual_field_video(
-                        model, x_ts, sim, log_dir, epoch, N, logger)
+                            nnr_string = (
+                                "nnr=n/a"
+                            )
 
+                        bar_parts.append(
+                            nnr_string
+                        )
 
-                    if last_connectivity_r2 is not None:
-                        pbar.set_postfix_str(f'{r2_color(last_connectivity_r2)}R²={last_connectivity_r2:.3f}{ANSI_RESET}')
-                    if training.save_all_checkpoints:
-                        torch.save(
-                            {'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict()},
-                            os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt'))
+                    elif metrics.hidden_r2 is not None:
 
-            # check_and_clear_memory(device=device, iteration_number=N, every_n_iterations=Niter // 50, memory_percentage_threshold=0.6)
+                        if metrics.anchor_r2 is not None:
+
+                            nnr_string = (
+                                f"nnr="
+                                f"{metrics.hidden_r2:.3f}"
+                                f"("
+                                f"{metrics.anchor_r2:.3f}"
+                                f")"
+                            )
+
+                        else:
+
+                            nnr_string = (
+                                f"nnr="
+                                f"{metrics.hidden_r2:.3f}"
+                            )
+
+                        bar_parts.append(
+                            f"{r2_color(metrics.hidden_r2)}"
+                            f"{nnr_string}"
+                            f"{ANSI_RESET}"
+                        )
+
+                if bar_parts:
+
+                    pbar.set_postfix_str(
+                        " ".join(bar_parts)
+                    )
+
+            # -------------------------------------------------------------
+            # Visual field rendering
+            # -------------------------------------------------------------
+
+            if (
+                train.has_visual_field
+                and N in plot_iterations
+            ):
+
+                field_R2, field_slope = (
+                    render_visual_field_video(
+                        model,
+                        x_ts,
+                        sim,
+                        log_dir,
+                        epoch,
+                        N,
+                        logger,
+                    )
+                )
+
+                metrics.field_r2 = field_R2
+                metrics.field_slope = field_slope
+
+                if metrics.connectivity_r2 is not None:
+
+                    pbar.set_postfix_str(
+                        f"{r2_color(metrics.connectivity_r2)}"
+                        f"R²="
+                        f"{metrics.connectivity_r2:.3f}"
+                        f"{ANSI_RESET}"
+                    )
+
+                if training.save_all_checkpoints:
+
+                    torch.save(
+                        {
+                            "model_state_dict":
+                                model.state_dict(),
+                            "optimizer_state_dict":
+                                optimizer.state_dict(),
+                        },
+                        os.path.join(
+                            log_dir,
+                            "models",
+                            f"best_model_with_"
+                            f"{training.n_runs - 1}"
+                            f"_graphs_{epoch}_{N}.pt",
+                        ),
+                    )
+
+            # -------------------------------------------------------------
+            # Profiler
+            # -------------------------------------------------------------
+
             if _profiling:
-                _prof.step()
+                profiler.step()
+
+        # =================================================================
+        # END INNER LOOP
+        # =================================================================
 
         if _profiling:
-            _prof.stop()
-            print(f'[Profiler] Trace saved to {_profiler_trace_dir}/')
-            print(f'  View with: tensorboard --logdir {_profiler_trace_dir}')
 
-        # === LLM-MODIFIABLE: TRAINING LOOP END ===
+            profiler.stop()
 
-        # Calculate epoch-level losses — two syncs per epoch, not per iteration
-        total_loss = _total_loss_gpu.item()
-        total_loss_regul = _total_regul_gpu.item()
+            print(
+                f"[Profiler] Trace saved to "
+                f"{_profiler_trace_dir}/"
+            )
+
+            print(
+                "  View with: "
+                f"tensorboard --logdir "
+                f"{_profiler_trace_dir}"
+            )
+
+        # =================================================================
+        # EPOCH LOSS
+        # =================================================================
+
+
+        total_loss = epoch_state.total_loss_gpu.item()
+        total_loss_regul = epoch_state.total_regul_gpu.item()
+
         epoch_total_loss = total_loss / n_neurons
         epoch_regul_loss = total_loss_regul / n_neurons
-        epoch_pred_loss = (total_loss - total_loss_regul) / n_neurons
+        epoch_pred_loss = (
+            total_loss - total_loss_regul
+        ) / n_neurons
 
-        _logger.info("epoch {}. loss: {:.6f} (pred: {:.6f}, regul: {:.6f})".format(
-            epoch, epoch_total_loss, epoch_pred_loss, epoch_regul_loss))
-        logger.info("Epoch {}. Loss: {:.6f} (pred: {:.6f}, regul: {:.6f})".format(
-            epoch, epoch_total_loss, epoch_pred_loss, epoch_regul_loss))
-        torch.save({'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()},
-                   os.path.join(log_dir, 'models', f'best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt'))
 
-        if train.has_visual_field and hasattr(model, 'NNR_f'):
-            torch.save(model.NNR_f.state_dict(),
-                       os.path.join(log_dir, 'models', f'inr_stimulus_{epoch}.pt'))
 
-        list_loss.append(epoch_pred_loss)
-        list_loss_regul.append(epoch_regul_loss)
 
-        torch.save(list_loss, os.path.join(log_dir, 'loss.pt'))
 
-        fig = plt.figure(figsize=(3 * default_style.figure_height * default_style.default_aspect,
-                                    2 * default_style.figure_height))
+        _logger.info(
+            "epoch {}. loss: {:.6f} "
+            "(pred: {:.6f}, regul: {:.6f})".format(
+                epoch,
+                epoch_total_loss,
+                epoch_pred_loss,
+                epoch_regul_loss,
+            )
+        )
 
-        # Plot 1: Loss
-        ax1 = fig.add_subplot(2, 3, 1)
-        ax1.plot(list_loss, color=default_style.foreground, linewidth=default_style.line_width)
-        ax1.set_xlim([0, training.n_epochs])
-        default_style.ylabel(ax1, 'loss')
-        default_style.xlabel(ax1, 'epochs')
+        logger.info(
+            "Epoch {}. Loss: {:.6f} "
+            "(pred: {:.6f}, regul: {:.6f})".format(
+                epoch,
+                epoch_total_loss,
+                epoch_pred_loss,
+                epoch_regul_loss,
+            )
+        )
 
-        plot_training_summary_panels(fig, log_dir, Niter=Niter)
+        torch.save(
+            {
+                "model_state_dict":
+                    model.state_dict(),
+                "optimizer_state_dict":
+                    optimizer.state_dict(),
+            },
+            os.path.join(
+                log_dir,
+                "models",
+                f"best_model_with_"
+                f"{training.n_runs - 1}"
+                f"_graphs_{epoch}.pt",
+            ),
+        )
+
+        if (
+            train.has_visual_field
+            and hasattr(model, "NNR_f")
+        ):
+
+            torch.save(
+                model.NNR_f.state_dict(),
+                os.path.join(
+                    log_dir,
+                    "models",
+                    f"inr_stimulus_{epoch}.pt",
+                ),
+            )
+
+        # -----------------------------------------------------------------
+        # Epoch loss history
+        # -----------------------------------------------------------------
+
+        if "list_loss" not in locals():
+            list_loss = []
+
+        if "list_loss_regul" not in locals():
+            list_loss_regul = []
+
+        list_loss.append(
+            epoch_pred_loss
+        )
+
+        list_loss_regul.append(
+            epoch_regul_loss
+        )
+
+        torch.save(
+            list_loss,
+            os.path.join(
+                log_dir,
+                "loss.pt",
+            ),
+        )
+
+        # -----------------------------------------------------------------
+        # Epoch summary figure
+        # -----------------------------------------------------------------
+
+        fig = plt.figure(
+            figsize=(
+                3
+                * default_style.figure_height
+                * default_style.default_aspect,
+                2
+                * default_style.figure_height,
+            )
+        )
+
+        ax1 = fig.add_subplot(
+            2,
+            3,
+            1,
+        )
+
+        ax1.plot(
+            list_loss,
+            color=default_style.foreground,
+            linewidth=default_style.line_width,
+        )
+
+        ax1.set_xlim(
+            [
+                0,
+                training.n_epochs,
+            ]
+        )
+
+        default_style.ylabel(
+            ax1,
+            "loss",
+        )
+
+        default_style.xlabel(
+            ax1,
+            "epochs",
+        )
+
+        plot_training_summary_panels(
+            fig,
+            log_dir,
+            Niter=Niter,
+        )
+
+        # -----------------------------------------------------------------
+        # Replace embedding with clusters
+        # -----------------------------------------------------------------
 
         if train.replace_with_cluster:
 
-            if (epoch % training.sparsity_freq == training.sparsity_freq - 1) & (epoch < training.n_epochs - training.sparsity_freq):
-                _logger.info('replace embedding with clusters ...')
-                eps = training.cluster_distance_threshold
-                results = clustering_evaluation(to_numpy(model.a), type_list, eps=eps)
-                _logger.info(f"eps={eps}: {results['n_clusters_found']} clusters, "
-                      f"accuracy={results['accuracy']:.3f}")
+            if (
+                epoch % training.sparsity_freq
+                == training.sparsity_freq - 1
+                and epoch
+                < training.n_epochs
+                - training.sparsity_freq
+            ):
 
-                labels = results['cluster_labels']
+                _logger.info(
+                    "replace embedding "
+                    "with clusters ..."
+                )
 
-                for n in np.unique(labels):
-                    # if n == -1:
-                    #     continue
-                    indices = np.where(labels == n)[0]
+                eps = (
+                    training.cluster_distance_threshold
+                )
+
+                results = (
+                    clustering_evaluation(
+                        to_numpy(model.a),
+                        type_list,
+                        eps=eps,
+                    )
+                )
+
+                _logger.info(
+                    f"eps={eps}: "
+                    f"{results['n_clusters_found']} "
+                    "clusters, "
+                    f"accuracy="
+                    f"{results['accuracy']:.3f}"
+                )
+
+                labels = (
+                    results["cluster_labels"]
+                )
+
+                for cluster_id in np.unique(
+                    labels
+                ):
+
+                    indices = np.where(
+                        labels == cluster_id
+                    )[0]
+
                     if len(indices) > 1:
-                        with torch.no_grad():
-                            model.a[indices, :] = torch.mean(model.a[indices, :], dim=0, keepdim=True)
 
-                fig.add_subplot(2, 3, 6)
-                type_cmap = CustomColorMap(config=config)
-                for n in range(sim.n_neuron_types):
-                    pos = torch.argwhere(type_list == n)
-                    plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]), s=20, color=type_cmap.color(n),
-                                edgecolors='none')
-                plt.xlabel('embedding 0', fontsize=18)
-                plt.ylabel('embedding 1', fontsize=18)
+                        with torch.no_grad():
+
+                            model.a[
+                                indices,
+                                :,
+                            ] = torch.mean(
+                                model.a[
+                                    indices,
+                                    :,
+                                ],
+                                dim=0,
+                                keepdim=True,
+                            )
+
+                fig.add_subplot(
+                    2,
+                    3,
+                    6,
+                )
+
+                type_cmap = (
+                    CustomColorMap(
+                        config=config
+                    )
+                )
+
+                for neuron_type in range(
+                    sim.n_neuron_types
+                ):
+
+                    pos = torch.argwhere(
+                        type_list
+                        == neuron_type
+                    )
+
+                    plt.scatter(
+                        to_numpy(
+                            model.a[
+                                pos,
+                                0
+                            ]
+                        ),
+                        to_numpy(
+                            model.a[
+                                pos,
+                                1
+                            ]
+                        ),
+                        s=20,
+                        color=(
+                            type_cmap.color(
+                                neuron_type
+                            )
+                        ),
+                        edgecolors="none",
+                    )
+
+                plt.xlabel(
+                    "embedding 0",
+                    fontsize=18,
+                )
+
+                plt.ylabel(
+                    "embedding 1",
+                    fontsize=18,
+                )
+
                 plt.xticks([])
                 plt.yticks([])
-                plt.text(0.5, 0.9, f"eps={eps}: {results['n_clusters_found']} clusters, accuracy={results['accuracy']:.3f}")
+
+                plt.text(
+                    0.5,
+                    0.9,
+                    f"eps={eps}: "
+                    f"{results['n_clusters_found']} "
+                    f"clusters, "
+                    f"accuracy="
+                    f"{results['accuracy']:.3f}",
+                )
 
                 if training.fix_cluster_embedding:
-                    lr_embedding = 1.0E-10
-                    # the embedding is fixed for 1 epoch
+
+                    lr_embedding = (
+                        1.0E-10
+                    )
 
             else:
+
                 lr = training.lr
-                lr_embedding = training.lr_embedding
+                lr_embedding = (
+                    training.lr_embedding
+                )
                 lr_W = training.lr_W
 
-            logger.info(f'learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}')
-            optimizer, n_total_params = set_trainable_parameters(model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W)
+            logger.info(
+                f"learning rates: "
+                f"lr_W {lr_W}, "
+                f"lr {lr}, "
+                f"lr_update {lr_update}, "
+                f"lr_embedding {lr_embedding}"
+            )
+
+            optimizer, n_total_params = (
+                set_trainable_parameters(
+                    model=model,
+                    lr_embedding=lr_embedding,
+                    lr=lr,
+                    lr_update=lr_update,
+                    lr_W=lr_W,
+                )
+            )
+
+        # -----------------------------------------------------------------
+        # UMAP clustering
+        # -----------------------------------------------------------------
 
         if train.umap_cluster_active:
-            if (epoch % training.umap_cluster_freq == training.umap_cluster_freq - 1) & (epoch < training.n_epochs - 1):
-                _logger.info('UMAP cluster reassign ...')
-                umap_results = umap_cluster_reassign(
-                    model, config, x_ts, edges, n_neurons, type_list, device, logger=logger,
-                    reinit_mlps=training.umap_cluster_reinit_mlps,
-                    relearn_epochs=training.umap_cluster_relearn_epochs)
+
+            if (
+                epoch % training.umap_cluster_freq
+                == training.umap_cluster_freq - 1
+                and epoch
+                < training.n_epochs - 1
+            ):
+
+                _logger.info(
+                    "UMAP cluster reassign ..."
+                )
+
+                umap_results = (
+                    umap_cluster_reassign(
+                        model,
+                        config,
+                        x_ts,
+                        edges,
+                        n_neurons,
+                        type_list,
+                        device,
+                        logger=logger,
+                        reinit_mlps=(
+                            training
+                            .umap_cluster_reinit_mlps
+                        ),
+                        relearn_epochs=(
+                            training
+                            .umap_cluster_relearn_epochs
+                        ),
+                    )
+                )
 
                 if umap_results is not None:
-                    fig.add_subplot(2, 3, 6)
-                    type_cmap = CustomColorMap(config=config)
-                    a_umap = umap_results['a_umap']
-                    for n_type in range(sim.n_neuron_types):
-                        pos = torch.argwhere(type_list == n_type)
-                        pos_np = to_numpy(pos).flatten()
-                        plt.scatter(a_umap[pos_np, 0], a_umap[pos_np, 1], s=20,
-                                    color=type_cmap.color(n_type), edgecolors='none')
-                    plt.xlabel(r'UMAP$_1$', fontsize=12)
-                    plt.ylabel(r'UMAP$_2$', fontsize=12)
+
+                    fig.add_subplot(
+                        2,
+                        3,
+                        6,
+                    )
+
+                    type_cmap = (
+                        CustomColorMap(
+                            config=config
+                        )
+                    )
+
+                    a_umap = (
+                        umap_results["a_umap"]
+                    )
+
+                    for neuron_type in range(
+                        sim.n_neuron_types
+                    ):
+
+                        pos = torch.argwhere(
+                            type_list
+                            == neuron_type
+                        )
+
+                        pos_np = (
+                            to_numpy(
+                                pos
+                            ).flatten()
+                        )
+
+                        plt.scatter(
+                            a_umap[
+                                pos_np,
+                                0
+                            ],
+                            a_umap[
+                                pos_np,
+                                1
+                            ],
+                            s=20,
+                            color=(
+                                type_cmap.color(
+                                    neuron_type
+                                )
+                            ),
+                            edgecolors="none",
+                        )
+
+                    plt.xlabel(
+                        r"UMAP$_1$",
+                        fontsize=12,
+                    )
+
+                    plt.ylabel(
+                        r"UMAP$_2$",
+                        fontsize=12,
+                    )
+
                     plt.xticks([])
                     plt.yticks([])
-                    plt.title(f"{umap_results['n_clusters']} cl, acc={umap_results['accuracy']:.3f}", fontsize=10)
 
-                if training.umap_cluster_fix_embedding or training.umap_cluster_fix_embedding_ratio > 0:
+                    plt.title(
+                        f"{umap_results['n_clusters']} cl, "
+                        f"acc="
+                        f"{umap_results['accuracy']:.3f}",
+                        fontsize=10,
+                    )
+
+                if (
+                    training.umap_cluster_fix_embedding
+                    or training.umap_cluster_fix_embedding_ratio > 0
+                ):
+
                     lr_embedding = 1.0E-10
                     embedding_frozen = True
 
-                # rebuild optimizer to reset momentum and relearn f_theta/g_phi
-                optimizer, n_total_params = set_trainable_parameters(
-                    model=model, lr_embedding=lr_embedding, lr=lr,
-                    lr_update=lr_update, lr_W=lr_W)
+                # Rebuild optimizer to reset momentum and relearn
+                # f_theta / g_phi.
+                optimizer, n_total_params = (
+                    set_trainable_parameters(
+                        model=model,
+                        lr_embedding=lr_embedding,
+                        lr=lr,
+                        lr_update=lr_update,
+                        lr_W=lr_W,
+                    )
+                )
 
         plt.tight_layout()
-        plt.savefig(f"{log_dir}/tmp_training/epoch_{epoch}.png", bbox_inches='tight', pad_inches=0.1)
+
+        plt.savefig(
+            f"{log_dir}/tmp_training/"
+            f"epoch_{epoch}.png",
+            bbox_inches="tight",
+            pad_inches=0.1,
+        )
+
         plt.close()
 
-    # Calculate and log training time
-    training_time = time.time() - training_start_time
-    training_time_min = training_time / 60.0
-    _logger.info(f"training completed in {training_time_min:.1f} minutes")
-    logger.info(f"training completed in {training_time_min:.1f} minutes")
+    # =====================================================================
+    # TRAINING COMPLETE
+    # =====================================================================
+
+    training_time = (
+        time.time()
+        - training_start_time
+    )
+
+    training_time_min = (
+        training_time
+        / 60.0
+    )
+
+    _logger.info(
+        f"training completed in "
+        f"{training_time_min:.1f} minutes"
+    )
+
+    logger.info(
+        f"training completed in "
+        f"{training_time_min:.1f} minutes"
+    )
 
     if log_file is not None:
-        log_file.write(f"training_time_min: {training_time_min:.1f}\n")
-        log_file.write(f"n_epochs: {training.n_epochs}\n")
-        log_file.write(f"data_augmentation_loop: {training.data_augmentation_loop}\n")
-        log_file.write(f"recurrent_training: {training.recurrent_training}\n")
-        log_file.write(f"batch_size: {training.batch_size}\n")
-        log_file.write(f"lr_W: {training.lr_W}\n")
-        log_file.write(f"lr: {training.lr}\n")
-        log_file.write(f"lr_embedding: {training.lr_embedding}\n")
-        log_file.write(f"coeff_g_phi_diff: {training.coeff_g_phi_diff}\n")
-        log_file.write(f"coeff_g_phi_norm: {training.coeff_g_phi_norm}\n")
-        log_file.write(f"coeff_g_phi_weight_L1: {training.coeff_g_phi_weight_L1}\n")
-        log_file.write(f"coeff_f_theta_weight_L1: {training.coeff_f_theta_weight_L1}\n")
-        log_file.write(f"coeff_f_theta_weight_L2: {training.coeff_f_theta_weight_L2}\n")
-        log_file.write(f"coeff_W_L1: {training.coeff_W_L1}\n")
-        log_file.write(f"dale_law: {getattr(tc, 'dale_law', False)}\n")
-        dale_score = dale_law_score(model, edges)
-        log_file.write(f"dale_law_score: {dale_score:.4f}\n")
-        if field_R2 is not None:
-            log_file.write(f"field_R2: {field_R2:.4f}\n")
-            log_file.write(f"field_slope: {field_slope:.4f}\n")
 
+        log_file.write(
+            f"training_time_min: "
+            f"{training_time_min:.1f}\n"
+        )
+
+        log_file.write(
+            f"n_epochs: "
+            f"{training.n_epochs}\n"
+        )
+
+        log_file.write(
+            f"data_augmentation_loop: "
+            f"{training.data_augmentation_loop}\n"
+        )
+
+        log_file.write(
+            f"recurrent_training: "
+            f"{training.recurrent_training}\n"
+        )
+
+        log_file.write(
+            f"batch_size: "
+            f"{training.batch_size}\n"
+        )
+
+        log_file.write(
+            f"lr_W: "
+            f"{training.lr_W}\n"
+        )
+
+        log_file.write(
+            f"lr: "
+            f"{training.lr}\n"
+        )
+
+        log_file.write(
+            f"lr_embedding: "
+            f"{training.lr_embedding}\n"
+        )
+
+        log_file.write(
+            f"coeff_g_phi_diff: "
+            f"{training.coeff_g_phi_diff}\n"
+        )
+
+        log_file.write(
+            f"coeff_g_phi_norm: "
+            f"{training.coeff_g_phi_norm}\n"
+        )
+
+        log_file.write(
+            f"coeff_g_phi_weight_L1: "
+            f"{training.coeff_g_phi_weight_L1}\n"
+        )
+
+        log_file.write(
+            f"coeff_f_theta_weight_L1: "
+            f"{training.coeff_f_theta_weight_L1}\n"
+        )
+
+        log_file.write(
+            f"coeff_f_theta_weight_L2: "
+            f"{training.coeff_f_theta_weight_L2}\n"
+        )
+
+        log_file.write(
+            f"coeff_W_L1: "
+            f"{training.coeff_W_L1}\n"
+        )
+
+        log_file.write(
+            f"dale_law: "
+            f"{getattr(training, 'dale_law', False)}\n"
+        )
+
+        dale_score = dale_law_score(
+            model,
+            edges,
+        )
+
+        log_file.write(
+            f"dale_law_score: "
+            f"{dale_score:.4f}\n"
+        )
+
+        if metrics.field_r2 is not None:
+
+            log_file.write(
+                f"field_R2: "
+                f"{metrics.field_r2:.4f}\n"
+            )
+
+            log_file.write(
+                f"field_slope: "
+                f"{metrics.field_slope:.4f}\n"
+            )
 
 # data_train_flyvis_alternate removed — use data_train_flyvis instead
 def data_train_gnn_RNN(config, erase, best_model, device):

@@ -16,8 +16,695 @@ from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.utils import set_trainable_parameters
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, sort_key
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
-from dataclasses import dataclass 
+from dataclasses import dataclass, field
 from connectome_gnn.models.regularizer import LossRegularizer
+
+@dataclass
+class TrainingMetrics:
+    """
+    Latest diagnostic values.
+
+    These are updated at R2/HH/NGP evaluation checkpoints.
+    They do not affect the training loss.
+    """
+
+    connectivity_r2: float | None = None
+    connectivity_r2_visible: float | None = None
+
+    vrest_r2: float = 0.0
+    tau_r2: float = 0.0
+
+    vrest_r2_clean: float = float("nan")
+    tau_r2_clean: float = float("nan")
+
+    n_out_vrest: int = 0
+    n_total_vrest: int = 0
+
+    n_out_tau: int = 0
+    n_total_tau: int = 0
+
+    hidden_r2: float | None = None
+    anchor_r2: float | None = None
+
+    field_r2: float | None = None
+    field_slope: float | None = None
+
+
+@dataclass
+class NGPSchedule:
+    """
+    NGP hidden-voltage injection and GNN LR-damping schedule.
+
+    warmup_iter:
+        Iteration at which hidden-voltage injection switches on.
+
+    ramp_iter:
+        Duration of each side of the LR-damping V.
+
+    damping_factor:
+        Depth of the V. For example 100 means the trough is base_lr / 100.
+
+    damping_active:
+        Whether the V-shaped LR schedule is actually active.
+
+    damp_groups:
+        Optimizer groups affected by the damping schedule.
+
+    stages:
+        Boundaries used by metrics.png.
+    """
+
+    warmup_iter: int
+    ramp_iter: int
+    damping_factor: float
+
+    damping_active: bool
+    damp_groups: tuple[str, ...]
+
+    ramp_mid: int = 0
+    ramp_end: int = 0
+
+    stages: list = field(default_factory=list)
+
+
+@dataclass
+class FrameSampling:
+    """
+    Valid frame range for training-frame sampling.
+    """
+
+    first_frame: int
+    last_frame: int
+    frame_range: int
+
+
+@dataclass
+class EpochState:
+    """
+    State initialized once at the beginning of each training epoch.
+
+    This contains values that:
+      - depend on the current epoch, or
+      - reset at every epoch.
+
+    It does not contain persistent training state such as the model,
+    optimizer, regularizer, or NGP schedule.
+    """
+
+    # Iteration / plotting schedule
+    n_iter: int
+    plot_frequency: int
+    connectivity_plot_frequency: int
+    early_r2_frequency: int
+    plot_iterations: set[int]
+
+    # Data sampling
+    frame_indices: np.ndarray
+
+    # Loss
+    loss_noise_level: float
+    total_loss_gpu: torch.Tensor
+    total_regul_gpu: torch.Tensor
+
+    # Diagnostics
+    metrics: TrainingMetrics
+
+    # Dale's law
+    dale_enabled: bool
+    dale_checkpoints: set[int]
+
+    # Embedding / UMAP state
+    unfreeze_at_iteration: int
+
+
+def init_epoch_state(
+    epoch,
+    n_iter,
+    training,
+    frame_sampling,
+    embedding_frozen,
+    regularizer,
+    device,
+):
+    """
+    Initialize all state local to one training epoch.
+    """
+
+    # ---------------------------------------------------------------------
+    # Plot / diagnostic frequencies
+    # ---------------------------------------------------------------------
+
+    plot_frequency = max(
+        1,
+        n_iter // 20,
+    )
+
+    connectivity_plot_frequency = max(
+        1,
+        n_iter // 20,
+    )
+
+    # Four extra R2 evaluations during the early part of the epoch.
+    early_r2_frequency = max(
+        1,
+        connectivity_plot_frequency // 5,
+    )
+
+    # Visual-field / heavy plot locations.
+    n_plots_per_epoch = 4
+
+    if n_plots_per_epoch > 0:
+        plot_iterations = {
+            int(iteration)
+            for iteration in np.linspace(
+                n_iter // n_plots_per_epoch,
+                n_iter - 1,
+                n_plots_per_epoch,
+            )
+        }
+    else:
+        plot_iterations = set()
+
+    # ---------------------------------------------------------------------
+    # Embedding unfreeze
+    # ---------------------------------------------------------------------
+
+    if (
+        embedding_frozen
+        and training.umap_cluster_fix_embedding_ratio > 0
+    ):
+        unfreeze_at_iteration = int(
+            n_iter
+            * training.umap_cluster_fix_embedding_ratio
+        )
+    else:
+        unfreeze_at_iteration = -1
+
+    # ---------------------------------------------------------------------
+    # Reproducible frame sampling
+    # ---------------------------------------------------------------------
+
+    epoch_rng = np.random.RandomState(
+        (training.seed + epoch) % (2**32)
+    )
+
+    frame_indices = (
+        epoch_rng.randint(
+            0,
+            frame_sampling.frame_range,
+            size=n_iter * training.batch_size,
+        )
+        + frame_sampling.first_frame
+    )
+
+    # ---------------------------------------------------------------------
+    # Loss noise
+    # ---------------------------------------------------------------------
+
+    loss_noise_level = (
+        training.loss_noise_level
+        * (0.95 ** epoch)
+    )
+
+    # ---------------------------------------------------------------------
+    # Dale's law
+    # ---------------------------------------------------------------------
+
+    dale_enabled = getattr(
+        training,
+        "dale_law",
+        False,
+    )
+
+    if dale_enabled:
+        dale_checkpoints = {
+            int(n_iter * fraction)
+            for fraction in (
+                0.25,
+                0.50,
+                0.75,
+            )
+        }
+
+        dale_checkpoints.discard(0)
+
+    else:
+        dale_checkpoints = set()
+
+    # ---------------------------------------------------------------------
+    # Regularizer
+    # ---------------------------------------------------------------------
+
+    regularizer.set_epoch(
+        epoch,
+        plot_frequency,
+        Niter=n_iter,
+    )
+
+    # ---------------------------------------------------------------------
+    # Epoch-local GPU accumulators
+    #
+    # Keep these on the GPU during the entire epoch to avoid .item()
+    # synchronization at every iteration.
+    # ---------------------------------------------------------------------
+
+    total_loss_gpu = torch.zeros(
+        (),
+        device=device,
+    )
+
+    total_regul_gpu = torch.zeros(
+        (),
+        device=device,
+    )
+
+    # ---------------------------------------------------------------------
+    # Diagnostic state
+    # ---------------------------------------------------------------------
+
+    metrics = TrainingMetrics()
+
+    # ---------------------------------------------------------------------
+    # Return complete epoch state
+    # ---------------------------------------------------------------------
+
+    return EpochState(
+        n_iter=n_iter,
+
+        plot_frequency=plot_frequency,
+        connectivity_plot_frequency=connectivity_plot_frequency,
+        early_r2_frequency=early_r2_frequency,
+        plot_iterations=plot_iterations,
+
+        frame_indices=frame_indices,
+
+        loss_noise_level=loss_noise_level,
+        total_loss_gpu=total_loss_gpu,
+        total_regul_gpu=total_regul_gpu,
+
+        metrics=metrics,
+
+        dale_enabled=dale_enabled,
+        dale_checkpoints=dale_checkpoints,
+
+        unfreeze_at_iteration=unfreeze_at_iteration,
+    )
+
+def get_training_frame_sampling(sim, training):
+    """
+    Determine the valid starting-frame range.
+
+    The training loop samples k such that:
+      - enough history exists for time_window
+      - enough future data exists for time_step / recurrent training
+      - the same bounds as the legacy np.random.randint logic are preserved.
+    """
+
+    first_frame = training.time_window
+
+    stride_subsample = (
+        training.recurrent_training
+        and training.time_step > 1
+    )
+
+    target_offset = (
+        1
+        if stride_subsample
+        else training.time_step
+    )
+
+    last_frame = (
+        sim.n_frames
+        - 4
+        - target_offset
+    )
+
+    frame_range = max(
+        last_frame - first_frame,
+        1,
+    )
+
+    return FrameSampling(
+        first_frame=first_frame,
+        last_frame=last_frame,
+        frame_range=frame_range,
+    )
+
+
+def init_metrics_files(log_dir):
+    """
+    Initialize the two metric log files used by the training monitor.
+    """
+
+    metrics_log_path = os.path.join(
+        log_dir,
+        "tmp_training",
+        "metrics.log",
+    )
+
+    with open(
+        metrics_log_path,
+        "w",
+    ) as f:
+        f.write(
+            "iteration,"
+            "connectivity_r2,"
+            "vrest_r2,"
+            "tau_r2,"
+            "hidden_nnr_pearson,"
+            "anchor_nnr_pearson,"
+            "vrest_r2_clean,"
+            "n_out_vrest,"
+            "n_total_vrest,"
+            "tau_r2_clean,"
+            "n_out_tau,"
+            "n_total_tau\n"
+        )
+
+    nnr_pearson_log_path = os.path.join(
+        log_dir,
+        "tmp_training",
+        "nnr_pearson.log",
+    )
+
+    with open(
+        nnr_pearson_log_path,
+        "w",
+    ) as f:
+        f.write(
+            "iteration,"
+            "hidden_pearson_mean,"
+            "hidden_pearson_std,"
+            "anchor_pearson_mean,"
+            "anchor_pearson_std\n"
+        )
+
+    return (
+        metrics_log_path,
+        nnr_pearson_log_path,
+    )
+
+
+def init_training_runtime(
+    log_dir,
+    sim,
+    training,
+):
+    """
+    Initialize runtime state that is independent of a particular epoch.
+
+    This replaces the loose block of:
+        metrics logs
+        total_iter.txt
+        frame range
+        embedding freeze state
+        profiler directory
+    """
+
+    metrics_log_path, nnr_pearson_log_path = (
+        init_metrics_files(log_dir)
+    )
+
+    # This is the same formula used at epoch start.
+    n_iter_per_epoch = int(
+        sim.n_frames
+        * training.data_augmentation_loop
+        // training.batch_size
+        * 0.2
+    )
+
+    if training.max_iterations_per_epoch > 0:
+        n_iter_per_epoch = min(
+            n_iter_per_epoch,
+            training.max_iterations_per_epoch,
+        )
+
+    total_iterations = (
+        n_iter_per_epoch
+        * training.n_epochs
+    )
+
+    with open(
+        os.path.join(
+            log_dir,
+            "tmp_training",
+            "total_iter.txt",
+        ),
+        "w",
+    ) as f:
+        f.write(
+            str(total_iterations)
+        )
+
+    frame_sampling = (
+        get_training_frame_sampling(
+            sim,
+            training,
+        )
+    )
+
+    profiler_trace_dir = os.path.join(
+        log_dir,
+        "profiler_traces",
+    )
+
+    if training.profiling:
+        os.makedirs(
+            profiler_trace_dir,
+            exist_ok=True,
+        )
+
+    return (
+        metrics_log_path,
+        nnr_pearson_log_path,
+        frame_sampling,
+        profiler_trace_dir,
+    )
+
+
+def init_ngp_schedule(training, Niter):
+    """
+    Build the NGP injection + GNN LR-damping schedule.
+
+    This preserves the existing warmup/ramp semantics.
+    """
+
+    warmup_fraction = float(
+        getattr(
+            training,
+            "warmup_inject_nnr_iter_frac",
+            0.0,
+        )
+    )
+
+    ramp_fraction = float(
+        getattr(
+            training,
+            "warmup_inject_nnr_ramp_iter_frac",
+            0.0,
+        )
+    )
+
+    if warmup_fraction > 0.0:
+        warmup_iter = int(
+            Niter * warmup_fraction
+        )
+    else:
+        warmup_iter = int(
+            getattr(
+                training,
+                "warmup_inject_nnr_iter",
+                0,
+            )
+        )
+
+    if ramp_fraction > 0.0:
+        ramp_iter = int(
+            Niter * ramp_fraction
+        )
+    else:
+        ramp_iter = int(
+            getattr(
+                training,
+                "warmup_inject_nnr_ramp_iter",
+                0,
+            )
+        )
+
+    damping_factor = float(
+        getattr(
+            training,
+            "lr_damping_factor",
+            100.0,
+        )
+    )
+
+    damping_active = (
+        warmup_iter > 0
+        and ramp_iter > 0
+        and damping_factor > 1.0
+    )
+
+    damp_groups = (
+        "W",
+        "f_theta",
+        "g_phi",
+    )
+
+    ramp_mid = (
+        warmup_iter + ramp_iter
+    )
+
+    ramp_end = (
+        warmup_iter
+        + 2 * ramp_iter
+    )
+
+    stages = []
+
+    if warmup_iter > 0:
+        stages.append(
+            (
+                warmup_iter,
+                "inject",
+            )
+        )
+
+        if damping_active:
+            stages.append(
+                (
+                    ramp_mid,
+                    "trough",
+                )
+            )
+
+            stages.append(
+                (
+                    ramp_end,
+                    "recover",
+                )
+            )
+
+    return NGPSchedule(
+        warmup_iter=warmup_iter,
+        ramp_iter=ramp_iter,
+        damping_factor=damping_factor,
+        damping_active=damping_active,
+        damp_groups=damp_groups,
+        ramp_mid=ramp_mid,
+        ramp_end=ramp_end,
+        stages=stages,
+    )
+
+
+def update_ngp_lr(
+    optimizer,
+    ngp_schedule,
+    iteration,
+    previous_multiplier,
+):
+    """
+    Apply the NGP LR-damping V-schedule.
+
+    Returns:
+        current_multiplier
+    """
+
+    if not ngp_schedule.damping_active:
+        return 1.0
+
+    if (
+        iteration < ngp_schedule.warmup_iter
+        or iteration >= ngp_schedule.ramp_end
+    ):
+        multiplier = 1.0
+
+    elif iteration < ngp_schedule.ramp_mid:
+
+        progress = (
+            float(
+                iteration
+                - ngp_schedule.warmup_iter
+            )
+            / float(
+                ngp_schedule.ramp_iter
+            )
+        )
+
+        multiplier = (
+            1.0
+            + (
+                1.0
+                / ngp_schedule.damping_factor
+                - 1.0
+            )
+            * progress
+        )
+
+    else:
+
+        progress = (
+            float(
+                iteration
+                - ngp_schedule.ramp_mid
+            )
+            / float(
+                ngp_schedule.ramp_iter
+            )
+        )
+
+        multiplier = (
+            1.0
+            / ngp_schedule.damping_factor
+            + (
+                1.0
+                - 1.0
+                / ngp_schedule.damping_factor
+            )
+            * progress
+        )
+
+    if (
+        multiplier != previous_multiplier
+        and multiplier != 1.0
+    ):
+        for param_group in optimizer.param_groups:
+            if (
+                param_group.get("name")
+                in ngp_schedule.damp_groups
+            ):
+                param_group["lr"] = (
+                    param_group["base_lr"]
+                    * multiplier
+                )
+
+    elif (
+        multiplier != previous_multiplier
+        and previous_multiplier != 1.0
+    ):
+        for param_group in optimizer.param_groups:
+            if (
+                param_group.get("name")
+                in ngp_schedule.damp_groups
+            ):
+                param_group["lr"] = (
+                    param_group["base_lr"]
+                    * multiplier
+                )
+
+    return multiplier
+
+
+def format_metric(value):
+    """
+    Format an optional metric for CSV logging.
+    """
+    return (
+        "nan"
+        if value is None
+        else f"{value:.6f}"
+    )
+
 
 def determine_load_fields(config):
     """Determine which NeuronTimeSeries fields to load based on config.
