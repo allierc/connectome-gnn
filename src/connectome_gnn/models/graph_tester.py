@@ -38,6 +38,7 @@ from connectome_gnn.models.utils import (
 from connectome_gnn.metrics import INDEX_TO_NAME
 from connectome_gnn.models.neural_ode_wrapper import integrate_neural_ode
 from connectome_gnn.models.registry import create_model
+from connectome_gnn.models.training_utils import HiddenNeuronHandler
 from connectome_gnn.models.utils import _batch_frames
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import plot_spatial_activity_grid, plot_weight_comparison
@@ -433,14 +434,22 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     ids = np.arange(n_neurons)
     data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
 
-    # Load hidden neuron list for rollout
+    # Load hidden/anchor neuron ids for rollout (saved by the trainer that
+    # produced this checkpoint; never sampled fresh at eval time).
     # (has_hidden_neurons is defined once up top alongside has_visual_field)
     hidden_ids = None
+    anchor_ids = None
     if has_hidden_neurons:
         _hidden_path = os.path.join(log_dir, 'hidden_neuron_ids.pt')
         if os.path.exists(_hidden_path):
             hidden_ids = torch.load(_hidden_path, map_location=device, weights_only=True)
             logger.info(f'hidden neurons: {len(hidden_ids)} — using during rollout')
+
+        _anchor_path = os.path.join(log_dir, 'anchor_neuron_ids.pt')
+        if getattr(model, 'n_anchor', 0) > 0 and os.path.exists(_anchor_path):
+            anchor_ids = torch.load(_anchor_path, map_location=device, weights_only=True)
+
+    hn = HiddenNeuronHandler.from_ids(hidden_ids, anchor_ids)
 
     # Run model on all frames (one-step prediction)
     logger.info(f'one-step prediction on {n_eval_frames} frames ...')
@@ -527,11 +536,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     os.makedirs(results_dir, exist_ok=True)
 
     x = x_ts_eval.frame(0)
-    if has_hidden_neurons:
-        if model.NNR_hidden is not None:
-            x.voltage[hidden_ids] = model.forward_hidden(x, 0, hidden_ids).detach()
-        else:
-            x.voltage[hidden_ids] = 0.0
+    with torch.no_grad():
+        hn.inject_hidden(model, x, 0, True)
 
     h_state = None
     c_state = None
@@ -620,11 +626,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                 x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
 
             # Update hidden neuron voltages via SIREN or keep silent
-            if has_hidden_neurons:
-                if model.NNR_hidden is not None:
-                    x.voltage[hidden_ids] = model.forward_hidden(x, k + 1, hidden_ids).detach()
-                else:
-                    x.voltage[hidden_ids] = 0.0
+            hn.inject_hidden(model, x, k + 1, True)
 
             # Guard against NaN / divergence from a poorly trained model
             if torch.isnan(x.voltage).any() or torch.isinf(x.voltage).any():
@@ -698,8 +700,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # Split rollout Pearson into hidden vs visible when a hidden-NGP model is in use.
     hidden_rollout_pearson = None
     visible_rollout_pearson = None
-    if has_hidden_neurons and hidden_ids is not None:
-        _hidden_np = hidden_ids.detach().cpu().numpy().astype(int)
+    if hn.has_hidden:
+        _hidden_np = hn.hidden_ids.detach().cpu().numpy().astype(int)
         _mask = np.zeros(n_neurons, dtype=bool)
         _mask[_hidden_np] = True
         _hidden_pear = pearson_ro[_mask]
@@ -915,9 +917,8 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # render column-resolved error maps; per-neuron R² and 2-D positions are
     # included in the bundle.
     siren_r2 = None
-    if has_hidden_neurons and hidden_ids is not None and \
-            getattr(model, 'NNR_hidden', None) is not None:
-        inr = _compute_inr_traces(model, x_ts_eval, hidden_ids, device,
+    if hn.has_hidden and getattr(model, 'NNR_hidden', None) is not None:
+        inr = _compute_inr_traces(model, x_ts_eval, hn.hidden_ids, device,
                                    n_traces=None, n_frames=activity_true.shape[1])
         bundle['inr_true']       = inr['gt_arr']         # (n_hidden, n_frames)
         bundle['inr_pred_raw']   = inr['pred_arr']       # (n_hidden, n_frames)
@@ -935,18 +936,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     np.savez(f"{results_dir}/rollout_bundle{test_suffix}.npz", **bundle)
 
     # ── Hidden-neuron trace plot (uses its own n_traces/n_frames for the PNG) ─
-    if has_hidden_neurons and getattr(model, 'NNR_hidden', None) is not None:
+    if hn.has_hidden and getattr(model, 'NNR_hidden', None) is not None:
         from connectome_gnn.plot import plot_hidden_siren_traces
-        # Load anchor_ids if the run produced any (so the plot gets the 2-panel layout).
-        _anchor_ids = None
-        _anchor_path = os.path.join(log_dir, 'anchor_neuron_ids.pt')
-        if getattr(model, 'n_anchor', 0) > 0 and os.path.exists(_anchor_path):
-            _anchor_ids = torch.load(_anchor_path, map_location=device, weights_only=True)
         _hp, _ap = plot_hidden_siren_traces(
-            model, x_ts_eval, hidden_ids, log_dir,
+            model, x_ts_eval, hn.hidden_ids, log_dir,
             epoch=0, N=0, device=device,
             n_traces=40, n_frames=min(2000, n_eval_frames),
-            anchor_ids=_anchor_ids,
+            anchor_ids=hn.anchor_ids,
         )
         if siren_r2 is None:
             logger.info(f'hidden INR pearson: {_hp:.4f}')

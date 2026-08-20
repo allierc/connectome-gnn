@@ -56,9 +56,12 @@ def recurrent_loss(
     ynorm,
     regularizer,
     has_visual_field=False,
-    hidden_ids=None,
+    hn=None,
 ):
     """Compute one training iteration of recurrent (possibly multi-start) loss.
+
+    hn: HiddenNeuronHandler (see training_utils.py), or None if the model
+    has no hidden neurons.
 
     Returns:
         loss: scalar tensor (already includes regularisation)
@@ -74,13 +77,13 @@ def recurrent_loss(
         return _multi_start_loss(
             model, x_ts, edges, ids, frame_indices, iter_idx,
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-            hidden_ids=hidden_ids,
+            hn=hn,
         )
     else:
         return _standard_recurrent_loss(
             model, x_ts, edges, ids, frame_indices, iter_idx,
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-            hidden_ids=hidden_ids,
+            hn=hn,
         )
 
 
@@ -91,7 +94,7 @@ def recurrent_loss(
 def _standard_recurrent_loss(
     model, x_ts, edges, ids, frame_indices, iter_idx,
     time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-    hidden_ids=None,
+    hn=None,
 ):
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
@@ -105,7 +108,7 @@ def _standard_recurrent_loss(
     ids_index = 0
 
     coeff_hidden = getattr(tc, 'coeff_hidden_voltage', 0.0)
-    use_hidden_loss = (coeff_hidden > 0.0) and (hidden_ids is not None)
+    use_hidden_loss = (coeff_hidden > 0.0) and hn is not None and hn.has_hidden
 
     for b in range(batch_size):
         k = int(frame_indices[iter_idx * batch_size + b])
@@ -113,11 +116,8 @@ def _standard_recurrent_loss(
         x = x_ts.frame(k)
         if x.noise is not None and sim.measurement_noise_level > 0:
             x.voltage = x.voltage + x.noise
-        if hidden_ids is not None:
-            if model.NNR_hidden is not None:
-                x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
-            else:
-                x.voltage[hidden_ids] = 0.0
+        if hn is not None:
+            hn.inject_hidden(model, x, k, True)
 
         if has_visual_field:
             visual_input = model.forward_visual(x, k)
@@ -135,7 +135,7 @@ def _standard_recurrent_loss(
         y_list.append(y)
         ids_list.append(ids + ids_index)
         if use_hidden_loss:
-            hidden_ids_list.append(hidden_ids + ids_index)
+            hidden_ids_list.append(hn.hidden_ids + ids_index)
         k_list.append(k)
         ids_index += x.n_neurons
 
@@ -174,7 +174,7 @@ def _standard_recurrent_loss(
             for b_idx in range(len(state_batch)):
                 k_h = k_list[b_idx] + step + 1
                 if k_h < x_ts.n_frames:
-                    gt_hidden_parts.append(x_ts.voltage[k_h, hidden_ids].unsqueeze(-1))
+                    gt_hidden_parts.append(x_ts.voltage[k_h, hn.hidden_ids].unsqueeze(-1))
             if gt_hidden_parts:
                 gt_hidden_batch = torch.cat(gt_hidden_parts, dim=0)
                 loss = loss + coeff_hidden * (pred_x[hidden_ids_batch] - gt_hidden_batch).norm(2)
@@ -183,12 +183,9 @@ def _standard_recurrent_loss(
         for b_idx in range(len(state_batch)):
             s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
             state_batch[b_idx].voltage = pred_x[s:e].squeeze()
-            if hidden_ids is not None:
+            if hn is not None:
                 k_current_h = k_list[b_idx] + step + 1
-                if model.NNR_hidden is not None:
-                    state_batch[b_idx].voltage[hidden_ids] = model.forward_hidden(state_batch[b_idx], k_current_h, hidden_ids)
-                else:
-                    state_batch[b_idx].voltage[hidden_ids] = 0.0
+                hn.inject_hidden(model, state_batch[b_idx], k_current_h, True)
             k_current = k_list[b_idx] + step + 1
             if has_visual_field:
                 vi = model.forward_visual(state_batch[b_idx], k_current)
@@ -212,7 +209,7 @@ def _standard_recurrent_loss(
 def _multi_start_loss(
     model, x_ts, edges, ids, frame_indices, iter_idx,
     time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-    hidden_ids=None,
+    hn=None,
 ):
     """Launch time_step rollouts of decreasing length, all targeting frame T.
 
@@ -252,11 +249,8 @@ def _multi_start_loss(
         x = x_ts.frame(start_k)
         if x.noise is not None and sim.measurement_noise_level > 0:
             x.voltage = x.voltage + x.noise
-        if hidden_ids is not None:
-            if model.NNR_hidden is not None:
-                x.voltage[hidden_ids] = model.forward_hidden(x, start_k, hidden_ids)
-            else:
-                x.voltage[hidden_ids] = 0.0
+        if hn is not None:
+            hn.inject_hidden(model, x, start_k, True)
 
         if torch.isnan(x.voltage).any():
             continue
@@ -278,12 +272,9 @@ def _multi_start_loss(
                 loss = loss + update_regul
 
             x.voltage = (x.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)).squeeze(-1)
-            if hidden_ids is not None:
+            if hn is not None:
                 k_cur = start_k + step + 1
-                if model.NNR_hidden is not None:
-                    x.voltage[hidden_ids] = model.forward_hidden(x, k_cur, hidden_ids)
-                else:
-                    x.voltage[hidden_ids] = 0.0
+                hn.inject_hidden(model, x, k_cur, True)
 
             # Update stimulus for next step
             k_next = start_k + step + 1
