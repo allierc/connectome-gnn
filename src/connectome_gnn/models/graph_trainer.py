@@ -169,15 +169,7 @@ def _inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
             model._ngp_cache_pos(x)
 
 
-def data_train_gnn(
-    config,
-    erase,
-    best_model,
-    device,
-    log_file=None,
-    resume=False,
-):
-
+def data_train_gnn(config, erase, best_model, device, log_file=None, resume=False):
     # =====================================================================
     # INITIALIZATION
     # =====================================================================
@@ -195,21 +187,13 @@ def data_train_gnn(
     lr_W = train.lr_W
     lr_NNR_f = train.lr_NNR_f
 
-    log_dir, logger = create_log_dir(
-        config,
-        erase,
-    )
+    log_dir, logger = create_log_dir(config, erase)
 
     # ---------------------------------------------------------------------
     # Data
     # ---------------------------------------------------------------------
 
-    data = init_training_data(
-        config,
-        device,
-        log_dir,
-        logger,
-    )
+    data = init_training_data(config, device, log_dir, logger)
 
     x_ts = data.x_ts
     y_ts = data.y_ts
@@ -230,84 +214,44 @@ def data_train_gnn(
     # Model
     # ---------------------------------------------------------------------
 
-    model, start_epoch = init_training_model(
-        config,
-        data,
-        device,
-        log_dir,
-        best_model=best_model,
-        resume=resume,
-    )
+    model, start_epoch = init_training_model(config, data, device, log_dir, best_model=best_model, resume=resume)
 
     # ---------------------------------------------------------------------
     # Optimizer
     # ---------------------------------------------------------------------
 
-    optimizer, lr_scheduler, n_total_params = (
-        init_training_optimizer(
-            config,
-            model,
-        )
-    )
+    optimizer, lr_scheduler, n_total_params = init_training_optimizer(config, model)
 
     # ---------------------------------------------------------------------
     # Neuron IDs
     # ---------------------------------------------------------------------
 
-    ids = torch.arange(
-        n_neurons,
-        device=device,
-    )
+    ids = torch.arange(n_neurons, device=device)
 
-    hidden_ids, visible_ids, anchor_ids = (
-        init_hidden_neurons(
-            config,
-            model,
-            n_neurons,
-            log_dir,
-            device,
-        )
-    )
+    hidden_ids, visible_ids, anchor_ids = init_hidden_neurons(config, model, n_neurons, log_dir, device)
 
-    has_hidden_neurons = (
-        hidden_ids is not None
-    )
+    has_hidden_neurons = hidden_ids is not None
 
-    has_anchor_neurons = (
-        anchor_ids is not None
-    )
+    has_anchor_neurons = anchor_ids is not None
 
     # ---------------------------------------------------------------------
     # Regularizer
     # ---------------------------------------------------------------------
 
-    regularizer = init_training_regularizer(
-        config,
-        data,
-        device,
-    )
+    regularizer = init_training_regularizer(config, data, device)
 
     # =====================================================================
     # RUNTIME SETUP
     # =====================================================================
 
-    loss_components = {
-        "loss": []
-    }
+    loss_components = {"loss": []}
 
     list_loss_regul = []
 
     training_start_time = time.time()
 
-    (
-        metrics_log_path,
-        nnr_pearson_log_path,
-        frame_sampling,
-        profiler_trace_dir,
-    ) = init_training_runtime(
-        log_dir=log_dir,
-        sim=sim,
-        training=training,
+    (metrics_log_path, nnr_pearson_log_path, frame_sampling, profiler_trace_dir) = init_training_runtime(
+        log_dir=log_dir, sim=sim, training=training
     )
 
     _profiling = training.profiling
@@ -324,50 +268,20 @@ def data_train_gnn(
     # ---------------------------------------------------------------------
 
     if training.torch_compile:
+        _ckpt = bool(getattr(model, "grad_checkpoint", False))
 
-        _ckpt = bool(
-            getattr(
-                model,
-                "grad_checkpoint",
-                False,
-            )
-        )
+        _use_cudagraphs = not _ckpt and not training.deterministic
 
-        _use_cudagraphs = (
-            not _ckpt
-            and not training.deterministic
-        )
+        _mode = "reduce-overhead" if _use_cudagraphs else "default"
 
-        _mode = (
-            "reduce-overhead"
-            if _use_cudagraphs
-            else "default"
-        )
+        model = torch.compile(model, mode=_mode, fullgraph=not _ckpt)
 
-        model = torch.compile(
-            model,
-            mode=_mode,
-            fullgraph=not _ckpt,
-        )
+        _reg_mode = "reduce-overhead" if _use_cudagraphs else "default"
 
-        _reg_mode = (
-            "reduce-overhead"
-            if _use_cudagraphs
-            else "default"
-        )
+        regularizer.compute = torch.compile(regularizer.compute, mode=_reg_mode, fullgraph=True)
 
-        regularizer.compute = torch.compile(
-            regularizer.compute,
-            mode=_reg_mode,
-            fullgraph=True,
-        )
-
-        regularizer.compute_update_regul = (
-            torch.compile(
-                regularizer.compute_update_regul,
-                mode=_reg_mode,
-                fullgraph=True,
-            )
+        regularizer.compute_update_regul = torch.compile(
+            regularizer.compute_update_regul, mode=_reg_mode, fullgraph=True
         )
 
         logger.info(
@@ -379,42 +293,21 @@ def data_train_gnn(
         )
 
     else:
-
-        logger.info(
-            "torch.compile disabled via config "
-            "(torch_compile: false)"
-        )
+        logger.info("torch.compile disabled via config (torch_compile: false)")
 
     # =====================================================================
     # EPOCH LOOP
     # =====================================================================
 
-    for epoch in range(
-        start_epoch,
-        training.n_epochs,
-    ):
-
+    for epoch in range(start_epoch, training.n_epochs):
         # -----------------------------------------------------------------
         # Number of iterations
         # -----------------------------------------------------------------
 
-        Niter = int(
-            sim.n_frames
-            * training.data_augmentation_loop
-            // training.batch_size
-            * 0.2
-        )
+        Niter = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
 
         if training.max_iterations_per_epoch > 0:
-            Niter = min(
-                Niter,
-                training.max_iterations_per_epoch,
-            )
-
-        plot_frequency = max(
-            1,
-            Niter // 20,
-        )
+            Niter = min(Niter, training.max_iterations_per_epoch)
 
         print(
             f"every {max(1, Niter // 20)} iterations: "
@@ -442,136 +335,49 @@ def data_train_gnn(
             device=device,
         )
 
-        plot_frequency = (
-            epoch_state.plot_frequency
-        )
-
-        connectivity_plot_frequency = (
-            epoch_state.connectivity_plot_frequency
-        )
-
-        early_r2_frequency = (
-            epoch_state.early_r2_frequency
-        )
-
-        plot_iterations = (
-            epoch_state.plot_iterations
-        )
-
-        frame_indices = (
-            epoch_state.frame_indices
-        )
-
-        loss_noise_level = (
-            epoch_state.loss_noise_level
-        )
-
-        dale_enabled = (
-            epoch_state.dale_enabled
-        )
-
-        dale_checkpoints = (
-            epoch_state.dale_checkpoints
-        )
-
-        metrics = (
-            epoch_state.metrics
-        )
-
         # -----------------------------------------------------------------
         # Measurement-noise resampling
         # -----------------------------------------------------------------
 
-        if (
-            training.resample_noise_per_epoch
-            and sim.measurement_noise_level > 0
-            and x_ts.noise is not None
-        ):
-            noise_generator = (
-                torch.Generator(
-                    device=x_ts.noise.device
-                ).manual_seed(
-                    int(sim.seed) + int(epoch)
-                )
-            )
+        if training.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
+            noise_generator = torch.Generator(device=x_ts.noise.device).manual_seed(int(sim.seed) + int(epoch))
 
             x_ts.noise = (
                 torch.randn(
-                    x_ts.noise.shape,
-                    generator=noise_generator,
-                    dtype=x_ts.noise.dtype,
-                    device=x_ts.noise.device,
+                    x_ts.noise.shape, generator=noise_generator, dtype=x_ts.noise.dtype, device=x_ts.noise.device
                 )
                 * sim.measurement_noise_level
             )
 
-            _logger.info(
-                f"epoch {epoch}: "
-                f"resampled measurement noise "
-                f"(seed={int(sim.seed) + int(epoch)})"
-            )
+            _logger.info(f"epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})")
 
         # -----------------------------------------------------------------
         # Alternate training
         # -----------------------------------------------------------------
 
-        if (
-            training.alternate_training
-            and epoch >= 1
-        ):
-            phase_mult = (
-                training.alternate_lr_ratio
+        if training.alternate_training and epoch >= 1:
+            phase_mult = training.alternate_lr_ratio
+
+            optimizer, n_total_params = set_trainable_parameters(
+                model=model,
+                lr_embedding=(lr_embedding * phase_mult),
+                lr=(lr * phase_mult),
+                lr_update=(lr_update * phase_mult),
+                lr_W=(lr_W * phase_mult),
+                lr_NNR_f=lr_NNR_f,
             )
 
-            optimizer, n_total_params = (
-                set_trainable_parameters(
-                    model=model,
-                    lr_embedding=(
-                        lr_embedding
-                        * phase_mult
-                    ),
-                    lr=(
-                        lr
-                        * phase_mult
-                    ),
-                    lr_update=(
-                        lr_update
-                        * phase_mult
-                    ),
-                    lr_W=(
-                        lr_W
-                        * phase_mult
-                    ),
-                    lr_NNR_f=lr_NNR_f,
-                )
-            )
+            lr_scheduler = build_lr_scheduler(optimizer, config)
 
-            lr_scheduler = (
-                build_lr_scheduler(
-                    optimizer,
-                    config,
-                )
-            )
-
-            _logger.info(
-                "Phase 1 (SIREN focus): "
-                f"W/MLP LRs *= {phase_mult}, "
-                f"NNR_f LR = {lr_NNR_f}"
-            )
+            _logger.info(f"Phase 1 (SIREN focus): W/MLP LRs *= {phase_mult}, NNR_f LR = {lr_NNR_f}")
 
         # -----------------------------------------------------------------
         # NGP injection + LR-damping schedule
         # -----------------------------------------------------------------
 
-        ngp_schedule = (
-            init_ngp_schedule(
-                training,
-                Niter,
-            )
-        )
+        ngp_schedule = init_ngp_schedule(training, Niter)
 
         if ngp_schedule.warmup_iter > 0:
-
             print(
                 "NGP binary-inject schedule: "
                 f"warmup [0, "
@@ -582,7 +388,6 @@ def data_train_gnn(
             )
 
             if ngp_schedule.damping_active:
-
                 print(
                     "  LR-damping V on "
                     f"{ngp_schedule.damp_groups}: "
@@ -600,16 +405,10 @@ def data_train_gnn(
                 )
 
             else:
-
-                print(
-                    "  LR-damping V disabled."
-                )
+                print("  LR-damping V disabled.")
 
         # Base optimizer LRs.
-        base_lrs = {
-            id(param_group): param_group["base_lr"]
-            for param_group in optimizer.param_groups
-        }
+        base_lrs = {id(param_group): param_group["base_lr"] for param_group in optimizer.param_groups}
 
         previous_lr_multiplier = 1.0
         previous_injection_active = None
@@ -618,30 +417,13 @@ def data_train_gnn(
         # Profiling
         # -----------------------------------------------------------------
 
-        pbar = trange(
-            Niter,
-            ncols=150,
-        )
+        pbar = trange(Niter, ncols=150)
 
         if _profiling:
-
             profiler = torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA,
-                ],
-                schedule=torch.profiler.schedule(
-                    wait=3,
-                    warmup=2,
-                    active=3,
-                    repeat=1,
-                ),
-                on_trace_ready=(
-                    torch.profiler.tensorboard_trace_handler(
-                        _profiler_trace_dir,
-                        use_gzip=True,
-                    )
-                ),
+                activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(wait=3, warmup=2, active=3, repeat=1),
+                on_trace_ready=(torch.profiler.tensorboard_trace_handler(_profiler_trace_dir, use_gzip=True)),
                 record_shapes=True,
                 with_stack=True,
                 profile_memory=True,
@@ -654,187 +436,75 @@ def data_train_gnn(
         # =================================================================
 
         for N in pbar:
-
             # -------------------------------------------------------------
             # NGP injection state
             # -------------------------------------------------------------
 
-            injection_active = (
-                ngp_schedule.warmup_iter <= 0
-                or N >= ngp_schedule.warmup_iter
-            )
+            injection_active = ngp_schedule.warmup_iter <= 0 or N >= ngp_schedule.warmup_iter
 
             # -------------------------------------------------------------
             # NGP LR damping
             # -------------------------------------------------------------
 
             if ngp_schedule.damping_active:
-
-                if (
-                    N < ngp_schedule.warmup_iter
-                    or N >= ngp_schedule.ramp_end
-                ):
+                if N < ngp_schedule.warmup_iter or N >= ngp_schedule.ramp_end:
                     lr_multiplier = 1.0
 
                 elif N < ngp_schedule.ramp_mid:
+                    progress = float(N - ngp_schedule.warmup_iter) / float(ngp_schedule.ramp_iter)
 
-                    progress = (
-                        float(
-                            N
-                            - ngp_schedule.warmup_iter
-                        )
-                        / float(
-                            ngp_schedule.ramp_iter
-                        )
-                    )
-
-                    lr_multiplier = (
-                        1.0
-                        + (
-                            1.0
-                            / ngp_schedule.damping_factor
-                            - 1.0
-                        )
-                        * progress
-                    )
+                    lr_multiplier = 1.0 + (1.0 / ngp_schedule.damping_factor - 1.0) * progress
 
                 else:
-
-                    progress = (
-                        float(
-                            N
-                            - ngp_schedule.ramp_mid
-                        )
-                        / float(
-                            ngp_schedule.ramp_iter
-                        )
-                    )
+                    progress = float(N - ngp_schedule.ramp_mid) / float(ngp_schedule.ramp_iter)
 
                     lr_multiplier = (
-                        1.0
-                        / ngp_schedule.damping_factor
-                        + (
-                            1.0
-                            - 1.0
-                            / ngp_schedule.damping_factor
-                        )
-                        * progress
+                        1.0 / ngp_schedule.damping_factor + (1.0 - 1.0 / ngp_schedule.damping_factor) * progress
                     )
 
             else:
-
                 lr_multiplier = 1.0
 
-            if (
-                ngp_schedule.damping_active
-                and lr_multiplier
-                != previous_lr_multiplier
-            ):
-
+            if ngp_schedule.damping_active and lr_multiplier != previous_lr_multiplier:
                 for param_group in optimizer.param_groups:
+                    if param_group.get("name") in ngp_schedule.damp_groups:
+                        param_group["lr"] = base_lrs[id(param_group)] * lr_multiplier
 
-                    if (
-                        param_group.get("name")
-                        in ngp_schedule.damp_groups
-                    ):
-                        param_group["lr"] = (
-                            base_lrs[
-                                id(param_group)
-                            ]
-                            * lr_multiplier
-                        )
-
-                previous_lr_multiplier = (
-                    lr_multiplier
-                )
+                previous_lr_multiplier = lr_multiplier
 
             # -------------------------------------------------------------
             # NGP stage transitions
             # -------------------------------------------------------------
 
-            if (
-                ngp_schedule.warmup_iter > 0
-                and previous_injection_active is False
-                and injection_active
-            ):
-
+            if ngp_schedule.warmup_iter > 0 and previous_injection_active is False and injection_active:
                 if ngp_schedule.damping_active:
-
-                    print(
-                        f"\n[NGP inject] "
-                        f"iter {N}: "
-                        "phase 1 -> phase 2 "
-                        "(NGP hard-on; "
-                        "GNN-LR V-schedule starts)."
-                    )
+                    print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on; GNN-LR V-schedule starts).")
 
                 else:
+                    print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on).")
 
-                    print(
-                        f"\n[NGP inject] "
-                        f"iter {N}: "
-                        "phase 1 -> phase 2 "
-                        "(NGP hard-on)."
-                    )
+            elif ngp_schedule.damping_active and N == ngp_schedule.ramp_mid and ngp_schedule.warmup_iter > 0:
+                print(f"\n[NGP inject] iter {N}: LR damping -> recovery.")
 
-            elif (
-                ngp_schedule.damping_active
-                and N == ngp_schedule.ramp_mid
-                and ngp_schedule.warmup_iter > 0
-            ):
+            elif ngp_schedule.damping_active and N == ngp_schedule.ramp_end and ngp_schedule.warmup_iter > 0:
+                print(f"\n[NGP inject] iter {N}: GNN LR back to nominal.")
 
-                print(
-                    f"\n[NGP inject] "
-                    f"iter {N}: "
-                    "LR damping -> recovery."
-                )
-
-            elif (
-                ngp_schedule.damping_active
-                and N == ngp_schedule.ramp_end
-                and ngp_schedule.warmup_iter > 0
-            ):
-
-                print(
-                    f"\n[NGP inject] "
-                    f"iter {N}: "
-                    "GNN LR back to nominal."
-                )
-
-            previous_injection_active = (
-                injection_active
-            )
+            previous_injection_active = injection_active
 
             # -------------------------------------------------------------
             # Embedding unfreeze
             # -------------------------------------------------------------
 
-            if (
-                embedding_frozen
-                and N
-                == epoch_state.unfreeze_at_iteration
-            ):
-
+            if embedding_frozen and N == epoch_state.unfreeze_at_iteration:
                 embedding_frozen = False
 
-                lr_embedding = (
-                    training.lr_embedding
+                lr_embedding = training.lr_embedding
+
+                optimizer, n_total_params = set_trainable_parameters(
+                    model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W
                 )
 
-                optimizer, n_total_params = (
-                    set_trainable_parameters(
-                        model=model,
-                        lr_embedding=lr_embedding,
-                        lr=lr,
-                        lr_update=lr_update,
-                        lr_W=lr_W,
-                    )
-                )
-
-                _logger.debug(
-                    f"unfreezing embedding at "
-                    f"iteration {N}/{Niter}"
-                )
+                _logger.debug(f"unfreezing embedding at iteration {N}/{Niter}")
 
             optimizer.zero_grad()
 
@@ -842,216 +512,111 @@ def data_train_gnn(
             # RECURRENT TRAINING
             # =============================================================
 
-            if (
-                training.recurrent_training
-                and not training.neural_ODE_training
-            ):
-
-                loss, regul_val = (
-                    recurrent_loss(
-                        model=model,
-                        x_ts=x_ts,
-                        y_ts=y_ts,
-                        edges=edges,
-                        ids=visible_ids,
-                        frame_indices=frame_indices,
-                        iter_idx=N,
-                        config=config,
-                        device=device,
-                        xnorm=xnorm,
-                        ynorm=ynorm,
-                        regularizer=regularizer,
-                        has_visual_field=(
-                            train.has_visual_field
-                        ),
-                        hidden_ids=hidden_ids,
-                    )
+            if training.recurrent_training and not training.neural_ODE_training:
+                loss, regul_val = recurrent_loss(
+                    model=model,
+                    x_ts=x_ts,
+                    y_ts=y_ts,
+                    edges=edges,
+                    ids=visible_ids,
+                    frame_indices=epoch_state.frame_indices,
+                    iter_idx=N,
+                    config=config,
+                    device=device,
+                    xnorm=xnorm,
+                    ynorm=ynorm,
+                    regularizer=regularizer,
+                    has_visual_field=(train.has_visual_field),
+                    hidden_ids=hidden_ids,
                 )
 
                 loss.backward()
 
                 if (
-                    hasattr(
-                        training,
-                        "grad_clip_W",
-                    )
+                    hasattr(training, "grad_clip_W")
                     and training.grad_clip_W > 0
                     and hasattr(model, "W")
                     and model.W.grad is not None
                 ):
-                    torch.nn.utils.clip_grad_norm_(
-                        [model.W],
-                        max_norm=(
-                            training.grad_clip_W
-                        ),
-                    )
+                    torch.nn.utils.clip_grad_norm_([model.W], max_norm=(training.grad_clip_W))
 
                 optimizer.step()
 
-                if (
-                    dale_enabled
-                    and N in dale_checkpoints
-                ):
-                    enforce_dale_law(
-                        model,
-                        edges,
-                    )
+                if epoch_state.dale_enabled and N in epoch_state.dale_checkpoints:
+                    enforce_dale_law(model, edges)
 
                 lr_scheduler.step()
 
-                _total_loss_gpu = (
-                    _total_loss_gpu
-                    + loss.detach()
-                )
+                _total_loss_gpu = _total_loss_gpu + loss.detach()
 
-                total_loss_regul += (
-                    regul_val
-                )
+                total_loss_regul += regul_val
 
                 regularizer.finalize_iteration()
 
                 if regularizer.should_record():
+                    current_loss = loss.item()
 
-                    current_loss = (
-                        loss.item()
-                    )
+                    loss_components["loss"].append((current_loss - regul_val) / n_neurons)
 
-                    loss_components[
-                        "loss"
-                    ].append(
-                        (
-                            current_loss
-                            - regul_val
-                        )
-                        / n_neurons
-                    )
-
-                    plot_dict = {
-                        **regularizer.get_history(),
-                        "loss": (
-                            loss_components[
-                                "loss"
-                            ]
-                        ),
-                    }
+                    plot_dict = {**regularizer.get_history(), "loss": (loss_components["loss"])}
 
                     plot_signal_loss(
-                        plot_dict,
-                        log_dir,
-                        epoch=epoch,
-                        Niter=Niter,
-                        epoch_boundaries=(
-                            regularizer
-                            .epoch_boundaries
-                        ),
+                        plot_dict, log_dir, epoch=epoch, Niter=Niter, epoch_boundaries=(regularizer.epoch_boundaries)
                     )
 
-                is_regular_r2 = (
-                    N % connectivity_plot_frequency
-                    == 0
-                )
+                is_regular_r2 = N % epoch_state.connectivity_plot_frequency == 0
 
-                is_early_r2 = (
-                    N < connectivity_plot_frequency
-                    and N % early_r2_frequency == 0
-                )
+                is_early_r2 = N < epoch_state.connectivity_plot_frequency and N % epoch_state.early_r2_frequency == 0
 
                 if is_regular_r2 and N > 0:
-
                     intermediate_path = os.path.join(
-                        log_dir,
-                        "models",
-                        f"best_model_with_"
-                        f"{training.n_runs - 1}"
-                        f"_graphs_{epoch}.pt",
+                        log_dir, "models", f"best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt"
                     )
 
-                    os.makedirs(
-                        os.path.dirname(
-                            intermediate_path
-                        ),
-                        exist_ok=True,
-                    )
+                    os.makedirs(os.path.dirname(intermediate_path), exist_ok=True)
 
                     torch.save(
-                        {
-                            "model_state_dict":
-                                model.state_dict(),
-                            "optimizer_state_dict":
-                                optimizer.state_dict(),
-                        },
+                        {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
                         intermediate_path,
                     )
 
-                if (
-                    is_regular_r2
-                    or is_early_r2
-                ) and model_family(model) == "linear":
-
+                if (is_regular_r2 or is_early_r2) and model_family(model) == "linear":
                     (
-                        metrics.connectivity_r2,
-                        metrics.tau_r2,
-                        metrics.vrest_r2,
+                        epoch_state.metrics.connectivity_r2,
+                        epoch_state.metrics.tau_r2,
+                        epoch_state.metrics.vrest_r2,
                         dynamics,
-                    ) = plot_training_linear(
-                        model,
-                        config,
-                        epoch,
-                        N,
-                        log_dir,
-                        device,
-                        gt_weights,
-                        n_neurons=n_neurons,
-                    )
+                    ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
 
-                    metrics.vrest_r2_clean = (
-                        dynamics["vrest_r2_clean"]
-                    )
-                    metrics.tau_r2_clean = (
-                        dynamics["tau_r2_clean"]
-                    )
-                    metrics.n_out_vrest = (
-                        dynamics["n_out_vrest"]
-                    )
-                    metrics.n_total_vrest = (
-                        dynamics["n_total_vrest"]
-                    )
-                    metrics.n_out_tau = (
-                        dynamics["n_out_tau"]
-                    )
-                    metrics.n_total_tau = (
-                        dynamics["n_total_tau"]
-                    )
+                    epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
+                    epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
+                    epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
+                    epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
+                    epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
+                    epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
 
-                    with open(
-                        metrics_log_path,
-                        "a",
-                    ) as f:
+                    with open(metrics_log_path, "a") as f:
                         f.write(
                             f"{regularizer.iter_count},"
-                            f"{metrics.connectivity_r2:.6f},"
-                            f"{metrics.vrest_r2:.6f},"
-                            f"{metrics.tau_r2:.6f},"
-                            f"{format_metric(metrics.hidden_r2)},"
-                            f"{format_metric(metrics.anchor_r2)},"
-                            f"{format_metric(metrics.vrest_r2_clean)},"
-                            f"{metrics.n_out_vrest},"
-                            f"{metrics.n_total_vrest},"
-                            f"{format_metric(metrics.tau_r2_clean)},"
-                            f"{metrics.n_out_tau},"
-                            f"{metrics.n_total_tau}\n"
+                            f"{epoch_state.metrics.connectivity_r2:.6f},"
+                            f"{epoch_state.metrics.vrest_r2:.6f},"
+                            f"{epoch_state.metrics.tau_r2:.6f},"
+                            f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                            f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                            f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_vrest},"
+                            f"{epoch_state.metrics.n_total_vrest},"
+                            f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_tau},"
+                            f"{epoch_state.metrics.n_total_tau}\n"
                         )
 
                     metrics_changed = True
 
-                elif (
-                    is_regular_r2
-                    or is_early_r2
-                ) and model_family(model) == "gnn":
-
+                elif (is_regular_r2 or is_early_r2) and model_family(model) == "gnn":
                     (
-                        metrics.connectivity_r2,
-                        metrics.connectivity_r2_visible,
+                        epoch_state.metrics.connectivity_r2,
+                        epoch_state.metrics.connectivity_r2_visible,
                         hidden_r2,
                         anchor_r2,
                     ) = plot_training_gnn(
@@ -1066,82 +631,48 @@ def data_train_gnn(
                         gt_weights,
                         edges,
                         n_neurons=n_neurons,
-                        n_neuron_types=(
-                            sim.n_neuron_types
-                        ),
+                        n_neuron_types=(sim.n_neuron_types),
                         ode_params=ode_params,
                         hidden_ids=hidden_ids,
                         anchor_ids=anchor_ids,
                     )
 
                     if hidden_r2 is not None:
-                        metrics.hidden_r2 = (
-                            hidden_r2
-                        )
+                        epoch_state.metrics.hidden_r2 = hidden_r2
 
                     if anchor_r2 is not None:
-                        metrics.anchor_r2 = (
-                            anchor_r2
-                        )
+                        epoch_state.metrics.anchor_r2 = anchor_r2
 
-                    dynamics = (
-                        compute_dynamics_r2(
-                            model,
-                            x_ts,
-                            config,
-                            device,
-                            n_neurons,
-                        )
-                    )
+                    dynamics = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
 
-                    metrics.vrest_r2 = (
-                        dynamics["vrest_r2"]
-                    )
-                    metrics.tau_r2 = (
-                        dynamics["tau_r2"]
-                    )
-                    metrics.vrest_r2_clean = (
-                        dynamics["vrest_r2_clean"]
-                    )
-                    metrics.tau_r2_clean = (
-                        dynamics["tau_r2_clean"]
-                    )
-                    metrics.n_out_vrest = (
-                        dynamics["n_out_vrest"]
-                    )
-                    metrics.n_total_vrest = (
-                        dynamics["n_total_vrest"]
-                    )
-                    metrics.n_out_tau = (
-                        dynamics["n_out_tau"]
-                    )
-                    metrics.n_total_tau = (
-                        dynamics["n_total_tau"]
-                    )
+                    epoch_state.metrics.vrest_r2 = dynamics["vrest_r2"]
+                    epoch_state.metrics.tau_r2 = dynamics["tau_r2"]
+                    epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
+                    epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
+                    epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
+                    epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
+                    epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
+                    epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
 
-                    with open(
-                        metrics_log_path,
-                        "a",
-                    ) as f:
+                    with open(metrics_log_path, "a") as f:
                         f.write(
                             f"{regularizer.iter_count},"
-                            f"{format_metric(metrics.connectivity_r2)},"
-                            f"{format_metric(metrics.vrest_r2)},"
-                            f"{format_metric(metrics.tau_r2)},"
-                            f"{format_metric(metrics.hidden_r2)},"
-                            f"{format_metric(metrics.anchor_r2)},"
-                            f"{format_metric(metrics.vrest_r2_clean)},"
-                            f"{metrics.n_out_vrest},"
-                            f"{metrics.n_total_vrest},"
-                            f"{format_metric(metrics.tau_r2_clean)},"
-                            f"{metrics.n_out_tau},"
-                            f"{metrics.n_total_tau}\n"
+                            f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                            f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                            f"{format_metric(epoch_state.metrics.tau_r2)},"
+                            f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                            f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                            f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_vrest},"
+                            f"{epoch_state.metrics.n_total_vrest},"
+                            f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_tau},"
+                            f"{epoch_state.metrics.n_total_tau}\n"
                         )
 
                     metrics_changed = True
 
                 else:
-
                     metrics_changed = False
 
                 # ---------------------------------------------------------
@@ -1154,249 +685,136 @@ def data_train_gnn(
 
                 if (
                     has_hidden_neurons
-                    and getattr(
-                        model,
-                        "NNR_hidden",
-                        None,
-                    ) is not None
+                    and getattr(model, "NNR_hidden", None) is not None
                     and N > 0
                     and N % _NGP_QUICK_FREQ == 0
                 ):
-
-                    hidden_quick, hidden_quick_std = (
-                        _quick_ngp_pearson(
-                            model,
-                            x_ts,
-                            hidden_ids,
-                            use_anchor=False,
-                            device=device,
-                            return_stats=True,
-                        )
+                    hidden_quick, hidden_quick_std = _quick_ngp_pearson(
+                        model, x_ts, hidden_ids, use_anchor=False, device=device, return_stats=True
                     )
 
                     if hidden_quick is not None:
-
-                        metrics.hidden_r2 = (
-                            hidden_quick
-                        )
+                        epoch_state.metrics.hidden_r2 = hidden_quick
 
                         ngp_quick_updated = True
 
                     if has_anchor_neurons:
-
-                        anchor_quick, anchor_quick_std = (
-                            _quick_ngp_pearson(
-                                model,
-                                x_ts,
-                                anchor_ids,
-                                use_anchor=True,
-                                device=device,
-                                return_stats=True,
-                            )
+                        anchor_quick, anchor_quick_std = _quick_ngp_pearson(
+                            model, x_ts, anchor_ids, use_anchor=True, device=device, return_stats=True
                         )
 
                         if anchor_quick is not None:
-
-                            metrics.anchor_r2 = (
-                                anchor_quick
-                            )
+                            epoch_state.metrics.anchor_r2 = anchor_quick
 
                             ngp_quick_updated = True
 
                 if ngp_quick_updated:
-
-                    with open(
-                        metrics_log_path,
-                        "a",
-                    ) as f:
-
+                    with open(metrics_log_path, "a") as f:
                         f.write(
                             f"{regularizer.iter_count},"
-                            f"{format_metric(metrics.connectivity_r2)},"
-                            f"{format_metric(metrics.vrest_r2)},"
-                            f"{format_metric(metrics.tau_r2)},"
-                            f"{format_metric(metrics.hidden_r2)},"
-                            f"{format_metric(metrics.anchor_r2)},"
-                            f"{format_metric(metrics.vrest_r2_clean)},"
-                            f"{metrics.n_out_vrest},"
-                            f"{metrics.n_total_vrest},"
-                            f"{format_metric(metrics.tau_r2_clean)},"
-                            f"{metrics.n_out_tau},"
-                            f"{metrics.n_total_tau}\n"
+                            f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                            f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                            f"{format_metric(epoch_state.metrics.tau_r2)},"
+                            f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                            f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                            f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_vrest},"
+                            f"{epoch_state.metrics.n_total_vrest},"
+                            f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                            f"{epoch_state.metrics.n_out_tau},"
+                            f"{epoch_state.metrics.n_total_tau}\n"
                         )
 
-                    with open(
-                        nnr_pearson_log_path,
-                        "a",
-                    ) as f:
-
+                    with open(nnr_pearson_log_path, "a") as f:
                         f.write(
                             f"{regularizer.iter_count},"
-                            f"{format_metric(metrics.hidden_r2)},"
+                            f"{format_metric(epoch_state.metrics.hidden_r2)},"
                             f"{format_metric(hidden_quick_std)},"
-                            f"{format_metric(metrics.anchor_r2)},"
+                            f"{format_metric(epoch_state.metrics.anchor_r2)},"
                             f"{format_metric(anchor_quick_std)}\n"
                         )
 
                     metrics_changed = True
 
                 if metrics_changed:
-
                     plot_metrics(
-                        log_dir,
-                        epoch_boundaries=(
-                            regularizer
-                            .epoch_boundaries
-                        ),
-                        ngp_stages=(
-                            ngp_schedule.stages
-                        ),
+                        log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(ngp_schedule.stages)
                     )
 
                 # ---------------------------------------------------------
                 # Progress bar
                 # ---------------------------------------------------------
 
-                if (
-                    metrics.connectivity_r2
-                    is not None
-                    or metrics.hidden_r2
-                    is not None
-                ):
-
+                if epoch_state.metrics.connectivity_r2 is not None or epoch_state.metrics.hidden_r2 is not None:
                     bar_parts = []
 
-                    if (
-                        metrics.connectivity_r2
-                        is not None
-                    ):
-
-                        conn_color = r2_color(
-                            metrics.connectivity_r2
-                        )
+                    if epoch_state.metrics.connectivity_r2 is not None:
+                        conn_color = r2_color(epoch_state.metrics.connectivity_r2)
 
                         if (
-                            metrics.connectivity_r2_visible
-                            is not None
-                            and abs(
-                                metrics.connectivity_r2_visible
-                                - metrics.connectivity_r2
-                            ) > 1e-4
+                            epoch_state.metrics.connectivity_r2_visible is not None
+                            and abs(epoch_state.metrics.connectivity_r2_visible - epoch_state.metrics.connectivity_r2)
+                            > 1e-4
                         ):
-
-                            conn_string = (
-                                f"conn="
-                                f"{metrics.connectivity_r2:.3f}"
-                                f"("
-                                f"{metrics.connectivity_r2_visible:.3f}"
-                                f")"
-                            )
+                            conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}({epoch_state.metrics.connectivity_r2_visible:.3f})"
 
                         else:
+                            conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}"
 
-                            conn_string = (
-                                f"conn="
-                                f"{metrics.connectivity_r2:.3f}"
-                            )
-
-                        bar_parts.append(
-                            f"{conn_color}"
-                            f"{conn_string}"
-                            f"{ANSI_RESET}"
-                        )
+                        bar_parts.append(f"{conn_color}{conn_string}{ANSI_RESET}")
 
                         if ode_params.has_vrest():
-
                             vr_pct = (
-                                100.0
-                                * metrics.n_out_vrest
-                                / metrics.n_total_vrest
-                                if metrics.n_total_vrest > 0
+                                100.0 * epoch_state.metrics.n_out_vrest / epoch_state.metrics.n_total_vrest
+                                if epoch_state.metrics.n_total_vrest > 0
                                 else 0.0
                             )
 
                             bar_parts.append(
-                                f"{r2_color(metrics.vrest_r2_clean)}"
+                                f"{r2_color(epoch_state.metrics.vrest_r2_clean)}"
                                 f"Vr="
-                                f"{fmt_r2_bar(metrics.vrest_r2_clean)}"
+                                f"{fmt_r2_bar(epoch_state.metrics.vrest_r2_clean)}"
                                 f"({vr_pct:.0f}%)"
                                 f"{ANSI_RESET}"
                             )
 
                         if ode_params.has_tau():
-
                             tau_pct = (
-                                100.0
-                                * metrics.n_out_tau
-                                / metrics.n_total_tau
-                                if metrics.n_total_tau > 0
+                                100.0 * epoch_state.metrics.n_out_tau / epoch_state.metrics.n_total_tau
+                                if epoch_state.metrics.n_total_tau > 0
                                 else 0.0
                             )
 
                             bar_parts.append(
-                                f"{r2_color(metrics.tau_r2_clean)}"
+                                f"{r2_color(epoch_state.metrics.tau_r2_clean)}"
                                 f"τ="
-                                f"{fmt_r2_bar(metrics.tau_r2_clean)}"
+                                f"{fmt_r2_bar(epoch_state.metrics.tau_r2_clean)}"
                                 f"({tau_pct:.0f}%)"
                                 f"{ANSI_RESET}"
                             )
 
-                    if (
-                        metrics.hidden_r2
-                        is not None
-                        or metrics.anchor_r2
-                        is not None
-                    ):
-
+                    if epoch_state.metrics.hidden_r2 is not None or epoch_state.metrics.anchor_r2 is not None:
                         if not injection_active:
-
-                            if (
-                                metrics.anchor_r2
-                                is not None
-                            ):
-                                nnr_string = (
-                                    f"nnr=n/a"
-                                    f"({metrics.anchor_r2:.3f})"
-                                )
+                            if epoch_state.metrics.anchor_r2 is not None:
+                                nnr_string = f"nnr=n/a({epoch_state.metrics.anchor_r2:.3f})"
                             else:
                                 nnr_string = "nnr=n/a"
 
-                            bar_parts.append(
-                                nnr_string
-                            )
+                            bar_parts.append(nnr_string)
 
-                        elif metrics.hidden_r2 is not None:
-
-                            if (
-                                metrics.anchor_r2
-                                is not None
-                            ):
-
+                        elif epoch_state.metrics.hidden_r2 is not None:
+                            if epoch_state.metrics.anchor_r2 is not None:
                                 nnr_string = (
-                                    f"nnr="
-                                    f"{metrics.hidden_r2:.3f}"
-                                    f"("
-                                    f"{metrics.anchor_r2:.3f}"
-                                    f")"
+                                    f"nnr={epoch_state.metrics.hidden_r2:.3f}({epoch_state.metrics.anchor_r2:.3f})"
                                 )
 
                             else:
+                                nnr_string = f"nnr={epoch_state.metrics.hidden_r2:.3f}"
 
-                                nnr_string = (
-                                    f"nnr="
-                                    f"{metrics.hidden_r2:.3f}"
-                                )
-
-                            bar_parts.append(
-                                f"{r2_color(metrics.hidden_r2)}"
-                                f"{nnr_string}"
-                                f"{ANSI_RESET}"
-                            )
+                            bar_parts.append(f"{r2_color(epoch_state.metrics.hidden_r2)}{nnr_string}{ANSI_RESET}")
 
                     if bar_parts:
-                        pbar.set_postfix_str(
-                            " ".join(bar_parts)
-                        )
+                        pbar.set_postfix_str(" ".join(bar_parts))
 
                 continue
 
@@ -1412,46 +830,23 @@ def data_train_gnn(
 
             ids_index = 0
 
-            loss = torch.zeros(
-                (),
-                device=device,
-            )
+            loss = torch.zeros((), device=device)
 
-            regularizer.reset_iteration(
-                device=device
-            )
+            regularizer.reset_iteration(device=device)
 
             # -------------------------------------------------------------
             # Consecutive batch
             # -------------------------------------------------------------
 
             if training.consecutive_batch:
+                k_start = int(epoch_state.frame_indices[N * training.batch_size])
 
-                k_start = int(
-                    frame_indices[
-                        N * training.batch_size
-                    ]
-                )
-
-            for batch in range(
-                training.batch_size
-            ):
-
+            for batch in range(training.batch_size):
                 if training.consecutive_batch:
-
-                    k = (
-                        k_start
-                        + batch
-                    )
+                    k = k_start + batch
 
                 else:
-
-                    k = int(
-                        frame_indices[
-                            N * training.batch_size
-                            + batch
-                        ]
-                    )
+                    k = int(epoch_state.frame_indices[N * training.batch_size + batch])
 
                 x = x_ts.frame(k)
 
@@ -1459,43 +854,22 @@ def data_train_gnn(
                 # Measurement noise
                 # ---------------------------------------------------------
 
-                if (
-                    x.noise is not None
-                    and sim.measurement_noise_level > 0
-                ):
-                    x.voltage = (
-                        x.voltage
-                        + x.noise
-                    )
+                if x.noise is not None and sim.measurement_noise_level > 0:
+                    x.voltage = x.voltage + x.noise
 
                 # ---------------------------------------------------------
                 # Hidden neurons
                 # ---------------------------------------------------------
 
                 if has_hidden_neurons:
-
-                    _inject_hidden_voltage(
-                        model,
-                        x,
-                        k,
-                        hidden_ids,
-                        injection_active,
-                    )
+                    _inject_hidden_voltage(model, x, k, hidden_ids, injection_active)
 
                 # ---------------------------------------------------------
                 # Temporal window
                 # ---------------------------------------------------------
 
                 if training.time_window > 0:
-
-                    x_temporal = (
-                        x_ts.voltage[
-                            k
-                            - training.time_window
-                            + 1:
-                            k + 1
-                        ].T
-                    )
+                    x_temporal = x_ts.voltage[k - training.time_window + 1 : k + 1].T
 
                     # x stays as NeuronState;
                     # x_temporal is passed separately if needed.
@@ -1505,100 +879,47 @@ def data_train_gnn(
                 # ---------------------------------------------------------
 
                 if train.has_visual_field:
+                    visual_input = model.forward_visual(x, k)
 
-                    visual_input = (
-                        model.forward_visual(
-                            x,
-                            k,
-                        )
-                    )
+                    x.stimulus[: model.n_input_neurons] = visual_input.squeeze(-1)
 
-                    x.stimulus[
-                        :model.n_input_neurons
-                    ] = (
-                        visual_input.squeeze(-1)
-                    )
-
-                    x.stimulus[
-                        model.n_input_neurons:
-                    ] = 0
+                    x.stimulus[model.n_input_neurons :] = 0
 
                 # ---------------------------------------------------------
                 # Regularization
                 # ---------------------------------------------------------
 
                 if batch == 0:
-
-                    regul_loss = (
-                        regularizer.compute(
-                            model=model,
-                            x=x,
-                            in_features=None,
-                            ids=ids,
-                            ids_batch=None,
-                            edges=edges,
-                            device=device,
-                            xnorm=xnorm,
-                        )
+                    regul_loss = regularizer.compute(
+                        model=model,
+                        x=x,
+                        in_features=None,
+                        ids=ids,
+                        ids_batch=None,
+                        edges=edges,
+                        device=device,
+                        xnorm=xnorm,
                     )
 
-                    loss = (
-                        loss
-                        + regul_loss
-                    )
+                    loss = loss + regul_loss
 
                 # ---------------------------------------------------------
                 # Target
                 # ---------------------------------------------------------
 
-                if (
-                    training.recurrent_training
-                    or training.neural_ODE_training
-                ):
+                if training.recurrent_training or training.neural_ODE_training:
+                    target_frame = k + 1 if (_stride_subsample) else (k + training.time_step)
 
-                    target_frame = (
-                        k + 1
-                        if (
-                            _stride_subsample
-                        )
-                        else (
-                            k
-                            + training.time_step
-                        )
-                    )
-
-                    y = (
-                        x_ts.voltage[
-                            target_frame
-                        ].unsqueeze(-1)
-                    )
+                    y = x_ts.voltage[target_frame].unsqueeze(-1)
 
                 elif train.test_neural_field:
-
-                    y = (
-                        x_ts.stimulus[
-                            k,
-                            :sim.n_input_neurons
-                        ].unsqueeze(-1)
-                    )
+                    y = x_ts.stimulus[k, : sim.n_input_neurons].unsqueeze(-1)
 
                 else:
+                    y = y_ts_gpu[k] / ynorm
 
-                    y = (
-                        y_ts_gpu[k]
-                        / ynorm
-                    )
-
-                if loss_noise_level > 0:
-
-                    y = (
-                        y
-                        + torch.randn(
-                            y.shape,
-                            device=device,
-                        )
-                        * loss_noise_level
-                    )
+                if epoch_state.loss_noise_level > 0:
+                    y = y + torch.randn(y.shape, device=device) * epoch_state.loss_noise_level
 
                 # ---------------------------------------------------------
                 # Accumulate batch
@@ -1610,25 +931,12 @@ def data_train_gnn(
 
                 y_list.append(y)
 
-                ids_list.append(
-                    visible_ids
-                    + ids_index
-                )
+                ids_list.append(visible_ids + ids_index)
 
-                k_list.append(
-                    torch.ones(
-                        (n, 1),
-                        dtype=torch.int,
-                        device=device,
-                    )
-                    * k
-                )
+                k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
 
                 if train.test_neural_field:
-
-                    visual_input_list.append(
-                        visual_input
-                    )
+                    visual_input_list.append(visual_input)
 
                 ids_index += n
 
@@ -1636,375 +944,152 @@ def data_train_gnn(
             # Batch assembly
             # -----------------------------------------------------------------
 
-            data_id = torch.zeros(
-                (ids_index, 1),
-                dtype=torch.int,
-                device=device,
-            )
+            data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
 
-            y_batch = torch.cat(
-                y_list,
-                dim=0,
-            )
+            y_batch = torch.cat(y_list, dim=0)
 
-            ids_batch = torch.cat(
-                ids_list,
-                dim=0,
-            )
+            ids_batch = torch.cat(ids_list, dim=0)
 
-            k_batch = torch.cat(
-                k_list,
-                dim=0,
-            )
+            k_batch = torch.cat(k_list, dim=0)
 
-            epoch_state.total_regul_gpu = (
-                epoch_state.total_regul_gpu
-                + loss.detach()
-            )
+            epoch_state.total_regul_gpu = epoch_state.total_regul_gpu + loss.detach()
 
             # -----------------------------------------------------------------
             # Visual-field testing
             # -----------------------------------------------------------------
 
             if train.test_neural_field:
+                visual_input_batch = torch.cat(visual_input_list, dim=0)
 
-                visual_input_batch = (
-                    torch.cat(
-                        visual_input_list,
-                        dim=0,
-                    )
-                )
-
-                loss = (
-                    loss
-                    + (
-                        visual_input_batch
-                        - y_batch
-                    ).norm(2)
-                )
+                loss = loss + (visual_input_batch - y_batch).norm(2)
 
             # -----------------------------------------------------------------
             # MLP ODE
             # -----------------------------------------------------------------
 
-            elif (
-                "mlp_ode"
-                in model_config.signal_model_name.lower()
-            ):
+            elif "mlp_ode" in model_config.signal_model_name.lower():
+                batched_state, _ = _batch_frames(state_batch, edges)
 
-                batched_state, _ = (
-                    _batch_frames(
-                        state_batch,
-                        edges,
-                    )
-                )
+                batched_x = batched_state.to_packed()
 
-                batched_x = (
-                    batched_state.to_packed()
-                )
+                pred = model(batched_x, data_id=data_id, return_all=False)
 
-                pred = model(
-                    batched_x,
-                    data_id=data_id,
-                    return_all=False,
-                )
-
-                loss = (
-                    loss
-                    + (
-                        pred[ids_batch]
-                        - y_batch[ids_batch]
-                    ).norm(2)
-                )
+                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
             # -----------------------------------------------------------------
             # MLP
             # -----------------------------------------------------------------
 
-            elif (
-                "mlp"
-                in model_config.signal_model_name.lower()
-            ):
+            elif "mlp" in model_config.signal_model_name.lower():
+                batched_state, _ = _batch_frames(state_batch, edges)
 
-                batched_state, _ = (
-                    _batch_frames(
-                        state_batch,
-                        edges,
-                    )
-                )
+                pred = model(batched_state, data_id=data_id, return_all=False)
 
-                pred = model(
-                    batched_state,
-                    data_id=data_id,
-                    return_all=False,
-                )
-
-                loss = (
-                    loss
-                    + (
-                        pred[ids_batch]
-                        - y_batch[ids_batch]
-                    ).norm(2)
-                )
+                loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
             # -----------------------------------------------------------------
             # GNN
             # -----------------------------------------------------------------
 
             else:
+                batched_state, batched_edges = _batch_frames(state_batch, edges)
 
-                batched_state, batched_edges = (
-                    _batch_frames(
-                        state_batch,
-                        edges,
-                    )
-                )
+                (pred, in_features, msg) = model(batched_state, batched_edges, data_id=data_id, return_all=True)
 
-                (
-                    pred,
-                    in_features,
-                    msg,
-                ) = model(
-                    batched_state,
-                    batched_edges,
-                    data_id=data_id,
-                    return_all=True,
-                )
+                update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
 
-                update_regul = (
-                    regularizer.compute_update_regul(
-                        model,
-                        in_features,
-                        ids_batch,
-                        device,
-                    )
-                )
-
-                loss = (
-                    loss
-                    + update_regul
-                )
+                loss = loss + update_regul
 
                 # -------------------------------------------------------------
                 # Neural ODE
                 # -------------------------------------------------------------
 
                 if training.neural_ODE_training:
+                    ode_state_clamp = getattr(training, "ode_state_clamp", 10.0)
 
-                    ode_state_clamp = (
-                        getattr(
-                            training,
-                            "ode_state_clamp",
-                            10.0,
-                        )
+                    ode_stab_lambda = getattr(training, "ode_stab_lambda", 0.0)
+
+                    ode_loss, pred_x = neural_ode_loss(
+                        model=model,
+                        dataset_batch=state_batch,
+                        edge_index=edges,
+                        x_ts=x_ts,
+                        k_batch=k_batch,
+                        time_step=training.time_step,
+                        batch_size=training.batch_size,
+                        n_neurons=n_neurons,
+                        ids_batch=ids_batch,
+                        delta_t=sim.delta_t,
+                        device=device,
+                        data_id=data_id,
+                        has_visual_field=(train.has_visual_field),
+                        y_batch=y_batch,
+                        noise_level=(training.noise_recurrent_level),
+                        ode_method=training.ode_method,
+                        rtol=training.ode_rtol,
+                        atol=training.ode_atol,
+                        adjoint=training.ode_adjoint,
+                        iteration=N,
+                        state_clamp=(ode_state_clamp),
+                        stab_lambda=(ode_stab_lambda),
                     )
 
-                    ode_stab_lambda = (
-                        getattr(
-                            training,
-                            "ode_stab_lambda",
-                            0.0,
-                        )
-                    )
-
-                    ode_loss, pred_x = (
-                        neural_ode_loss(
-                            model=model,
-                            dataset_batch=state_batch,
-                            edge_index=edges,
-                            x_ts=x_ts,
-                            k_batch=k_batch,
-                            time_step=training.time_step,
-                            batch_size=training.batch_size,
-                            n_neurons=n_neurons,
-                            ids_batch=ids_batch,
-                            delta_t=sim.delta_t,
-                            device=device,
-                            data_id=data_id,
-                            has_visual_field=(
-                                train.has_visual_field
-                            ),
-                            y_batch=y_batch,
-                            noise_level=(
-                                training.noise_recurrent_level
-                            ),
-                            ode_method=training.ode_method,
-                            rtol=training.ode_rtol,
-                            atol=training.ode_atol,
-                            adjoint=training.ode_adjoint,
-                            iteration=N,
-                            state_clamp=(
-                                ode_state_clamp
-                            ),
-                            stab_lambda=(
-                                ode_stab_lambda
-                            ),
-                        )
-                    )
-
-                    loss = (
-                        loss
-                        + ode_loss
-                    )
+                    loss = loss + ode_loss
 
                 # -------------------------------------------------------------
                 # Recurrent GNN
                 # -------------------------------------------------------------
 
                 elif training.recurrent_training:
-
                     pred_x = (
                         batched_state.voltage.unsqueeze(-1)
-                        + sim.delta_t
-                        * pred
-                        + training.noise_recurrent_level
-                        * torch.randn_like(pred)
+                        + sim.delta_t * pred
+                        + training.noise_recurrent_level * torch.randn_like(pred)
                     )
 
                     if training.time_step > 1:
+                        for step in range(training.time_step - 1):
+                            neurons_per_sample = state_batch[0].n_neurons
 
-                        for step in range(
-                            training.time_step - 1
-                        ):
+                            for b in range(training.batch_size):
+                                start_idx = b * neurons_per_sample
 
-                            neurons_per_sample = (
-                                state_batch[0].n_neurons
-                            )
+                                end_idx = (b + 1) * neurons_per_sample
 
-                            for b in range(
-                                training.batch_size
-                            ):
-
-                                start_idx = (
-                                    b
-                                    * neurons_per_sample
-                                )
-
-                                end_idx = (
-                                    (b + 1)
-                                    * neurons_per_sample
-                                )
-
-                                state_batch[b].voltage = (
-                                    pred_x[
-                                        start_idx:end_idx
-                                    ].squeeze()
-                                )
+                                state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
 
                                 if has_hidden_neurons:
+                                    state_batch[b].voltage[hidden_ids] = 0.0
 
-                                    state_batch[
-                                        b
-                                    ].voltage[
-                                        hidden_ids
-                                    ] = 0.0
+                                k_current = k_batch[start_idx, 0].item() + step + 1
 
-                                k_current = (
-                                    k_batch[
-                                        start_idx,
-                                        0,
-                                    ].item()
-                                    + step
-                                    + 1
-                                )
+                                if train.has_visual_field:
+                                    visual_input_next = model.forward_visual(state_batch[b], k_current)
 
-                                if (
-                                    train.has_visual_field
-                                ):
+                                    state_batch[b].stimulus[: model.n_input_neurons] = visual_input_next.squeeze(-1)
 
-                                    visual_input_next = (
-                                        model.forward_visual(
-                                            state_batch[b],
-                                            k_current,
-                                        )
-                                    )
-
-                                    state_batch[
-                                        b
-                                    ].stimulus[
-                                        :model.n_input_neurons
-                                    ] = (
-                                        visual_input_next
-                                        .squeeze(-1)
-                                    )
-
-                                    state_batch[
-                                        b
-                                    ].stimulus[
-                                        model.n_input_neurons:
-                                    ] = 0
+                                    state_batch[b].stimulus[model.n_input_neurons :] = 0
 
                                 else:
+                                    x_next = x_ts.frame(k_current)
 
-                                    x_next = (
-                                        x_ts.frame(
-                                            k_current
-                                        )
-                                    )
+                                    state_batch[b].stimulus = x_next.stimulus
 
-                                    state_batch[
-                                        b
-                                    ].stimulus = (
-                                        x_next.stimulus
-                                    )
+                                    if x_next.optogenetics_stimulus is not None:
+                                        state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
 
-                                    if (
-                                        x_next.optogenetics_stimulus
-                                        is not None
-                                    ):
+                            (batched_state, batched_edges) = _batch_frames(state_batch, edges)
 
-                                        state_batch[
-                                            b
-                                        ].optogenetics_stimulus = (
-                                            x_next
-                                            .optogenetics_stimulus
-                                        )
-
-                            (
-                                batched_state,
-                                batched_edges,
-                            ) = _batch_frames(
-                                state_batch,
-                                edges,
-                            )
-
-                            (
-                                pred,
-                                in_features,
-                                msg,
-                            ) = model(
-                                batched_state,
-                                batched_edges,
-                                data_id=data_id,
-                                return_all=True,
+                            (pred, in_features, msg) = model(
+                                batched_state, batched_edges, data_id=data_id, return_all=True
                             )
 
                             pred_x = (
-                                pred_x
-                                + sim.delta_t
-                                * pred
-                                + training.noise_recurrent_level
-                                * torch.randn_like(
-                                    pred
-                                )
+                                pred_x + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
                             )
 
-                    loss = (
-                        loss
-                        + (
-                            (
-                                pred_x[
-                                    ids_batch
-                                ]
-                                - y_batch[
-                                    ids_batch
-                                ]
-                            )
-                            / (
-                                sim.delta_t
-                                * training.time_step
-                            )
-                        ).norm(2)
+                    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * training.time_step)).norm(
+                        2
                     )
 
                 # -------------------------------------------------------------
@@ -2012,14 +1097,7 @@ def data_train_gnn(
                 # -------------------------------------------------------------
 
                 else:
-
-                    loss = (
-                        loss
-                        + (
-                            pred[ids_batch]
-                            - y_batch[ids_batch]
-                        ).norm(2)
-                    )
+                    loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
 
                     # Hidden self-consistency loss intentionally removed.
                     #
@@ -2029,50 +1107,16 @@ def data_train_gnn(
                     #
                     # This preserves the behavior of the current implementation.
 
-                    if (
-                        has_anchor_neurons
-                        and getattr(
-                            training,
-                            "coeff_anchor_voltage",
-                            0.0,
-                        ) > 0
-                    ):
+                    if has_anchor_neurons and getattr(training, "coeff_anchor_voltage", 0.0) > 0:
+                        n_per = state_batch[0].n_neurons
 
-                        n_per = (
-                            state_batch[
-                                0
-                            ].n_neurons
-                        )
+                        k_starts = k_batch[::n_per, 0].to(torch.long)
 
-                        k_starts = (
-                            k_batch[
-                                ::n_per,
-                                0,
-                            ].to(torch.long)
-                        )
+                        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=anchor_ids)
 
-                        pred_a = (
-                            model.forward_anchor_batched(
-                                k_starts,
-                                anchor_ids=anchor_ids,
-                            )
-                        )
+                        gt_a = x_ts.voltage[k_starts[:, None], anchor_ids[None, :]]
 
-                        gt_a = (
-                            x_ts.voltage[
-                                k_starts[:, None],
-                                anchor_ids[None, :],
-                            ]
-                        )
-
-                        loss = (
-                            loss
-                            + training.coeff_anchor_voltage
-                            * (
-                                pred_a
-                                - gt_a
-                            ).norm(2)
-                        )
+                        loss = loss + training.coeff_anchor_voltage * (pred_a - gt_a).norm(2)
 
             # =============================================================
             # BACKWARD / STEP
@@ -2080,51 +1124,27 @@ def data_train_gnn(
 
             loss.backward()
 
-            if (
-                training.neural_ODE_training
-                and N % 500 == 0
-            ):
-                debug_check_gradients(
-                    model,
-                    loss,
-                    N,
-                )
+            if training.neural_ODE_training and N % 500 == 0:
+                debug_check_gradients(model, loss, N)
 
             if (
-                hasattr(
-                    training,
-                    "grad_clip_W",
-                )
+                hasattr(training, "grad_clip_W")
                 and training.grad_clip_W > 0
                 and hasattr(model, "W")
                 and model.W.grad is not None
             ):
-
-                torch.nn.utils.clip_grad_norm_(
-                    [model.W],
-                    max_norm=training.grad_clip_W,
-                )
+                torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
 
             optimizer.step()
 
-            if (
-                dale_enabled
-                and N in dale_checkpoints
-            ):
-                enforce_dale_law(
-                    model,
-                    edges,
-                )
+            if epoch_state.dale_enabled and N in epoch_state.dale_checkpoints:
+                enforce_dale_law(model, edges)
 
             lr_scheduler.step()
 
             epoch_state.total_loss_gpu += loss.detach()
 
-            epoch_state.total_regul_gpu += (
-                regularizer
-                .get_iteration_total_tensor()
-                .detach()
-            )
+            epoch_state.total_regul_gpu += regularizer.get_iteration_total_tensor().detach()
 
             regularizer.finalize_iteration()
 
@@ -2133,238 +1153,113 @@ def data_train_gnn(
             # -------------------------------------------------------------
 
             if regularizer.should_record():
+                current_loss = loss.item()
 
-                current_loss = (
-                    loss.item()
-                )
+                regul_total_this_iter = regularizer.get_iteration_total()
 
-                regul_total_this_iter = (
-                    regularizer
-                    .get_iteration_total()
-                )
+                loss_components["loss"].append((current_loss - regul_total_this_iter) / n_neurons)
 
-                loss_components[
-                    "loss"
-                ].append(
-                    (
-                        current_loss
-                        - regul_total_this_iter
-                    )
-                    / n_neurons
-                )
-
-                plot_dict = {
-                    **regularizer.get_history(),
-                    "loss": (
-                        loss_components[
-                            "loss"
-                        ]
-                    ),
-                }
+                plot_dict = {**regularizer.get_history(), "loss": (loss_components["loss"])}
 
                 plot_signal_loss(
                     plot_dict,
                     log_dir,
                     epoch=epoch,
                     Niter=Niter,
-                    epoch_boundaries=(
-                        regularizer
-                        .epoch_boundaries
-                    ),
+                    epoch_boundaries=(regularizer.epoch_boundaries),
                     debug=False,
-                    current_loss=(
-                        current_loss
-                        / n_neurons
-                    ),
-                    current_regul=(
-                        regul_total_this_iter
-                        / n_neurons
-                    ),
-                    total_loss=(
-                        epoch_state.total_loss_gpu
-                    ),
-                    total_loss_regul=(
-                        epoch_state.total_regul_gpu
-                    ),
+                    current_loss=(current_loss / n_neurons),
+                    current_regul=(regul_total_this_iter / n_neurons),
+                    total_loss=(epoch_state.total_loss_gpu),
+                    total_loss_regul=(epoch_state.total_regul_gpu),
                 )
 
                 torch.save(
-                    {
-                        **plot_dict,
-                        "epoch_boundaries": list(
-                            regularizer
-                            .epoch_boundaries
-                        ),
-                    },
-                    os.path.join(
-                        log_dir,
-                        "loss_components.pt",
-                    ),
+                    {**plot_dict, "epoch_boundaries": list(regularizer.epoch_boundaries)},
+                    os.path.join(log_dir, "loss_components.pt"),
                 )
 
                 if training.save_all_checkpoints:
-
                     torch.save(
-                        {
-                            "model_state_dict":
-                                model.state_dict(),
-                            "optimizer_state_dict":
-                                optimizer.state_dict(),
-                        },
-                        os.path.join(
-                            log_dir,
-                            "models",
-                            f"best_model_with_"
-                            f"{training.n_runs - 1}"
-                            f"_graphs_{epoch}_{N}.pt",
-                        ),
+                        {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+                        os.path.join(log_dir, "models", f"best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt"),
                     )
 
             # =============================================================
             # R2 / DYNAMICS CHECKPOINT
             # =============================================================
 
-            is_regular_r2 = (
-                N > 0
-                and
-                N % connectivity_plot_frequency == 0
-            )
+            is_regular_r2 = N > 0 and N % epoch_state.connectivity_plot_frequency == 0
 
-            is_early_r2 = (
-                N < connectivity_plot_frequency
-                and
-                N % early_r2_frequency == 0
-            )
+            is_early_r2 = N < epoch_state.connectivity_plot_frequency and N % epoch_state.early_r2_frequency == 0
 
-            if (
-                is_regular_r2
-                and model_family(model) == "mlp"
-                and not train.test_neural_field
-            ):
+            if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
+                from connectome_gnn.metrics import compute_jacobian_connectivity_r2
 
-                from connectome_gnn.metrics import (
-                    compute_jacobian_connectivity_r2,
+                epoch_state.metrics.connectivity_r2 = compute_jacobian_connectivity_r2(
+                    model, x_ts, ode_params, n_neurons=n_neurons, device=device
                 )
 
-                metrics.connectivity_r2 = (
-                    compute_jacobian_connectivity_r2(
-                        model,
-                        x_ts,
-                        ode_params,
-                        n_neurons=n_neurons,
-                        device=device,
-                    )
-                )
+                epoch_state.metrics.tau_r2 = 0.0
+                epoch_state.metrics.vrest_r2 = 0.0
 
-                metrics.tau_r2 = 0.0
-                metrics.vrest_r2 = 0.0
-
-                with open(
-                    metrics_log_path,
-                    "a",
-                ) as f:
-
+                with open(metrics_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
-                        f"{format_metric(metrics.connectivity_r2)},"
-                        f"{format_metric(metrics.vrest_r2)},"
-                        f"{format_metric(metrics.tau_r2)},"
-                        f"{format_metric(metrics.hidden_r2)},"
-                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                        f"{format_metric(epoch_state.metrics.tau_r2)},"
+                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
                         f"nan,0,0,nan,0,0\n"
                     )
 
-                plot_jacobian_w_scatter(
-                    model,
-                    x_ts,
-                    ode_params,
-                    gt_weights,
-                    n_neurons,
-                    log_dir,
-                    epoch,
-                    N,
-                    device,
-                )
+                plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons, log_dir, epoch, N, device)
 
                 metrics_changed = True
 
-            elif (
-                (is_regular_r2 or is_early_r2)
-                and not train.test_neural_field
-                and model_family(model) == "linear"
-            ):
-
+            elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "linear":
                 (
-                    metrics.connectivity_r2,
-                    metrics.tau_r2,
-                    metrics.vrest_r2,
+                    epoch_state.metrics.connectivity_r2,
+                    epoch_state.metrics.tau_r2,
+                    epoch_state.metrics.vrest_r2,
                     dynamics,
-                ) = plot_training_linear(
-                    model,
-                    config,
-                    epoch,
-                    N,
-                    log_dir,
-                    device,
-                    gt_weights,
-                    n_neurons=n_neurons,
-                )
+                ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
 
-                metrics.vrest_r2_clean = (
-                    dynamics["vrest_r2_clean"]
-                )
+                epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
 
-                metrics.tau_r2_clean = (
-                    dynamics["tau_r2_clean"]
-                )
+                epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
 
-                metrics.n_out_vrest = (
-                    dynamics["n_out_vrest"]
-                )
+                epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
 
-                metrics.n_total_vrest = (
-                    dynamics["n_total_vrest"]
-                )
+                epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
 
-                metrics.n_out_tau = (
-                    dynamics["n_out_tau"]
-                )
+                epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
 
-                metrics.n_total_tau = (
-                    dynamics["n_total_tau"]
-                )
+                epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
 
-                with open(
-                    metrics_log_path,
-                    "a",
-                ) as f:
-
+                with open(metrics_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
-                        f"{format_metric(metrics.connectivity_r2)},"
-                        f"{format_metric(metrics.vrest_r2)},"
-                        f"{format_metric(metrics.tau_r2)},"
-                        f"{format_metric(metrics.hidden_r2)},"
-                        f"{format_metric(metrics.anchor_r2)},"
-                        f"{format_metric(metrics.vrest_r2_clean)},"
-                        f"{metrics.n_out_vrest},"
-                        f"{metrics.n_total_vrest},"
-                        f"{format_metric(metrics.tau_r2_clean)},"
-                        f"{metrics.n_out_tau},"
-                        f"{metrics.n_total_tau}\n"
+                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                        f"{format_metric(epoch_state.metrics.tau_r2)},"
+                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_vrest},"
+                        f"{epoch_state.metrics.n_total_vrest},"
+                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_tau},"
+                        f"{epoch_state.metrics.n_total_tau}\n"
                     )
 
                 metrics_changed = True
 
-            elif (
-                (is_regular_r2 or is_early_r2)
-                and not train.test_neural_field
-                and model_family(model) == "gnn"
-            ):
-
+            elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "gnn":
                 (
-                    metrics.connectivity_r2,
-                    metrics.connectivity_r2_visible,
+                    epoch_state.metrics.connectivity_r2,
+                    epoch_state.metrics.connectivity_r2_visible,
                     hidden_r2,
                     anchor_r2,
                 ) = plot_training_gnn(
@@ -2379,90 +1274,59 @@ def data_train_gnn(
                     gt_weights,
                     edges,
                     n_neurons=n_neurons,
-                    n_neuron_types=(
-                        sim.n_neuron_types
-                    ),
+                    n_neuron_types=(sim.n_neuron_types),
                     ode_params=ode_params,
                     hidden_ids=hidden_ids,
                     anchor_ids=anchor_ids,
                 )
 
                 if hidden_r2 is not None:
-                    metrics.hidden_r2 = hidden_r2
+                    epoch_state.metrics.hidden_r2 = hidden_r2
 
                 if anchor_r2 is not None:
-                    metrics.anchor_r2 = anchor_r2
+                    epoch_state.metrics.anchor_r2 = anchor_r2
 
                 # ---------------------------------------------------------
                 # KEEP HH/V_rest/tau diagnostics in Step 1.
                 # ---------------------------------------------------------
 
-                dynamics = (
-                    compute_dynamics_r2(
-                        model,
-                        x_ts,
-                        config,
-                        device,
-                        n_neurons,
-                    )
-                )
+                dynamics = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
 
-                metrics.vrest_r2 = (
-                    dynamics["vrest_r2"]
-                )
+                epoch_state.metrics.vrest_r2 = dynamics["vrest_r2"]
 
-                metrics.tau_r2 = (
-                    dynamics["tau_r2"]
-                )
+                epoch_state.metrics.tau_r2 = dynamics["tau_r2"]
 
-                metrics.vrest_r2_clean = (
-                    dynamics["vrest_r2_clean"]
-                )
+                epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
 
-                metrics.tau_r2_clean = (
-                    dynamics["tau_r2_clean"]
-                )
+                epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
 
-                metrics.n_out_vrest = (
-                    dynamics["n_out_vrest"]
-                )
+                epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
 
-                metrics.n_total_vrest = (
-                    dynamics["n_total_vrest"]
-                )
+                epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
 
-                metrics.n_out_tau = (
-                    dynamics["n_out_tau"]
-                )
+                epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
 
-                metrics.n_total_tau = (
-                    dynamics["n_total_tau"]
-                )
+                epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
 
-                with open(
-                    metrics_log_path,
-                    "a",
-                ) as f:
-
+                with open(metrics_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
-                        f"{format_metric(metrics.connectivity_r2)},"
-                        f"{format_metric(metrics.vrest_r2)},"
-                        f"{format_metric(metrics.tau_r2)},"
-                        f"{format_metric(metrics.hidden_r2)},"
-                        f"{format_metric(metrics.anchor_r2)},"
-                        f"{format_metric(metrics.vrest_r2_clean)},"
-                        f"{metrics.n_out_vrest},"
-                        f"{metrics.n_total_vrest},"
-                        f"{format_metric(metrics.tau_r2_clean)},"
-                        f"{metrics.n_out_tau},"
-                        f"{metrics.n_total_tau}\n"
+                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                        f"{format_metric(epoch_state.metrics.tau_r2)},"
+                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_vrest},"
+                        f"{epoch_state.metrics.n_total_vrest},"
+                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_tau},"
+                        f"{epoch_state.metrics.n_total_tau}\n"
                     )
 
                 metrics_changed = True
 
             else:
-
                 metrics_changed = False
 
             # -------------------------------------------------------------
@@ -2475,295 +1339,153 @@ def data_train_gnn(
 
             if (
                 has_hidden_neurons
-                and getattr(
-                    model,
-                    "NNR_hidden",
-                    None,
-                ) is not None
+                and getattr(model, "NNR_hidden", None) is not None
                 and N > 0
                 and N % _NGP_QUICK_FREQ == 0
             ):
-
-                hidden_quick, hidden_quick_std = (
-                    _quick_ngp_pearson(
-                        model,
-                        x_ts,
-                        hidden_ids,
-                        use_anchor=False,
-                        device=device,
-                        return_stats=True,
-                    )
+                hidden_quick, hidden_quick_std = _quick_ngp_pearson(
+                    model, x_ts, hidden_ids, use_anchor=False, device=device, return_stats=True
                 )
 
                 if hidden_quick is not None:
-
-                    metrics.hidden_r2 = (
-                        hidden_quick
-                    )
+                    epoch_state.metrics.hidden_r2 = hidden_quick
 
                     ngp_quick_updated = True
 
                 if has_anchor_neurons:
-
-                    anchor_quick, anchor_quick_std = (
-                        _quick_ngp_pearson(
-                            model,
-                            x_ts,
-                            anchor_ids,
-                            use_anchor=True,
-                            device=device,
-                            return_stats=True,
-                        )
+                    anchor_quick, anchor_quick_std = _quick_ngp_pearson(
+                        model, x_ts, anchor_ids, use_anchor=True, device=device, return_stats=True
                     )
 
                     if anchor_quick is not None:
-
-                        metrics.anchor_r2 = (
-                            anchor_quick
-                        )
+                        epoch_state.metrics.anchor_r2 = anchor_quick
 
                         ngp_quick_updated = True
 
             if ngp_quick_updated:
-
-                with open(
-                    metrics_log_path,
-                    "a",
-                ) as f:
-
+                with open(metrics_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
-                        f"{format_metric(metrics.connectivity_r2)},"
-                        f"{format_metric(metrics.vrest_r2)},"
-                        f"{format_metric(metrics.tau_r2)},"
-                        f"{format_metric(metrics.hidden_r2)},"
-                        f"{format_metric(metrics.anchor_r2)},"
-                        f"{format_metric(metrics.vrest_r2_clean)},"
-                        f"{metrics.n_out_vrest},"
-                        f"{metrics.n_total_vrest},"
-                        f"{format_metric(metrics.tau_r2_clean)},"
-                        f"{metrics.n_out_tau},"
-                        f"{metrics.n_total_tau}\n"
+                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
+                        f"{format_metric(epoch_state.metrics.tau_r2)},"
+                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
+                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
+                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_vrest},"
+                        f"{epoch_state.metrics.n_total_vrest},"
+                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
+                        f"{epoch_state.metrics.n_out_tau},"
+                        f"{epoch_state.metrics.n_total_tau}\n"
                     )
 
-                with open(
-                    nnr_pearson_log_path,
-                    "a",
-                ) as f:
-
+                with open(nnr_pearson_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
-                        f"{format_metric(metrics.hidden_r2)},"
+                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
                         f"{format_metric(hidden_quick_std)},"
-                        f"{format_metric(metrics.anchor_r2)},"
+                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
                         f"{format_metric(anchor_quick_std)}\n"
                     )
 
                 metrics_changed = True
 
             if metrics_changed:
-
-                plot_metrics(
-                    log_dir,
-                    epoch_boundaries=(
-                        regularizer
-                        .epoch_boundaries
-                    ),
-                    ngp_stages=(
-                        ngp_schedule.stages
-                    ),
-                )
+                plot_metrics(log_dir, epoch_boundaries=(regularizer.epoch_boundaries), ngp_stages=(ngp_schedule.stages))
 
             # -------------------------------------------------------------
             # Progress bar
             # -------------------------------------------------------------
 
-            if (
-                metrics.connectivity_r2 is not None
-                or metrics.hidden_r2 is not None
-            ):
-
+            if epoch_state.metrics.connectivity_r2 is not None or epoch_state.metrics.hidden_r2 is not None:
                 bar_parts = []
 
-                if (
-                    metrics.connectivity_r2
-                    is not None
-                ):
-
-                    conn_color = r2_color(
-                        metrics.connectivity_r2
-                    )
+                if epoch_state.metrics.connectivity_r2 is not None:
+                    conn_color = r2_color(epoch_state.metrics.connectivity_r2)
 
                     if (
-                        metrics.connectivity_r2_visible
-                        is not None
-                        and abs(
-                            metrics.connectivity_r2_visible
-                            - metrics.connectivity_r2
-                        ) > 1e-4
+                        epoch_state.metrics.connectivity_r2_visible is not None
+                        and abs(epoch_state.metrics.connectivity_r2_visible - epoch_state.metrics.connectivity_r2)
+                        > 1e-4
                     ):
-
-                        conn_string = (
-                            f"conn="
-                            f"{metrics.connectivity_r2:.3f}"
-                            f"("
-                            f"{metrics.connectivity_r2_visible:.3f}"
-                            f")"
-                        )
+                        conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}({epoch_state.metrics.connectivity_r2_visible:.3f})"
 
                     else:
+                        conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}"
 
-                        conn_string = (
-                            f"conn="
-                            f"{metrics.connectivity_r2:.3f}"
-                        )
-
-                    bar_parts.append(
-                        f"{conn_color}"
-                        f"{conn_string}"
-                        f"{ANSI_RESET}"
-                    )
+                    bar_parts.append(f"{conn_color}{conn_string}{ANSI_RESET}")
 
                     if ode_params.has_vrest():
-
                         vr_pct = (
-                            100.0
-                            * metrics.n_out_vrest
-                            / metrics.n_total_vrest
-                            if metrics.n_total_vrest > 0
+                            100.0 * epoch_state.metrics.n_out_vrest / epoch_state.metrics.n_total_vrest
+                            if epoch_state.metrics.n_total_vrest > 0
                             else 0.0
                         )
 
                         bar_parts.append(
-                            f"{r2_color(metrics.vrest_r2_clean)}"
+                            f"{r2_color(epoch_state.metrics.vrest_r2_clean)}"
                             f"Vr="
-                            f"{fmt_r2_bar(metrics.vrest_r2_clean)}"
+                            f"{fmt_r2_bar(epoch_state.metrics.vrest_r2_clean)}"
                             f"({vr_pct:.0f}%)"
                             f"{ANSI_RESET}"
                         )
 
                     if ode_params.has_tau():
-
                         tau_pct = (
-                            100.0
-                            * metrics.n_out_tau
-                            / metrics.n_total_tau
-                            if metrics.n_total_tau > 0
+                            100.0 * epoch_state.metrics.n_out_tau / epoch_state.metrics.n_total_tau
+                            if epoch_state.metrics.n_total_tau > 0
                             else 0.0
                         )
 
                         bar_parts.append(
-                            f"{r2_color(metrics.tau_r2_clean)}"
+                            f"{r2_color(epoch_state.metrics.tau_r2_clean)}"
                             f"τ="
-                            f"{fmt_r2_bar(metrics.tau_r2_clean)}"
+                            f"{fmt_r2_bar(epoch_state.metrics.tau_r2_clean)}"
                             f"({tau_pct:.0f}%)"
                             f"{ANSI_RESET}"
                         )
 
-                if (
-                    metrics.hidden_r2 is not None
-                    or metrics.anchor_r2 is not None
-                ):
-
+                if epoch_state.metrics.hidden_r2 is not None or epoch_state.metrics.anchor_r2 is not None:
                     if not injection_active:
-
-                        if metrics.anchor_r2 is not None:
-
-                            nnr_string = (
-                                f"nnr=n/a"
-                                f"({metrics.anchor_r2:.3f})"
-                            )
+                        if epoch_state.metrics.anchor_r2 is not None:
+                            nnr_string = f"nnr=n/a({epoch_state.metrics.anchor_r2:.3f})"
 
                         else:
+                            nnr_string = "nnr=n/a"
 
-                            nnr_string = (
-                                "nnr=n/a"
-                            )
+                        bar_parts.append(nnr_string)
 
-                        bar_parts.append(
-                            nnr_string
-                        )
-
-                    elif metrics.hidden_r2 is not None:
-
-                        if metrics.anchor_r2 is not None:
-
-                            nnr_string = (
-                                f"nnr="
-                                f"{metrics.hidden_r2:.3f}"
-                                f"("
-                                f"{metrics.anchor_r2:.3f}"
-                                f")"
-                            )
+                    elif epoch_state.metrics.hidden_r2 is not None:
+                        if epoch_state.metrics.anchor_r2 is not None:
+                            nnr_string = f"nnr={epoch_state.metrics.hidden_r2:.3f}({epoch_state.metrics.anchor_r2:.3f})"
 
                         else:
+                            nnr_string = f"nnr={epoch_state.metrics.hidden_r2:.3f}"
 
-                            nnr_string = (
-                                f"nnr="
-                                f"{metrics.hidden_r2:.3f}"
-                            )
-
-                        bar_parts.append(
-                            f"{r2_color(metrics.hidden_r2)}"
-                            f"{nnr_string}"
-                            f"{ANSI_RESET}"
-                        )
+                        bar_parts.append(f"{r2_color(epoch_state.metrics.hidden_r2)}{nnr_string}{ANSI_RESET}")
 
                 if bar_parts:
-
-                    pbar.set_postfix_str(
-                        " ".join(bar_parts)
-                    )
+                    pbar.set_postfix_str(" ".join(bar_parts))
 
             # -------------------------------------------------------------
             # Visual field rendering
             # -------------------------------------------------------------
 
-            if (
-                train.has_visual_field
-                and N in plot_iterations
-            ):
+            if train.has_visual_field and N in epoch_state.plot_iterations:
+                field_R2, field_slope = render_visual_field_video(model, x_ts, sim, log_dir, epoch, N, logger)
 
-                field_R2, field_slope = (
-                    render_visual_field_video(
-                        model,
-                        x_ts,
-                        sim,
-                        log_dir,
-                        epoch,
-                        N,
-                        logger,
-                    )
-                )
+                epoch_state.metrics.field_r2 = field_R2
+                epoch_state.metrics.field_slope = field_slope
 
-                metrics.field_r2 = field_R2
-                metrics.field_slope = field_slope
-
-                if metrics.connectivity_r2 is not None:
-
+                if epoch_state.metrics.connectivity_r2 is not None:
                     pbar.set_postfix_str(
-                        f"{r2_color(metrics.connectivity_r2)}"
-                        f"R²="
-                        f"{metrics.connectivity_r2:.3f}"
-                        f"{ANSI_RESET}"
+                        f"{r2_color(epoch_state.metrics.connectivity_r2)}R²={epoch_state.metrics.connectivity_r2:.3f}{ANSI_RESET}"
                     )
 
                 if training.save_all_checkpoints:
-
                     torch.save(
-                        {
-                            "model_state_dict":
-                                model.state_dict(),
-                            "optimizer_state_dict":
-                                optimizer.state_dict(),
-                        },
-                        os.path.join(
-                            log_dir,
-                            "models",
-                            f"best_model_with_"
-                            f"{training.n_runs - 1}"
-                            f"_graphs_{epoch}_{N}.pt",
-                        ),
+                        {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+                        os.path.join(log_dir, "models", f"best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt"),
                     )
 
             # -------------------------------------------------------------
@@ -2778,87 +1500,42 @@ def data_train_gnn(
         # =================================================================
 
         if _profiling:
-
             profiler.stop()
 
-            print(
-                f"[Profiler] Trace saved to "
-                f"{_profiler_trace_dir}/"
-            )
+            print(f"[Profiler] Trace saved to {_profiler_trace_dir}/")
 
-            print(
-                "  View with: "
-                f"tensorboard --logdir "
-                f"{_profiler_trace_dir}"
-            )
+            print(f"  View with: tensorboard --logdir {_profiler_trace_dir}")
 
         # =================================================================
         # EPOCH LOSS
         # =================================================================
-
 
         total_loss = epoch_state.total_loss_gpu.item()
         total_loss_regul = epoch_state.total_regul_gpu.item()
 
         epoch_total_loss = total_loss / n_neurons
         epoch_regul_loss = total_loss_regul / n_neurons
-        epoch_pred_loss = (
-            total_loss - total_loss_regul
-        ) / n_neurons
-
-
-
-
+        epoch_pred_loss = (total_loss - total_loss_regul) / n_neurons
 
         _logger.info(
-            "epoch {}. loss: {:.6f} "
-            "(pred: {:.6f}, regul: {:.6f})".format(
-                epoch,
-                epoch_total_loss,
-                epoch_pred_loss,
-                epoch_regul_loss,
+            "epoch {}. loss: {:.6f} (pred: {:.6f}, regul: {:.6f})".format(
+                epoch, epoch_total_loss, epoch_pred_loss, epoch_regul_loss
             )
         )
 
         logger.info(
-            "Epoch {}. Loss: {:.6f} "
-            "(pred: {:.6f}, regul: {:.6f})".format(
-                epoch,
-                epoch_total_loss,
-                epoch_pred_loss,
-                epoch_regul_loss,
+            "Epoch {}. Loss: {:.6f} (pred: {:.6f}, regul: {:.6f})".format(
+                epoch, epoch_total_loss, epoch_pred_loss, epoch_regul_loss
             )
         )
 
         torch.save(
-            {
-                "model_state_dict":
-                    model.state_dict(),
-                "optimizer_state_dict":
-                    optimizer.state_dict(),
-            },
-            os.path.join(
-                log_dir,
-                "models",
-                f"best_model_with_"
-                f"{training.n_runs - 1}"
-                f"_graphs_{epoch}.pt",
-            ),
+            {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+            os.path.join(log_dir, "models", f"best_model_with_{training.n_runs - 1}_graphs_{epoch}.pt"),
         )
 
-        if (
-            train.has_visual_field
-            and hasattr(model, "NNR_f")
-        ):
-
-            torch.save(
-                model.NNR_f.state_dict(),
-                os.path.join(
-                    log_dir,
-                    "models",
-                    f"inr_stimulus_{epoch}.pt",
-                ),
-            )
+        if train.has_visual_field and hasattr(model, "NNR_f"):
+            torch.save(model.NNR_f.state_dict(), os.path.join(log_dir, "models", f"inr_stimulus_{epoch}.pt"))
 
         # -----------------------------------------------------------------
         # Epoch loss history
@@ -2870,234 +1547,96 @@ def data_train_gnn(
         if "list_loss_regul" not in locals():
             list_loss_regul = []
 
-        list_loss.append(
-            epoch_pred_loss
-        )
+        list_loss.append(epoch_pred_loss)
 
-        list_loss_regul.append(
-            epoch_regul_loss
-        )
+        list_loss_regul.append(epoch_regul_loss)
 
-        torch.save(
-            list_loss,
-            os.path.join(
-                log_dir,
-                "loss.pt",
-            ),
-        )
+        torch.save(list_loss, os.path.join(log_dir, "loss.pt"))
 
         # -----------------------------------------------------------------
         # Epoch summary figure
         # -----------------------------------------------------------------
 
         fig = plt.figure(
-            figsize=(
-                3
-                * default_style.figure_height
-                * default_style.default_aspect,
-                2
-                * default_style.figure_height,
-            )
+            figsize=(3 * default_style.figure_height * default_style.default_aspect, 2 * default_style.figure_height)
         )
 
-        ax1 = fig.add_subplot(
-            2,
-            3,
-            1,
-        )
+        ax1 = fig.add_subplot(2, 3, 1)
 
-        ax1.plot(
-            list_loss,
-            color=default_style.foreground,
-            linewidth=default_style.line_width,
-        )
+        ax1.plot(list_loss, color=default_style.foreground, linewidth=default_style.line_width)
 
-        ax1.set_xlim(
-            [
-                0,
-                training.n_epochs,
-            ]
-        )
+        ax1.set_xlim([0, training.n_epochs])
 
-        default_style.ylabel(
-            ax1,
-            "loss",
-        )
+        default_style.ylabel(ax1, "loss")
 
-        default_style.xlabel(
-            ax1,
-            "epochs",
-        )
+        default_style.xlabel(ax1, "epochs")
 
-        plot_training_summary_panels(
-            fig,
-            log_dir,
-            Niter=Niter,
-        )
+        plot_training_summary_panels(fig, log_dir, Niter=Niter)
 
         # -----------------------------------------------------------------
         # Replace embedding with clusters
         # -----------------------------------------------------------------
 
         if train.replace_with_cluster:
-
             if (
-                epoch % training.sparsity_freq
-                == training.sparsity_freq - 1
-                and epoch
-                < training.n_epochs
-                - training.sparsity_freq
+                epoch % training.sparsity_freq == training.sparsity_freq - 1
+                and epoch < training.n_epochs - training.sparsity_freq
             ):
+                _logger.info("replace embedding with clusters ...")
 
-                _logger.info(
-                    "replace embedding "
-                    "with clusters ..."
-                )
+                eps = training.cluster_distance_threshold
 
-                eps = (
-                    training.cluster_distance_threshold
-                )
+                results = clustering_evaluation(to_numpy(model.a), type_list, eps=eps)
 
-                results = (
-                    clustering_evaluation(
-                        to_numpy(model.a),
-                        type_list,
-                        eps=eps,
-                    )
-                )
+                _logger.info(f"eps={eps}: {results['n_clusters_found']} clusters, accuracy={results['accuracy']:.3f}")
 
-                _logger.info(
-                    f"eps={eps}: "
-                    f"{results['n_clusters_found']} "
-                    "clusters, "
-                    f"accuracy="
-                    f"{results['accuracy']:.3f}"
-                )
+                labels = results["cluster_labels"]
 
-                labels = (
-                    results["cluster_labels"]
-                )
-
-                for cluster_id in np.unique(
-                    labels
-                ):
-
-                    indices = np.where(
-                        labels == cluster_id
-                    )[0]
+                for cluster_id in np.unique(labels):
+                    indices = np.where(labels == cluster_id)[0]
 
                     if len(indices) > 1:
-
                         with torch.no_grad():
+                            model.a[indices, :] = torch.mean(model.a[indices, :], dim=0, keepdim=True)
 
-                            model.a[
-                                indices,
-                                :,
-                            ] = torch.mean(
-                                model.a[
-                                    indices,
-                                    :,
-                                ],
-                                dim=0,
-                                keepdim=True,
-                            )
+                fig.add_subplot(2, 3, 6)
 
-                fig.add_subplot(
-                    2,
-                    3,
-                    6,
-                )
+                type_cmap = CustomColorMap(config=config)
 
-                type_cmap = (
-                    CustomColorMap(
-                        config=config
-                    )
-                )
-
-                for neuron_type in range(
-                    sim.n_neuron_types
-                ):
-
-                    pos = torch.argwhere(
-                        type_list
-                        == neuron_type
-                    )
+                for neuron_type in range(sim.n_neuron_types):
+                    pos = torch.argwhere(type_list == neuron_type)
 
                     plt.scatter(
-                        to_numpy(
-                            model.a[
-                                pos,
-                                0
-                            ]
-                        ),
-                        to_numpy(
-                            model.a[
-                                pos,
-                                1
-                            ]
-                        ),
+                        to_numpy(model.a[pos, 0]),
+                        to_numpy(model.a[pos, 1]),
                         s=20,
-                        color=(
-                            type_cmap.color(
-                                neuron_type
-                            )
-                        ),
+                        color=(type_cmap.color(neuron_type)),
                         edgecolors="none",
                     )
 
-                plt.xlabel(
-                    "embedding 0",
-                    fontsize=18,
-                )
+                plt.xlabel("embedding 0", fontsize=18)
 
-                plt.ylabel(
-                    "embedding 1",
-                    fontsize=18,
-                )
+                plt.ylabel("embedding 1", fontsize=18)
 
                 plt.xticks([])
                 plt.yticks([])
 
                 plt.text(
-                    0.5,
-                    0.9,
-                    f"eps={eps}: "
-                    f"{results['n_clusters_found']} "
-                    f"clusters, "
-                    f"accuracy="
-                    f"{results['accuracy']:.3f}",
+                    0.5, 0.9, f"eps={eps}: {results['n_clusters_found']} clusters, accuracy={results['accuracy']:.3f}"
                 )
 
                 if training.fix_cluster_embedding:
-
-                    lr_embedding = (
-                        1.0E-10
-                    )
+                    lr_embedding = 1.0e-10
 
             else:
-
                 lr = training.lr
-                lr_embedding = (
-                    training.lr_embedding
-                )
+                lr_embedding = training.lr_embedding
                 lr_W = training.lr_W
 
-            logger.info(
-                f"learning rates: "
-                f"lr_W {lr_W}, "
-                f"lr {lr}, "
-                f"lr_update {lr_update}, "
-                f"lr_embedding {lr_embedding}"
-            )
+            logger.info(f"learning rates: lr_W {lr_W}, lr {lr}, lr_update {lr_update}, lr_embedding {lr_embedding}")
 
-            optimizer, n_total_params = (
-                set_trainable_parameters(
-                    model=model,
-                    lr_embedding=lr_embedding,
-                    lr=lr,
-                    lr_update=lr_update,
-                    lr_W=lr_W,
-                )
+            optimizer, n_total_params = set_trainable_parameters(
+                model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W
             )
 
         # -----------------------------------------------------------------
@@ -3105,138 +1644,64 @@ def data_train_gnn(
         # -----------------------------------------------------------------
 
         if train.umap_cluster_active:
+            if epoch % training.umap_cluster_freq == training.umap_cluster_freq - 1 and epoch < training.n_epochs - 1:
+                _logger.info("UMAP cluster reassign ...")
 
-            if (
-                epoch % training.umap_cluster_freq
-                == training.umap_cluster_freq - 1
-                and epoch
-                < training.n_epochs - 1
-            ):
-
-                _logger.info(
-                    "UMAP cluster reassign ..."
-                )
-
-                umap_results = (
-                    umap_cluster_reassign(
-                        model,
-                        config,
-                        x_ts,
-                        edges,
-                        n_neurons,
-                        type_list,
-                        device,
-                        logger=logger,
-                        reinit_mlps=(
-                            training
-                            .umap_cluster_reinit_mlps
-                        ),
-                        relearn_epochs=(
-                            training
-                            .umap_cluster_relearn_epochs
-                        ),
-                    )
+                umap_results = umap_cluster_reassign(
+                    model,
+                    config,
+                    x_ts,
+                    edges,
+                    n_neurons,
+                    type_list,
+                    device,
+                    logger=logger,
+                    reinit_mlps=(training.umap_cluster_reinit_mlps),
+                    relearn_epochs=(training.umap_cluster_relearn_epochs),
                 )
 
                 if umap_results is not None:
+                    fig.add_subplot(2, 3, 6)
 
-                    fig.add_subplot(
-                        2,
-                        3,
-                        6,
-                    )
+                    type_cmap = CustomColorMap(config=config)
 
-                    type_cmap = (
-                        CustomColorMap(
-                            config=config
-                        )
-                    )
+                    a_umap = umap_results["a_umap"]
 
-                    a_umap = (
-                        umap_results["a_umap"]
-                    )
+                    for neuron_type in range(sim.n_neuron_types):
+                        pos = torch.argwhere(type_list == neuron_type)
 
-                    for neuron_type in range(
-                        sim.n_neuron_types
-                    ):
-
-                        pos = torch.argwhere(
-                            type_list
-                            == neuron_type
-                        )
-
-                        pos_np = (
-                            to_numpy(
-                                pos
-                            ).flatten()
-                        )
+                        pos_np = to_numpy(pos).flatten()
 
                         plt.scatter(
-                            a_umap[
-                                pos_np,
-                                0
-                            ],
-                            a_umap[
-                                pos_np,
-                                1
-                            ],
+                            a_umap[pos_np, 0],
+                            a_umap[pos_np, 1],
                             s=20,
-                            color=(
-                                type_cmap.color(
-                                    neuron_type
-                                )
-                            ),
+                            color=(type_cmap.color(neuron_type)),
                             edgecolors="none",
                         )
 
-                    plt.xlabel(
-                        r"UMAP$_1$",
-                        fontsize=12,
-                    )
+                    plt.xlabel(r"UMAP$_1$", fontsize=12)
 
-                    plt.ylabel(
-                        r"UMAP$_2$",
-                        fontsize=12,
-                    )
+                    plt.ylabel(r"UMAP$_2$", fontsize=12)
 
                     plt.xticks([])
                     plt.yticks([])
 
-                    plt.title(
-                        f"{umap_results['n_clusters']} cl, "
-                        f"acc="
-                        f"{umap_results['accuracy']:.3f}",
-                        fontsize=10,
-                    )
+                    plt.title(f"{umap_results['n_clusters']} cl, acc={umap_results['accuracy']:.3f}", fontsize=10)
 
-                if (
-                    training.umap_cluster_fix_embedding
-                    or training.umap_cluster_fix_embedding_ratio > 0
-                ):
-
-                    lr_embedding = 1.0E-10
+                if training.umap_cluster_fix_embedding or training.umap_cluster_fix_embedding_ratio > 0:
+                    lr_embedding = 1.0e-10
                     embedding_frozen = True
 
                 # Rebuild optimizer to reset momentum and relearn
                 # f_theta / g_phi.
-                optimizer, n_total_params = (
-                    set_trainable_parameters(
-                        model=model,
-                        lr_embedding=lr_embedding,
-                        lr=lr,
-                        lr_update=lr_update,
-                        lr_W=lr_W,
-                    )
+                optimizer, n_total_params = set_trainable_parameters(
+                    model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W
                 )
 
         plt.tight_layout()
 
-        plt.savefig(
-            f"{log_dir}/tmp_training/"
-            f"epoch_{epoch}.png",
-            bbox_inches="tight",
-            pad_inches=0.1,
-        )
+        plt.savefig(f"{log_dir}/tmp_training/epoch_{epoch}.png", bbox_inches="tight", pad_inches=0.1)
 
         plt.close()
 
@@ -3244,124 +1709,54 @@ def data_train_gnn(
     # TRAINING COMPLETE
     # =====================================================================
 
-    training_time = (
-        time.time()
-        - training_start_time
-    )
+    training_time = time.time() - training_start_time
 
-    training_time_min = (
-        training_time
-        / 60.0
-    )
+    training_time_min = training_time / 60.0
 
-    _logger.info(
-        f"training completed in "
-        f"{training_time_min:.1f} minutes"
-    )
+    _logger.info(f"training completed in {training_time_min:.1f} minutes")
 
-    logger.info(
-        f"training completed in "
-        f"{training_time_min:.1f} minutes"
-    )
+    logger.info(f"training completed in {training_time_min:.1f} minutes")
 
     if log_file is not None:
+        log_file.write(f"training_time_min: {training_time_min:.1f}\n")
 
-        log_file.write(
-            f"training_time_min: "
-            f"{training_time_min:.1f}\n"
-        )
+        log_file.write(f"n_epochs: {training.n_epochs}\n")
 
-        log_file.write(
-            f"n_epochs: "
-            f"{training.n_epochs}\n"
-        )
+        log_file.write(f"data_augmentation_loop: {training.data_augmentation_loop}\n")
 
-        log_file.write(
-            f"data_augmentation_loop: "
-            f"{training.data_augmentation_loop}\n"
-        )
+        log_file.write(f"recurrent_training: {training.recurrent_training}\n")
 
-        log_file.write(
-            f"recurrent_training: "
-            f"{training.recurrent_training}\n"
-        )
+        log_file.write(f"batch_size: {training.batch_size}\n")
 
-        log_file.write(
-            f"batch_size: "
-            f"{training.batch_size}\n"
-        )
+        log_file.write(f"lr_W: {training.lr_W}\n")
 
-        log_file.write(
-            f"lr_W: "
-            f"{training.lr_W}\n"
-        )
+        log_file.write(f"lr: {training.lr}\n")
 
-        log_file.write(
-            f"lr: "
-            f"{training.lr}\n"
-        )
+        log_file.write(f"lr_embedding: {training.lr_embedding}\n")
 
-        log_file.write(
-            f"lr_embedding: "
-            f"{training.lr_embedding}\n"
-        )
+        log_file.write(f"coeff_g_phi_diff: {training.coeff_g_phi_diff}\n")
 
-        log_file.write(
-            f"coeff_g_phi_diff: "
-            f"{training.coeff_g_phi_diff}\n"
-        )
+        log_file.write(f"coeff_g_phi_norm: {training.coeff_g_phi_norm}\n")
 
-        log_file.write(
-            f"coeff_g_phi_norm: "
-            f"{training.coeff_g_phi_norm}\n"
-        )
+        log_file.write(f"coeff_g_phi_weight_L1: {training.coeff_g_phi_weight_L1}\n")
 
-        log_file.write(
-            f"coeff_g_phi_weight_L1: "
-            f"{training.coeff_g_phi_weight_L1}\n"
-        )
+        log_file.write(f"coeff_f_theta_weight_L1: {training.coeff_f_theta_weight_L1}\n")
 
-        log_file.write(
-            f"coeff_f_theta_weight_L1: "
-            f"{training.coeff_f_theta_weight_L1}\n"
-        )
+        log_file.write(f"coeff_f_theta_weight_L2: {training.coeff_f_theta_weight_L2}\n")
 
-        log_file.write(
-            f"coeff_f_theta_weight_L2: "
-            f"{training.coeff_f_theta_weight_L2}\n"
-        )
+        log_file.write(f"coeff_W_L1: {training.coeff_W_L1}\n")
 
-        log_file.write(
-            f"coeff_W_L1: "
-            f"{training.coeff_W_L1}\n"
-        )
+        log_file.write(f"dale_law: {getattr(training, 'dale_law', False)}\n")
 
-        log_file.write(
-            f"dale_law: "
-            f"{getattr(training, 'dale_law', False)}\n"
-        )
+        dale_score = dale_law_score(model, edges)
 
-        dale_score = dale_law_score(
-            model,
-            edges,
-        )
+        log_file.write(f"dale_law_score: {dale_score:.4f}\n")
 
-        log_file.write(
-            f"dale_law_score: "
-            f"{dale_score:.4f}\n"
-        )
+        if epoch_state.metrics.field_r2 is not None:
+            log_file.write(f"field_R2: {epoch_state.metrics.field_r2:.4f}\n")
 
-        if metrics.field_r2 is not None:
+            log_file.write(f"field_slope: {epoch_state.metrics.field_slope:.4f}\n")
 
-            log_file.write(
-                f"field_R2: "
-                f"{metrics.field_r2:.4f}\n"
-            )
-
-            log_file.write(
-                f"field_slope: "
-                f"{metrics.field_slope:.4f}\n"
-            )
 
 # data_train_flyvis_alternate removed — use data_train_flyvis instead
 def data_train_gnn_RNN(config, erase, best_model, device):
