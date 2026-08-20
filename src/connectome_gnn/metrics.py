@@ -491,7 +491,7 @@ def _vectorized_linspace(starts: np.ndarray, ends: np.ndarray, n_pts: int, devic
 
 
 def _batched_mlp_eval(mlp, model_a, rr, build_features_fn,
-                      device, chunk_size=2000, post_fn=None):
+                      device, chunk_size=2000, post_fn=None, model_a_i=None):
     """Evaluate an MLP for all neurons at once, in chunks.
 
     Instead of N individual forward passes on (1000, D) inputs, we
@@ -501,11 +501,16 @@ def _batched_mlp_eval(mlp, model_a, rr, build_features_fn,
         mlp: nn.Module — the MLP to evaluate (model.g_phi or model.f_theta).
         model_a: (N, emb_dim) embedding tensor.
         rr: (N, n_pts) tensor of input values per neuron.
-        build_features_fn: callable(rr_flat, emb_flat) -> (chunk*n_pts, D)
-            Builds the MLP input features from flattened rr and embeddings.
+        build_features_fn: callable(rr_flat, emb_flat) -> (chunk*n_pts, D), or
+            callable(rr_flat, emb_flat, emb_i_flat) -> (chunk*n_pts, D) when
+            model_a_i is given. Builds the MLP input features.
         device: torch device.
         chunk_size: number of neurons per chunk (limits GPU memory).
         post_fn: optional callable applied to MLP output (e.g. lambda x: x**2).
+        model_a_i: optional (N, emb_dim) second per-row embedding tensor
+            (e.g. a real postsynaptic partner embedding), chunked/expanded
+            the same way as model_a and passed to build_features_fn as a
+            third argument. None (default) preserves the 2-arg call.
 
     Returns:
         (N, n_pts) tensor of MLP outputs.
@@ -524,7 +529,13 @@ def _batched_mlp_eval(mlp, model_a, rr, build_features_fn,
         emb_flat = chunk_a[:, None, :].expand(-1, n_pts, -1)    # (C, n_pts, emb_dim)
         emb_flat = emb_flat.reshape(-1, emb_dim)                 # (C*n_pts, emb_dim)
 
-        in_features = build_features_fn(rr_flat, emb_flat)       # (C*n_pts, D)
+        if model_a_i is not None:
+            chunk_a_i = model_a_i[i:i + chunk_size]                       # (C, emb_dim)
+            emb_i_flat = chunk_a_i[:, None, :].expand(-1, n_pts, -1)
+            emb_i_flat = emb_i_flat.reshape(-1, emb_dim)                  # (C*n_pts, emb_dim)
+            in_features = build_features_fn(rr_flat, emb_flat, emb_i_flat)
+        else:
+            in_features = build_features_fn(rr_flat, emb_flat)   # (C*n_pts, D)
 
         with torch.no_grad():
             out = mlp(in_features.float())                       # (C*n_pts, 1)
@@ -578,12 +589,40 @@ def _vectorized_linear_fit(x, y) -> tuple[np.ndarray, np.ndarray]:
 #  Feature-building helpers for the two MLPs
 # ------------------------------------------------------------------ #
 
-def _build_g_phi_features(rr_flat, emb_flat, signal_model_name):
-    """Build input features for g_phi MLP."""
+def _build_g_phi_features(rr_flat, emb_flat, signal_model_name, emb_i_flat=None):
+    """Build input features for g_phi MLP.
+
+    rr_flat / emb_flat: swept presynaptic voltage vj and embedding aj.
+    emb_i_flat: postsynaptic embedding ai — required for flyvis_B, where
+        g_phi(vi=0, vj, ai, aj) depends on both endpoints. Should be a real
+        partner embedding (see `_avg_postsynaptic_embedding`), not aj again.
+    """
     if 'flyvis_B' in signal_model_name:
-        return torch.cat([rr_flat * 0, rr_flat, emb_flat, emb_flat], dim=1)
+        if emb_i_flat is None:
+            raise ValueError(
+                "_build_g_phi_features: flyvis_B requires emb_i_flat (postsynaptic embedding)"
+            )
+        return torch.cat([rr_flat * 0, rr_flat, emb_i_flat, emb_flat], dim=1)
     else:
         return torch.cat([rr_flat, emb_flat], dim=1)
+
+
+def _avg_postsynaptic_embedding(model_a, edges, n_neurons):
+    """Per-presynaptic-neuron average embedding of its real postsynaptic partners.
+
+    ai_avg[j] = mean(model_a[dst]) over edges with src == j. Used to build a
+    representative ai for g_phi(vi=0, vj, ai, aj) when g_phi depends on both
+    endpoints (flyvis_B) — real partners, not aj=ai. Neurons with no outgoing
+    edges fall back to their own embedding.
+    """
+    src, dst = edges[0], edges[1]
+    emb_dim = model_a.shape[1]
+    sum_emb = torch.zeros(n_neurons, emb_dim, device=model_a.device, dtype=model_a.dtype)
+    count = torch.zeros(n_neurons, device=model_a.device, dtype=model_a.dtype)
+    sum_emb.index_add_(0, src, model_a[dst])
+    count.index_add_(0, src, torch.ones(src.shape[0], device=model_a.device, dtype=model_a.dtype))
+    has_out = (count > 0).unsqueeze(1)
+    return torch.where(has_out, sum_emb / count.clamp_min(1).unsqueeze(1), model_a[:n_neurons])
 
 
 def _build_f_theta_features(rr_flat, emb_flat):
@@ -637,8 +676,13 @@ def compute_activity_stats(x_ts, device: Optional[torch.device] = None) -> tuple
 #  Slope extraction
 # ------------------------------------------------------------------ #
 
-def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device):
+def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Evaluate learned g_phi curves over each neuron's activity range.
+
+    For flyvis_B, g_phi depends on both endpoints (vi, vj, ai, aj); ai is
+    built as each neuron's real average postsynaptic-partner embedding via
+    `edges` (see `_avg_postsynaptic_embedding`), not a self-pair ai=aj.
+    `edges` is required in that case.
 
     Returns:
         v_ranges: (N, n_pts) numpy array of voltage grids per neuron.
@@ -661,22 +705,34 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
     rr = _vectorized_linspace(starts, ends, n_pts, device)  # (N, n_pts)
 
     post_fn = (lambda x: x ** 2) if g_phi_positive else None
-    build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, signal_model_name)
+    model_a = model.a[:n_neurons]
 
-    func = _batched_mlp_eval(model.g_phi, model.a[:n_neurons], rr,
-                             build_fn, device, post_fn=post_fn)  # (N, n_pts)
+    if 'flyvis_B' in signal_model_name:
+        if edges is None:
+            raise ValueError(
+                "evaluate_g_phi_curves: flyvis_B requires `edges` to build the postsynaptic embedding ai"
+            )
+        model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_neurons)
+        build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
+            rr_f, emb_f, signal_model_name, emb_i_flat=emb_i_f)
+    else:
+        model_a_i = None
+        build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, signal_model_name)
+
+    func = _batched_mlp_eval(model.g_phi, model_a, rr,
+                             build_fn, device, post_fn=post_fn, model_a_i=model_a_i)  # (N, n_pts)
 
     return to_numpy(rr), to_numpy(func), valid
 
 
-def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device):
+def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Extract linear slope of g_phi for each neuron j (vectorized).
 
     Returns:
         slopes: (n_neurons,) numpy array of g_phi slopes.
     """
     v_ranges, curves, valid = evaluate_g_phi_curves(
-        model, config, n_neurons, mu_activity, sigma_activity, device)
+        model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
 
     rr_t = torch.tensor(v_ranges, dtype=torch.float32)
     func_t = torch.tensor(curves, dtype=torch.float32)
@@ -1176,13 +1232,14 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
         g_phi_fitted: dict — all fitted g_phi params (model-specific).
     """
     n_neurons = model.a.shape[0]
+    edges = edges.to(device)
 
     # 1. Activity statistics
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
 
     # 2. Evaluate g_phi curves and fit model-specific parameters
     v_ranges, g_phi_curves, valid = evaluate_g_phi_curves(
-        model, config, n_neurons, mu_activity, sigma_activity, device)
+        model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
 
     if ode_params is not None:
         g_phi_fitted = ode_params.fit_g_phi_curves(v_ranges, g_phi_curves)
@@ -1208,8 +1265,6 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
 
     was_training = model.training
     model.eval()
-
-    edges = edges.to(device)
 
     grad_list = []
     for k in frame_indices:

@@ -26,6 +26,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     r2_scatter_text,
     ANATOMICAL_ORDER,
     INDEX_TO_NAME,
+    _avg_postsynaptic_embedding,
     _batched_mlp_eval,
     _build_f_theta_features,
     _build_g_phi_features,
@@ -156,9 +157,6 @@ def _plot_curves_fast(ax, rr, func, type_list, cmap, linewidth=1, alpha=0.1):
 
 
 
-
-
-
 # ------------------------------------------------------------------ #
 #  Subplot functions — shared between training and GNN_PlotFigure
 # ------------------------------------------------------------------ #
@@ -277,13 +275,16 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
 
 
 def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
-               gt_curves=None, gt_v_range=None, type_names=None):
+               gt_curves=None, gt_v_range=None, type_names=None, edges=None):
     """Plot g_phi: learned mean±std per type, with optional GT overlay.
 
     Args:
         gt_curves: (N, n_pts) or (n_pts,) ground truth g_phi values.
         gt_v_range: (n_pts,) x values for gt_curves.
         type_names: list of type name strings for legend.
+        edges: (2, E) edge index — required when signal_model_name is
+            flyvis_B, to build each neuron's real postsynaptic embedding ai
+            (see `_avg_postsynaptic_embedding`) instead of a self-pair ai=aj.
     """
     model_config = config.graph_model
     n_pts = 1000
@@ -295,11 +296,21 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     rr = rr_1d.unsqueeze(0).expand(n_sel, -1)
 
     post_fn = (lambda x: x ** 2) if model_config.g_phi_positive else None
-    build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, model_config.signal_model_name)
+    model_a = model.a[neuron_ids]
+
+    if 'flyvis_B' in model_config.signal_model_name:
+        if edges is None:
+            raise ValueError("plot_g_phi: flyvis_B requires `edges` to build the postsynaptic embedding ai")
+        model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_sel)
+        build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
+            rr_f, emb_f, model_config.signal_model_name, emb_i_flat=emb_i_f)
+    else:
+        model_a_i = None
+        build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, model_config.signal_model_name)
 
     func = _batched_mlp_eval(
-        model.g_phi, model.a[neuron_ids], rr,
-        build_fn, device, post_fn=post_fn)
+        model.g_phi, model_a, rr,
+        build_fn, device, post_fn=post_fn, model_a_i=model_a_i)
 
     type_np = to_numpy(type_list).astype(int).ravel()
     x_np = to_numpy(rr_1d)
@@ -2794,7 +2805,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # Plot 4: Edge function visualization (g_phi)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device,
-               gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names)
+               gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names, edges=edges)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
     plt.savefig(f"{log_dir}/results/g_phi_func.png", dpi=87)
