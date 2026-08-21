@@ -467,12 +467,12 @@ def main():
     best, best_state = np.inf, None
     for ep in range(a.epochs):
         model.train()
-        h = sched[min(3, int(4 * ep / max(a.epochs - 1, 1)))]
-        perm = torch.randperm(Pdot_tr.shape[0], device=dev)
+        h = sched[min(3, int(4 * ep / max(a.epochs - 1, 1)))]    # this epoch's training horizon
+        perm = torch.randperm(Pdot_tr.shape[0], device=dev)   #
         tot = 0.0
         for i in range(0, len(perm), a.batch):
-            j = perm[i:i + a.batch]
-            u, _ = model(Pdot_tr[j, :h])
+            j = perm[i:i + a.batch] # sample a.batch input trajectories
+            u, _ = model(Pdot_tr[j, :h])    # infere the model over a.batch input trajectories up to timestep h
             # eq:loss / eq:loss-again: (theta, phi) tracked, psi penalised to zero
             loss = ((u[..., :2] - Target_angles_tr[j, :h]) ** 2).mean() \
                 + a.lam_psi * (u[..., 2] ** 2).mean()
