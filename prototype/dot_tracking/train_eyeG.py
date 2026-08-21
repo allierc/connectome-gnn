@@ -1,28 +1,11 @@
 #!/usr/bin/env python
 """train_eyeG -- fit the eye G reduced model, then train a controller through it.
 
-    python train_eyeG.py --fit light                  # runs today
-    python train_eyeG.py --fit deep                   # needs the 6-D sweep
-    python train_eyeG.py --fit light --epochs 250 --tag long
+    python train_eyeG.py
+    python train_eyeG.py --epochs 250 --tag long
+    python train_eyeG.py --refit                      # ignore the cached eye fit
 
-Two characterisations, one script, because the controller is identical in both and
-only the eye it is trained through changes. Which one you get is `--fit`:
-
-  LIGHT -- stage 0-lite of PROTOCOL_eye_characterisation.md. Four cardinal synergies
-    (SR+SO up, IR+IO down, LR temporal, MR nasal) driven in one simulation. The
-    readout emits four non-negative SYNERGY drives and the static map is linear,
-    `x_inf = A a`, because one amplitude per synergy measures a direction and a gain
-    and cannot measure a curvature. Built from what already exists in
-    `archive/eye_G/`: the plateaus come from `pairs_long_diag.json`, the mechanics
-    are fitted here from the gaze trace in `pairs_long_curves.npz`.
-
-  DEEP -- stages 1 to 3. Six non-negative MUSCLE drives, the static map additive in
-    the six marginals plus whatever pairs the screen flagged, the mechanics 3x3.
-    Reads `<eye>/charac/holds.npz`, the table `characterise_eye.py --collect`
-    re-assembles over every stage that has landed, so it works the moment stage 1
-    finishes and sharpens by itself as stage 2 arrives.
-
-BOTH eyes are 6-in-3-out in the sense that matters: the output is (theta, phi, psi),
+Six non-negative MUSCLE drives in, three gaze angles out -- (theta, phi, psi),
 horizontal, vertical and TORSION. Eye G's synergies leak hard into torsion -- SR+SO
 puts 6.8 deg of it against 11.7 deg of elevation -- so a two-angle eye is not an
 option here, and the loss carries a torsion penalty for the reason section 5 of the
@@ -32,6 +15,13 @@ free to wander in a null space nothing scores.
 The eye is FROZEN. Its coefficients are buffers, not parameters; only the circuit
 learns. Training reuses `learn.load_split` for the corpus, so the trajectories, the
 seeds and the disjointness are the same ones every other controller was scored on.
+
+THE EYE FIT IS CACHED. Fitting it needs `Plexus/prototype/eye/archive/eye_G/`, which
+is ~440 MB and lives outside this repo -- fine for whoever ran the characterisation,
+not for a colleague who just wants to repeat the training. `fit_eye` writes its
+result to `EYE_FIT_PATH` (small enough to commit) the first time it runs; every run
+after that, here or on someone else's clone, loads the cached numbers and never
+touches the Plexus archive at all. Delete the file, or pass `--refit`, to redo it.
 """
 from __future__ import annotations
 
@@ -50,15 +40,10 @@ sys.path.insert(0, HERE)
 import learn                                            # noqa: E402
 
 EYE_DIR = "/workspace/Plexus/prototype/eye/archive/eye_G"
+EYE_FIT_PATH = os.path.join(HERE, "eye_fit.json")
 MODELS = os.path.join(HERE, "models")
 BOUND = 0.95                       # arena half-width, as in openloop
 GATE_H, GATE_V = 15.0, 10.0        # the span the task needs; 25 was unreachable
-
-# Which muscles make each synergy, and the order the light readout emits them in.
-# Indices are eye_anatomy.MUSCLE_KEYS = LR 0, SR 1, MR 2, IR 3, SO 4, IO 5, which is
-# also the order `probe_groups` uses, so `groups: [[1,4],[3,5],[0],[2]]` is this.
-SYNERGIES = [("up", "SR+SO", [1, 4]), ("down", "IR+IO", [3, 5]),
-             ("temporal", "LR", [0]), ("nasal", "MR", [2])]
 MUSCLES = ["LR", "SR", "MR", "IR", "SO", "IO"]
 
 
@@ -140,29 +125,6 @@ def fit_mechanics(traces, iters=3000, verbose=True):
     return C, K, rms
 
 
-def fit_light(eye_dir=EYE_DIR, verbose=True):
-    """The four-synergy eye, from stage 0-lite.
-
-    A comes off the plateaus: each synergy's settled excursion IS its column, in
-    degrees per unit of drive, because the probe holds every synergy at a_hi = 1. One
-    amplitude measures a direction and a gain and cannot measure a curvature, so the
-    static map is linear -- that is the honest limit of a light characterisation, not
-    a modelling choice.
-    """
-    diag = json.load(open(os.path.join(eye_dir, "pairs_long_diag.json")))
-    A = np.array([diag["synergies"][key]["gaze_excursion_deg"]
-                  for _, key, _ in SYNERGIES], dtype=np.float64)      # (4, 3)
-    z = np.load(os.path.join(eye_dir, "pairs_long_curves.npz"), allow_pickle=True)
-    frame, gaze, act = z["frame"], np.asarray(z["gaze"], np.float64), z["act"]
-    dt_rec = float(np.median(np.diff(frame))) * 0.003
-    tonic = float(np.percentile(act, 5))
-    a = np.stack([np.clip((act[:, idx].mean(1) - tonic) / max(1e-6, 1 - tonic), 0, 1)
-                  for _, _, idx in SYNERGIES], -1)                    # (T, 4)
-    C, K, rms = fit_mechanics([(dt_rec, a @ A, gaze)], verbose=verbose)
-    return dict(kind="light", act_names=[n for n, _, _ in SYNERGIES],
-                A=A, C=C, K=K, fit_rms_deg=rms, dt_fit=dt_rec)
-
-
 def _charac(eye_dir, name):
     p = os.path.join(eye_dir, "charac", name)
     return json.load(open(p)) if os.path.isfile(p) else []
@@ -186,14 +148,14 @@ def quad_design(U):
         [U, U ** 2, np.stack([U[:, i] * U[:, j] for i, j in PAIRS], -1)], -1)
 
 
-def fit_deep(eye_dir=EYE_DIR, verbose=True):
+def _fit_eye_from_archive(eye_dir, verbose=True):
     """The six-muscle eye: one joint quadratic per axis over every settled hold.
 
     Reads every stage the characterisation has written -- 0, 1, 2a and the 6-D Sobol
     sweep -- rather than `holds.npz`, which `--collect` assembles from stages 0/1/2a
     only and so leaves the 64 Sobol rows out of the table.
 
-    Fitted JOINTLY on all of them. The earlier version of this function fitted the
+    Fitted JOINTLY on all of them. An earlier version of this function fitted the
     marginals from single-muscle holds and then read each cross term off a pair
     residual; that is the decomposition stage 2a rejected, and it also conditions
     badly, since every cross term inherits the marginals' error.
@@ -209,14 +171,12 @@ def fit_deep(eye_dir=EYE_DIR, verbose=True):
                "stage6d.json"):
         rows += [r for r in _charac(eye_dir, st) if r.get("settled")]
     if len(rows) < 40:
-        sys.exit(f"[deep] only {len(rows)} settled holds under {eye_dir}/charac/.\n"
-                 "       The 6-D sweep is what this model needs; until it lands, "
-                 "train against the light eye:  --fit light")
+        sys.exit(f"[eye] only {len(rows)} settled holds under {eye_dir}/charac/.\n"
+                 "      The 6-D sweep is what this model needs.")
     # Stages 0-2a name only the muscles they drive; the Sobol sweep names all six.
     # Scatter every row into the same 6-vector, with undriven muscles at 0 -- pose is
     # recorded relative to the tonic rest pose, so 0 IS "this muscle adds nothing".
-    muscles = MUSCLES
-    idx = {m: k for k, m in enumerate(muscles)}
+    idx = {m: k for k, m in enumerate(MUSCLES)}
     U = np.zeros((len(rows), 6))
     for k, r in enumerate(rows):
         for nm, lv in zip(r["muscles"], r["level"]):
@@ -236,7 +196,7 @@ def fit_deep(eye_dir=EYE_DIR, verbose=True):
         print(f"  [quad] linear-only leaves {np.round(rms_lin, 2)} deg -- the squares "
               "and crosses are load-bearing")
         # where the map folds: the drive at which a muscle's own slope changes sign
-        for mi, m in enumerate(muscles):
+        for mi, m in enumerate(MUSCLES):
             u = np.zeros((41, 6)); u[:, mi] = np.linspace(0, 1, 41)
             y = quad_design(u) @ beta
             d = np.diff(y[:, np.argmax(np.abs(y[-1]))])
@@ -253,23 +213,49 @@ def fit_deep(eye_dir=EYE_DIR, verbose=True):
                        quad_design(np.asarray(z["act"], np.float64)) @ beta,
                        np.asarray(z["gaze"], np.float64)))
     if not traces:
-        sys.exit("[deep] no charac/runs/*_curves.npz to fit the mechanics from")
+        sys.exit("[eye] no charac/runs/*_curves.npz to fit the mechanics from")
     C, K, mrms = fit_mechanics(traces[:8], verbose=verbose)
-    return dict(kind="quad", act_names=list(muscles), beta=beta, C=C, K=K,
+    return dict(kind="quad", act_names=list(MUSCLES), beta=beta, C=C, K=K,
                 fit_rms_deg=mrms, static_rms_deg=rms.tolist(), n_holds=len(rows))
+
+
+def fit_eye(eye_dir=EYE_DIR, cache=EYE_FIT_PATH, refit=False, verbose=True):
+    """Load the cached eye fit if there is one; otherwise fit it and cache it.
+
+    A fresh fit needs `eye_dir` -- the ~440 MB Plexus characterisation archive.
+    A cached fit needs nothing but `cache`, which is small enough to commit and
+    push, so this is the one function a colleague repeating the training actually
+    calls: as long as `eye_fit.json` made the trip, `eye_dir` never has to.
+    """
+    if not refit and os.path.isfile(cache):
+        spec = json.load(open(cache))
+        spec["beta"] = np.array(spec["beta"], np.float64)
+        spec["C"] = np.array(spec["C"], np.float64)
+        spec["K"] = np.array(spec["K"], np.float64)
+        print(f"[eye] loaded cached fit from {cache}  "
+              f"(delete it, or pass --refit, to redo it from {eye_dir})")
+        return spec
+    spec = _fit_eye_from_archive(eye_dir, verbose=verbose)
+    json.dump({k: (v.tolist() if isinstance(v, np.ndarray) else v)
+               for k, v in spec.items()}, open(cache, "w"), indent=2)
+    print(f"[eye] fitted from {eye_dir}, wrote {cache}")
+    return spec
 
 
 class EyeG(nn.Module):
     """Non-negative drives in, three gaze angles out. Frozen: every coefficient is
     a buffer, so `.parameters()` is empty and the optimiser cannot retune the body.
 
-        x_inf = g(m)                            static, measured
-        xdd + C xd + K x = K x_inf              linear, fitted
+        x_inf = g(m)                 static, measured (steady state; m = the six
+                                      non-negative muscle drives, shape (..., 6))
+        xdd + C xd + K x = K x_inf   linear, fitted (from the MPM soft-body eye's
+                                      own step responses; x = gaze angles (..., 3):
+                                      horizontal, vertical, torsion)
     """
 
     def __init__(self, spec, dt):
         super().__init__()
-        self.kind = spec["kind"]
+        self.kind = spec.get("kind", "quad")
         self.act_names = list(spec["act_names"])
         self.dt = float(dt)
         f = lambda x: torch.as_tensor(np.asarray(x), dtype=torch.float32)
@@ -277,35 +263,18 @@ class EyeG(nn.Module):
         self.register_buffer("K", f(spec["K"]))
         self.register_buffer("Minv", torch.linalg.inv(
             torch.eye(3, dtype=torch.float32) + float(dt) * f(spec["C"])))
-        if self.kind == "light":
-            self.register_buffer("A", f(spec["A"]))              # (4, 3)
-        elif self.kind == "quad":
-            self.register_buffer("beta", f(spec["beta"]))        # (27, 3)
-            self.register_buffer("pidx", torch.as_tensor(np.asarray(PAIRS),
-                                                         dtype=torch.long))
-        else:
-            self.register_buffer("phi", f(spec["phi"]))          # (6, 3, 2)
-            self.register_buffer("pairs", torch.as_tensor(
-                np.asarray(spec["pairs"]), dtype=torch.long))    # (P, 2)
-            self.register_buffer("pair_coef", f(spec["pair_coef"]))  # (P, 3)
+        self.register_buffer("beta", f(spec["beta"]))             # (27, 3)
+        self.register_buffer("pidx", torch.as_tensor(np.asarray(PAIRS),
+                                                     dtype=torch.long))
 
     @property
     def n_act(self):
         return len(self.act_names)
 
     def equilibrium(self, m):
-        """(B, T, n_act) drives -> (B, T, 3) the pose the eye would settle at."""
-        if self.kind == "light":
-            return m @ self.A
-        if self.kind == "quad":
-            cross = m[..., self.pidx[:, 0]] * m[..., self.pidx[:, 1]]
-            return torch.cat([m, m ** 2, cross], -1) @ self.beta
-        x = torch.einsum("btm,ma->bta", m, self.phi[:, :, 0]) \
-            + torch.einsum("btm,ma->bta", m ** 2, self.phi[:, :, 1])
-        if len(self.pairs):
-            prod = m[..., self.pairs[:, 0]] * m[..., self.pairs[:, 1]]
-            x = x + prod @ self.pair_coef
-        return x
+        """(B, T, 6) drives -> (B, T, 3) the pose the eye would settle at, g(m)."""
+        cross = m[..., self.pidx[:, 0]] * m[..., self.pidx[:, 1]]
+        return torch.cat([m, m ** 2, cross], -1) @ self.beta
 
     def forward(self, m):
         return rollout(self.equilibrium(m), self.K, self.C, self.dt, self.Minv)
@@ -328,33 +297,56 @@ class EyeG(nn.Module):
 # ---------------------------------------------------------------------------
 class CTRNNEyeG(nn.Module):
     """The same core as `learn_eye.CTRNNEye` -- continuous-time rate, learned tau,
-    recurrent matrix initialised at ZERO -- with the readout widened to whatever the
-    eye takes, four synergies or six muscles, and the eye appended."""
+    recurrent matrix initialised at ZERO -- with the readout widened to the six
+    muscle drives the eye takes, and the eye appended."""
 
     def __init__(self, eye, hidden=64, tau0=0.5, dt=1 / 60):
         super().__init__()
         self.eye, self.dt = eye, dt
         self.log_tau = nn.Parameter(torch.full((hidden,), float(np.log(tau0))))
         self.W = nn.Parameter(torch.zeros(hidden, hidden))
-        self.enc = nn.Linear(2, hidden)                 # (xdot, ydot)
-        self.mot = nn.Linear(hidden, eye.n_act)
+        self.enc = nn.Linear(2, hidden)                 # W^in: (xdot, ydot) -> drive
+        self.mot = nn.Linear(hidden, eye.n_act)          # W^out: rates -> muscles
         with torch.no_grad():
             self.enc.weight.mul_(0.5)
 
     def forward(self, u, want_states=False):
-        alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)
-        B, T, _ = u.shape
-        h = torch.zeros(B, self.W.shape[0], device=u.device, dtype=u.dtype)
-        drive = self.enc(u)
+        alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)   # dt / tau, per unit
+        B, T, _ = u.shape     # B is batchsize, T is number of timesteps                                     # batch, time
+        h = torch.zeros(B, self.W.shape[0], device=u.device, dtype=u.dtype)  # voltage
+        drive = self.enc(u)             # target velocity encoded into the circuit
         rates = []
         for t in range(T):
-            r = torch.tanh(h)
+            r = torch.tanh(h)           # firing rate from voltage
             rates.append(r)
             h = h + alpha * (-h + r @ self.W.T + drive[:, t])
-        R = torch.stack(rates, 1)
-        m = nn.functional.softplus(self.mot(R))         # non-negative drives
-        x = self.eye(m)                                 # (B, T, 3) degrees
+        R = torch.stack(rates, 1)                        # firing rates over time
+        m = nn.functional.softplus(self.mot(R))           # non-negative muscle drive
+        x = self.eye(m)                                   # (B, T, 3) gaze, degrees
         return (x, m, R) if want_states else (x, m)
+
+
+def _err_color(deg):
+    """ANSI-colour a gaze error in degrees, so a scrollback full of epochs reads at
+    a glance. Thresholds are set against the eye's own precision floor rather than
+    picked arbitrarily: 0.05 deg is g's static-map residual (eye_fit.json's own
+    static_rms_deg), so nothing trained THROUGH that eye can mean much below it;
+    0.1 deg is where the previous run's val/test error already sits (see --status);
+    0.5 deg is "still clearly training", not yet "broken". Anything at or above 0.5,
+    or non-finite, is red -- one bin is enough once a value is that far off, finer
+    tiering there would not change what to do about it.
+    """
+    if not np.isfinite(deg):
+        c = "\033[31m"           # red
+    elif deg < 0.05:
+        c = "\033[32m"           # green
+    elif deg < 0.1:
+        c = "\033[33m"           # yellow
+    elif deg < 0.5:
+        c = "\033[38;5;208m"     # orange (no plain-ANSI orange; 256-colour code)
+    else:
+        c = "\033[31m"           # red
+    return f"{c}{deg:.3f}\033[0m"
 
 
 # ---------------------------------------------------------------------------
@@ -363,9 +355,12 @@ class CTRNNEyeG(nn.Module):
 def main():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--fit", default="light", choices=["light", "deep"])
     p.add_argument("--eye-dir", default=EYE_DIR)
-    p.add_argument("--tag", default=None, help="checkpoint name; default eyeG_<fit>")
+    p.add_argument("--eye-fit", default=EYE_FIT_PATH,
+                   help="cached eye fit; loaded if present, else fitted and written")
+    p.add_argument("--refit", action="store_true",
+                   help="ignore --eye-fit even if present and refit from --eye-dir")
+    p.add_argument("--tag", default="eyeG", help="checkpoint name")
     p.add_argument("--hidden", type=int, default=64)
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--batch", type=int, default=128)
@@ -376,13 +371,12 @@ def main():
                    help="torsion penalty; Donders' law in its simplest form")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = p.parse_args()
-    tag = a.tag or f"eyeG_{a.fit}"
+    tag = a.tag
     dev = torch.device(a.device)
     os.makedirs(MODELS, exist_ok=True)
 
     # --- the eye ---------------------------------------------------------
-    print(f"[eye] fitting the {a.fit} eye from {a.eye_dir}")
-    spec = fit_light(a.eye_dir) if a.fit == "light" else fit_deep(a.eye_dir)
+    spec = fit_eye(a.eye_dir, cache=a.eye_fit, refit=a.refit)
     eye = EyeG(spec, a.dt).to(dev)
     reach, pos, neg = eye.reach_deg()
     print(f"[eye] {eye.n_act} drives: {', '.join(eye.act_names)}")
@@ -453,7 +447,7 @@ def main():
         if ep % 10 == 0 or ep == a.epochs - 1:
             e = evaluate(Uva, Yva)
             print(f"  ep {ep:3d}  horizon {h:3d}  train {tot / len(perm):.5f}  "
-                  f"val |err| {e:.3f} deg")
+                  f"val |err| {_err_color(e)} deg")
             if e < best:
                 best, best_state = e, {k: v.detach().clone()
                                        for k, v in model.state_dict().items()}
@@ -465,7 +459,7 @@ def main():
         x, m = model(Ute[:64])
         psi = float(x[..., 2].abs().mean())
         occ = float((m > 1e-3).float().mean())
-    print(f"[done] test |err| {test:.3f} deg   mean |torsion| {psi:.2f} deg   "
+    print(f"[done] test |err| {_err_color(test)} deg   mean |torsion| {psi:.2f} deg   "
           f"drives active {occ * 100:.0f}% of the time")
 
     ck = os.path.join(MODELS, f"{tag}.pt")
@@ -477,7 +471,7 @@ def main():
                 "hidden": a.hidden, "dt": a.dt, "scale": scale.tolist(),
                 "act_names": eye.act_names, "kind": eye.kind}, ck)
     rep = os.path.join(MODELS, f"{tag}.json")
-    json.dump({"tag": tag, "fit": a.fit, "n_act": eye.n_act,
+    json.dump({"tag": tag, "n_act": eye.n_act,
                "act_names": eye.act_names,
                "gaze_err_mean_deg": test, "val_err_deg": best,
                "mean_abs_torsion_deg": psi,
