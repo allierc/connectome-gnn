@@ -1,0 +1,10 @@
+{
+  "variant": "ideal_linear",
+  "deg_per_unit": 9.542688107751172,
+  "gaze_err_mean_deg": 0.14206837117671967,
+  "gaze_err_h_deg": 0.0711190328001976,
+  "gaze_err_v_deg": 0.10719797760248184,
+  "gaze_err_p95_deg": 0.3791167438030243,
+  "cmd_abs_mean": 0.24191053211688995,
+  "cmd_saturated_frac": 8.680555765749887e-06
+}

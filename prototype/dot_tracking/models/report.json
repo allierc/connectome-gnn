@@ -1,0 +1,566 @@
+{
+  "intlin": {
+    "mse": 0.007139480672776699,
+    "err_mean": 0.08959454298019409,
+    "err_final": 0.18849319219589233,
+    "frac_never_lost": 1.0,
+    "t_lose_median": 8.0,
+    "per_condition": {
+      "segment continue slow low": {
+        "err_mean": 0.07803445309400558,
+        "frac_never_lost": 1.0
+      },
+      "segment continue slow sharp": {
+        "err_mean": 0.05000739544630051,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle low": {
+        "err_mean": 0.14073435962200165,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle sharp": {
+        "err_mean": 0.0712594985961914,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast low": {
+        "err_mean": 0.12376563996076584,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast sharp": {
+        "err_mean": 0.09515081346035004,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow low": {
+        "err_mean": 0.04895395040512085,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow sharp": {
+        "err_mean": 0.04490220546722412,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle low": {
+        "err_mean": 0.12625128030776978,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle sharp": {
+        "err_mean": 0.06189176067709923,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast low": {
+        "err_mean": 0.13575759530067444,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast sharp": {
+        "err_mean": 0.08409348875284195,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow low": {
+        "err_mean": 0.07715480029582977,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow sharp": {
+        "err_mean": 0.05406375974416733,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle low": {
+        "err_mean": 0.13628682494163513,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle sharp": {
+        "err_mean": 0.08322013169527054,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast low": {
+        "err_mean": 0.1262805461883545,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast sharp": {
+        "err_mean": 0.09677448868751526,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow low": {
+        "err_mean": 0.04841421917080879,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow sharp": {
+        "err_mean": 0.0467362143099308,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle low": {
+        "err_mean": 0.12588748335838318,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle sharp": {
+        "err_mean": 0.06665090471506119,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast low": {
+        "err_mean": 0.13759532570838928,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast sharp": {
+        "err_mean": 0.09040182828903198,
+        "frac_never_lost": 1.0
+      }
+    },
+    "tau_e": 9.516666666666666,
+    "hold_gain": 1.0596988201141357,
+    "tau_fitted": 9.430004408607342
+  },
+  "mlp": {
+    "mse": 0.10843712836503983,
+    "err_mean": 0.39173755049705505,
+    "err_final": 0.5364572405815125,
+    "frac_never_lost": 0.25208336114883423,
+    "t_lose_median": 4.350000381469727,
+    "per_condition": {
+      "segment continue slow low": {
+        "err_mean": 0.4160166084766388,
+        "frac_never_lost": 0.0
+      },
+      "segment continue slow sharp": {
+        "err_mean": 0.23538854718208313,
+        "frac_never_lost": 0.7750000357627869
+      },
+      "segment continue middle low": {
+        "err_mean": 0.5083759427070618,
+        "frac_never_lost": 0.0
+      },
+      "segment continue middle sharp": {
+        "err_mean": 0.3513849377632141,
+        "frac_never_lost": 0.32500001788139343
+      },
+      "segment continue fast low": {
+        "err_mean": 0.4928925633430481,
+        "frac_never_lost": 0.0
+      },
+      "segment continue fast sharp": {
+        "err_mean": 0.46864452958106995,
+        "frac_never_lost": 0.07500000298023224
+      },
+      "segment stop_and_go slow low": {
+        "err_mean": 0.2415565550327301,
+        "frac_never_lost": 0.4000000059604645
+      },
+      "segment stop_and_go slow sharp": {
+        "err_mean": 0.2105454057455063,
+        "frac_never_lost": 0.925000011920929
+      },
+      "segment stop_and_go middle low": {
+        "err_mean": 0.5008228421211243,
+        "frac_never_lost": 0.0
+      },
+      "segment stop_and_go middle sharp": {
+        "err_mean": 0.28637194633483887,
+        "frac_never_lost": 0.4749999940395355
+      },
+      "segment stop_and_go fast low": {
+        "err_mean": 0.5387818813323975,
+        "frac_never_lost": 0.0
+      },
+      "segment stop_and_go fast sharp": {
+        "err_mean": 0.41216394305229187,
+        "frac_never_lost": 0.15000000596046448
+      },
+      "curve continue slow low": {
+        "err_mean": 0.41527318954467773,
+        "frac_never_lost": 0.0
+      },
+      "curve continue slow sharp": {
+        "err_mean": 0.2558494210243225,
+        "frac_never_lost": 0.699999988079071
+      },
+      "curve continue middle low": {
+        "err_mean": 0.5020894408226013,
+        "frac_never_lost": 0.0
+      },
+      "curve continue middle sharp": {
+        "err_mean": 0.3953089416027069,
+        "frac_never_lost": 0.17499999701976776
+      },
+      "curve continue fast low": {
+        "err_mean": 0.4891088902950287,
+        "frac_never_lost": 0.0
+      },
+      "curve continue fast sharp": {
+        "err_mean": 0.4331163763999939,
+        "frac_never_lost": 0.07500000298023224
+      },
+      "curve stop_and_go slow low": {
+        "err_mean": 0.2357194870710373,
+        "frac_never_lost": 0.42500001192092896
+      },
+      "curve stop_and_go slow sharp": {
+        "err_mean": 0.2140711545944214,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle low": {
+        "err_mean": 0.5093325972557068,
+        "frac_never_lost": 0.0
+      },
+      "curve stop_and_go middle sharp": {
+        "err_mean": 0.3083062767982483,
+        "frac_never_lost": 0.42500001192092896
+      },
+      "curve stop_and_go fast low": {
+        "err_mean": 0.5469011664390564,
+        "frac_never_lost": 0.0
+      },
+      "curve stop_and_go fast sharp": {
+        "err_mean": 0.43367838859558105,
+        "frac_never_lost": 0.125
+      }
+    },
+    "tau_e": 0.48333333333333334,
+    "hold_gain": 0.19841812551021576
+  },
+  "rnn": {
+    "mse": 0.12331689149141312,
+    "err_mean": 0.4241274893283844,
+    "err_final": 0.5372977256774902,
+    "frac_never_lost": 0.2718750238418579,
+    "t_lose_median": 4.358333587646484,
+    "per_condition": {
+      "segment continue slow low": {
+        "err_mean": 0.476175457239151,
+        "frac_never_lost": 0.0
+      },
+      "segment continue slow sharp": {
+        "err_mean": 0.21854105591773987,
+        "frac_never_lost": 0.9750000238418579
+      },
+      "segment continue middle low": {
+        "err_mean": 0.539216935634613,
+        "frac_never_lost": 0.0
+      },
+      "segment continue middle sharp": {
+        "err_mean": 0.3538435399532318,
+        "frac_never_lost": 0.4000000059604645
+      },
+      "segment continue fast low": {
+        "err_mean": 0.5934156775474548,
+        "frac_never_lost": 0.0
+      },
+      "segment continue fast sharp": {
+        "err_mean": 0.5034762620925903,
+        "frac_never_lost": 0.02500000037252903
+      },
+      "segment stop_and_go slow low": {
+        "err_mean": 0.32539546489715576,
+        "frac_never_lost": 0.125
+      },
+      "segment stop_and_go slow sharp": {
+        "err_mean": 0.19013170897960663,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle low": {
+        "err_mean": 0.5284942984580994,
+        "frac_never_lost": 0.0
+      },
+      "segment stop_and_go middle sharp": {
+        "err_mean": 0.2873491048812866,
+        "frac_never_lost": 0.699999988079071
+      },
+      "segment stop_and_go fast low": {
+        "err_mean": 0.5881207585334778,
+        "frac_never_lost": 0.0
+      },
+      "segment stop_and_go fast sharp": {
+        "err_mean": 0.4359748363494873,
+        "frac_never_lost": 0.15000000596046448
+      },
+      "curve continue slow low": {
+        "err_mean": 0.4804205000400543,
+        "frac_never_lost": 0.0
+      },
+      "curve continue slow sharp": {
+        "err_mean": 0.2578871548175812,
+        "frac_never_lost": 0.824999988079071
+      },
+      "curve continue middle low": {
+        "err_mean": 0.531110405921936,
+        "frac_never_lost": 0.0
+      },
+      "curve continue middle sharp": {
+        "err_mean": 0.4110647141933441,
+        "frac_never_lost": 0.22500000894069672
+      },
+      "curve continue fast low": {
+        "err_mean": 0.5943852663040161,
+        "frac_never_lost": 0.0
+      },
+      "curve continue fast sharp": {
+        "err_mean": 0.4561953842639923,
+        "frac_never_lost": 0.10000000149011612
+      },
+      "curve stop_and_go slow low": {
+        "err_mean": 0.31712397933006287,
+        "frac_never_lost": 0.20000000298023224
+      },
+      "curve stop_and_go slow sharp": {
+        "err_mean": 0.1945541948080063,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle low": {
+        "err_mean": 0.5266633033752441,
+        "frac_never_lost": 0.0
+      },
+      "curve stop_and_go middle sharp": {
+        "err_mean": 0.31423166394233704,
+        "frac_never_lost": 0.675000011920929
+      },
+      "curve stop_and_go fast low": {
+        "err_mean": 0.6023726463317871,
+        "frac_never_lost": 0.0
+      },
+      "curve stop_and_go fast sharp": {
+        "err_mean": 0.45291489362716675,
+        "frac_never_lost": 0.125
+      }
+    },
+    "tau_e": 0.4,
+    "hold_gain": 0.3268425464630127
+  },
+  "ctrnn": {
+    "mse": 4.097706914762966e-05,
+    "err_mean": 0.007433459162712097,
+    "err_final": 0.011193078942596912,
+    "frac_never_lost": 1.0,
+    "t_lose_median": 8.0,
+    "per_condition": {
+      "segment continue slow low": {
+        "err_mean": 0.004900513216853142,
+        "frac_never_lost": 1.0
+      },
+      "segment continue slow sharp": {
+        "err_mean": 0.006519584450870752,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle low": {
+        "err_mean": 0.005949789192527533,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle sharp": {
+        "err_mean": 0.007457005325704813,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast low": {
+        "err_mean": 0.011024544946849346,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast sharp": {
+        "err_mean": 0.011532045900821686,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow low": {
+        "err_mean": 0.0060052028857171535,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow sharp": {
+        "err_mean": 0.006659071892499924,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle low": {
+        "err_mean": 0.00509309396147728,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle sharp": {
+        "err_mean": 0.0074661788530647755,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast low": {
+        "err_mean": 0.007581098936498165,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast sharp": {
+        "err_mean": 0.009617611765861511,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow low": {
+        "err_mean": 0.005171298049390316,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow sharp": {
+        "err_mean": 0.0068541704677045345,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle low": {
+        "err_mean": 0.0056288703344762325,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle sharp": {
+        "err_mean": 0.007283851504325867,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast low": {
+        "err_mean": 0.00947659183293581,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast sharp": {
+        "err_mean": 0.011450142599642277,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow low": {
+        "err_mean": 0.006124601233750582,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow sharp": {
+        "err_mean": 0.0067283944226801395,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle low": {
+        "err_mean": 0.005081816576421261,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle sharp": {
+        "err_mean": 0.007199058774858713,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast low": {
+        "err_mean": 0.008482568897306919,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast sharp": {
+        "err_mean": 0.009115920402109623,
+        "frac_never_lost": 1.0
+      }
+    },
+    "tau_e": Infinity,
+    "hold_gain": 0.9864377975463867,
+    "tau_fitted": 0.7397022843360901
+  },
+  "gru": {
+    "mse": 5.966272874502465e-05,
+    "err_mean": 0.008459419012069702,
+    "err_final": 0.013767878524959087,
+    "frac_never_lost": 1.0,
+    "t_lose_median": 8.0,
+    "per_condition": {
+      "segment continue slow low": {
+        "err_mean": 0.006248916033655405,
+        "frac_never_lost": 1.0
+      },
+      "segment continue slow sharp": {
+        "err_mean": 0.0052163428626954556,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle low": {
+        "err_mean": 0.006861797999590635,
+        "frac_never_lost": 1.0
+      },
+      "segment continue middle sharp": {
+        "err_mean": 0.007247675210237503,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast low": {
+        "err_mean": 0.012516885064542294,
+        "frac_never_lost": 1.0
+      },
+      "segment continue fast sharp": {
+        "err_mean": 0.018340639770030975,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow low": {
+        "err_mean": 0.005273653194308281,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go slow sharp": {
+        "err_mean": 0.005361099261790514,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle low": {
+        "err_mean": 0.006376993376761675,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go middle sharp": {
+        "err_mean": 0.00550094386562705,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast low": {
+        "err_mean": 0.011578450910747051,
+        "frac_never_lost": 1.0
+      },
+      "segment stop_and_go fast sharp": {
+        "err_mean": 0.009981751441955566,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow low": {
+        "err_mean": 0.006780921947211027,
+        "frac_never_lost": 1.0
+      },
+      "curve continue slow sharp": {
+        "err_mean": 0.005315106827765703,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle low": {
+        "err_mean": 0.0072510214522480965,
+        "frac_never_lost": 1.0
+      },
+      "curve continue middle sharp": {
+        "err_mean": 0.007621990982443094,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast low": {
+        "err_mean": 0.013029064983129501,
+        "frac_never_lost": 1.0
+      },
+      "curve continue fast sharp": {
+        "err_mean": 0.017538363113999367,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow low": {
+        "err_mean": 0.005574491340667009,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go slow sharp": {
+        "err_mean": 0.005280504934489727,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle low": {
+        "err_mean": 0.006695682182908058,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go middle sharp": {
+        "err_mean": 0.00574945192784071,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast low": {
+        "err_mean": 0.01168578676879406,
+        "frac_never_lost": 1.0
+      },
+      "curve stop_and_go fast sharp": {
+        "err_mean": 0.009998520836234093,
+        "frac_never_lost": 1.0
+      }
+    },
+    "tau_e": Infinity,
+    "hold_gain": 0.9992600679397583
+  },
+  "perfect": {
+    "mse": NaN,
+    "err_mean": 0.004117736916950902,
+    "err_final": NaN,
+    "frac_never_lost": 1.0,
+    "t_lose_median": 8.0,
+    "tau_e": NaN,
+    "analytic": true
+  },
+  "gain": {
+    "mse": NaN,
+    "err_mean": 0.22461260000736613,
+    "err_final": NaN,
+    "frac_never_lost": 0.978125,
+    "t_lose_median": 8.0,
+    "tau_e": NaN,
+    "analytic": true
+  },
+  "leaky": {
+    "mse": NaN,
+    "err_mean": 0.2841087909186452,
+    "err_final": NaN,
+    "frac_never_lost": 0.6677083333333333,
+    "t_lose_median": 8.0,
+    "tau_e": NaN,
+    "analytic": true
+  }
+}
