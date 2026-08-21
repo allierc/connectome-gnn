@@ -1,0 +1,22 @@
+{
+  "tag": "eyeG",
+  "kind": "quad",
+  "n_act": 6,
+  "err_mean_deg": 2.5709025859832764,
+  "err_by_phase_deg": {
+    "saccades  0.5 Hz": 0.9405022859573364,
+    "saccades  0.75 Hz": 1.4826215505599976,
+    "saccades  1.15 Hz": 2.031341314315796,
+    "saccades  1.75 Hz": 3.3256616592407227,
+    "saccades  2.65 Hz": 3.8314478397369385,
+    "saccades  4 Hz": 3.8138389587402344
+  },
+  "mean_abs_torsion_deg": 0.6245038509368896,
+  "reach_deg": [
+    6.919303894042969,
+    7.108933448791504,
+    8.12649154663086
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}

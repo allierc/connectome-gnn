@@ -435,33 +435,33 @@ def main():
               "eye can actually reach, so the task is EASIER than specified and the "
               "error is not comparable with an eye that passes the gate.")
 
-    # --- data: the shared corpus, scaled to this eye's own reach ---------
-    scale = np.array([reach[0], reach[1]], np.float32) / BOUND    # deg per grid unit
+    # --- training data: -------------------------------------------------------
+    scale = np.array([reach[0], reach[1]], np.float32) / BOUND    # deg per grid unit: converts arena position to gaze degrees
     print(f"[data] anisotropic world: h x{scale[0]:.2f}, v x{scale[1]:.2f} deg/unit "
           f"(+-{reach[0]:.1f} / +-{reach[1]:.1f} deg)")
     sp = {}
     for nm, n, s0 in (("train", 150, 0), ("val", 25, 5_000_000),
                       ("test", 40, 9_000_000)):
-        pdot, star, _ = learn.load_split(nm, n, a.duration, a.dt, s0)
+        pdot, target_angles, _ = learn.load_split(nm, n, a.duration, a.dt, s0)
         sp[nm] = (torch.as_tensor(pdot).to(dev),                  # p_dot, eq:input-vector
-                  torch.as_tensor(star * scale).to(dev))          # (theta*, phi*), degrees
-    (Pdot_tr, Star_tr), (Pdot_va, Star_va), (Pdot_te, Star_te) = \
+                  torch.as_tensor(target_angles * scale).to(dev))  # (theta*, phi*), degrees
+    (Pdot_tr, Target_angles_tr), (Pdot_va, Target_angles_va), (Pdot_te, Target_angles_te) = \
         sp["train"], sp["val"], sp["test"]
 
     torch.manual_seed(0)
     model = CTRNNEyeG(eye, hidden=a.hidden, dt=a.dt).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
-    T = Pdot_tr.shape[1]
+    T = Pdot_tr.shape[1]    #  reads off the number of timesteps per trajectory (480 by default) 
     sched = [max(60, int(T * f)) for f in (0.25, 0.5, 0.75, 1.0)]   # horizon curriculum
 
-    def evaluate(Pdot, Star):
+    def evaluate(Pdot, Target_angles):
         model.eval()
         with torch.no_grad():
             errs = []
             for i in range(0, Pdot.shape[0], a.batch):
                 u, _ = model(Pdot[i:i + a.batch])
-                errs.append((u[..., :2] - Star[i:i + a.batch]).norm(dim=-1))
+                errs.append((u[..., :2] - Target_angles[i:i + a.batch]).norm(dim=-1))
             return float(torch.cat(errs).mean())
 
     best, best_state = np.inf, None
@@ -474,14 +474,14 @@ def main():
             j = perm[i:i + a.batch]
             u, _ = model(Pdot_tr[j, :h])
             # eq:loss / eq:loss-again: (theta, phi) tracked, psi penalised to zero
-            loss = ((u[..., :2] - Star_tr[j, :h]) ** 2).mean() \
+            loss = ((u[..., :2] - Target_angles_tr[j, :h]) ** 2).mean() \
                 + a.lam_psi * (u[..., 2] ** 2).mean()
             opt.zero_grad(); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); tot += float(loss.detach()) * len(j)
         sch.step()
         if ep % 10 == 0 or ep == a.epochs - 1:
-            e = evaluate(Pdot_va, Star_va)
+            e = evaluate(Pdot_va, Target_angles_va)
             print(f"  ep {ep:3d}  horizon {h:3d}  train {tot / len(perm):.5f}  "
                   f"val |err| {_err_color(e)} deg")
             if e < best:
@@ -490,7 +490,7 @@ def main():
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    test = evaluate(Pdot_te, Star_te)
+    test = evaluate(Pdot_te, Target_angles_te)
     with torch.no_grad():
         u, m = model(Pdot_te[:64])
         psi = float(u[..., 2].abs().mean())
