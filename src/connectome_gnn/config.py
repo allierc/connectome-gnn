@@ -1125,6 +1125,12 @@ class TrainingConfig(BaseModel):
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights
+    # Group lasso (L2,1) on g_phi's first-layer input columns, grouped as [vi],[vj],[ai],[aj].
+    # Unlike weight_L1/L2 (elementwise, diffuse shrinkage), this penalizes each input's whole
+    # column jointly so the optimizer can drop an entire input pathway to ~0 instead of shrinking
+    # all weights a little. No-op unless g_phi's first layer has the 2+2*embedding_dim input
+    # width of flyvis_conductance (checked at compute time, not by model name).
+    coeff_g_phi_input_group_L1: float = 0  # Group-lasso penalty on g_phi input columns (vi/vj/ai/aj)
 
     # -- W (connectivity) regularizers --
     # coeff_W_L1, coeff_W_L2, coeff_W_sign defined above
