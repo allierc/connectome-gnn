@@ -337,6 +337,10 @@ class CTRNNEyeG(nn.Module):
         self.W = nn.Parameter(torch.zeros(hidden, hidden))   # stands in for W_hat
         self.enc = nn.Linear(2, hidden)          # stands in for W_in, eq:input-map
         self.mot = nn.Linear(hidden, eye.n_act)  # stands in for W_out, eq:output-map
+        
+        # self.MLP_update = nn.MLP
+        # self.MLP_activation_function = nn.MLP
+        
         with torch.no_grad():
             self.enc.weight.mul_(0.5)
 
@@ -352,8 +356,10 @@ class CTRNNEyeG(nn.Module):
         rates = []
         for t in range(T):
             r = torch.tanh(v)             # r_j = rho(v_j), rho = tanh, eq:circuit
+            # r = MLP_activation_function(v)
             rates.append(r)
             v = v + alpha * (-v + r @ self.W.T + I[:, t])       # eq:euler-circuit
+            #v = MLP_update(v, r @ self.W.T, I[:, t])
         R = torch.stack(rates, 1)                         # (B, T, hidden), r_j(t)
         m = nn.functional.softplus(self.mot(R))           # m(t) = [W_out r(t)]_+, eq:output-map
         u = self.eye(m)                                    # (B, T, 3) gaze, degrees
@@ -387,6 +393,11 @@ def _err_color(deg):
 # training
 # ---------------------------------------------------------------------------
 def main():
+
+
+    # arguments ----------------------
+
+
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--eye-dir", default=EYE_DIR)
@@ -409,7 +420,7 @@ def main():
     dev = torch.device(a.device)
     os.makedirs(MODELS, exist_ok=True)
 
-    # --- the eye ---------------------------------------------------------
+    # --- the eye model (fixed part of the training, load fitted g(m) C, K ) ---------------------------------------------------------
     spec = fit_eye(a.eye_dir, cache=a.eye_fit, refit=a.refit)
     eye = EyeG(spec, a.dt).to(dev)
     reach, pos, neg = eye.reach_deg()
@@ -435,7 +446,7 @@ def main():
               "eye can actually reach, so the task is EASIER than specified and the "
               "error is not comparable with an eye that passes the gate.")
 
-    # --- training data: -------------------------------------------------------
+    # --- training data: N tarjectories, split taining 80% / validation 20%  -------------------------------------------------------
     scale = np.array([reach[0], reach[1]], np.float32) / BOUND    # deg per grid unit: converts arena position to gaze degrees
     print(f"[data] anisotropic world: h x{scale[0]:.2f}, v x{scale[1]:.2f} deg/unit "
           f"(+-{reach[0]:.1f} / +-{reach[1]:.1f} deg)")
@@ -448,9 +459,12 @@ def main():
     (Pdot_tr, Target_angles_tr), (Pdot_va, Target_angles_va), (Pdot_te, Target_angles_te) = \
         sp["train"], sp["val"], sp["test"]
 
+
+    # init training
+
     torch.manual_seed(0)
-    model = CTRNNEyeG(eye, hidden=a.hidden, dt=a.dt).to(dev)
-    opt = torch.optim.Adam(model.parameters(), lr=a.lr)
+    model = CTRNNEyeG(eye, hidden=a.hidden, dt=a.dt).to(dev)    # load model it goes to init of CTRNNEyeG
+    opt = torch.optim.Adam(model.parameters(), lr=a.lr) # optimization method Adam is gradient stochastic
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     T = Pdot_tr.shape[1]    #  reads off the number of timesteps per trajectory (480 by default) 
     sched = [max(60, int(T * f)) for f in (0.25, 0.5, 0.75, 1.0)]   # horizon curriculum
@@ -463,6 +477,8 @@ def main():
                 u, _ = model(Pdot[i:i + a.batch])
                 errs.append((u[..., :2] - Target_angles[i:i + a.batch]).norm(dim=-1))
             return float(torch.cat(errs).mean())
+
+    # start training 
 
     best, best_state = np.inf, None
     for ep in range(a.epochs):
