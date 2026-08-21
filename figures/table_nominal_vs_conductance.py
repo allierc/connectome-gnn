@@ -62,17 +62,21 @@ def _fmt(mean, sd):
 
 
 def _fmt_R2_out(mean, sd, count_mean, n_neurons):
+    """Two cells (R^2, then its (out%) companion), colored together — matches
+    tab:cv_gnn_vs_baselines' 2-column R^2/out%% span (cv_table_known_ode_vs_gnn.tex
+    uses one merged cell instead; this table follows the split-cell convention)."""
     import math
     if (isinstance(mean, float) and math.isnan(mean)) or \
        (isinstance(sd, float) and math.isnan(sd)) or \
        (isinstance(count_mean, float) and math.isnan(count_mean)) or not n_neurons:
-        return '$\\cdot$'
-    body = f"${mean:.3f}{{\\pm}}{sd:.3f}\\,({100.0*count_mean/n_neurons:.1f}\\%)$"
+        return '$\\cdot$', '$\\cdot$'
+    r2_body = f"${mean:.3f}{{\\pm}}{sd:.3f}$"
+    out_body = f"$\\,({100.0*count_mean/n_neurons:.1f})$"
     if mean > _GOOD_THRESH:
-        return f"\\good{{{body}}}"
+        return f"\\good{{{r2_body}}}", f"\\good{{{out_body}}}"
     if mean < _LOW_THRESH:
-        return f"\\bad{{{body}}}"
-    return body
+        return f"\\bad{{{r2_body}}}", f"\\bad{{{out_body}}}"
+    return r2_body, out_body
 
 
 def _ansi_cell(mean, sd, width=15):
@@ -139,23 +143,66 @@ def main():
         print(f'    Vrest R2   : {_ansi_cell(*s["V_R2"])}  (out%={100.0*s["V_out"]/_N_NEURONS:.1f})')
         print(f'    cluster    : {_ansi_cell(*s["cluster"])}')
 
+        tau_r2_cell, tau_out_cell = _fmt_R2_out(*s["tau_R2"], s["tau_out"], _N_NEURONS)
+        V_r2_cell, V_out_cell = _fmt_R2_out(*s["V_R2"], s["V_out"], _N_NEURONS)
         lines.append(
             f'{label}\n'
             f'  & {_fmt(*s["one_r"])} & {_fmt(*s["roll_r"])}\n'
             f'  & {_fmt(*s["W_R2"])}\n'
-            f'  & {_fmt_R2_out(*s["tau_R2"], s["tau_out"], _N_NEURONS)}\n'
-            f'  & {_fmt_R2_out(*s["V_R2"], s["V_out"], _N_NEURONS)}\n'
+            f'  & {tau_r2_cell} & {tau_out_cell}\n'
+            f'  & {V_r2_cell} & {V_out_cell}\n'
             f'  & {_fmt(*s["cluster"])} \\\\'
         )
+
+    rows_tex = ('\n\\midrule\n'.join(lines))
 
     path = os.path.join(_FIGURES_DIR, 'table_nominal_vs_conductance.tex')
     with open(path, 'w') as f:
         f.write('% Nominal (flyvis_A) vs conductance (flyvis_conductance), blank50, 5-fold CV (rows only).\n')
-        f.write('% Cols: model | one-step r | rollout r | W R^2 | tau R^2 (out%%) | Vrest R^2 (out%%) | cluster acc.\n')
-        f.write('% (R^2 for tau/Vrest/W on the no-outlier subset; out%% = mean(n_outliers / n_neurons) across folds.)\n')
-        for ln in lines:
-            f.write(ln + '\n')
+        f.write('% Cols: model | one-step r | rollout r | W R^2 | tau R^2 | (out%%) | Vrest R^2 | (out%%) | cluster acc.\n')
+        f.write('% (R^2 for tau/Vrest/W on the no-outlier subset; out%% = mean(n_outliers / n_neurons) across folds, 1 dec.)\n')
+        f.write('% Split R^2/(out%%) into two cells each -- matches tab:cv_gnn_vs_baselines header spans,\n')
+        f.write('% not cv_table_known_ode_vs_gnn.tex\'s single merged-cell format.\n')
+        f.write(rows_tex + '\n')
     print(f'\n  [tex] {path}')
+
+    wrapper_path = os.path.join(_FIGURES_DIR, 'table_nominal_vs_conductance_standalone.tex')
+    with open(wrapper_path, 'w') as f:
+        f.write(_STANDALONE_TEMPLATE.replace('%%ROWS%%', rows_tex))
+    print(f'  [tex] {wrapper_path}  (standalone, compilable: pdflatex table_nominal_vs_conductance_standalone.tex)')
+
+
+_STANDALONE_TEMPLATE = r"""\documentclass{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
+\newcommand{\bad}[1]{\textcolor{orange}{#1}}
+\pagestyle{empty}
+\begin{document}
+\begin{table}[t]
+\centering
+\caption{\textbf{Nominal vs.\ conductance GNN on Flyvis-217}, blank50, noise $\sigma=0.05$; 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out stimuli. Parameter recovery: $R^2_{\hat{W}}$ over all $434{,}112$ non-zero edges; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected; GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$, \bad{orange}: $<0.3$.}
+\label{tab:nominal_vs_conductance}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} lrrrr@{}rr@{}rr@{}}
+\toprule
+& \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
+model
+  & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
+  & \multicolumn{1}{c}{$R^2_{\hat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\hat{\tau}}\ (\text{out.}\,\%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}}\ (\text{out.}\,\%)$}
+  & \multicolumn{1}{c}{cluster\ acc.} \\
+\midrule
+%%ROWS%%
+\bottomrule
+\end{tabular*}
+\end{table}
+\end{document}
+"""
 
 
 if __name__ == '__main__':
