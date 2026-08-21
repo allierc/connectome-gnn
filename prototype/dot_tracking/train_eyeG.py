@@ -71,43 +71,53 @@ def damp_inv(C, dt, backend=torch):
     return backend.linalg.inv(I + dt * C)
 
 
-def rollout(xi, K, C, dt, Minv=None, backend=torch):
-    """Semi-implicit in the spring, implicit in the damping:
+def rollout(u_inf, K, C, dt, Minv=None, backend=torch):
+    """The note's eq:euler-eye, the discretisation of the mechanics eq:mechanics,
+    u-double-dot + C u-dot + K u = K u_inf, semi-implicit in the spring and
+    implicit in the damping:
 
-        v <- (I + dt C)^-1 (v + dt K (x_inf - x)) ;   x <- x + dt v
+        u_dot <- (I + dt C)^-1 (u_dot + dt K (u_inf - u)) ;   u <- u + dt u_dot
+
+    `u_inf` is the commanded equilibrium g(m) of eq:quadratic; `u` is the gaze
+    (theta, phi, psi) of eq:gaze-vector, NOT the target position (x, y) -- the
+    note picks the letter u for exactly this reason (see step 6 of section 4).
     """
     Minv = damp_inv(C, dt, backend) if Minv is None else Minv
-    lead = xi.shape[:-2]
-    x = backend.zeros(*lead, 3, dtype=xi.dtype, device=getattr(xi, "device", None)) \
+    lead = u_inf.shape[:-2]
+    u = backend.zeros(*lead, 3, dtype=u_inf.dtype, device=getattr(u_inf, "device", None)) \
         if backend is torch else np.zeros(lead + (3,))
-    v = x * 0
+    u_dot = u * 0
     out = []
-    for k in range(xi.shape[-2]):
-        out.append(x)
-        v = (v + dt * ((xi[..., k, :] - x) @ K.T)) @ Minv.T
-        x = x + dt * v
+    for k in range(u_inf.shape[-2]):
+        out.append(u)
+        u_dot = (u_dot + dt * ((u_inf[..., k, :] - u) @ K.T)) @ Minv.T
+        u = u + dt * u_dot
     return backend.stack(out, -2)
 
 
 def fit_mechanics(traces, iters=3000, verbose=True):
-    """Fit 3x3 C and K to `xdd + C xd + K x = K x_inf` over a list of recorded runs.
+    """Fit C and K of the note's eq:mechanics, u-double-dot + C u-dot + K u =
+    K u_inf, over a list of recorded runs -- eq:mech-fit of the note, minimising
+    the summed squared rollout error by gradient descent rather than a
+    closed-form solve, since u at frame t depends on every earlier frame.
 
-    Each trace is (dt, x_inf (T,3), gaze (T,3)). Nothing here re-runs a simulation:
-    every hold in the protocol is a step from rest followed by a release, recorded at
-    full rate, so the transients the mechanics need are already on disk. That is stage
-    3 of the protocol costing three runs instead of twenty-five.
+    Each trace is (dt, u_inf (T,3), u_true (T,3), the recorded gaze). Nothing here
+    re-runs a simulation: every hold in the protocol is a step from rest followed
+    by a release, recorded at full rate, so the transients the mechanics need are
+    already on disk. That is stage 3 of the protocol costing three runs instead of
+    twenty-five.
     """
     LK = torch.tensor(_spd(np.diag([400.0] * 3)), requires_grad=True)
     LC = torch.tensor(_spd(np.diag([20.0] * 3)), requires_grad=True)
     opt = torch.optim.Adam([LK, LC], lr=0.05)
-    T = [(dt, torch.tensor(np.asarray(xi, np.float64)),
-          torch.tensor(np.asarray(g, np.float64))) for dt, xi, g in traces]
+    T = [(dt, torch.tensor(np.asarray(u_inf, np.float64)),
+          torch.tensor(np.asarray(u_true, np.float64))) for dt, u_inf, u_true in traces]
     for it in range(iters):
         K = LK @ LK.T + 1e-6 * torch.eye(3, dtype=torch.float64)
         C = LC @ LC.T
         loss = 0.0
-        for dt, xi, gi in T:
-            loss = loss + ((rollout(xi, K, C, dt) - gi) ** 2).mean()
+        for dt, u_inf, u_true in T:
+            loss = loss + ((rollout(u_inf, K, C, dt) - u_true) ** 2).mean()
         loss = loss / len(T)
         opt.zero_grad(); loss.backward(); opt.step()
         if verbose and it % 1000 == 0:
@@ -243,14 +253,19 @@ def fit_eye(eye_dir=EYE_DIR, cache=EYE_FIT_PATH, refit=False, verbose=True):
 
 
 class EyeG(nn.Module):
-    """Non-negative drives in, three gaze angles out. Frozen: every coefficient is
-    a buffer, so `.parameters()` is empty and the optimiser cannot retune the body.
+    """Non-negative drives in, three gaze angles out -- the note's eq:hammerstein
+    and eq:eye-io. Frozen: every coefficient is a buffer, so `.parameters()` is
+    empty and the optimiser cannot retune the body.
 
-        x_inf = g(m)                 static, measured (steady state; m = the six
-                                      non-negative muscle drives, shape (..., 6))
-        xdd + C xd + K x = K x_inf   linear, fitted (from the MPM soft-body eye's
-                                      own step responses; x = gaze angles (..., 3):
-                                      horizontal, vertical, torsion)
+        u_inf = g(m)                     static, measured (steady state; m = the
+                                          six non-negative muscle drives, (..., 6))
+        u_ddot + C u_dot + K u = K u_inf  linear, fitted (from the MPM soft-body
+                                          eye's own step responses; u = the gaze
+                                          (theta, phi, psi), (..., 3))
+
+    u, not x: (x, y) is already the target's position in the world (eq:world-scale),
+    whose derivative is the circuit's only input, so the note reserves u for the
+    gaze specifically to keep the two from colliding.
     """
 
     def __init__(self, spec, dt):
@@ -272,12 +287,16 @@ class EyeG(nn.Module):
         return len(self.act_names)
 
     def equilibrium(self, m):
-        """(B, T, 6) drives -> (B, T, 3) the pose the eye would settle at, g(m)."""
+        """(B, T, 6) drives -> (B, T, 3) u_inf = g(m), the note's eq:quadratic:
+        g^k(m) = sum_i a^k_i m_i + sum_{i<=j} b^k_ij m_i m_j, k in {theta, phi, psi}.
+        `self.beta` is (27, 3): the six a^k_i, six b^k_ii and fifteen b^k_ij packed
+        into one matrix per k, so the three sums become one matmul."""
         cross = m[..., self.pidx[:, 0]] * m[..., self.pidx[:, 1]]
         return torch.cat([m, m ** 2, cross], -1) @ self.beta
 
     def forward(self, m):
-        return rollout(self.equilibrium(m), self.K, self.C, self.dt, self.Minv)
+        u_inf = self.equilibrium(m)                      # eq:quadratic
+        return rollout(u_inf, self.K, self.C, self.dt, self.Minv)   # eq:euler-eye
 
     def reach_deg(self):
         """Per-axis reachable travel, the smaller of the two directions, which is
@@ -286,9 +305,9 @@ class EyeG(nn.Module):
         with torch.no_grad():
             dev = self.C.device
             eye = torch.eye(self.n_act, device=dev)[None]         # (1, n_act, n_act)
-            x = self.equilibrium(eye)[0]                          # (n_act, 3)
-        pos = np.array([max(0.0, float(x[:, k].max())) for k in range(3)])
-        neg = np.array([max(0.0, float(-x[:, k].min())) for k in range(3)])
+            pose = self.equilibrium(eye)[0]                       # (n_act, 3), u_inf
+        pos = np.array([max(0.0, float(pose[:, k].max())) for k in range(3)])
+        neg = np.array([max(0.0, float(-pose[:, k].min())) for k in range(3)])
         return np.minimum(pos, neg), pos, neg
 
 
@@ -296,34 +315,49 @@ class EyeG(nn.Module):
 # the controller
 # ---------------------------------------------------------------------------
 class CTRNNEyeG(nn.Module):
-    """The same core as `learn_eye.CTRNNEye` -- continuous-time rate, learned tau,
-    recurrent matrix initialised at ZERO -- with the readout widened to the six
-    muscle drives the eye takes, and the eye appended."""
+    """The circuit of the note's section 4 (steps 1-5), same core as
+    `learn_eye.CTRNNEye` -- continuous-time rate, learned tau, recurrent matrix
+    initialised at ZERO -- with the readout widened to the six muscle drives the
+    eye takes, and the eye (EyeG, steps 6-7) appended.
+
+    THIS IS THE FREE PROTOTYPE, NOT THE CONNECTOME-CONSTRAINED CIRCUIT: section
+    5.2 of the note is explicit about it ("what the eye does when coupled to a
+    ctRNN, not the zebrafish circuit"). `self.W` here is a free, unconstrained
+    (hidden, hidden) matrix -- it stands in for eq:circuit's W_hat, the sign-locked
+    recurrent weights of eq:sign-lock, but is not itself sign-locked. Likewise
+    `self.enc`/`self.mot` stand in for eq:input-map's W_in and eq:output-map's
+    W_out, dense here rather than masked to AF5 / AMN+AIN. Swap this class for
+    the constrained one and every equation below still applies unchanged.
+    """
 
     def __init__(self, eye, hidden=64, tau0=0.5, dt=1 / 60):
         super().__init__()
         self.eye, self.dt = eye, dt
         self.log_tau = nn.Parameter(torch.full((hidden,), float(np.log(tau0))))
-        self.W = nn.Parameter(torch.zeros(hidden, hidden))
-        self.enc = nn.Linear(2, hidden)                 # W^in: (xdot, ydot) -> drive
-        self.mot = nn.Linear(hidden, eye.n_act)          # W^out: rates -> muscles
+        self.W = nn.Parameter(torch.zeros(hidden, hidden))   # stands in for W_hat
+        self.enc = nn.Linear(2, hidden)          # stands in for W_in, eq:input-map
+        self.mot = nn.Linear(hidden, eye.n_act)  # stands in for W_out, eq:output-map
         with torch.no_grad():
             self.enc.weight.mul_(0.5)
 
-    def forward(self, u, want_states=False):
-        alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)   # dt / tau, per unit
-        B, T, _ = u.shape     # B is batchsize, T is number of timesteps                                     # batch, time
-        h = torch.zeros(B, self.W.shape[0], device=u.device, dtype=u.dtype)  # voltage
-        drive = self.enc(u)             # target velocity encoded into the circuit
+    def forward(self, pdot, want_states=False):
+        """pdot = p_dot = (x_dot, y_dot), the target velocity of eq:input-vector --
+        the circuit's only input. Returns (u, m) -- u the gaze of eq:gaze-vector,
+        m the six muscle drives of eq:output-map -- or (u, m, R) with the firing
+        rates too if `want_states`."""
+        alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)   # dt / tau_i, eq:euler-circuit
+        B, T, _ = pdot.shape                              # batch, time
+        v = torch.zeros(B, self.W.shape[0], device=pdot.device, dtype=pdot.dtype)  # v_i(0)=0
+        I = self.enc(pdot)                # I(t) = W_in p_dot(t), eq:input-map
         rates = []
         for t in range(T):
-            r = torch.tanh(h)           # firing rate from voltage
+            r = torch.tanh(v)             # r_j = rho(v_j), rho = tanh, eq:circuit
             rates.append(r)
-            h = h + alpha * (-h + r @ self.W.T + drive[:, t])
-        R = torch.stack(rates, 1)                        # firing rates over time
-        m = nn.functional.softplus(self.mot(R))           # non-negative muscle drive
-        x = self.eye(m)                                   # (B, T, 3) gaze, degrees
-        return (x, m, R) if want_states else (x, m)
+            v = v + alpha * (-v + r @ self.W.T + I[:, t])       # eq:euler-circuit
+        R = torch.stack(rates, 1)                         # (B, T, hidden), r_j(t)
+        m = nn.functional.softplus(self.mot(R))           # m(t) = [W_out r(t)]_+, eq:output-map
+        u = self.eye(m)                                    # (B, T, 3) gaze, degrees
+        return (u, m, R) if want_states else (u, m)
 
 
 def _err_color(deg):
@@ -408,44 +442,46 @@ def main():
     sp = {}
     for nm, n, s0 in (("train", 150, 0), ("val", 25, 5_000_000),
                       ("test", 40, 9_000_000)):
-        u, y, _ = learn.load_split(nm, n, a.duration, a.dt, s0)
-        sp[nm] = (torch.as_tensor(u).to(dev),
-                  torch.as_tensor(y * scale).to(dev))             # target in degrees
-    (Utr, Ytr), (Uva, Yva), (Ute, Yte) = sp["train"], sp["val"], sp["test"]
+        pdot, star, _ = learn.load_split(nm, n, a.duration, a.dt, s0)
+        sp[nm] = (torch.as_tensor(pdot).to(dev),                  # p_dot, eq:input-vector
+                  torch.as_tensor(star * scale).to(dev))          # (theta*, phi*), degrees
+    (Pdot_tr, Star_tr), (Pdot_va, Star_va), (Pdot_te, Star_te) = \
+        sp["train"], sp["val"], sp["test"]
 
     torch.manual_seed(0)
     model = CTRNNEyeG(eye, hidden=a.hidden, dt=a.dt).to(dev)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
-    T = Utr.shape[1]
+    T = Pdot_tr.shape[1]
     sched = [max(60, int(T * f)) for f in (0.25, 0.5, 0.75, 1.0)]   # horizon curriculum
 
-    def evaluate(U, Y):
+    def evaluate(Pdot, Star):
         model.eval()
         with torch.no_grad():
             errs = []
-            for i in range(0, U.shape[0], a.batch):
-                x, _ = model(U[i:i + a.batch])
-                errs.append((x[..., :2] - Y[i:i + a.batch]).norm(dim=-1))
+            for i in range(0, Pdot.shape[0], a.batch):
+                u, _ = model(Pdot[i:i + a.batch])
+                errs.append((u[..., :2] - Star[i:i + a.batch]).norm(dim=-1))
             return float(torch.cat(errs).mean())
 
     best, best_state = np.inf, None
     for ep in range(a.epochs):
         model.train()
         h = sched[min(3, int(4 * ep / max(a.epochs - 1, 1)))]
-        perm = torch.randperm(Utr.shape[0], device=dev)
+        perm = torch.randperm(Pdot_tr.shape[0], device=dev)
         tot = 0.0
         for i in range(0, len(perm), a.batch):
             j = perm[i:i + a.batch]
-            x, _ = model(Utr[j, :h])
-            loss = ((x[..., :2] - Ytr[j, :h]) ** 2).mean() \
-                + a.lam_psi * (x[..., 2] ** 2).mean()
+            u, _ = model(Pdot_tr[j, :h])
+            # eq:loss / eq:loss-again: (theta, phi) tracked, psi penalised to zero
+            loss = ((u[..., :2] - Star_tr[j, :h]) ** 2).mean() \
+                + a.lam_psi * (u[..., 2] ** 2).mean()
             opt.zero_grad(); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step(); tot += float(loss) * len(j)
         sch.step()
         if ep % 10 == 0 or ep == a.epochs - 1:
-            e = evaluate(Uva, Yva)
+            e = evaluate(Pdot_va, Star_va)
             print(f"  ep {ep:3d}  horizon {h:3d}  train {tot / len(perm):.5f}  "
                   f"val |err| {_err_color(e)} deg")
             if e < best:
@@ -454,10 +490,10 @@ def main():
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    test = evaluate(Ute, Yte)
+    test = evaluate(Pdot_te, Star_te)
     with torch.no_grad():
-        x, m = model(Ute[:64])
-        psi = float(x[..., 2].abs().mean())
+        u, m = model(Pdot_te[:64])
+        psi = float(u[..., 2].abs().mean())
         occ = float((m > 1e-3).float().mean())
     print(f"[done] test |err| {_err_color(test)} deg   mean |torsion| {psi:.2f} deg   "
           f"drives active {occ * 100:.0f}% of the time")
