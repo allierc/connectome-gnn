@@ -107,8 +107,8 @@ def fit_mechanics(traces, iters=3000, verbose=True):
     already on disk. That is stage 3 of the protocol costing three runs instead of
     twenty-five.
     """
-    LK = torch.tensor(_spd(np.diag([400.0] * 3)), requires_grad=True)
-    LC = torch.tensor(_spd(np.diag([20.0] * 3)), requires_grad=True)
+    LK = _spd(np.diag([400.0] * 3)).clone().detach().requires_grad_(True)
+    LC = _spd(np.diag([20.0] * 3)).clone().detach().requires_grad_(True)
     opt = torch.optim.Adam([LK, LC], lr=0.05)
     T = [(dt, torch.tensor(np.asarray(u_inf, np.float64)),
           torch.tensor(np.asarray(u_true, np.float64))) for dt, u_inf, u_true in traces]
@@ -478,7 +478,7 @@ def main():
                 + a.lam_psi * (u[..., 2] ** 2).mean()
             opt.zero_grad(); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step(); tot += float(loss) * len(j)
+            opt.step(); tot += float(loss.detach()) * len(j)
         sch.step()
         if ep % 10 == 0 or ep == a.epochs - 1:
             e = evaluate(Pdot_va, Star_va)
@@ -522,3 +522,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python test_eyeG.py --tag eyeG                  # models/eyeG_test.mp4    — corpus regimes
+# python test_eyeG.py --tag eyeG --saccade        # models/eyeG_saccade.mp4 — six L/R saccade rates
