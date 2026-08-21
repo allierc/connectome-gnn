@@ -48,8 +48,23 @@ import sys
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
+# A leftover DISPLAY from the host/VS Code (e.g. DISPLAY=:3) makes VTK attempt a
+# real X connection it has no authority for -- off_screen=True still renders fine
+# either way (it falls back to a software context), but Xlib prints "Authorization
+# required..." to stderr before that fallback kicks in. Clearing DISPLAY here, before
+# vtk/pyvista is imported anywhere (including inside render_surface_vtk), skips the
+# real-X attempt entirely and removes that line at the source; the VTK-internal
+# "bad X server connection" WARN is a separate log channel, silenced below once vtk
+# is actually importable. Neither call changes what gets rendered.
+os.environ.pop("DISPLAY", None)
+try:
+    import vtk as _vtk
+    _vtk.vtkObject.GlobalWarningDisplayOff()
+except ImportError:
+    pass
 
 import matplotlib
 matplotlib.use("Agg")
@@ -669,7 +684,8 @@ def main():
                        macro_block_size=1)
     side, hidden = art["side"], art["hidden"]
     pad = np.zeros(side * side - hidden, np.float32)
-    for k in range(0, len(x), step):
+    frames = range(0, len(x), step)
+    for k in tqdm(frames, desc=f"[render] {os.path.basename(out)}", unit="frame", ncols=100):
         lo = max(0, k - keep)
         art["trail_t"].set_data(tgt[lo:k + 1, 0], tgt[lo:k + 1, 1])
         art["trail_c"].set_data(cmd[lo:k + 1, 0], cmd[lo:k + 1, 1])
