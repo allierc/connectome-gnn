@@ -1655,6 +1655,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
         log_file.write(f"coeff_g_phi_weight_L1: {training.coeff_g_phi_weight_L1}\n")
 
+        log_file.write(f"coeff_g_phi_input_group_L1: {training.coeff_g_phi_input_group_L1}\n")
+
         log_file.write(f"coeff_f_theta_weight_L1: {training.coeff_f_theta_weight_L1}\n")
 
         log_file.write(f"coeff_f_theta_weight_L2: {training.coeff_f_theta_weight_L2}\n")

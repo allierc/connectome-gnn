@@ -141,6 +141,11 @@ class NeuralGNN(nn.Module):
                     "typical_range": [0, 10],
                 },
                 {
+                    "name": "coeff_g_phi_input_group_L1",
+                    "description": "Group lasso on g_phi input columns (vi/vj/ai/aj) — flyvis_conductance only",
+                    "typical_range": [0, 10],
+                },
+                {
                     "name": "coeff_f_theta_weight_L1",
                     "description": "L1 penalty on f_theta weights",
                     "typical_range": [0, 10],
