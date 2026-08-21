@@ -1,0 +1,22 @@
+{
+  "tag": "eyeG",
+  "kind": "quad",
+  "n_act": 6,
+  "err_mean_deg": 0.20503680408000946,
+  "err_by_phase_deg": {
+    "circle cw  middle": 0.09729231148958206,
+    "circle ccw  middle": 0.14980414509773254,
+    "continue  fast": 0.1455245316028595,
+    "stop-and-go  fast": 0.21532799303531647,
+    "continue  middle": 0.27920204401016235,
+    "stop-and-go  middle": 0.343069851398468
+  },
+  "mean_abs_torsion_deg": 0.066204734146595,
+  "reach_deg": [
+    6.919303894042969,
+    7.108933448791504,
+    8.12649154663086
+  ],
+  "duration_per_half_s": 8.0,
+  "seed": 0
+}

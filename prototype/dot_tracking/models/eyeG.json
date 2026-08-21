@@ -1,6 +1,5 @@
 {
-  "tag": "eyeG_deep",
-  "fit": "deep",
+  "tag": "eyeG",
   "n_act": 6,
   "act_names": [
     "LR",
@@ -10,16 +9,16 @@
     "SO",
     "IO"
   ],
-  "gaze_err_mean_deg": 0.054541248828172684,
-  "val_err_deg": 0.05399520695209503,
-  "mean_abs_torsion_deg": 0.021105032414197922,
+  "gaze_err_mean_deg": 0.08799689263105392,
+  "val_err_deg": 0.08697205781936646,
+  "mean_abs_torsion_deg": 0.044112760573625565,
   "deg_per_unit_h": 7.283477783203125,
   "deg_per_unit_v": 7.48308801651001,
   "span_h_deg": 14.161512851715088,
   "span_v_deg": 15.327521324157715,
   "gate_pass": false,
   "mech_fit_rms_deg": 0.394469589821603,
-  "epochs": 250,
+  "epochs": 150,
   "hidden": 64,
   "lam_psi": 0.05
 }
