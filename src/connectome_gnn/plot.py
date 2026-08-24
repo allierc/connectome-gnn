@@ -2413,10 +2413,14 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         except Exception:
             nnr_iters = []
 
-    # g_phi_discard.log columns: iteration, discard_score, grad_ratio_vi, grad_ratio_ai.
-    # Only written for flyvis_conductance (see graph_trainer.py's GNN R^2 branch) --
-    # file simply doesn't exist for any other model, which is what gates this
-    # second row on rather than a config/model-type check here.
+    # g_phi_discard.log columns: iteration, cosine_sim, grad_ratio_vi, grad_ratio_ai.
+    # cosine_sim = cosine similarity between g_phi's first-layer per-group L2 norms
+    # [vi, vj, ai, aj] and the target direction [0, 1, 0, 1] -- 1 = fully aligned
+    # (vi=ai=0), 0 = all mass on vi/ai. Scale-invariant, unlike a linear discard
+    # fraction (see g_phi_first_layer_cosine_to_keep). Only written for
+    # flyvis_conductance (see graph_trainer.py's GNN R^2 branch) -- file simply
+    # doesn't exist for any other model, which is what gates this second row on
+    # rather than a config/model-type check here.
     g_phi_discard_log_path = os.path.join(log_dir, 'tmp_training', 'g_phi_discard.log')
     discard_iters, discard_score_vals, discard_ratio_vi, discard_ratio_ai = [], [], [], []
     if os.path.exists(g_phi_discard_log_path):
@@ -2593,24 +2597,24 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         s_valid = ~np.isnan(score)
         if s_valid.any():
             ax_discard.plot(x_d[s_valid], score[s_valid], color='#9467bd',
-                            linewidth=1.2, label='weight discard score (L1)')
+                            linewidth=1.2, label='cosine sim to [0,1,0,1] (bigger better)')
         vi_valid = ~np.isnan(r_vi)
         if vi_valid.any():
             ax_discard.plot(x_d[vi_valid], r_vi[vi_valid], color='#e377c2',
-                            linewidth=1.2, label=r'grad ratio $|dg_\phi/dv_i|/|dg_\phi/dv_j|$')
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/dv_i|/|dg_\phi/dv_j|$ (smaller better)')
         ai_valid = ~np.isnan(r_ai)
         if ai_valid.any():
             ax_discard.plot(x_d[ai_valid], r_ai[ai_valid], color='#8c564b',
-                            linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$')
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$ (smaller better)')
 
-        ax_discard.axhline(y=0.0, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
+        ax_discard.set_yscale('log')
         style.xlabel(ax_discard, 'iteration')
-        style.ylabel(ax_discard, 'g_phi vi/ai discard (lower = better)')
+        style.ylabel(ax_discard, 'g_phi vi/ai diagnostics (log scale)')
         ax_discard.legend(fontsize=legend_fs, loc='lower right')
 
         latest_lines = []
         if s_valid.any():
-            latest_lines.append(f'score={score[s_valid][-1]:.3f}')
+            latest_lines.append(f'cos={score[s_valid][-1]:.3f}')
         if vi_valid.any():
             latest_lines.append(f'dvi/dvj={r_vi[vi_valid][-1]:.3f}')
         if ai_valid.any():
