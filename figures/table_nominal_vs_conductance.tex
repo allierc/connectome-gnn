@@ -1,0 +1,18 @@
+% Nominal (flyvis_A) vs conductance (flyvis_conductance), blank50, 5-fold CV (rows only).
+% Cols: model | one-step r | rollout r | W R^2 | tau R^2 | (out%%) | Vrest R^2 | (out%%) | cluster acc.
+% (R^2 for tau/Vrest/W on the no-outlier subset; out%% = mean(n_outliers / n_neurons) across folds, 1 dec.)
+% Split R^2/(out%%) into two cells each -- matches tab:cv_gnn_vs_baselines header spans,
+% not cv_table_known_ode_vs_gnn.tex's single merged-cell format.
+Nominal (flyvis\_A)
+  & \good{$0.999{\pm}0.000$} & \good{$0.999{\pm}0.000$}
+  & \good{$0.967{\pm}0.006$}
+  & \good{$0.973{\pm}0.008$} & \good{$\,(0.1)$}
+  & $0.814{\pm}0.097$ & $\,(7.9)$
+  & $0.890{\pm}0.011$ \\
+\midrule
+Conductance (flyvis\_conductance)
+  & \good{$0.998{\pm}0.000$} & \good{$0.997{\pm}0.001$}
+  & $0.802{\pm}0.137$
+  & \good{$0.951{\pm}0.024$} & \good{$\,(0.5)$}
+  & $0.753{\pm}0.100$ & $\,(15.1)$
+  & $0.864{\pm}0.024$ \\

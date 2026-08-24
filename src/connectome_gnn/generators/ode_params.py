@@ -5,7 +5,7 @@ Each ODE_params_class knows how to construct itself from a source,
 save/load to disk, and expose its fields by name.
 
 Usage:
-    @register_ode_params("flyvis_A", "flyvis_B")
+    @register_ode_params("flyvis_A", "flyvis_conductance")
     class FlyVisODEParams(ODEParamsBase):
         ...
 
@@ -293,17 +293,17 @@ class ODEParamsBase:
 
 @register_ode_params(
     "flyvis_A",
-    "flyvis_B",
+    "flyvis_conductance",
     "flyvis_C",
     "flyvis_D",
     "flyvis_A_multiple_ReLU",
-    "flyvis_B_multiple_ReLU",
+    "flyvis_conductance_multiple_ReLU",
     "flyvis_C_multiple_ReLU",
     "flyvis_A_tanh",
-    "flyvis_B_tanh",
+    "flyvis_conductance_tanh",
     "flyvis_C_tanh",
     "flyvis_A_NULL",
-    "flyvis_B_NULL",
+    "flyvis_conductance_NULL",
     "flyvis_C_NULL",
     "flyvis_known_ode",
     "e8_flywireRF",

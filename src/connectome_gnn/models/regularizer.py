@@ -33,7 +33,7 @@ class LossRegularizer:
     # Components tracked in history
     COMPONENTS = [
         'W_L1', 'W_L2', 'W_sign',
-        'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'f_theta_weight',
+        'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'g_phi_input_group', 'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
@@ -151,6 +151,7 @@ class LossRegularizer:
         self._coeffs['W_L2'] = anneal(tc.coeff_W_L2)
         self._coeffs['g_phi_weight_L1'] = anneal(tc.coeff_g_phi_weight_L1)
         self._coeffs['g_phi_weight_L2'] = anneal(tc.coeff_g_phi_weight_L2)
+        self._coeffs['g_phi_input_group_L1'] = anneal(getattr(tc, 'coeff_g_phi_input_group_L1', 0.0))
         self._coeffs['f_theta_weight_L1'] = anneal(tc.coeff_f_theta_weight_L1)
         self._coeffs['f_theta_weight_L2'] = anneal(tc.coeff_f_theta_weight_L2)
 
@@ -314,6 +315,29 @@ class LossRegularizer:
                 regul_term = param.norm(1) * _ct['f_theta_weight_L1'] + param.norm(2) * _ct['f_theta_weight_L2']
                 total_regul = total_regul + regul_term
                 self._add('f_theta_weight', regul_term)
+
+        # --- g_phi input-group lasso (structured sparsity over vi/vj/ai/aj) ---
+        # Unlike g_phi_weight_L1/L2 (elementwise, diffuse), this penalizes each input's whole
+        # first-layer column jointly (L2 per group, summed) so the optimizer can drop an entire
+        # input pathway to ~0 instead of shrinking everything a little. Applied symmetrically to
+        # all four inputs — it does not single out vi/ai, since presupposing which inputs are
+        # spurious would beg the question this regularizer is meant to test. Only meaningful when
+        # g_phi's first layer has the flyvis_conductance [vi, vj, ai, aj] input layout; matched
+        # structurally by width, not by model name, so it's a no-op for every other model.
+        if self._coeffs['g_phi_input_group_L1'] > 0 and hasattr(model, 'g_phi'):
+            first_layer = model.g_phi.layers[0]
+            emb_dim = mc.embedding_dim
+            if first_layer.weight.shape[1] == 2 + 2 * emb_dim:
+                W0 = first_layer.weight  # (hidden, 2 + 2*emb_dim) = [vi, vj, ai, aj]
+                group_norm = (
+                    W0[:, 0:1].norm(2)
+                    + W0[:, 1:2].norm(2)
+                    + W0[:, 2:2 + emb_dim].norm(2)
+                    + W0[:, 2 + emb_dim:2 + 2 * emb_dim].norm(2)
+                )
+                regul_term = group_norm * _ct['g_phi_input_group_L1']
+                total_regul = total_regul + regul_term
+                self._add('g_phi_input_group', regul_term)
 
         # --- f_theta_zero regularization ---
         if self._coeffs['f_theta_zero'] > 0 and hasattr(model, 'f_theta'):

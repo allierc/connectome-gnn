@@ -64,6 +64,8 @@ from connectome_gnn.metrics import (
     TAU_OUTLIER_THRESH,
     VREST_OUTLIER_THRESH,
     compute_activity_stats,
+    eval_g_phi_over_domain,
+    evaluate_g_phi_curves,
     extract_g_phi_slopes,
     extract_f_theta_slopes,
     derive_tau,
@@ -72,7 +74,6 @@ from connectome_gnn.metrics import (
     _vectorized_linspace,
     _batched_mlp_eval,
     _vectorized_linear_fit,
-    _build_g_phi_features,
     _build_f_theta_features,
 )
 
@@ -1566,34 +1567,29 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.close()
 
             n_pts = 1000
-            post_fn = (lambda x: x ** 2) if model_config.g_phi_positive else None
-            build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, model_config.signal_model_name)
             type_np = to_numpy(type_list).astype(int).ravel()
 
-            # g_phi domain range: evaluate + slope extraction (vectorized)
-            mu = to_numpy(mu_activity).astype(np.float32)
-            sigma = to_numpy(sigma_activity).astype(np.float32)
-
-            # Slope extraction uses positive domain (clamped to 0)
-            valid_edge = (mu + sigma) > 0
-            starts_edge_slope = np.maximum(mu - 2 * sigma, 0.0)
-            ends_edge = mu + 2 * sigma
-            starts_edge_slope[~valid_edge] = 0.0
-            ends_edge[~valid_edge] = 1.0
-            rr_domain_edge_slope = _vectorized_linspace(starts_edge_slope, ends_edge, n_pts, device)
-            func_domain_edge_slope = _batched_mlp_eval(model.g_phi, model.a[:n_neurons], rr_domain_edge_slope,
-                                                 build_fn, device, post_fn=post_fn)
+            # g_phi domain range: evaluate + slope extraction (vectorized). Reuses
+            # the same flyvis_conductance-aware domain/feature logic as
+            # plot_training_gnn (ai = real average postsynaptic-partner embedding
+            # via `edges` for flyvis_conductance, not a self-pair ai=aj).
+            rr_domain_edge_slope, func_domain_edge_slope, valid_edge = evaluate_g_phi_curves(
+                model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
             slopes_edge, _ = _vectorized_linear_fit(rr_domain_edge_slope, func_domain_edge_slope)
             slopes_edge[~valid_edge] = 1.0
             slopes_g_phi_list = slopes_edge  # (N,) numpy array
 
-            # Domain plot includes negative values to show g_phi → 0 for v < 0
+            # Domain plot includes negative values to show g_phi → 0 for v < 0 —
+            # a wider domain than the slope fit, so evaluated separately.
+            mu = to_numpy(mu_activity).astype(np.float32)
+            sigma = to_numpy(sigma_activity).astype(np.float32)
+            ends_edge = mu + 2 * sigma
+            ends_edge[~valid_edge] = 1.0
             starts_edge_plot = mu - 2 * sigma
             starts_edge_plot[~valid_edge] = -0.5
             ends_edge_plot = ends_edge.copy()
             rr_domain_edge = _vectorized_linspace(starts_edge_plot, ends_edge_plot, n_pts, device)
-            func_domain_edge = _batched_mlp_eval(model.g_phi, model.a[:n_neurons], rr_domain_edge,
-                                                 build_fn, device, post_fn=post_fn)
+            func_domain_edge = eval_g_phi_over_domain(model, config, n_neurons, rr_domain_edge, device, edges=edges)
 
             rr_np = to_numpy(rr_domain_edge)
             func_np = to_numpy(func_domain_edge)

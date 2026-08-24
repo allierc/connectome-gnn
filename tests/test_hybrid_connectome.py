@@ -38,7 +38,7 @@ class TestVariantResolution:
         assert is_flyvis_hybrid_model("full_eye_flywireRF")
         assert is_flyvis_hybrid_model("full_eye_flywireRF_proximal_nulls_known_ode")
         assert not is_flyvis_hybrid_model("flyvis_A")
-        assert not is_flyvis_hybrid_model("flyvis_B")
+        assert not is_flyvis_hybrid_model("flyvis_conductance")
 
     def test_variant_table_complete(self):
         expected = {

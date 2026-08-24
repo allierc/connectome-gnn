@@ -162,6 +162,13 @@ assets/*.html
 docs/repo_overview.md
 hpc-config.json*
 
+# prototype/ (dot_tracking, etc.): archive scripts, configs (yaml/tex/pdf); ignore
+# renders, checkpoints and large data. *.png/*.pdf/*.npz are already ignored
+# globally, so pdf needs an explicit exception to be tracked here.
+prototype/**/*.mp4
+prototype/**/*.pt
+!prototype/**/*.pdf
+
 # Claude code settings
 # ignore local settings json that each user can set independently
 .claude/settings.local.json
