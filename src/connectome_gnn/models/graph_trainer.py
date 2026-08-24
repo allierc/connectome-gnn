@@ -1111,6 +1111,26 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     )
 
             # =============================================================
+            # WITHIN-EPOCH CHECKPOINTS (training.checkpoint_saves_per_epoch)
+            # =============================================================
+            # Independent, fixed cadence -- NOT gated by regularizer.should_record()
+            # (that's the diagnostic-plot cadence, ~20x/epoch) or save_all_checkpoints
+            # (every recorded iteration). Default 1 preserves the old
+            # epoch-boundary-only behavior below; >1 adds within-epoch snapshots at
+            # the same "..._graphs_{epoch}_{N}.pt" naming save_all_checkpoints uses.
+
+            _saves_per_epoch = max(1, getattr(training, "checkpoint_saves_per_epoch", 1))
+
+            if _saves_per_epoch > 1:
+                _checkpoint_save_frequency = max(1, Niter // _saves_per_epoch)
+
+                if N > 0 and N % _checkpoint_save_frequency == 0:
+                    torch.save(
+                        {"model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict()},
+                        os.path.join(log_dir, "models", f"best_model_with_{training.n_runs - 1}_graphs_{epoch}_{N}.pt"),
+                    )
+
+            # =============================================================
             # R2 / DYNAMICS CHECKPOINT
             # =============================================================
 
@@ -1248,6 +1268,26 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"{epoch_state.metrics.n_out_tau},"
                         f"{epoch_state.metrics.n_total_tau}\n"
                     )
+
+                # g_phi first-layer discard score + gradient ratios (vi, ai vs vj) --
+                # only meaningful for flyvis_conductance's [vi, vj, ai, aj] g_phi
+                # input; no-op (file simply not written) for every other model.
+                # Same eval cadence as R^2_W above, since it reuses the same real
+                # (edge, frame) sampling machinery and is comparable in cost.
+                if 'flyvis_conductance' in config.graph_model.signal_model_name:
+                    from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_discard_score
+
+                    discard_score = g_phi_first_layer_discard_score(model, model.a.shape[1])
+                    ratio_vi, ratio_ai = compute_g_phi_grad_ratios(model, config, edges, x_ts)
+
+                    g_phi_discard_log_path = os.path.join(log_dir, "tmp_training", "g_phi_discard.log")
+                    with open(g_phi_discard_log_path, "a") as f:
+                        f.write(
+                            f"{regularizer.iter_count},"
+                            f"{format_metric(discard_score)},"
+                            f"{format_metric(ratio_vi)},"
+                            f"{format_metric(ratio_ai)}\n"
+                        )
 
                 metrics_changed = True
 

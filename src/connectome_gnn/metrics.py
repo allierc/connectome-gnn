@@ -980,6 +980,82 @@ def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, 
     return eta
 
 
+def g_phi_first_layer_discard_score(model, emb_dim):
+    """L1 mass on g_phi's [vi, ai] first-layer input columns (the ones the
+    true flyvis_conductance generative model ReLU(vj) doesn't need), as a
+    fraction of the total L1 mass across all 4 input groups [vi, vj, ai, aj].
+    0 = filter has fully dropped vi/ai; 0.5 = no preference; matches a dot
+    product of the per-group L1 norms against the discard mask [1,0,1,0],
+    normalized. Pure weight inspection, no forward pass or data needed.
+
+    No-op (returns nan) unless g_phi's first layer has the flyvis_conductance
+    2+2*emb_dim input width -- matched structurally, not by model name.
+    """
+    first_layer = model.g_phi.layers[0]
+    W0 = first_layer.weight.detach()
+    if W0.shape[1] != 2 + 2 * emb_dim:
+        return float('nan')
+    n_vi = W0[:, 0:1].abs().sum().item()
+    n_vj = W0[:, 1:2].abs().sum().item()
+    n_ai = W0[:, 2:2 + emb_dim].abs().sum().item()
+    n_aj = W0[:, 2 + emb_dim:2 + 2 * emb_dim].abs().sum().item()
+    total = n_vi + n_vj + n_ai + n_aj
+    return (n_vi + n_ai) / total if total > 0 else float('nan')
+
+
+def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
+    """Functional companion to g_phi_first_layer_discard_score: ratios of
+    |d(g_phi)/d(vi)| and the embedding-gradient norm |d(g_phi)/d(ai)| against
+    |d(g_phi)/d(vj)|, averaged over real (edge, frame) pairs via autograd.
+    The weight-level score can disagree with this (a later layer can route
+    around a large first-layer weight) -- this is the one to trust when they
+    do; see dev_g_phi_regularization_comparison.py for the comparison that
+    established this.
+
+    Returns (ratio_vi, ratio_ai) floats; (nan, nan) if g_phi's input layout
+    isn't flyvis_conductance's [vi, vj, ai, aj].
+    """
+    device = model.a.device
+    emb_dim = model.a.shape[1]
+    if model.g_phi.layers[0].weight.shape[1] != 2 + 2 * emb_dim:
+        return float('nan'), float('nan')
+
+    src = edges[0].to(device)
+    dst = edges[1].to(device)
+
+    rng = np.random.default_rng(seed)
+    n_frames = min(n_frames, x_ts.n_frames)
+    frame_idx = rng.choice(x_ts.n_frames, size=n_frames, replace=False)
+
+    voltage = x_ts.voltage.to(device)
+    ai_fixed = model.a[dst]
+    aj_fixed = model.a[src]
+    g_phi_positive = config.graph_model.g_phi_positive
+
+    abs_grad_vi, abs_grad_vj, grad_ai_norm = [], [], []
+    for k in frame_idx:
+        vj_k = voltage[k, src].clone().detach().requires_grad_(True)
+        vi_k = voltage[k, dst].clone().detach().requires_grad_(True)
+        ai_k = ai_fixed.clone().detach().requires_grad_(True)
+
+        in_features = torch.cat([vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed], dim=1)
+        out = model.g_phi(in_features.float())
+        if g_phi_positive:
+            out = out ** 2
+
+        grad_vi, grad_vj, grad_ai = torch.autograd.grad(
+            out.sum(), [vi_k, vj_k, ai_k], retain_graph=False, create_graph=False)
+
+        abs_grad_vi.append(grad_vi.detach().abs().mean().item())
+        abs_grad_vj.append(grad_vj.detach().abs().mean().item())
+        grad_ai_norm.append(grad_ai.detach().norm(dim=1).mean().item())
+
+    m_vi, m_vj, m_ai = float(np.mean(abs_grad_vi)), float(np.mean(abs_grad_vj)), float(np.mean(grad_ai_norm))
+    if m_vj <= 0:
+        return float('nan'), float('nan')
+    return m_vi / m_vj, m_ai / m_vj
+
+
 def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Extract linear slope of g_phi for each neuron j (vectorized).
 

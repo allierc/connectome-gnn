@@ -1267,6 +1267,7 @@ class TrainingConfig(BaseModel):
     learn_external_input: bool = False
 
     save_all_checkpoints: bool = False  # True = save iteration-level checkpoints too
+    checkpoint_saves_per_epoch: int = 1  # >1 also saves within-epoch snapshots at a fixed cadence (see graph_trainer.py)
 
     test_dataset: str = ""  # dataset for testing; empty = same as training dataset
 

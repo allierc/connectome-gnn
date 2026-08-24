@@ -2413,23 +2413,69 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         except Exception:
             nnr_iters = []
 
+    # g_phi_discard.log columns: iteration, discard_score, grad_ratio_vi, grad_ratio_ai.
+    # Only written for flyvis_conductance (see graph_trainer.py's GNN R^2 branch) --
+    # file simply doesn't exist for any other model, which is what gates this
+    # second row on rather than a config/model-type check here.
+    g_phi_discard_log_path = os.path.join(log_dir, 'tmp_training', 'g_phi_discard.log')
+    discard_iters, discard_score_vals, discard_ratio_vi, discard_ratio_ai = [], [], [], []
+    if os.path.exists(g_phi_discard_log_path):
+        try:
+            with open(g_phi_discard_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('iteration'):
+                        continue
+                    parts = line.split(',')
+                    discard_iters.append(int(parts[0]))
+                    discard_score_vals.append(_f(parts, 1))
+                    discard_ratio_vi.append(_f(parts, 2))
+                    discard_ratio_ai.append(_f(parts, 3))
+        except Exception:
+            discard_iters = []
+
     has_r2 = len(r2_iters) > 0
     has_nnr = len(nnr_iters) > 0
-    if not has_r2 and not has_nnr:
+    has_discard = len(discard_iters) > 0
+    if not has_r2 and not has_nnr and not has_discard:
         return
 
     style = default_style
     legend_fs = 7
 
-    if has_r2 and has_nnr:
-        fig, (ax_r2, ax_nnr) = style.figure(
-            ncols=2, width=2 * style.figure_height * style.default_aspect)
-        axes_iter = (ax_r2, ax_nnr)
+    row1_ncols = int(has_r2) + int(has_nnr)
+    ncols = max(row1_ncols, 1)
+
+    if has_discard:
+        fig, axes = style.figure(
+            ncols=ncols, nrows=2, squeeze=False,
+            width=ncols * style.figure_height * style.default_aspect)
+        row1 = list(axes[0])
+        ax_discard = axes[1, 0]
+        for c in range(1, ncols):
+            axes[1, c].axis('off')
     else:
-        fig, ax = style.figure(ncols=1)
-        ax_r2 = ax if has_r2 else None
-        ax_nnr = ax if has_nnr else None
-        axes_iter = (ax,)
+        if row1_ncols == 2:
+            fig, row1_arr = style.figure(
+                ncols=2, width=2 * style.figure_height * style.default_aspect)
+            row1 = list(row1_arr)
+        else:
+            fig, ax = style.figure(ncols=1)
+            row1 = [ax]
+        ax_discard = None
+
+    if has_r2 and has_nnr:
+        ax_r2, ax_nnr = row1[0], row1[1]
+    elif has_r2:
+        ax_r2, ax_nnr = row1[0], None
+    elif has_nnr:
+        ax_r2, ax_nnr = None, row1[0]
+    else:
+        ax_r2 = ax_nnr = None
+
+    axes_iter = list(row1[:row1_ncols])
+    if ax_discard is not None:
+        axes_iter.append(ax_discard)
 
     for a in axes_iter:
         a.tick_params(axis='x', labelsize=9)
@@ -2537,6 +2583,42 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
             ax_nnr.text(0.98, 0.97, '\n'.join(latest_lines),
                         transform=ax_nnr.transAxes, fontsize=8,
                         verticalalignment='top', horizontalalignment='right')
+
+    if has_discard:
+        x_d = np.asarray(discard_iters)
+        score = np.asarray(discard_score_vals, dtype=float)
+        r_vi = np.asarray(discard_ratio_vi, dtype=float)
+        r_ai = np.asarray(discard_ratio_ai, dtype=float)
+
+        s_valid = ~np.isnan(score)
+        if s_valid.any():
+            ax_discard.plot(x_d[s_valid], score[s_valid], color='#9467bd',
+                            linewidth=1.2, label='weight discard score (L1)')
+        vi_valid = ~np.isnan(r_vi)
+        if vi_valid.any():
+            ax_discard.plot(x_d[vi_valid], r_vi[vi_valid], color='#e377c2',
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/dv_i|/|dg_\phi/dv_j|$')
+        ai_valid = ~np.isnan(r_ai)
+        if ai_valid.any():
+            ax_discard.plot(x_d[ai_valid], r_ai[ai_valid], color='#8c564b',
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$')
+
+        ax_discard.axhline(y=0.0, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
+        style.xlabel(ax_discard, 'iteration')
+        style.ylabel(ax_discard, 'g_phi vi/ai discard (lower = better)')
+        ax_discard.legend(fontsize=legend_fs, loc='lower right')
+
+        latest_lines = []
+        if s_valid.any():
+            latest_lines.append(f'score={score[s_valid][-1]:.3f}')
+        if vi_valid.any():
+            latest_lines.append(f'dvi/dvj={r_vi[vi_valid][-1]:.3f}')
+        if ai_valid.any():
+            latest_lines.append(f'dai/dvj={r_ai[ai_valid][-1]:.3f}')
+        if latest_lines:
+            ax_discard.text(0.98, 0.97, '\n'.join(latest_lines),
+                            transform=ax_discard.transAxes, fontsize=8,
+                            verticalalignment='top', horizontalalignment='right')
 
     if epoch_boundaries:
         for xb in epoch_boundaries:
