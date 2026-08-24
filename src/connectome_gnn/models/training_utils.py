@@ -13,9 +13,641 @@ import torch
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LambdaLR
 
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.utils import set_trainable_parameters
+from connectome_gnn.models.utils import _quick_ngp_pearson, set_trainable_parameters
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, sort_key
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
+from dataclasses import dataclass, field
+from connectome_gnn.models.regularizer import LossRegularizer
+
+@dataclass
+class TrainingMetrics:
+    """
+    Latest diagnostic values.
+
+    These are updated at R2/HH/NGP evaluation checkpoints.
+    They do not affect the training loss.
+    """
+
+    connectivity_r2: float | None = None
+    connectivity_r2_visible: float | None = None
+
+    vrest_r2: float = 0.0
+    tau_r2: float = 0.0
+
+    vrest_r2_clean: float = float("nan")
+    tau_r2_clean: float = float("nan")
+
+    n_out_vrest: int = 0
+    n_total_vrest: int = 0
+
+    n_out_tau: int = 0
+    n_total_tau: int = 0
+
+    hidden_r2: float | None = None
+    anchor_r2: float | None = None
+
+    field_r2: float | None = None
+    field_slope: float | None = None
+
+
+@dataclass
+class HiddenInjectionSchedule:
+    """
+    NGP hidden-voltage injection and GNN LR-damping schedule.
+
+    warmup_iter:
+        Iteration at which hidden-voltage injection switches on.
+
+    ramp_iter:
+        Duration of each side of the LR-damping V.
+
+    damping_factor:
+        Depth of the V. For example 100 means the trough is base_lr / 100.
+
+    damping_active:
+        Whether the V-shaped LR schedule is actually active.
+
+    damp_groups:
+        Optimizer groups affected by the damping schedule.
+
+    stages:
+        Boundaries used by metrics.png.
+    """
+
+    warmup_iter: int
+    ramp_iter: int
+    damping_factor: float
+
+    damping_active: bool
+    damp_groups: tuple[str, ...]
+
+    ramp_mid: int = 0
+    ramp_end: int = 0
+
+    stages: list = field(default_factory=list)
+
+
+@dataclass
+class FrameSampling:
+    """
+    Valid frame range for training-frame sampling.
+    """
+
+    first_frame: int
+    last_frame: int
+    frame_range: int
+
+
+@dataclass
+class EpochState:
+    """
+    State initialized once at the beginning of each training epoch.
+
+    This contains values that:
+      - depend on the current epoch, or
+      - reset at every epoch.
+
+    It does not contain persistent training state such as the model,
+    optimizer, regularizer, or hidden-injection schedule.
+    """
+
+    # Iteration / plotting schedule
+    n_iter: int
+    plot_frequency: int
+    connectivity_plot_frequency: int
+    early_r2_frequency: int
+    plot_iterations: set[int]
+
+    # Data sampling
+    frame_indices: np.ndarray
+
+    # Loss
+    loss_noise_level: float
+    total_loss_gpu: torch.Tensor
+    total_regul_gpu: torch.Tensor
+
+    # Diagnostics
+    metrics: TrainingMetrics
+
+    # Dale's law
+    dale_enabled: bool
+    dale_checkpoints: set[int]
+
+    # Embedding / UMAP state
+    unfreeze_at_iteration: int
+
+
+def init_epoch_state(
+    epoch,
+    n_iter,
+    training,
+    frame_sampling,
+    embedding_frozen,
+    regularizer,
+    device,
+):
+    """
+    Initialize all state local to one training epoch.
+    """
+
+    # ---------------------------------------------------------------------
+    # Plot / diagnostic frequencies
+    # ---------------------------------------------------------------------
+
+    plot_frequency = max(
+        1,
+        n_iter // 20,
+    )
+
+    connectivity_plot_frequency = max(
+        1,
+        n_iter // 20,
+    )
+
+    # Four extra R2 evaluations during the early part of the epoch.
+    early_r2_frequency = max(
+        1,
+        connectivity_plot_frequency // 5,
+    )
+
+    # Visual-field / heavy plot locations.
+    n_plots_per_epoch = 4
+
+    if n_plots_per_epoch > 0:
+        plot_iterations = {
+            int(iteration)
+            for iteration in np.linspace(
+                n_iter // n_plots_per_epoch,
+                n_iter - 1,
+                n_plots_per_epoch,
+            )
+        }
+    else:
+        plot_iterations = set()
+
+    # ---------------------------------------------------------------------
+    # Embedding unfreeze
+    # ---------------------------------------------------------------------
+
+    if (
+        embedding_frozen
+        and training.umap_cluster_fix_embedding_ratio > 0
+    ):
+        unfreeze_at_iteration = int(
+            n_iter
+            * training.umap_cluster_fix_embedding_ratio
+        )
+    else:
+        unfreeze_at_iteration = -1
+
+    # ---------------------------------------------------------------------
+    # Reproducible frame sampling
+    # ---------------------------------------------------------------------
+
+    epoch_rng = np.random.RandomState(
+        (training.seed + epoch) % (2**32)
+    )
+
+    frame_indices = (
+        epoch_rng.randint(
+            0,
+            frame_sampling.frame_range,
+            size=n_iter * training.batch_size,
+        )
+        + frame_sampling.first_frame
+    )
+
+    # ---------------------------------------------------------------------
+    # Loss noise
+    # ---------------------------------------------------------------------
+
+    loss_noise_level = (
+        training.loss_noise_level
+        * (0.95 ** epoch)
+    )
+
+    # ---------------------------------------------------------------------
+    # Dale's law
+    # ---------------------------------------------------------------------
+
+    dale_enabled = getattr(
+        training,
+        "dale_law",
+        False,
+    )
+
+    if dale_enabled:
+        dale_checkpoints = {
+            int(n_iter * fraction)
+            for fraction in (
+                0.25,
+                0.50,
+                0.75,
+            )
+        }
+
+        dale_checkpoints.discard(0)
+
+    else:
+        dale_checkpoints = set()
+
+    # ---------------------------------------------------------------------
+    # Regularizer
+    # ---------------------------------------------------------------------
+
+    regularizer.set_epoch(
+        epoch,
+        plot_frequency,
+        Niter=n_iter,
+    )
+
+    # ---------------------------------------------------------------------
+    # Epoch-local GPU accumulators
+    #
+    # Keep these on the GPU during the entire epoch to avoid .item()
+    # synchronization at every iteration.
+    # ---------------------------------------------------------------------
+
+    total_loss_gpu = torch.zeros(
+        (),
+        device=device,
+    )
+
+    total_regul_gpu = torch.zeros(
+        (),
+        device=device,
+    )
+
+    # ---------------------------------------------------------------------
+    # Diagnostic state
+    # ---------------------------------------------------------------------
+
+    metrics = TrainingMetrics()
+
+    # ---------------------------------------------------------------------
+    # Return complete epoch state
+    # ---------------------------------------------------------------------
+
+    return EpochState(
+        n_iter=n_iter,
+
+        plot_frequency=plot_frequency,
+        connectivity_plot_frequency=connectivity_plot_frequency,
+        early_r2_frequency=early_r2_frequency,
+        plot_iterations=plot_iterations,
+
+        frame_indices=frame_indices,
+
+        loss_noise_level=loss_noise_level,
+        total_loss_gpu=total_loss_gpu,
+        total_regul_gpu=total_regul_gpu,
+
+        metrics=metrics,
+
+        dale_enabled=dale_enabled,
+        dale_checkpoints=dale_checkpoints,
+
+        unfreeze_at_iteration=unfreeze_at_iteration,
+    )
+
+def get_training_frame_sampling(sim, training):
+    """
+    Determine the valid starting-frame range.
+
+    The training loop samples k such that:
+      - enough history exists for time_window
+      - enough future data exists for time_step / recurrent training
+      - the same bounds as the legacy np.random.randint logic are preserved.
+    """
+
+    first_frame = training.time_window
+
+    stride_subsample = (
+        training.recurrent_training
+        and training.time_step > 1
+    )
+
+    target_offset = (
+        1
+        if stride_subsample
+        else training.time_step
+    )
+
+    last_frame = (
+        sim.n_frames
+        - 4
+        - target_offset
+    )
+
+    frame_range = max(
+        last_frame - first_frame,
+        1,
+    )
+
+    return FrameSampling(
+        first_frame=first_frame,
+        last_frame=last_frame,
+        frame_range=frame_range,
+    )
+
+
+def init_metrics_files(log_dir):
+    """
+    Initialize the two metric log files used by the training monitor.
+    """
+
+    metrics_log_path = os.path.join(
+        log_dir,
+        "tmp_training",
+        "metrics.log",
+    )
+
+    with open(
+        metrics_log_path,
+        "w",
+    ) as f:
+        f.write(
+            "iteration,"
+            "connectivity_r2,"
+            "vrest_r2,"
+            "tau_r2,"
+            "hidden_nnr_pearson,"
+            "anchor_nnr_pearson,"
+            "vrest_r2_clean,"
+            "n_out_vrest,"
+            "n_total_vrest,"
+            "tau_r2_clean,"
+            "n_out_tau,"
+            "n_total_tau\n"
+        )
+
+    nnr_pearson_log_path = os.path.join(
+        log_dir,
+        "tmp_training",
+        "nnr_pearson.log",
+    )
+
+    with open(
+        nnr_pearson_log_path,
+        "w",
+    ) as f:
+        f.write(
+            "iteration,"
+            "hidden_pearson_mean,"
+            "hidden_pearson_std,"
+            "anchor_pearson_mean,"
+            "anchor_pearson_std\n"
+        )
+
+    return (
+        metrics_log_path,
+        nnr_pearson_log_path,
+    )
+
+
+def init_training_runtime(
+    log_dir,
+    sim,
+    training,
+):
+    """
+    Initialize runtime state that is independent of a particular epoch.
+
+    This replaces the loose block of:
+        metrics logs
+        total_iter.txt
+        frame range
+        embedding freeze state
+        profiler directory
+    """
+
+    metrics_log_path, nnr_pearson_log_path = (
+        init_metrics_files(log_dir)
+    )
+
+    # This is the same formula used at epoch start.
+    n_iter_per_epoch = int(
+        sim.n_frames
+        * training.data_augmentation_loop
+        // training.batch_size
+        * 0.2
+    )
+
+    if training.max_iterations_per_epoch > 0:
+        n_iter_per_epoch = min(
+            n_iter_per_epoch,
+            training.max_iterations_per_epoch,
+        )
+
+    total_iterations = (
+        n_iter_per_epoch
+        * training.n_epochs
+    )
+
+    with open(
+        os.path.join(
+            log_dir,
+            "tmp_training",
+            "total_iter.txt",
+        ),
+        "w",
+    ) as f:
+        f.write(
+            str(total_iterations)
+        )
+
+    frame_sampling = (
+        get_training_frame_sampling(
+            sim,
+            training,
+        )
+    )
+
+    profiler_trace_dir = os.path.join(
+        log_dir,
+        "profiler_traces",
+    )
+
+    if training.profiling:
+        os.makedirs(
+            profiler_trace_dir,
+            exist_ok=True,
+        )
+
+    return (
+        metrics_log_path,
+        nnr_pearson_log_path,
+        frame_sampling,
+        profiler_trace_dir,
+    )
+
+
+def init_hidden_injection_schedule(training, Niter):
+    """
+    Build the NGP injection + GNN LR-damping schedule.
+
+    This preserves the existing warmup/ramp semantics.
+    """
+
+    warmup_fraction = float(
+        getattr(
+            training,
+            "warmup_inject_nnr_iter_frac",
+            0.0,
+        )
+    )
+
+    ramp_fraction = float(
+        getattr(
+            training,
+            "warmup_inject_nnr_ramp_iter_frac",
+            0.0,
+        )
+    )
+
+    if warmup_fraction > 0.0:
+        warmup_iter = int(
+            Niter * warmup_fraction
+        )
+    else:
+        warmup_iter = int(
+            getattr(
+                training,
+                "warmup_inject_nnr_iter",
+                0,
+            )
+        )
+
+    if ramp_fraction > 0.0:
+        ramp_iter = int(
+            Niter * ramp_fraction
+        )
+    else:
+        ramp_iter = int(
+            getattr(
+                training,
+                "warmup_inject_nnr_ramp_iter",
+                0,
+            )
+        )
+
+    damping_factor = float(
+        getattr(
+            training,
+            "lr_damping_factor",
+            100.0,
+        )
+    )
+
+    damping_active = (
+        warmup_iter > 0
+        and ramp_iter > 0
+        and damping_factor > 1.0
+    )
+
+    damp_groups = (
+        "W",
+        "f_theta",
+        "g_phi",
+    )
+
+    ramp_mid = (
+        warmup_iter + ramp_iter
+    )
+
+    ramp_end = (
+        warmup_iter
+        + 2 * ramp_iter
+    )
+
+    stages = []
+
+    if warmup_iter > 0:
+        stages.append(
+            (
+                warmup_iter,
+                "inject",
+            )
+        )
+
+        if damping_active:
+            stages.append(
+                (
+                    ramp_mid,
+                    "trough",
+                )
+            )
+
+            stages.append(
+                (
+                    ramp_end,
+                    "recover",
+                )
+            )
+
+    return HiddenInjectionSchedule(
+        warmup_iter=warmup_iter,
+        ramp_iter=ramp_iter,
+        damping_factor=damping_factor,
+        damping_active=damping_active,
+        damp_groups=damp_groups,
+        ramp_mid=ramp_mid,
+        ramp_end=ramp_end,
+        stages=stages,
+    )
+
+
+def apply_lr_damping(hs, optimizer, base_lrs, N, previous_lr_multiplier, previous_injection_active):
+    """Advance the hidden-injection schedule by one iteration.
+
+    Computes whether hidden-voltage injection is active at iteration N,
+    updates the damped optimizer param-group LRs when the multiplier
+    changes, and prints the warmup->inject / damp->recover / recover->nominal
+    stage transitions.
+
+    Returns:
+        injection_active, lr_multiplier
+    """
+    injection_active = hs.warmup_iter <= 0 or N >= hs.warmup_iter
+
+    if not hs.damping_active:
+        lr_multiplier = 1.0
+    elif N < hs.warmup_iter or N >= hs.ramp_end:
+        lr_multiplier = 1.0
+    elif N < hs.ramp_mid:
+        progress = float(N - hs.warmup_iter) / float(hs.ramp_iter)
+        lr_multiplier = 1.0 + (1.0 / hs.damping_factor - 1.0) * progress
+    else:
+        progress = float(N - hs.ramp_mid) / float(hs.ramp_iter)
+        lr_multiplier = 1.0 / hs.damping_factor + (1.0 - 1.0 / hs.damping_factor) * progress
+
+    if hs.damping_active and lr_multiplier != previous_lr_multiplier:
+        for param_group in optimizer.param_groups:
+            if param_group.get("name") in hs.damp_groups:
+                param_group["lr"] = base_lrs[id(param_group)] * lr_multiplier
+
+    if hs.warmup_iter > 0 and previous_injection_active is False and injection_active:
+        if hs.damping_active:
+            print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on; GNN-LR V-schedule starts).")
+        else:
+            print(f"\n[NGP inject] iter {N}: phase 1 -> phase 2 (NGP hard-on).")
+    elif hs.damping_active and N == hs.ramp_mid and hs.warmup_iter > 0:
+        print(f"\n[NGP inject] iter {N}: LR damping -> recovery.")
+    elif hs.damping_active and N == hs.ramp_end and hs.warmup_iter > 0:
+        print(f"\n[NGP inject] iter {N}: GNN LR back to nominal.")
+
+    return injection_active, lr_multiplier
+
+
+def format_metric(value):
+    """
+    Format an optional metric for CSV logging.
+    """
+    return (
+        "nan"
+        if value is None
+        else f"{value:.6f}"
+    )
 
 
 def determine_load_fields(config):
@@ -310,3 +942,1098 @@ def dale_law_score(model, edge_index):
 
         per_neuron_score = match_count[valid] / total_count[valid]
         return per_neuron_score.mean().item()
+
+
+from dataclasses import dataclass
+
+
+@dataclass
+class TrainingParams:
+    replace_with_cluster: bool
+    umap_cluster_active: bool
+
+    has_visual_field: bool
+    test_neural_field: bool
+
+    lr: float
+    lr_update: float
+    lr_embedding: float
+    lr_W: float
+    lr_NNR_f: float
+
+    nnr_warmup_epochs: int
+    lr_NNR_f_start: float
+    lr_NNR_f_init: float
+
+
+@dataclass
+class TrainingData:
+    x_ts: object
+    y_ts: object
+    y_ts_gpu: object
+
+    type_list: object
+    ode_params: object
+
+    n_neurons: int
+    n_frames: int
+
+    xnorm: float
+    ynorm: float
+
+    edges: object
+    gt_weights: object
+
+def init_training_params(config):
+    training = config.training
+    model_config = config.graph_model
+
+    lr = training.lr
+
+    lr_update = (
+        training.lr
+        if training.lr_update == 0
+        else training.lr_update
+    )
+
+    lr_embedding = training.lr_embedding
+    lr_W = training.lr_W
+    lr_NNR_f = training.lr_NNR_f
+
+    nnr_warmup_epochs = int(
+        getattr(
+            training,
+            'training_NNR_start_epoch',
+            0,
+        )
+    )
+
+    lr_NNR_f_start = float(
+        getattr(
+            training,
+            'lr_NNR_f_start',
+            0.0,
+        )
+    )
+
+    if nnr_warmup_epochs > 0:
+        lr_NNR_f_init = lr_NNR_f_start
+    else:
+        lr_NNR_f_init = lr_NNR_f
+
+    return TrainingParams(
+        replace_with_cluster=(
+            'replace' in training.sparsity
+        ),
+
+        umap_cluster_active=(
+            training.umap_cluster_method != 'none'
+        ),
+
+        has_visual_field=(
+            'visual' in model_config.field_type
+        ),
+
+        test_neural_field=(
+            'test' in model_config.field_type
+        ),
+
+        lr=lr,
+        lr_update=lr_update,
+        lr_embedding=lr_embedding,
+        lr_W=lr_W,
+        lr_NNR_f=lr_NNR_f,
+
+        nnr_warmup_epochs=nnr_warmup_epochs,
+        lr_NNR_f_start=lr_NNR_f_start,
+        lr_NNR_f_init=lr_NNR_f_init,
+    )
+
+# =============================================================================
+# 2. TRAINING DATA
+# =============================================================================
+
+def init_training_data(
+    config,
+    device,
+    log_dir,
+    logger,
+):
+    """
+    Load FlyVis data, construct derivative targets, normalization, ground
+    truth connectome information, and the graph used for training.
+    """
+
+    # Imported here to avoid unnecessary module-level coupling and to preserve
+    # the existing training_utils dependency structure.
+    from connectome_gnn.models.training_utils import (
+        determine_load_fields,
+        load_flyvis_data,
+    )
+
+    from connectome_gnn.generators.ode_params import (
+        FlyVisODEParams,
+        get_ode_params_class,
+    )
+
+    simulation = config.simulation
+    training = config.training
+
+    # -------------------------------------------------------------------------
+    # Load data
+    # -------------------------------------------------------------------------
+
+    load_fields = determine_load_fields(
+        config
+    )
+
+    x_ts, _, type_list = load_flyvis_data(
+        config.dataset,
+        split='train',
+        fields=load_fields,
+        training_selected_neurons=(
+            training.training_selected_neurons
+        ),
+        selected_neuron_ids=(
+            training.selected_neuron_ids
+            if training.training_selected_neurons
+            else None
+        ),
+        measurement_noise_level=(
+            simulation.measurement_noise_level
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Derivative target from observed voltage
+    # -------------------------------------------------------------------------
+
+    voltage = x_ts.voltage.numpy()
+
+    y_ts = np.zeros_like(voltage)
+
+    y_ts[:-1] = (
+        voltage[1:]
+        - voltage[:-1]
+    ) / simulation.delta_t
+
+    y_ts[-1] = y_ts[-2]
+
+    y_ts = y_ts[..., None]
+
+    # -------------------------------------------------------------------------
+    # Dimensions
+    # -------------------------------------------------------------------------
+
+    n_neurons = x_ts.n_neurons
+    n_frames_raw = x_ts.n_frames
+
+    config.simulation.n_neurons = n_neurons
+    simulation.n_frames = n_frames_raw
+
+    logger.info(
+        f'dataset: {n_frames_raw} frames, '
+        f'n neurons: {n_neurons}'
+    )
+
+    # -------------------------------------------------------------------------
+    # Recurrent subsampling
+    # -------------------------------------------------------------------------
+
+    full_stimulus = getattr(
+        training,
+        'recurrent_full_stimulus',
+        False,
+    )
+
+    stride = (
+        training.time_step
+        if (
+            training.recurrent_training
+            and training.time_step > 1
+            and not full_stimulus
+        )
+        else 1
+    )
+
+    if stride > 1:
+
+        from tqdm import tqdm
+
+        fields_to_stride = [
+            'voltage',
+            'stimulus',
+            'calcium',
+            'fluorescence',
+            'noise',
+        ]
+
+        print(
+            f"\033[93msubsampling dataset: "
+            f"{n_frames_raw} frames -> "
+            f"{n_frames_raw // stride} frames "
+            f"(stride={stride})\033[0m"
+        )
+
+        for field in tqdm(
+            fields_to_stride,
+            desc='subsampling x_ts',
+            ncols=150,
+        ):
+            value = getattr(
+                x_ts,
+                field,
+            )
+
+            if value is not None:
+                setattr(
+                    x_ts,
+                    field,
+                    value[::stride],
+                )
+
+        y_ts = y_ts[::stride]
+
+        simulation.n_frames = x_ts.n_frames
+
+    # -------------------------------------------------------------------------
+    # Validation / normalization
+    # -------------------------------------------------------------------------
+
+    xnorm = x_ts.xnorm
+
+    assert not torch.isnan(
+        x_ts.voltage
+    ).any(), (
+        "voltage contains NaN — cannot train"
+    )
+
+    assert not np.isnan(
+        y_ts
+    ).any(), (
+        "derivative targets contain NaN — cannot train"
+    )
+
+    x_ts = x_ts.to(device)
+
+    # -------------------------------------------------------------------------
+    # Optional temporal voltage denoising
+    # -------------------------------------------------------------------------
+
+    denoise_alpha = float(
+        getattr(
+            training,
+            'coeff_voltage_denoise_alpha',
+            0.0,
+        )
+    )
+
+    if denoise_alpha > 0:
+
+        from connectome_gnn.LLM_code.staging.block_01.temporal_voltage_denoise import (
+            temporal_voltage_denoise,
+        )
+
+        x_ts.voltage = (
+            (1.0 - denoise_alpha)
+            * x_ts.voltage
+            + denoise_alpha
+            * temporal_voltage_denoise(
+                x_ts.voltage
+            )
+        )
+
+        logger.info(
+            f'voltage denoising applied: '
+            f'alpha={denoise_alpha}'
+        )
+
+    y_ts_gpu = (
+        torch.from_numpy(y_ts)
+        .float()
+        .to(device)
+    )
+
+    torch.save(
+        xnorm,
+        os.path.join(
+            log_dir,
+            'xnorm.pt',
+        ),
+    )
+
+    xnorm = float(xnorm)
+
+    # Current trainer uses ynorm=1.
+    ynorm = 1.0
+
+    ynorm_tensor = torch.tensor(
+        ynorm,
+        device=device,
+    )
+
+    torch.save(
+        ynorm_tensor,
+        os.path.join(
+            log_dir,
+            'ynorm.pt',
+        ),
+    )
+
+    # -------------------------------------------------------------------------
+    # Load ground-truth ODE / connectome information
+    # -------------------------------------------------------------------------
+
+    signal_model = (
+        config.graph_model.signal_model_name
+    )
+
+    try:
+        OdeParamsCls = get_ode_params_class(
+            signal_model
+        )
+    except KeyError:
+        OdeParamsCls = FlyVisODEParams
+
+    try:
+        ode_params = OdeParamsCls.load(
+            graphs_data_path(config.dataset),
+            device=device,
+        )
+    except TypeError:
+
+        logger.info(
+            f'ode_params schema mismatch for '
+            f'{OdeParamsCls.__name__}; '
+            f'falling back to FlyVisODEParams'
+        )
+
+        ode_params = FlyVisODEParams.load(
+            graphs_data_path(config.dataset),
+            device=device,
+        )
+
+    gt_weights = ode_params.W
+    gt_edges = ode_params.edge_index
+
+    # -------------------------------------------------------------------------
+    # Construct training graph
+    # -------------------------------------------------------------------------
+
+    if not training.use_gt_edges:
+
+        src = torch.arange(
+            n_neurons,
+            device=device,
+        ).repeat_interleave(
+            n_neurons
+        )
+
+        dst = torch.arange(
+            n_neurons,
+            device=device,
+        ).repeat(n_neurons)
+
+        mask = src != dst
+
+        edges = torch.stack(
+            [
+                src[mask],
+                dst[mask],
+            ],
+            dim=0,
+        )
+
+        config.simulation.n_edges = (
+            edges.shape[1]
+        )
+
+        # Remap GT weights to the training-edge order.
+        gt_weight_map = torch.zeros(
+            edges.shape[1],
+            device=device,
+        )
+
+        gt_edge_set = {
+            (
+                gt_edges[0, k].item(),
+                gt_edges[1, k].item(),
+            ): gt_weights[k]
+            for k in range(
+                gt_edges.shape[1]
+            )
+        }
+
+        for k in range(
+            edges.shape[1]
+        ):
+            key = (
+                edges[0, k].item(),
+                edges[1, k].item(),
+            )
+
+            if key in gt_edge_set:
+                gt_weight_map[k] = (
+                    gt_edge_set[key]
+                )
+
+        gt_weights = gt_weight_map
+
+    else:
+
+        edges = gt_edges
+
+        actual_n_edges = (
+            edges.shape[1]
+        )
+
+        expected_total = (
+            simulation.n_edges
+            + simulation.n_extra_null_edges
+        )
+
+        if (
+            actual_n_edges == expected_total
+            and simulation.n_extra_null_edges > 0
+        ):
+            config.simulation.n_edges = (
+                actual_n_edges
+            )
+
+            config.simulation.n_extra_null_edges = 0
+
+        elif actual_n_edges != simulation.n_edges:
+            config.simulation.n_edges = (
+                actual_n_edges
+            )
+
+    # -------------------------------------------------------------------------
+    # Save the exact graph used during training
+    # -------------------------------------------------------------------------
+
+    torch.save(
+        edges,
+        os.path.join(
+            log_dir,
+            'training_edges.pt',
+        ),
+    )
+
+    torch.save(
+        gt_weights,
+        os.path.join(
+            log_dir,
+            'gt_weights.pt',
+        ),
+    )
+
+    return TrainingData(
+        x_ts=x_ts,
+        y_ts=y_ts,
+        y_ts_gpu=y_ts_gpu,
+
+        type_list=type_list,
+        ode_params=ode_params,
+
+        n_neurons=n_neurons,
+        n_frames=simulation.n_frames,
+
+        xnorm=xnorm,
+        ynorm=ynorm,
+
+        edges=edges,
+        gt_weights=gt_weights,
+    )
+
+
+# =============================================================================
+# 3. MODEL
+# =============================================================================
+
+def init_training_model(
+    config,
+    data,
+    device,
+    log_dir,
+    best_model=None,
+    resume=False,
+):
+    """
+    Build/load the GNN and perform model initialization that must happen
+    before optimizer construction.
+    """
+
+    from connectome_gnn.models.training_utils import (
+        build_model,
+        find_latest_epoch_checkpoint,
+    )
+
+    training = config.training
+
+    checkpoint_path = None
+    resumed_epoch = -1
+
+    if resume:
+
+        checkpoint_path, resumed_epoch = (
+            find_latest_epoch_checkpoint(
+                log_dir,
+                training.n_runs,
+            )
+        )
+
+    elif training.pretrained_model != '':
+
+        checkpoint_path = (
+            training.pretrained_model
+        )
+
+    reset_epoch = (
+        training.pretrained_model != ''
+        and not resume
+    )
+
+    model, start_epoch = build_model(
+        config,
+        device,
+        checkpoint_path=checkpoint_path,
+        reset_epoch=reset_epoch,
+    )
+
+    if (
+        resume
+        and checkpoint_path is not None
+    ):
+        start_epoch = resumed_epoch + 1
+
+    # -------------------------------------------------------------------------
+    # Hard connectome sign lock
+    # -------------------------------------------------------------------------
+
+    if getattr(
+        model,
+        'lock_edge_signs_from_connectome',
+        False,
+    ):
+        model.set_edge_sign_from_weights(
+            data.gt_weights
+        )
+
+    # -------------------------------------------------------------------------
+    # Cell-type embedding initialization
+    # -------------------------------------------------------------------------
+
+    if training.embedding_cell_type_init:
+
+        from connectome_gnn.utils import (
+            get_equidistant_points,
+        )
+
+        n_types = (
+            config.simulation.n_neuron_types
+        )
+
+        embedding_dim = (
+            config.graph_model.embedding_dim
+        )
+
+        if embedding_dim == 2:
+
+            ex, ey = (
+                get_equidistant_points(
+                    n_types
+                )
+            )
+
+            points = (
+                np.stack(
+                    [ex, ey],
+                    axis=1,
+                )
+                * training.embedding_cell_type_scale
+            )
+
+            type_ids = (
+                data.type_list
+                .squeeze(-1)
+                .long()
+                .cpu()
+                .numpy()
+            )
+
+            with torch.no_grad():
+                model.a.copy_(
+                    torch.tensor(
+                        points[type_ids],
+                        dtype=torch.float32,
+                        device=device,
+                    )
+                )
+
+    # -------------------------------------------------------------------------
+    # Freeze embedding before optimizer creation
+    # -------------------------------------------------------------------------
+
+    if training.fix_embedding:
+        model.a.requires_grad_(False)
+
+    model.train()
+
+    return model, start_epoch
+
+
+# =============================================================================
+# 4. OPTIMIZER
+# =============================================================================
+
+def init_training_optimizer(
+    config,
+    model,
+):
+    """
+    Build optimizer and scheduler.
+
+    Returns:
+        optimizer
+        lr_scheduler
+        n_total_params
+    """
+
+    from connectome_gnn.models.training_utils import (
+        build_lr_scheduler,
+    )
+
+    training = config.training
+
+    lr = training.lr
+
+    lr_update = (
+        training.lr
+        if training.lr_update == 0
+        else training.lr_update
+    )
+
+    lr_embedding = (
+        training.lr_embedding
+    )
+
+    lr_W = training.lr_W
+    lr_NNR_f = training.lr_NNR_f
+
+    nnr_warmup_epochs = int(
+        getattr(
+            training,
+            'training_NNR_start_epoch',
+            0,
+        )
+    )
+
+    lr_NNR_f_start = float(
+        getattr(
+            training,
+            'lr_NNR_f_start',
+            0.0,
+        )
+    )
+
+    lr_NNR_f_init = (
+        lr_NNR_f_start
+        if nnr_warmup_epochs > 0
+        else lr_NNR_f
+    )
+
+    optimizer, n_total_params = (
+        set_trainable_parameters(
+            model=model,
+            lr_embedding=lr_embedding,
+            lr=lr,
+            lr_update=lr_update,
+            lr_W=lr_W,
+            lr_NNR_f=lr_NNR_f_init,
+        )
+    )
+
+    lr_scheduler = build_lr_scheduler(
+        optimizer,
+        config,
+    )
+
+    return (
+        optimizer,
+        lr_scheduler,
+        n_total_params,
+    )
+
+
+# =============================================================================
+# 5. REGULARIZER
+# =============================================================================
+
+def init_training_regularizer(
+    config,
+    data,
+    device,
+):
+    """
+    Construct and initialize LossRegularizer.
+
+    LossRegularizer stays in models/regularizer.py.
+    This function simply owns its training-time initialization.
+    """
+
+    training = config.training
+    simulation = config.simulation
+    model_config = config.graph_model
+
+    regularizer = LossRegularizer(
+        train_config=training,
+        model_config=model_config,
+        activity_column=3,
+        plot_frequency=1,
+        n_neurons=data.n_neurons,
+        trainer_type='flyvis',
+        dataset=config.dataset,
+        type_list=data.type_list,
+        n_neuron_types=simulation.n_neuron_types,
+    )
+
+    regularizer.set_activity_stats(
+        data.x_ts,
+        device,
+    )
+
+    regularizer.move_type_list_to_device(
+        device
+    )
+
+    return regularizer
+
+
+# =============================================================================
+# 6. HIDDEN + ANCHOR NEURONS
+# =============================================================================
+
+def init_hidden_neurons(
+    config,
+    model,
+    n_neurons,
+    log_dir,
+    device,
+):
+    """
+    Initialize hidden-neuron and anchor-neuron selections.
+
+    Returns:
+        hidden_ids
+        visible_ids
+        anchor_ids
+
+    visible_ids is derived here because it is a direct consequence of the
+    hidden-neuron selection.
+    """
+
+    simulation = config.simulation
+    training = config.training
+    model_config = config.graph_model
+
+    hidden_ids = None
+    anchor_ids = None
+
+    # -------------------------------------------------------------------------
+    # Hidden neurons
+    # -------------------------------------------------------------------------
+
+    hidden_fraction = float(
+        getattr(
+            model_config,
+            'hidden_neuron_fraction',
+            0.0,
+        )
+    )
+
+    if hidden_fraction > 0:
+
+        hidden_path = os.path.join(
+            log_dir,
+            'hidden_neuron_ids.pt',
+        )
+
+        if os.path.exists(
+            hidden_path
+        ):
+
+            hidden_ids = torch.load(
+                hidden_path,
+                map_location=device,
+                weights_only=True,
+            )
+
+        else:
+
+            rng = np.random.RandomState(
+                simulation.seed
+            )
+
+            candidates = np.arange(
+                simulation.n_input_neurons,
+                n_neurons,
+            )
+
+            n_hidden = int(
+                len(candidates)
+                * hidden_fraction
+            )
+
+            hidden_np = np.sort(
+                rng.choice(
+                    candidates,
+                    size=n_hidden,
+                    replace=False,
+                )
+            )
+
+            hidden_ids = (
+                torch.from_numpy(
+                    hidden_np
+                )
+                .long()
+                .to(device)
+            )
+
+            torch.save(
+                hidden_ids,
+                hidden_path,
+            )
+
+    # -------------------------------------------------------------------------
+    # Anchor neurons
+    # -------------------------------------------------------------------------
+
+    if hidden_ids is not None:
+
+        inr_type_hidden = getattr(
+            model_config,
+            'inr_type_hidden',
+            'none',
+        )
+
+        inner_model = (
+            model._orig_mod
+            if hasattr(model, '_orig_mod')
+            else model
+        )
+
+        has_anchor_neurons = (
+            bool(
+                getattr(
+                    training,
+                    'train_with_anchor_neurons',
+                    False,
+                )
+            )
+            and inr_type_hidden in (
+                'siren_t',
+                'ngp_t',
+            )
+            and getattr(
+                inner_model,
+                'n_anchor',
+                0,
+            ) > 0
+        )
+
+        if has_anchor_neurons:
+
+            anchor_path = os.path.join(
+                log_dir,
+                'anchor_neuron_ids.pt',
+            )
+
+            n_anchor = int(
+                inner_model.n_anchor
+            )
+
+            if os.path.exists(
+                anchor_path
+            ):
+
+                anchor_ids = torch.load(
+                    anchor_path,
+                    map_location=device,
+                    weights_only=True,
+                )
+
+                if len(anchor_ids) != n_anchor:
+                    anchor_ids = None
+
+            if anchor_ids is None:
+
+                rng = np.random.RandomState(
+                    simulation.seed + 1
+                )
+
+                candidates = np.setdiff1d(
+                    np.arange(
+                        simulation.n_input_neurons,
+                        n_neurons,
+                    ),
+                    hidden_ids.cpu().numpy(),
+                )
+
+                n_anchor_eff = min(
+                    n_anchor,
+                    len(candidates),
+                )
+
+                anchor_np = np.sort(
+                    rng.choice(
+                        candidates,
+                        size=n_anchor_eff,
+                        replace=False,
+                    )
+                )
+
+                anchor_ids = (
+                    torch.from_numpy(
+                        anchor_np
+                    )
+                    .long()
+                    .to(device)
+                )
+
+                torch.save(
+                    anchor_ids,
+                    anchor_path,
+                )
+
+    # -------------------------------------------------------------------------
+    # Visible neurons
+    # -------------------------------------------------------------------------
+
+    ids = torch.arange(
+        n_neurons,
+        device=device,
+    )
+
+    if hidden_ids is None:
+
+        visible_ids = ids
+
+    else:
+
+        hidden_mask = torch.zeros(
+            n_neurons,
+            dtype=torch.bool,
+            device=device,
+        )
+
+        hidden_mask[hidden_ids] = True
+
+        visible_ids = ids[
+            ~hidden_mask
+        ]
+
+    return (
+        hidden_ids,
+        visible_ids,
+        anchor_ids,
+    )
+
+def inject_hidden_voltage(model, x, k, hidden_ids, injection_active):
+    """Hidden-neuron voltage estimator: NGP/SIREN forward or zero-silence.
+
+    Mutates x.voltage[hidden_ids] in place. injection_active is binary:
+    phase 1 → False, phase 2 → True. The smooth absorption of the new
+    input distribution at the phase 1→2 transition is handled by the
+    LR-damping V-schedule on the GNN param groups, not by ramping the
+    injection magnitude here.
+
+    Phase 1 (injection_active=False): hidden voltages are zero-silenced
+    (identical to the no-NGP baseline). NGP/SIREN still trains via the
+    anchor loss elsewhere in the step, which routes through the spatial
+    NGP position cache — normally primed inside forward_hidden, so it is
+    primed here instead (idempotent) to keep that path populated.
+
+    Phase 2 (injection_active=True): NGP/SIREN forward_hidden predicts the
+    hidden voltages directly, and gradients flow back through injection.
+    """
+    if model.NNR_hidden is not None and injection_active:
+        x.voltage[hidden_ids] = model.forward_hidden(x, k, hidden_ids)
+    else:
+        x.voltage[hidden_ids] = 0.0
+        if model.NNR_hidden is not None and getattr(model, '_ngp_spatial_enabled', False):
+            model._ngp_cache_pos(x)
+
+
+class HiddenNeuronHandler:
+    """Owns hidden/anchor neuron selection and mediates their voltage
+    through the model's NGP/SIREN hidden-neuron generator (model.NNR_hidden).
+
+    `model` is passed to each call rather than stored on the handler,
+    since torch.compile rebinds the trainer's `model` variable to a
+    wrapper after this handler is constructed.
+    """
+
+    def __init__(self, config, model, n_neurons, log_dir, device):
+        self.hidden_ids, self.visible_ids, self.anchor_ids = init_hidden_neurons(
+            config, model, n_neurons, log_dir, device
+        )
+
+    @classmethod
+    def from_ids(cls, hidden_ids, anchor_ids=None, visible_ids=None):
+        """Build a handler directly from already-loaded ids, bypassing the
+        config-driven sampling in `init_hidden_neurons`. Used at eval/test
+        time, where hidden/anchor ids are loaded from a trained run's
+        log_dir rather than sampled fresh."""
+        self = cls.__new__(cls)
+        self.hidden_ids = hidden_ids
+        self.anchor_ids = anchor_ids
+        self.visible_ids = visible_ids
+        return self
+
+    @property
+    def has_hidden(self):
+        return self.hidden_ids is not None
+
+    @property
+    def has_anchor(self):
+        return self.anchor_ids is not None
+
+    def inject_hidden(self, model, x, k, injection_active):
+        """No-op when there are no hidden neurons. See `inject_hidden_voltage`
+        for the phase-transition rationale."""
+        if self.has_hidden:
+            inject_hidden_voltage(model, x, k, self.hidden_ids, injection_active)
+
+    def zero_hidden(self, state):
+        """Silence hidden-neuron voltage on a rolled-forward recurrent state."""
+        if self.has_hidden:
+            state.voltage[self.hidden_ids] = 0.0
+
+    def anchor_residual(self, model, k_starts, x_ts):
+        """(pred - gt) anchor voltage residual, or None if anchors are disabled."""
+        if not self.has_anchor:
+            return None
+        pred_a = model.forward_anchor_batched(k_starts, anchor_ids=self.anchor_ids)
+        gt_a = x_ts.voltage[k_starts[:, None], self.anchor_ids[None, :]]
+        return pred_a - gt_a
+
+    def quick_pearson(self, model, x_ts, device):
+        """Lightweight Pearson r for the hidden/anchor NGP fit. Returns
+        (hidden_r2, hidden_std, anchor_r2, anchor_std), each None where not
+        computable (no hidden neurons / NNR_hidden not yet initialised)."""
+        if not self.has_hidden or getattr(model, 'NNR_hidden', None) is None:
+            return None, None, None, None
+
+        hidden_r2, hidden_std = _quick_ngp_pearson(
+            model, x_ts, self.hidden_ids, use_anchor=False, device=device, return_stats=True
+        )
+
+        anchor_r2 = anchor_std = None
+        if self.has_anchor:
+            anchor_r2, anchor_std = _quick_ngp_pearson(
+                model, x_ts, self.anchor_ids, use_anchor=True, device=device, return_stats=True
+            )
+
+        return hidden_r2, hidden_std, anchor_r2, anchor_std
+

@@ -19,7 +19,7 @@ from connectome_gnn.neuron_state import NeuronState
     "flyvis_A_tanh",
     "flyvis_A_multiple_ReLU",
     "flyvis_A_NULL",
-    "flyvis_B",
+    "flyvis_conductance",
     "flyvis_C",
     "flyvis_D",
     "flyvis_hybrid",
@@ -40,7 +40,7 @@ class NeuralGNN(nn.Module):
 
     Equations:
         msg_j = W[edge] * g_phi(v_j, a_j)^2   (g_phi_positive=True)
-        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (variant B)
+        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (flyvis_conductance)
         du/dt = f_theta(v, a, sum(msg), excitation)
 
     Uses explicit scatter_add for message passing (no PyG dependency).
@@ -58,7 +58,7 @@ class NeuralGNN(nn.Module):
         },
         "equations": {
             "message_flyvis_A": "msg_j = W[edge_idx] * g_phi(v_j, a_j)^2   (g_phi_positive=True)",
-            "message_flyvis_B": "msg_j = W[edge_idx] * g_phi(v_i, v_j, a_i, a_j)^2",
+            "message_flyvis_conductance": "msg_j = W[edge_idx] * g_phi(v_i, v_j, a_i, a_j)^2",
             "update": "du/dt = f_theta(v, a, sum(msg), excitation)",
         },
         "graph_model_config": {
@@ -67,7 +67,7 @@ class NeuralGNN(nn.Module):
                 "description": "Edge message function — computes per-edge features, multiplied by W[edge]",
                 "input_size": {
                     "flyvis_A": "input_size = 1 + embedding_dim  (v_j, a_j)",
-                    "flyvis_B": "input_size = 2 + 2*embedding_dim  (v_i, v_j, a_i, a_j)",
+                    "flyvis_conductance": "input_size = 2 + 2*embedding_dim  (v_i, v_j, a_i, a_j)",
                 },
                 "output_size": "1 (scalar edge message)",
                 "hidden_dim": {"description": "Hidden layer width", "typical_range": [32, 128], "default": 64},
@@ -138,6 +138,11 @@ class NeuralGNN(nn.Module):
                 {
                     "name": "coeff_g_phi_weight_L1",
                     "description": "L1 penalty on g_phi weights",
+                    "typical_range": [0, 10],
+                },
+                {
+                    "name": "coeff_g_phi_input_group_L1",
+                    "description": "Group lasso on g_phi input columns (vi/vj/ai/aj) — flyvis_conductance only",
                     "typical_range": [0, 10],
                 },
                 {
@@ -613,7 +618,7 @@ class NeuralGNN(nn.Module):
 
         # build per-edge features (ensure 2D even when embedding_dim=1)
         emb = embedding if embedding.dim() == 2 else embedding.unsqueeze(-1)
-        if self.model == "flyvis_B":
+        if self.model == "flyvis_conductance":
             in_features = torch.cat([v[dst], v[src], emb[dst], emb[src]], dim=1)
         else:
             in_features = torch.cat([v[src], emb[src]], dim=1)

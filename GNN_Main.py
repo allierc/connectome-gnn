@@ -86,6 +86,14 @@ if __name__ == "__main__":
                              "the anatomy frames) under tmp_recons/<types>_kino/. "
                              "Sets plotting.anatomy_voltage_kinograph and implies "
                              "--anatomy_voltage.")
+    parser.add_argument("--queue", type=str, default=None,
+                        choices=["gpu_l4", "gpu_a100", "gpu_h100"],
+                        help="LSF GPU queue for -o train_cv (one bsub job per fold). "
+                             "No default — must be supplied explicitly.")
+    parser.add_argument("--wall", type=str, default="24:00",
+                        help="LSF wall-clock limit for -o train_cv, e.g. '24:00' (default) or minutes as an int string.")
+    parser.add_argument("--ncpu", type=int, default=8,
+                        help="LSF core count per fold for -o train_cv (default 8).")
 
     print()
     device = []
@@ -155,6 +163,53 @@ if __name__ == "__main__":
         else:
             seeds = list(range(42, 42 + args.n_seeds))
         run_cv(config_name, seeds, skip_phase2=args.skip_phase2)
+        sys.exit(0)
+
+    def _submit_cv_folds(config_name, inner_task):
+        """One bsub job per fold (parallel, independent GPUs), each running
+        `python GNN_Main.py -o {inner_task} {config_name}_cvNN` — as opposed
+        to `-o cv`, which runs all folds sequentially in a single process.
+        Expects per-fold config yamls <config_name>_cv00.yaml, _cv01.yaml,
+        ... to already exist (this does not synthesize them).
+        """
+        if not args.queue:
+            parser.error(f"--queue is required for -o {inner_task}_cv (gpu_l4 / gpu_a100 / gpu_h100)")
+
+        import subprocess
+
+        if args.seeds is not None:
+            n_folds = len([s.strip() for s in args.seeds.split(',')])
+        else:
+            n_folds = args.n_seeds
+
+        _, pre_folder = add_pre_folder(config_name)
+        base_name = os.path.basename(config_name)
+
+        for i in range(n_folds):
+            fold_config = f"{base_name}_cv{i:02d}"
+            fold_log_dir = log_path(pre_folder + fold_config)
+            os.makedirs(fold_log_dir, exist_ok=True)
+
+            inner_cmd = f"python GNN_Main.py -o {inner_task} {fold_config}"
+            if args.output_root:
+                inner_cmd += f" --output_root {args.output_root}"
+
+            bsub_cmd = (
+                f'bsub -n {args.ncpu} -gpu "num=1" -q {args.queue} -W {args.wall} '
+                f'-o "{fold_log_dir}/bsub_%J.out" -e "{fold_log_dir}/bsub_%J.err" '
+                f'"{inner_cmd}"'
+            )
+            print(f"\033[96msubmitting fold {i:02d}: {bsub_cmd}\033[0m")
+            result = subprocess.run(bsub_cmd, shell=True)
+            if result.returncode != 0:
+                print(f"\033[91mbsub submission failed for fold {i:02d} (exit {result.returncode})\033[0m")
+
+    if task == 'train_cv':
+        _submit_cv_folds(config_name, 'train')
+        sys.exit(0)
+
+    if task == 'test_plot_cv':
+        _submit_cv_folds(config_name, 'test_plot')
         sys.exit(0)
 
     for config_file_ in config_list:
@@ -367,3 +422,5 @@ if __name__ == "__main__":
 
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 10:00 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_nominal_cv00"
+# python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
+# python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4

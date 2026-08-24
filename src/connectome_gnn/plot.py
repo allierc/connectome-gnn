@@ -28,7 +28,6 @@ from connectome_gnn.metrics import (  # noqa: F401
     INDEX_TO_NAME,
     _batched_mlp_eval,
     _build_f_theta_features,
-    _build_g_phi_features,
     _vectorized_linear_fit,
     _vectorized_linspace,
     compute_activity_stats,
@@ -38,6 +37,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     compute_grad_msg,
     derive_tau,
     derive_vrest,
+    eval_g_phi_over_domain,
     extract_f_theta_slopes,
     extract_g_phi_slopes,
     get_model_W,
@@ -153,9 +153,6 @@ def _plot_curves_fast(ax, rr, func, type_list, cmap, linewidth=1, alpha=0.1):
     lc = LineCollection(segments, colors=colors, linewidths=linewidth)
     ax.add_collection(lc)
     ax.autoscale_view()
-
-
-
 
 
 
@@ -277,13 +274,15 @@ def plot_f_theta(ax, model, config, n_neurons, type_list, cmap, device, step=20,
 
 
 def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
-               gt_curves=None, gt_v_range=None, type_names=None):
+               gt_curves=None, gt_v_range=None, type_names=None, edges=None):
     """Plot g_phi: learned mean±std per type, with optional GT overlay.
 
     Args:
         gt_curves: (N, n_pts) or (n_pts,) ground truth g_phi values.
         gt_v_range: (n_pts,) x values for gt_curves.
         type_names: list of type name strings for legend.
+        edges: (2, E) edge index — required when signal_model_name is
+            flyvis_conductance (see `eval_g_phi_over_domain`).
     """
     model_config = config.graph_model
     n_pts = 1000
@@ -294,12 +293,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
     rr_1d = torch.linspace(config.plotting.xlim[0], config.plotting.xlim[1], n_pts, device=device)
     rr = rr_1d.unsqueeze(0).expand(n_sel, -1)
 
-    post_fn = (lambda x: x ** 2) if model_config.g_phi_positive else None
-    build_fn = lambda rr_f, emb_f: _build_g_phi_features(rr_f, emb_f, model_config.signal_model_name)
-
-    func = _batched_mlp_eval(
-        model.g_phi, model.a[neuron_ids], rr,
-        build_fn, device, post_fn=post_fn)
+    func = eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=edges)
 
     type_np = to_numpy(type_list).astype(int).ravel()
     x_np = to_numpy(rr_1d)
@@ -2419,23 +2413,69 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         except Exception:
             nnr_iters = []
 
+    # g_phi_discard.log columns: iteration, discard_score, grad_ratio_vi, grad_ratio_ai.
+    # Only written for flyvis_conductance (see graph_trainer.py's GNN R^2 branch) --
+    # file simply doesn't exist for any other model, which is what gates this
+    # second row on rather than a config/model-type check here.
+    g_phi_discard_log_path = os.path.join(log_dir, 'tmp_training', 'g_phi_discard.log')
+    discard_iters, discard_score_vals, discard_ratio_vi, discard_ratio_ai = [], [], [], []
+    if os.path.exists(g_phi_discard_log_path):
+        try:
+            with open(g_phi_discard_log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('iteration'):
+                        continue
+                    parts = line.split(',')
+                    discard_iters.append(int(parts[0]))
+                    discard_score_vals.append(_f(parts, 1))
+                    discard_ratio_vi.append(_f(parts, 2))
+                    discard_ratio_ai.append(_f(parts, 3))
+        except Exception:
+            discard_iters = []
+
     has_r2 = len(r2_iters) > 0
     has_nnr = len(nnr_iters) > 0
-    if not has_r2 and not has_nnr:
+    has_discard = len(discard_iters) > 0
+    if not has_r2 and not has_nnr and not has_discard:
         return
 
     style = default_style
     legend_fs = 7
 
-    if has_r2 and has_nnr:
-        fig, (ax_r2, ax_nnr) = style.figure(
-            ncols=2, width=2 * style.figure_height * style.default_aspect)
-        axes_iter = (ax_r2, ax_nnr)
+    row1_ncols = int(has_r2) + int(has_nnr)
+    ncols = max(row1_ncols, 1)
+
+    if has_discard:
+        fig, axes = style.figure(
+            ncols=ncols, nrows=2, squeeze=False,
+            width=ncols * style.figure_height * style.default_aspect)
+        row1 = list(axes[0])
+        ax_discard = axes[1, 0]
+        for c in range(1, ncols):
+            axes[1, c].axis('off')
     else:
-        fig, ax = style.figure(ncols=1)
-        ax_r2 = ax if has_r2 else None
-        ax_nnr = ax if has_nnr else None
-        axes_iter = (ax,)
+        if row1_ncols == 2:
+            fig, row1_arr = style.figure(
+                ncols=2, width=2 * style.figure_height * style.default_aspect)
+            row1 = list(row1_arr)
+        else:
+            fig, ax = style.figure(ncols=1)
+            row1 = [ax]
+        ax_discard = None
+
+    if has_r2 and has_nnr:
+        ax_r2, ax_nnr = row1[0], row1[1]
+    elif has_r2:
+        ax_r2, ax_nnr = row1[0], None
+    elif has_nnr:
+        ax_r2, ax_nnr = None, row1[0]
+    else:
+        ax_r2 = ax_nnr = None
+
+    axes_iter = list(row1[:row1_ncols])
+    if ax_discard is not None:
+        axes_iter.append(ax_discard)
 
     for a in axes_iter:
         a.tick_params(axis='x', labelsize=9)
@@ -2445,19 +2485,19 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         # Connectivity: single solid line.
         ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1.2,
                    label=r'$R^2_W$')
-        # V_rest: solid = no-outlier (clean), dashed = raw (with outliers).
+        # V_rest: solid = wo outlier (clean), dashed = raw (with outliers).
         ax_r2.plot(r2_iters, vrest_clean_vals, color='#1f77b4', linewidth=1.2,
-                   label=r'$R^2_{V_{rest}}$ (no outl.)')
+                   label=r'$R^2_{V_{rest}}$ (wo outlier)')
         ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_{V_{rest}}$ (raw)')
-        # τ: solid = no-outlier (clean), dashed = raw.
+        # τ: solid = wo outlier (clean), dashed = raw.
         ax_r2.plot(r2_iters, tau_clean_vals, color='#2ca02c', linewidth=1.2,
-                   label=r'$R^2_\tau$ (no outl.)')
+                   label=r'$R^2_\tau$ (wo outlier)')
         ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_\tau$ (raw)')
-        ax_r2.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
+        ax_r2.axhline(y=0.9, color='gray', linestyle='--', alpha=0.4, linewidth=1)
         ax_r2.set_ylim(-0.05, 1.05)
         style.xlabel(ax_r2, 'iteration')
         style.ylabel(ax_r2, r'$R^2$')
@@ -2543,6 +2583,42 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
             ax_nnr.text(0.98, 0.97, '\n'.join(latest_lines),
                         transform=ax_nnr.transAxes, fontsize=8,
                         verticalalignment='top', horizontalalignment='right')
+
+    if has_discard:
+        x_d = np.asarray(discard_iters)
+        score = np.asarray(discard_score_vals, dtype=float)
+        r_vi = np.asarray(discard_ratio_vi, dtype=float)
+        r_ai = np.asarray(discard_ratio_ai, dtype=float)
+
+        s_valid = ~np.isnan(score)
+        if s_valid.any():
+            ax_discard.plot(x_d[s_valid], score[s_valid], color='#9467bd',
+                            linewidth=1.2, label='weight discard score (L1)')
+        vi_valid = ~np.isnan(r_vi)
+        if vi_valid.any():
+            ax_discard.plot(x_d[vi_valid], r_vi[vi_valid], color='#e377c2',
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/dv_i|/|dg_\phi/dv_j|$')
+        ai_valid = ~np.isnan(r_ai)
+        if ai_valid.any():
+            ax_discard.plot(x_d[ai_valid], r_ai[ai_valid], color='#8c564b',
+                            linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$')
+
+        ax_discard.axhline(y=0.0, color='gray', linestyle='--', linewidth=0.8, alpha=0.6)
+        style.xlabel(ax_discard, 'iteration')
+        style.ylabel(ax_discard, 'g_phi vi/ai discard (lower = better)')
+        ax_discard.legend(fontsize=legend_fs, loc='lower right')
+
+        latest_lines = []
+        if s_valid.any():
+            latest_lines.append(f'score={score[s_valid][-1]:.3f}')
+        if vi_valid.any():
+            latest_lines.append(f'dvi/dvj={r_vi[vi_valid][-1]:.3f}')
+        if ai_valid.any():
+            latest_lines.append(f'dai/dvj={r_ai[ai_valid][-1]:.3f}')
+        if latest_lines:
+            ax_discard.text(0.98, 0.97, '\n'.join(latest_lines),
+                            transform=ax_discard.transAxes, fontsize=8,
+                            verticalalignment='top', horizontalalignment='right')
 
     if epoch_boundaries:
         for xb in epoch_boundaries:
@@ -2794,7 +2870,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # Plot 4: Edge function visualization (g_phi)
     fig, ax = plt.subplots(figsize=(8, 8))
     plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device,
-               gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names)
+               gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names, edges=edges)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
     plt.savefig(f"{log_dir}/results/g_phi_func.png", dpi=87)
