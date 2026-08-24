@@ -166,8 +166,8 @@ def main():
     p.add_argument("--tag", default="zebraEyeG", help="checkpoint name")
     p.add_argument("--tau0", type=float, default=0.1, help="initial time constant, s")
     p.add_argument("--epochs", type=int, default=150)
-    p.add_argument("--batch", type=int, default=128)
-    p.add_argument("--lr", type=float, default=2e-3)
+    p.add_argument("--batch", type=int, default=32)
+    p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
     p.add_argument("--duration", type=float, default=8.0)
     p.add_argument("--lam-psi", type=float, default=0.05,
@@ -241,7 +241,7 @@ def main():
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     T = Pdot_tr.shape[1]
-    sched = [max(60, int(T * f)) for f in (0.25, 0.5, 0.75, 1.0)]
+    sched = [max(60, int(T * f)) for f in (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)]
 
     def evaluate(Pdot, Star):
         model.eval()
