@@ -1269,22 +1269,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"{epoch_state.metrics.n_total_tau}\n"
                     )
 
-                # g_phi first-layer discard score + gradient ratios (vi, ai vs vj) --
+                # g_phi first-layer cosine-to-[0,1,0,1] + gradient ratios (vi, ai vs vj) --
                 # only meaningful for flyvis_conductance's [vi, vj, ai, aj] g_phi
                 # input; no-op (file simply not written) for every other model.
                 # Same eval cadence as R^2_W above, since it reuses the same real
                 # (edge, frame) sampling machinery and is comparable in cost.
                 if 'flyvis_conductance' in config.graph_model.signal_model_name:
-                    from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_discard_score
+                    from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_cosine_to_keep
 
-                    discard_score = g_phi_first_layer_discard_score(model, model.a.shape[1])
+                    cosine_sim = g_phi_first_layer_cosine_to_keep(model, model.a.shape[1])
                     ratio_vi, ratio_ai = compute_g_phi_grad_ratios(model, config, edges, x_ts)
 
                     g_phi_discard_log_path = os.path.join(log_dir, "tmp_training", "g_phi_discard.log")
                     with open(g_phi_discard_log_path, "a") as f:
                         f.write(
                             f"{regularizer.iter_count},"
-                            f"{format_metric(discard_score)},"
+                            f"{format_metric(cosine_sim)},"
                             f"{format_metric(ratio_vi)},"
                             f"{format_metric(ratio_ai)}\n"
                         )

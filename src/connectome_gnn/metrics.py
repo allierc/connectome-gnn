@@ -1003,6 +1003,35 @@ def g_phi_first_layer_discard_score(model, emb_dim):
     return (n_vi + n_ai) / total if total > 0 else float('nan')
 
 
+def g_phi_first_layer_cosine_to_keep(model, emb_dim):
+    """Cosine similarity between g_phi's first-layer per-group L2 norms
+    [vi, vj, ai, aj] (the SAME quantity the group-lasso regularizer itself
+    penalizes -- see the group_norm term in regularizer.py) and the target
+    direction [0, 1, 0, 1] (only vj, aj should matter for the true
+    ReLU(vj) generative model).
+
+    Unlike g_phi_first_layer_discard_score's linear fraction, this is
+    scale-invariant and doesn't penalize vj/aj for splitting the "good"
+    mass unevenly between them -- only vi/ai carrying any weight at all
+    pulls it down. 1 = fully aligned (vi=ai=0); 0 = all mass on vi/ai.
+
+    No-op (returns nan) unless g_phi's first layer has the flyvis_conductance
+    2+2*emb_dim input width -- matched structurally, not by model name.
+    """
+    first_layer = model.g_phi.layers[0]
+    W0 = first_layer.weight.detach()
+    if W0.shape[1] != 2 + 2 * emb_dim:
+        return float('nan')
+    n_vi = W0[:, 0:1].norm(2).item()
+    n_vj = W0[:, 1:2].norm(2).item()
+    n_ai = W0[:, 2:2 + emb_dim].norm(2).item()
+    n_aj = W0[:, 2 + emb_dim:2 + 2 * emb_dim].norm(2).item()
+    v_norm = (n_vi ** 2 + n_vj ** 2 + n_ai ** 2 + n_aj ** 2) ** 0.5
+    if v_norm <= 0:
+        return float('nan')
+    return (n_vj + n_aj) / (v_norm * (2 ** 0.5))
+
+
 def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     """Functional companion to g_phi_first_layer_discard_score: ratios of
     |d(g_phi)/d(vi)| and the embedding-gradient norm |d(g_phi)/d(ai)| against
