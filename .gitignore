@@ -39,6 +39,7 @@ config/**/*_winner.yaml
 # Data files (large simulation data)
 *.npy
 *.npz
+*.pkl
 *.pth
 *.backup
 paper/
