@@ -2408,10 +2408,33 @@ def run_recurrent_train_step(
     run_nominal_train_step — the caller owns backward/step and the shared
     metrics tail.
 
-    NOT YET IMPLEMENTED — filled in after the nominal path is verified to
-    reproduce its reference R2 exactly.
+    Thin by design: recurrent_loss (recurrent_step.py) owns the rollout and
+    dispatches on mode — dense-supervision curriculum when rollout_horizon is
+    given, else multi-start or the legacy endpoint-only scheme.
+
+    Batching: modes 1 (standard) and 4 (dense curriculum) concatenate
+    training.batch_size sampled start frames into ONE graph via _batch_frames,
+    exactly as the nominal path does. Mode 2 (multi_start_recurrent) does NOT —
+    it ignores batch_size and runs time_step sequential single-frame rollouts.
     """
-    raise NotImplementedError(
-        "run_recurrent_train_step is not wired yet; use the nominal path "
-        "(recurrent_training: false) until this is implemented."
+    from connectome_gnn.models.recurrent_step import recurrent_loss
+
+    loss, _regul_val = recurrent_loss(
+        model=model,
+        x_ts=x_ts,
+        y_ts=y_ts,
+        edges=edges,
+        ids=ids,
+        frame_indices=epoch_state.frame_indices,
+        iter_idx=N,
+        config=config,
+        device=device,
+        xnorm=xnorm,
+        ynorm=ynorm,
+        regularizer=regularizer,
+        has_visual_field=train.has_visual_field,
+        hn=hn,
+        n_steps=rollout_horizon,
     )
+
+    return loss
