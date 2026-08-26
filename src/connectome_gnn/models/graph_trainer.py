@@ -21,7 +21,7 @@ from tqdm import trange
 
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.log import get_logger
-from connectome_gnn.metrics import compute_dynamics_r2
+from connectome_gnn.metrics import compute_conductance_r2, compute_dynamics_r2
 from connectome_gnn.models.neural_ode_wrapper import (
     debug_check_gradients,
     neural_ode_loss,
@@ -477,7 +477,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
     with open(metrics_log_path, 'w') as f:
         f.write('iteration,connectivity_r2,vrest_r2,tau_r2,hidden_nnr_pearson,anchor_nnr_pearson,'
                 'vrest_r2_clean,n_out_vrest,n_total_vrest,'
-                'tau_r2_clean,n_out_tau,n_total_tau\n')
+                'tau_r2_clean,n_out_tau,n_total_tau,'
+                'conductance_r2,reversal_r2\n')
 
     # Total iter count across all epochs — read by the LLM poller to display
     # iter=I/total in the periodic [metrics] line. Mirrors the Niter formula
@@ -588,6 +589,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
         last_n_total_vrest = 0
         last_n_out_tau = 0
         last_n_total_tau = 0
+        last_conductance_r2 = float('nan')
+        last_reversal_r2 = float('nan')
         last_hidden_r2 = None
         last_anchor_r2 = None
         field_R2 = None
@@ -806,7 +809,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},{_fmt_metric(last_reversal_r2)}\n')
                     _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
@@ -816,6 +820,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     if _a_r2 is not None:
                         last_anchor_r2 = _a_r2
                     _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
+                    _cond = compute_conductance_r2(model, x_ts, config, device, n_neurons)
+                    last_conductance_r2 = _cond['conductance_r2']
+                    last_reversal_r2    = _cond['reversal_r2']
                     last_vrest_r2       = _dyn['vrest_r2']
                     last_tau_r2         = _dyn['tau_r2']
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -827,7 +834,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},{_fmt_metric(last_reversal_r2)}\n')
                     _metrics_changed = True
                 else:
                     _metrics_changed = False
@@ -868,7 +876,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},'
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},'
+                                f'{_fmt_metric(last_reversal_r2)}\n')
                     with open(nnr_pearson_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},'
                                 f'{_fmt_metric(last_hidden_r2)},'
@@ -1208,7 +1218,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     last_vrest_r2 = 0.0
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
-                                f'nan,0,0,nan,0,0\n')
+                                f'nan,0,0,nan,0,0,nan,nan\n')
                     # W scatter plot using Jacobian
                     plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons,
                                             log_dir, epoch, N, device)
@@ -1225,7 +1235,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},{_fmt_metric(last_reversal_r2)}\n')
                     _metrics_changed = True
                 elif (is_regular_r2 or is_early_r2) and not test_neural_field and 'mlp' not in model_name.lower():
                     last_connectivity_r2, _r2_visible, _h_r2, _a_r2 = plot_training_flyvis(x_ts, model, config, epoch, N, log_dir, device, type_list, gt_weights, edges, n_neurons=n_neurons, n_neuron_types=sim.n_neuron_types, ode_params=ode_params, hidden_ids=hidden_ids, anchor_ids=anchor_ids)
@@ -1235,6 +1246,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     if _a_r2 is not None:
                         last_anchor_r2 = _a_r2
                     _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
+                    _cond = compute_conductance_r2(model, x_ts, config, device, n_neurons)
+                    last_conductance_r2 = _cond['conductance_r2']
+                    last_reversal_r2    = _cond['reversal_r2']
                     last_vrest_r2       = _dyn['vrest_r2']
                     last_tau_r2         = _dyn['tau_r2']
                     last_vrest_r2_clean = _dyn['vrest_r2_clean']
@@ -1246,7 +1260,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                     with open(metrics_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},{last_connectivity_r2:.6f},{last_vrest_r2:.6f},{last_tau_r2:.6f},{_fmt_metric(last_hidden_r2)},{_fmt_metric(last_anchor_r2)},'
                                 f'{_fmt_metric(last_vrest_r2_clean)},{last_n_out_vrest},{last_n_total_vrest},'
-                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{_fmt_metric(last_tau_r2_clean)},{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},{_fmt_metric(last_reversal_r2)}\n')
                     _metrics_changed = True
                 else:
                     _metrics_changed = False
@@ -1286,7 +1301,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None):
                                 f'{_fmt_metric(last_vrest_r2_clean)},'
                                 f'{last_n_out_vrest},{last_n_total_vrest},'
                                 f'{_fmt_metric(last_tau_r2_clean)},'
-                                f'{last_n_out_tau},{last_n_total_tau}\n')
+                                f'{last_n_out_tau},{last_n_total_tau},'
+                                f'{_fmt_metric(last_conductance_r2)},'
+                                f'{_fmt_metric(last_reversal_r2)}\n')
                     with open(nnr_pearson_log_path, 'a') as f:
                         f.write(f'{regularizer.iter_count},'
                                 f'{_fmt_metric(last_hidden_r2)},'

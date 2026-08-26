@@ -12,6 +12,9 @@ config/fly/archive_2/*
 config/**/*_Claude_*.yaml
 config/**/*_winner.yaml
 
+# Always track the conductance-twin experiment configs
+!config/fly/flyvis_twin_gnn_*.yaml
+
 # Always track flyvis_hybrid_flywireRF configs, even in archive folders
 !config/fly/flyvis_hybrid_flywireRF_*.yaml
 !config/fly/archive/flyvis_hybrid_flywireRF_*.yaml

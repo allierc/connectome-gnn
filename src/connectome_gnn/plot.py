@@ -1450,6 +1450,8 @@ def plot_metrics(log_dir, epoch_boundaries=None):
     # 9 tau_r2_clean
     # 10 n_out_tau
     # 11 n_total_tau
+    # 12 conductance_r2  (nan unless the model factorizes its message and the
+    # 13 reversal_r2      dataset carries a conductance ground truth)
     def _f(parts, idx):
         if idx >= len(parts):
             return np.nan
@@ -1463,6 +1465,7 @@ def plot_metrics(log_dir, epoch_boundaries=None):
     conn_vals, vrest_vals, tau_vals = [], [], []
     vrest_clean_vals, tau_clean_vals = [], []
     vrest_out_pct, tau_out_pct = [], []
+    cond_vals, rev_vals = [], []
     if os.path.exists(metrics_log_path):
         try:
             with open(metrics_log_path) as f:
@@ -1485,6 +1488,8 @@ def plot_metrics(log_dir, epoch_boundaries=None):
                                          if n_tot_v and n_tot_v > 0 else np.nan)
                     tau_out_pct.append(100.0 * n_out_t / n_tot_t
                                        if n_tot_t and n_tot_t > 0 else np.nan)
+                    cond_vals.append(_f(parts, 12))
+                    rev_vals.append(_f(parts, 13))
         except Exception:
             r2_iters = []
 
@@ -1543,6 +1548,14 @@ def plot_metrics(log_dir, epoch_boundaries=None):
         ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_\tau$ (raw)')
+        # Conductance twin: G and E, drawn only when a factorizing model wrote
+        # them, so runs without a conductance ground truth look exactly as before.
+        if cond_vals and not np.all(np.isnan(cond_vals)):
+            ax_r2.plot(r2_iters, cond_vals, color='#9467bd', linewidth=1.2,
+                       label=r'$R^2_G$')
+        if rev_vals and not np.all(np.isnan(rev_vals)):
+            ax_r2.plot(r2_iters, rev_vals, color='#8c564b', linewidth=1.0,
+                       linestyle='--', alpha=0.8, label=r'$R^2_E$')
         ax_r2.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
         ax_r2.set_ylim(-0.05, 1.05)
         style.xlabel(ax_r2, 'iteration')
@@ -1568,6 +1581,10 @@ def plot_metrics(log_dir, epoch_boundaries=None):
                 latest_lines.append(f'$R^2_\\tau$={tau_clean_vals[-1]:.3f}({_tp:.1f}%)')
             else:
                 latest_lines.append(f'$R^2_\\tau$={tau_clean_vals[-1]:.3f}')
+        if cond_vals and not np.isnan(cond_vals[-1]):
+            latest_lines.append(f'$R^2_G$={cond_vals[-1]:.3f}')
+        if rev_vals and not np.isnan(rev_vals[-1]):
+            latest_lines.append(f'$R^2_E$={rev_vals[-1]:.3f}')
         if latest_lines:
             ax_r2.text(0.98, 0.97, '\n'.join(latest_lines),
                        transform=ax_r2.transAxes, fontsize=9,

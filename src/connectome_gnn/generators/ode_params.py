@@ -133,8 +133,15 @@ class ODEParamsBase:
             kwargs[f.name] = val.clone() if isinstance(val, torch.Tensor) else val
         return self.__class__(**kwargs)
 
-    def save(self, folder: str):
-        """Save all fields as a single ode_params.pt dict."""
+    def save(self, folder: str, filename: str = "ode_params.pt"):
+        """Save all fields as a single dict.
+
+        Args:
+            folder: destination folder.
+            filename: file to write. Override it to keep several parameter sets
+                side by side, e.g. a conductance twin next to the current-based
+                parameters the identifiability metrics compare against.
+        """
         os.makedirs(folder, exist_ok=True)
         state = {}
         for f in dc_fields(self):
@@ -143,12 +150,12 @@ class ODEParamsBase:
                 state[f.name] = val.cpu()
             else:
                 state[f.name] = val
-        torch.save(state, os.path.join(folder, "ode_params.pt"))
+        torch.save(state, os.path.join(folder, filename))
 
     @classmethod
-    def load(cls, folder: str, device: torch.device | str = "cpu"):
-        """Load from ode_params.pt, or fall back to legacy individual .pt files."""
-        unified_path = os.path.join(folder, "ode_params.pt")
+    def load(cls, folder: str, device: torch.device | str = "cpu", filename: str = "ode_params.pt"):
+        """Load from `filename`, or fall back to legacy individual .pt files."""
+        unified_path = os.path.join(folder, filename)
         if os.path.exists(unified_path):
             state = torch.load(unified_path, map_location=device, weights_only=True)
             return cls(**state)
@@ -430,6 +437,155 @@ class FlyVisODEParams(ODEParamsBase):
 
     def neuron_type_rmse_panels(self):
         return ["weights", "tau", "vrest"]
+
+
+# ---------------------------------------------------------------------------
+# FlyVis conductance-based twin params
+# ---------------------------------------------------------------------------
+
+
+@register_ode_params("flyvis_conductance", "flyvis_conductance_factorized")
+@dataclass
+class FlyVisConductanceODEParams(FlyVisODEParams):
+    """Parameters for the conductance-based FlyVis twin.
+
+    A superset of FlyVisODEParams. The twin's synaptic current is
+
+        G_ij * relu(v_j) * (E_ij - v_i)
+
+    which has no single signed weight, so the fields carry both readings:
+
+        G:     (E,) peak conductances, >= 0 — the twin's actual parameter
+        E_rev: (E,) reversal potentials; a synapse's sign lives here, not in G
+        W:     (E,) the small-signal weight G (E - v_rest_i), i.e. what a
+               presynaptic-only message function can recover at best. Inherited
+               from FlyVisODEParams so every existing consumer of
+               ``ode_params.W`` keeps working unchanged.
+
+    Node params (tau_i, V_i_rest) and edge_index are as in FlyVisODEParams.
+
+    Stimulus:
+        input_index: (n_input_cell_types, n_hexals) node indices the visual
+            stimulus is written to, so the simulator can be driven with no
+            flyvis installed.
+
+    Built by
+    :func:`connectome_gnn.generators.flyvis_conductance_fit.derive_conductance_twin`
+    from the *current-based* pretrained flyvis model; nothing here depends on
+    flyvis once it exists.
+    """
+
+    G: torch.Tensor = None  # (E,) peak conductances >= 0
+    E_rev: torch.Tensor = None  # (E,) reversal potentials
+    input_index: torch.Tensor = None  # (n_input_cell_types, n_hexals)
+    reversal_exc: float = None
+    reversal_inh: float = None
+
+    @classmethod
+    def from_flyvis_network(
+        cls,
+        net,
+        reversal_exc: float = None,
+        reversal_inh: float = None,
+        mean_voltage: torch.Tensor = None,
+        device: torch.device | str = "cpu",
+    ):
+        """Closed-form conductance twin of a *current-based* flyvis network.
+
+        The current-based model delivers ``sign * alpha * N * relu(v_j)``; the
+        conductance model delivers ``G * relu(v_j) * (E - v_i)``. Equating them
+        at the postsynaptic mean voltage gives
+
+            G = alpha * N / |E - mean_voltage_i|
+
+        exact to first order in ``v_i - mean_voltage_i``, and exact everywhere as
+        the reversal potentials move away from the operating range. This is the
+        starting point of the fit, not its result — see
+        :func:`connectome_gnn.generators.flyvis_conductance_fit.derive_conductance_twin`.
+
+        Args:
+            net: trained flyvis Network with the stock current-based dynamics.
+            reversal_exc: excitatory reversal potential; must lie above every
+                voltage the network visits.
+            reversal_inh: inhibitory reversal potential; must lie below it.
+            mean_voltage: (N,) mean voltage per neuron under the stimulus
+                ensemble of interest. Defaults to the resting potentials.
+            device: device to place the tensors on.
+
+        Raises:
+            ValueError: if the reversal potentials are not given, or do not
+                bracket each other.
+        """
+        if reversal_exc is None or reversal_inh is None:
+            raise ValueError(
+                "a conductance twin needs both reversal potentials; derive_conductance_twin "
+                "picks them from the voltage range the pretrained model visits"
+            )
+        if reversal_exc <= reversal_inh:
+            raise ValueError(f"reversal_exc ({reversal_exc}) must exceed reversal_inh ({reversal_inh})")
+
+        params = net._param_api()
+        sign = params.edges.sign
+        E_rev = torch.where(
+            sign > 0,
+            torch.full_like(sign, float(reversal_exc)),
+            torch.full_like(sign, float(reversal_inh)),
+        ).detach()
+
+        v_rest = params.nodes.bias.detach().float()
+        if mean_voltage is None:
+            mean_voltage = v_rest
+        mean_voltage = mean_voltage.to(v_rest.device)
+
+        target_index = torch.tensor(net.connectome.edges.target_index[:])
+        driving_force = (E_rev - mean_voltage[target_index.to(E_rev.device)]).abs().clamp(min=1e-3)
+        weight = (params.edges.syn_count * params.edges.syn_strength).detach().float()
+        conductance = (weight / driving_force).clamp(min=1e-12)
+
+        edge_index = torch.stack([
+            torch.tensor(net.connectome.edges.source_index[:]),
+            target_index,
+        ], dim=0)
+        return cls(
+            tau_i=params.nodes.time_const.detach().float().to(device),
+            V_i_rest=v_rest.to(device),
+            edge_index=edge_index.to(device),
+            W=(conductance * (E_rev - v_rest[target_index.to(E_rev.device)])).to(device),
+            G=conductance.to(device),
+            E_rev=E_rev.float().to(device),
+            input_index=torch.as_tensor(np.asarray(net.stimulus.input_index), dtype=torch.long).to(device),
+            reversal_exc=float(reversal_exc),
+            reversal_inh=float(reversal_inh),
+        )
+
+    def refresh_effective_weights(self):
+        """Recompute W from G and E after the conductances change.
+
+        W is a derived quantity — the small-signal weight at the postsynaptic
+        resting potential — so it has to be recomputed whenever G, E or V_rest
+        move, which they do during the fit.
+        """
+        if self.G is None or self.E_rev is None:
+            return self
+        self.W = self.G * (self.E_rev - self.V_i_rest[self.edge_index[1]])
+        return self
+
+    # --- Analysis interface ---
+    def g_phi_label(self):
+        return r"$\mathrm{ReLU}(v_j)\,(E_j - v_i)$"
+
+    def f_theta_label(self):
+        return r"$(-v_i + V^{rest}_i)\,(1 + G_i) / \tau_i$"
+
+    def gt_g_phi_params(self, n_neurons: int) -> dict | None:
+        """The conductance factor is per edge, not per presynaptic neuron.
+
+        g_phi here is not separable into a per-neuron gain, so there is no
+        per-neuron ground truth to compare a fitted g_phi slope against. The
+        per-edge readings are scored by
+        :func:`connectome_gnn.metrics.compute_conductance_r2` instead.
+        """
+        return None
 
 
 # ---------------------------------------------------------------------------
