@@ -77,6 +77,7 @@ from connectome_gnn.models.training_utils import (
     init_training_params,
     init_training_regularizer,
     init_training_runtime,
+    get_training_frame_sampling,
     load_flyvis_data,
 )
 
@@ -265,10 +266,60 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         logger.info("torch.compile disabled via config (torch_compile: false)")
 
     # =====================================================================
+    # ROLLOUT-HORIZON CURRICULUM
+    # =====================================================================
+    # Epoch e unrolls horizon_schedule[e] steps with dense per-step supervision
+    # (recurrent_step._dense_rollout_loss). Built once, padded with its last value
+    # to n_epochs — same pattern as the task trainer's n_steps_schedule
+    # (_data_train_task_pi). Empty schedule => legacy recurrent behaviour untouched.
+
+    _raw_horizon = list(getattr(training, "rollout_horizon_schedule", []) or [])
+
+    if _raw_horizon:
+        if not training.recurrent_training:
+            raise ValueError(
+                "rollout_horizon_schedule requires recurrent_training: true"
+            )
+        if training.time_step != 1:
+            # time_step > 1 decimates the dataset at load (init_training_data), so the
+            # intermediate frames this scheme supervises against would not exist.
+            raise ValueError(
+                f"rollout_horizon_schedule requires time_step: 1 (got {training.time_step}) — "
+                "time_step > 1 subsamples the dataset, removing the intermediate frames "
+                "that dense supervision needs."
+            )
+        if training.multi_start_recurrent:
+            raise ValueError(
+                "rollout_horizon_schedule is incompatible with multi_start_recurrent "
+                "(which assumes batch_size == time_step)"
+            )
+        if len(_raw_horizon) < training.n_epochs:
+            _raw_horizon = _raw_horizon + [_raw_horizon[-1]] * (training.n_epochs - len(_raw_horizon))
+        horizon_schedule = [max(1, int(s)) for s in _raw_horizon[: training.n_epochs]]
+        horizon_max = max(horizon_schedule)
+        # Bound the sampled start frame by the LARGEST horizon so the sampled-k
+        # distribution is identical in every epoch — the curriculum is then the only
+        # varying factor, and k + horizon never indexes past the end of x_ts.
+        frame_sampling = get_training_frame_sampling(sim, training, target_offset=horizon_max)
+        logger.info(f"rollout horizon schedule (epochs 0..{training.n_epochs - 1}): {horizon_schedule}")
+    else:
+        horizon_schedule = None
+        horizon_max = None
+
+    # =====================================================================
     # EPOCH LOOP
     # =====================================================================
 
     for epoch in range(start_epoch, training.n_epochs):
+        # -----------------------------------------------------------------
+        # Rollout horizon for this epoch
+        # -----------------------------------------------------------------
+
+        rollout_horizon = horizon_schedule[epoch] if horizon_schedule is not None else None
+
+        if rollout_horizon is not None:
+            logger.info(f"epoch {epoch}: rollout horizon = {rollout_horizon} step(s)")
+
         # -----------------------------------------------------------------
         # Number of iterations
         # -----------------------------------------------------------------
@@ -467,6 +518,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     regularizer=regularizer,
                     has_visual_field=(train.has_visual_field),
                     hn=hn,
+                    n_steps=rollout_horizon,
                 )
 
                 loss.backward()
@@ -486,9 +538,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                 lr_scheduler.step()
 
-                _total_loss_gpu = _total_loss_gpu + loss.detach()
+                epoch_state.total_loss_gpu = epoch_state.total_loss_gpu + loss.detach()
 
-                total_loss_regul += regul_val
+                epoch_state.total_regul_gpu = epoch_state.total_regul_gpu + regul_val
 
                 regularizer.finalize_iteration()
 
@@ -836,7 +888,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # ---------------------------------------------------------
 
                 if training.recurrent_training or training.neural_ODE_training:
-                    target_frame = k + 1 if (_stride_subsample) else (k + training.time_step)
+                    # Same predicate as get_training_frame_sampling's stride_subsample
+                    # (training_utils.py) — when the dataset was decimated by time_step at
+                    # load, one stored frame already IS time_step raw steps, so the target
+                    # is k+1; otherwise it is k+time_step.
+                    target_frame = (
+                        k + 1
+                        if (training.recurrent_training and training.time_step > 1)
+                        else (k + training.time_step)
+                    )
 
                     y = x_ts.voltage[target_frame].unsqueeze(-1)
 

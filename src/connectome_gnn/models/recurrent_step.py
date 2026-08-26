@@ -33,8 +33,25 @@ measurement) without sacrificing connectivity R².
    Config: ``consecutive_batch: true, batch_size: N``
    (no recurrent_training needed)
 
-Modes 1 and 2 are implemented in this module. Mode 3 is a sampling
+4. **Dense-supervision horizon curriculum** (``rollout_horizon_schedule``):
+   Epoch e unrolls ``rollout_horizon_schedule[e]`` steps from frame k and
+   scores EVERY intermediate state against the observed voltage, with the
+   real stimulus advanced at each step. Requires ``time_step: 1`` so the
+   dataset is not decimated and every intermediate frame exists. This is
+   the scheme both trainers that work in this repo use — the task trainer
+   ``_data_train_task_pi`` (per-frame loss over a horizon grown by
+   ``n_steps_schedule``) and the oculomotor prototype ``train_eyeG.py``
+   (per-frame loss over a horizon grown by its ``sched`` list).
+   Config: ``recurrent_training: true, time_step: 1,
+   rollout_horizon_schedule: [1, 2, 3, ...]``
+
+Modes 1, 2 and 4 are implemented in this module. Mode 3 is a sampling
 change in graph_trainer.py (no dedicated function needed).
+
+Note on 1 vs 4: mode 1 was built for the stride-5 regime, where the
+observable is given only every ``time_step`` steps, so it can only score
+the endpoint. Mode 4 is for the dense regime — observable at every step,
+longer and longer trajectories.
 """
 
 import torch
@@ -57,11 +74,16 @@ def recurrent_loss(
     regularizer,
     has_visual_field=False,
     hn=None,
+    n_steps=None,
 ):
     """Compute one training iteration of recurrent (possibly multi-start) loss.
 
     hn: HiddenNeuronHandler (see training_utils.py), or None if the model
     has no hidden neurons.
+
+    n_steps: when given (the per-epoch rollout-horizon curriculum, mode 4 below),
+    unroll this many steps with DENSE supervision on an unstrided dataset instead
+    of the legacy endpoint-only stride-subsampled scheme. None = legacy behaviour.
 
     Returns:
         loss: scalar tensor (already includes regularisation)
@@ -73,7 +95,13 @@ def recurrent_loss(
     n_neurons = sim.n_neurons
     multi_start = tc.multi_start_recurrent
 
-    if multi_start:
+    if n_steps is not None:
+        return _dense_rollout_loss(
+            model, x_ts, edges, ids, frame_indices, iter_idx,
+            int(n_steps), sim, tc, device, xnorm, regularizer, has_visual_field,
+            hn=hn,
+        )
+    elif multi_start:
         return _multi_start_loss(
             model, x_ts, edges, ids, frame_indices, iter_idx,
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
@@ -85,6 +113,145 @@ def recurrent_loss(
             time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
             hn=hn,
         )
+
+
+# ------------------------------------------------------------------ #
+#  4. Dense-supervision rollout with a per-epoch horizon curriculum   #
+# ------------------------------------------------------------------ #
+
+def _dense_rollout_loss(
+    model, x_ts, edges, ids, frame_indices, iter_idx,
+    n_steps, sim, tc, device, xnorm, regularizer, has_visual_field,
+    hn=None,
+):
+    """Unroll n_steps from frame k, supervising EVERY step against the observed
+    voltage — the scheme both successful trainers in this repo use.
+
+    Three deliberate departures from _standard_recurrent_loss, each chosen to
+    match _data_train_task_pi (graph_trainer.py) and prototype train_eyeG.py:
+
+    1. DENSE supervision. The legacy path scores one state per rollout
+       (recurrent_step.py:201), leaving the intermediate trajectory completely
+       unconstrained — the model can take a wrong path that happens to land near
+       the endpoint. Here every intermediate state is scored against
+       x_ts.voltage[k+s], giving n_steps times more constraints per unit compute.
+       Requires observations at every step, i.e. an UNSTRIDED dataset
+       (time_step == 1, so init_training_data's stride is 1).
+
+    2. LIVE stimulus. The legacy path freezes the stimulus for the whole unroll
+       ("intermediate frames not available" — they were decimated away by the
+       stride). At stride 1 they exist, so the exogenous drive is advanced every step,
+       removing a systematically-signed residual no parameter setting could absorb.
+
+    3. MEAN-SQUARE reduction, averaged over steps. The legacy `.norm(2)` has
+       d||r||/dr of unit norm however small the residual gets, so the fit-term
+       gradient never decays and the run cannot settle. Averaging over steps (not
+       summing) removes the MECHANICAL n_steps scaling of the fit term, so the
+       fit/regulariser balance does not drift by ~n_steps as the curriculum grows
+       and the regularisers do not silently anneal away. The residual itself still
+       grows with the horizon as integration error compounds — that part is the
+       signal the curriculum is meant to expose, not an artefact.
+    """
+    batch_size = tc.batch_size
+    n_neurons = sim.n_neurons
+
+    state_batch = []
+    ids_list = []
+    k_list = []
+    ids_index = 0
+
+    for b in range(batch_size):
+        k = int(frame_indices[iter_idx * batch_size + b])
+
+        # Need observations at k+1 .. k+n_steps.
+        if k + n_steps >= x_ts.n_frames:
+            continue
+
+        x = x_ts.frame(k)
+        if x.noise is not None and sim.measurement_noise_level > 0:
+            x.voltage = x.voltage + x.noise
+        if hn is not None:
+            hn.inject_hidden(model, x, k, True)
+
+        if has_visual_field:
+            visual_input = model.forward_visual(x, k)
+            x.stimulus[:model.n_input_neurons] = visual_input.squeeze(-1)
+            x.stimulus[model.n_input_neurons:] = 0
+
+        if torch.isnan(x.voltage).any():
+            continue
+
+        state_batch.append(x)
+        ids_list.append(ids + ids_index)
+        k_list.append(k)
+        ids_index += x.n_neurons
+
+    if not state_batch:
+        return torch.zeros(1, device=device, requires_grad=True), 0.0
+
+    ids_batch = torch.cat(ids_list, dim=0)
+    data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
+
+    # Regularisation (computed once on the initial state, as in the legacy path)
+    regularizer.reset_iteration(device=device)
+    regul_loss = regularizer.compute(
+        model=model, x=state_batch[0], in_features=None,
+        ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
+    )
+    loss = regul_loss.clone()
+    regul_value = regul_loss.item()
+
+    neurons_per_sample = state_batch[0].n_neurons
+    fit_loss = torch.zeros((), device=device)
+    n_scored = 0
+
+    batched_state, batched_edges = _batch_frames(state_batch, edges)
+    pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+
+    update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
+    loss = loss + update_regul
+
+    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+    for step in range(n_steps):
+        # --- score this step against the observed voltage at k+step+1 ---
+        gt_parts = [
+            x_ts.voltage[k_list[b_idx] + step + 1].unsqueeze(-1)
+            for b_idx in range(len(state_batch))
+        ]
+        y_step = torch.cat(gt_parts, dim=0)
+        if not torch.isnan(y_step).any():
+            fit_loss = fit_loss + ((pred_x[ids_batch] - y_step[ids_batch]) / sim.delta_t).pow(2).mean()
+            n_scored += 1
+
+        if step == n_steps - 1:
+            break
+
+        # --- advance the state, with the LIVE stimulus for the next frame ---
+        for b_idx in range(len(state_batch)):
+            s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
+            state_batch[b_idx].voltage = pred_x[s:e].squeeze()
+            k_current = k_list[b_idx] + step + 1
+            if hn is not None:
+                hn.inject_hidden(model, state_batch[b_idx], k_current, True)
+            if has_visual_field:
+                vi = model.forward_visual(state_batch[b_idx], k_current)
+                state_batch[b_idx].stimulus[:model.n_input_neurons] = vi.squeeze(-1)
+                state_batch[b_idx].stimulus[model.n_input_neurons:] = 0
+            else:
+                # stride == 1, so the intermediate stimulus frame exists
+                state_batch[b_idx].stimulus = x_ts.stimulus[k_current]
+
+        batched_state, batched_edges = _batch_frames(state_batch, edges)
+        pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+        pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+    if n_scored == 0:
+        return torch.zeros(1, device=device, requires_grad=True), regul_value
+
+    # Average over scored steps -> objective scale is horizon-independent.
+    loss = loss + fit_loss / n_scored
+    return loss, regul_value
 
 
 # ------------------------------------------------------------------ #

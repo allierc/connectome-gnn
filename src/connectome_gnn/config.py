@@ -1310,6 +1310,17 @@ class TrainingConfig(BaseModel):
     lr_scheduler_warmup_iters: int = 100  # linear warmup iterations
 
     time_step: int = 1
+    # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
+    # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
+    # observed voltage (dense supervision), on an UNSTRIDED dataset. Empty (default) keeps
+    # the legacy endpoint-only, stride-subsampled `time_step` behaviour untouched.
+    #
+    # This is deliberately a separate knob from `time_step`, which is triple-duty: BPTT
+    # depth, dataset decimation stride (training_utils.py init_training_data), and the
+    # frame-sampling target offset. Ramping `time_step` would coarsen the observation grid
+    # rather than lengthen the horizon; this knob lengthens the horizon at fixed dt.
+    # Requires time_step == 1 (enforced in data_train_gnn) so intermediate frames exist.
+    rollout_horizon_schedule: List[int] = Field(default_factory=list)
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
     coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training (NB: the self-consistency variant in graph_trainer was removed because it was a zero-attractor; only the GT-supervised variant in recurrent_step.py still reads this knob)
