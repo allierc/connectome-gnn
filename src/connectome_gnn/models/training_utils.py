@@ -13,7 +13,8 @@ import torch
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LambdaLR
 
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.utils import _quick_ngp_pearson, set_trainable_parameters
+from connectome_gnn.models.neural_ode_wrapper import neural_ode_loss
+from connectome_gnn.models.utils import _batch_frames, _quick_ngp_pearson, set_trainable_parameters
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, sort_key
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 from dataclasses import dataclass, field
@@ -2043,3 +2044,374 @@ class HiddenNeuronHandler:
 
         return hidden_r2, hidden_std, anchor_r2, anchor_std
 
+
+
+# ---------------------------------------------------------------------------
+# Per-iteration training steps
+# ---------------------------------------------------------------------------
+# data_train_gnn's inner loop has two mutually exclusive bodies. They used to be
+# an `if recurrent: ... continue` branch followed by the standard path, which
+# meant the ~250-line metrics/plotting tail was duplicated and the two copies
+# drifted (the recurrent clone never gained within-epoch checkpoints or the
+# g_phi discard panel). Both bodies now return (loss, regul_val) and the caller
+# runs ONE shared backward/step/metrics tail.
+
+
+def run_nominal_train_step(
+    model,
+    x_ts,
+    y_ts_gpu,
+    edges,
+    ids,
+    hn,
+    regularizer,
+    epoch_state,
+    training,
+    sim,
+    model_config,
+    train,
+    device,
+    N,
+    n_neurons,
+    xnorm,
+    ynorm,
+    injection_active,
+):
+    """One iteration of standard (non-recurrent) training: build the frame batch,
+    forward, accumulate the prediction loss and every loss term that goes with it.
+
+    Returns the loss, still attached to the graph — the caller owns backward/step.
+    The regularisation component is NOT returned: the shared tail reads it from
+    the regularizer only when it actually records, so returning it here would add
+    a .item() GPU sync on every iteration.
+    """
+    state_batch = []
+    y_list = []
+    ids_list = []
+    k_list = []
+    visual_input_list = []
+
+    ids_index = 0
+
+    loss = torch.zeros((), device=device)
+
+    regularizer.reset_iteration(device=device)
+
+    # -------------------------------------------------------------
+    # Consecutive batch
+    # -------------------------------------------------------------
+
+    if training.consecutive_batch:
+        k_start = int(epoch_state.frame_indices[N * training.batch_size])
+
+    for batch in range(training.batch_size):
+        if training.consecutive_batch:
+            k = k_start + batch
+
+        else:
+            k = int(epoch_state.frame_indices[N * training.batch_size + batch])
+
+        x = x_ts.frame(k)
+
+        # ---------------------------------------------------------
+        # Measurement noise
+        # ---------------------------------------------------------
+
+        if x.noise is not None and sim.measurement_noise_level > 0:
+            x.voltage = x.voltage + x.noise
+
+        # ---------------------------------------------------------
+        # Hidden neurons
+        # ---------------------------------------------------------
+
+        hn.inject_hidden(model, x, k, injection_active)
+
+        # ---------------------------------------------------------
+        # Temporal window
+        # ---------------------------------------------------------
+
+        if training.time_window > 0:
+            x_temporal = x_ts.voltage[k - training.time_window + 1 : k + 1].T
+
+            # x stays as NeuronState;
+            # x_temporal is passed separately if needed.
+
+        # ---------------------------------------------------------
+        # Visual field
+        # ---------------------------------------------------------
+
+        if train.has_visual_field:
+            visual_input = model.forward_visual(x, k)
+
+            x.stimulus[: model.n_input_neurons] = visual_input.squeeze(-1)
+
+            x.stimulus[model.n_input_neurons :] = 0
+
+        # ---------------------------------------------------------
+        # Regularization
+        # ---------------------------------------------------------
+
+        if batch == 0:
+            regul_loss = regularizer.compute(
+                model=model,
+                x=x,
+                in_features=None,
+                ids=ids,
+                ids_batch=None,
+                edges=edges,
+                device=device,
+                xnorm=xnorm,
+            )
+
+            loss = loss + regul_loss
+
+        # ---------------------------------------------------------
+        # Target
+        # ---------------------------------------------------------
+
+        if training.recurrent_training or training.neural_ODE_training:
+            # Same predicate as get_training_frame_sampling's stride_subsample
+            # (training_utils.py) — when the dataset was decimated by time_step at
+            # load, one stored frame already IS time_step raw steps, so the target
+            # is k+1; otherwise it is k+time_step.
+            target_frame = (
+                k + 1
+                if (training.recurrent_training and training.time_step > 1)
+                else (k + training.time_step)
+            )
+
+            y = x_ts.voltage[target_frame].unsqueeze(-1)
+
+        elif train.test_neural_field:
+            y = x_ts.stimulus[k, : sim.n_input_neurons].unsqueeze(-1)
+
+        else:
+            y = y_ts_gpu[k] / ynorm
+
+        if epoch_state.loss_noise_level > 0:
+            y = y + torch.randn(y.shape, device=device) * epoch_state.loss_noise_level
+
+        # ---------------------------------------------------------
+        # Accumulate batch
+        # ---------------------------------------------------------
+
+        state_batch.append(x)
+
+        n = x.n_neurons
+
+        y_list.append(y)
+
+        ids_list.append(hn.visible_ids + ids_index)
+
+        k_list.append(torch.ones((n, 1), dtype=torch.int, device=device) * k)
+
+        if train.test_neural_field:
+            visual_input_list.append(visual_input)
+
+        ids_index += n
+
+    # -----------------------------------------------------------------
+    # Batch assembly
+    # -----------------------------------------------------------------
+
+    data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
+
+    y_batch = torch.cat(y_list, dim=0)
+
+    ids_batch = torch.cat(ids_list, dim=0)
+
+    k_batch = torch.cat(k_list, dim=0)
+
+    # -----------------------------------------------------------------
+    # Visual-field testing
+    # -----------------------------------------------------------------
+
+    if train.test_neural_field:
+        visual_input_batch = torch.cat(visual_input_list, dim=0)
+
+        loss = loss + (visual_input_batch - y_batch).norm(2)
+
+    # -----------------------------------------------------------------
+    # MLP ODE
+    # -----------------------------------------------------------------
+
+    elif "mlp_ode" in model_config.signal_model_name.lower():
+        batched_state, _ = _batch_frames(state_batch, edges)
+
+        batched_x = batched_state.to_packed()
+
+        pred = model(batched_x, data_id=data_id, return_all=False)
+
+        loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+
+    # -----------------------------------------------------------------
+    # MLP
+    # -----------------------------------------------------------------
+
+    elif "mlp" in model_config.signal_model_name.lower():
+        batched_state, _ = _batch_frames(state_batch, edges)
+
+        pred = model(batched_state, data_id=data_id, return_all=False)
+
+        loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+
+    # -----------------------------------------------------------------
+    # GNN
+    # -----------------------------------------------------------------
+
+    else:
+        batched_state, batched_edges = _batch_frames(state_batch, edges)
+
+        (pred, in_features, msg) = model(batched_state, batched_edges, data_id=data_id, return_all=True)
+
+        update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
+
+        loss = loss + update_regul
+
+        # -------------------------------------------------------------
+        # Neural ODE
+        # -------------------------------------------------------------
+
+        if training.neural_ODE_training:
+            ode_state_clamp = getattr(training, "ode_state_clamp", 10.0)
+
+            ode_stab_lambda = getattr(training, "ode_stab_lambda", 0.0)
+
+            ode_loss, pred_x = neural_ode_loss(
+                model=model,
+                dataset_batch=state_batch,
+                edge_index=edges,
+                x_ts=x_ts,
+                k_batch=k_batch,
+                time_step=training.time_step,
+                batch_size=training.batch_size,
+                n_neurons=n_neurons,
+                ids_batch=ids_batch,
+                delta_t=sim.delta_t,
+                device=device,
+                data_id=data_id,
+                has_visual_field=(train.has_visual_field),
+                y_batch=y_batch,
+                noise_level=(training.noise_recurrent_level),
+                ode_method=training.ode_method,
+                rtol=training.ode_rtol,
+                atol=training.ode_atol,
+                adjoint=training.ode_adjoint,
+                iteration=N,
+                state_clamp=(ode_state_clamp),
+                stab_lambda=(ode_stab_lambda),
+            )
+
+            loss = loss + ode_loss
+
+        # -------------------------------------------------------------
+        # Recurrent GNN
+        # -------------------------------------------------------------
+
+        elif training.recurrent_training:
+            pred_x = (
+                batched_state.voltage.unsqueeze(-1)
+                + sim.delta_t * pred
+                + training.noise_recurrent_level * torch.randn_like(pred)
+            )
+
+            if training.time_step > 1:
+                for step in range(training.time_step - 1):
+                    neurons_per_sample = state_batch[0].n_neurons
+
+                    for b in range(training.batch_size):
+                        start_idx = b * neurons_per_sample
+
+                        end_idx = (b + 1) * neurons_per_sample
+
+                        state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
+
+                        hn.zero_hidden(state_batch[b])
+
+                        k_current = k_batch[start_idx, 0].item() + step + 1
+
+                        if train.has_visual_field:
+                            visual_input_next = model.forward_visual(state_batch[b], k_current)
+
+                            state_batch[b].stimulus[: model.n_input_neurons] = visual_input_next.squeeze(-1)
+
+                            state_batch[b].stimulus[model.n_input_neurons :] = 0
+
+                        else:
+                            x_next = x_ts.frame(k_current)
+
+                            state_batch[b].stimulus = x_next.stimulus
+
+                            if x_next.optogenetics_stimulus is not None:
+                                state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
+
+                    (batched_state, batched_edges) = _batch_frames(state_batch, edges)
+
+                    (pred, in_features, msg) = model(
+                        batched_state, batched_edges, data_id=data_id, return_all=True
+                    )
+
+                    pred_x = (
+                        pred_x + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
+                    )
+
+            loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * training.time_step)).norm(
+                2
+            )
+
+        # -------------------------------------------------------------
+        # Standard one-step GNN loss
+        # -------------------------------------------------------------
+
+        else:
+            loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+
+            # Hidden self-consistency loss intentionally removed.
+            #
+            # NGP-hidden is supervised through:
+            #   1. anchor voltage loss
+            #   2. backpropagation through hidden-voltage injection
+            #
+            # This preserves the behavior of the current implementation.
+
+            if hn.has_anchor and getattr(training, "coeff_anchor_voltage", 0.0) > 0:
+                n_per = state_batch[0].n_neurons
+
+                k_starts = k_batch[::n_per, 0].to(torch.long)
+
+                anchor_residual = hn.anchor_residual(model, k_starts, x_ts)
+
+                loss = loss + training.coeff_anchor_voltage * anchor_residual.norm(2)
+
+    return loss
+
+
+def run_recurrent_train_step(
+    model,
+    x_ts,
+    y_ts,
+    edges,
+    ids,
+    hn,
+    regularizer,
+    epoch_state,
+    config,
+    training,
+    train,
+    device,
+    N,
+    xnorm,
+    ynorm,
+    rollout_horizon,
+):
+    """One iteration of recurrent training. Returns the loss, same contract as
+    run_nominal_train_step — the caller owns backward/step and the shared
+    metrics tail.
+
+    NOT YET IMPLEMENTED — filled in after the nominal path is verified to
+    reproduce its reference R2 exactly.
+    """
+    raise NotImplementedError(
+        "run_recurrent_train_step is not wired yet; use the nominal path "
+        "(recurrent_training: false) until this is implemented."
+    )
