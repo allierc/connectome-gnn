@@ -310,7 +310,7 @@ def init_epoch_state(
         unfreeze_at_iteration=unfreeze_at_iteration,
     )
 
-def get_training_frame_sampling(sim, training):
+def get_training_frame_sampling(sim, training, target_offset=None):
     """
     Determine the valid starting-frame range.
 
@@ -318,6 +318,11 @@ def get_training_frame_sampling(sim, training):
       - enough history exists for time_window
       - enough future data exists for time_step / recurrent training
       - the same bounds as the legacy np.random.randint logic are preserved.
+
+    target_offset: how many frames past k the loss needs. None (default) derives
+    it from time_step as before. The rollout-horizon curriculum passes the MAXIMUM
+    horizon explicitly, so the sampled-k distribution stays identical across
+    epochs and the curriculum is the only thing that varies.
     """
 
     first_frame = training.time_window
@@ -327,11 +332,12 @@ def get_training_frame_sampling(sim, training):
         and training.time_step > 1
     )
 
-    target_offset = (
-        1
-        if stride_subsample
-        else training.time_step
-    )
+    if target_offset is None:
+        target_offset = (
+            1
+            if stride_subsample
+            else training.time_step
+        )
 
     last_frame = (
         sim.n_frames
