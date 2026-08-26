@@ -940,8 +940,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
             k_batch = torch.cat(k_list, dim=0)
 
-            epoch_state.total_regul_gpu = epoch_state.total_regul_gpu + loss.detach()
-
             # -----------------------------------------------------------------
             # Visual-field testing
             # -----------------------------------------------------------------

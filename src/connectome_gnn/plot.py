@@ -2608,6 +2608,7 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
                             linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$ (smaller better)')
 
         ax_discard.set_yscale('log')
+        ax_discard.set_ylim(1e-3, 1e0)
         style.xlabel(ax_discard, 'iteration')
         style.ylabel(ax_discard, 'g_phi vi/ai diagnostics (log scale)')
         ax_discard.legend(fontsize=legend_fs, loc='lower right')
