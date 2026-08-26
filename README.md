@@ -10,10 +10,27 @@ The repository also includes an agentic workflow for hyper-parameter optimizatio
 
 ## Installation
 
+This repo runs on the shared [torch-env](https://github.com/vijk777/torch-env)
+conda env. The exact tag is pinned in `.torch-env-{linux,mac}`.
+
 ```bash
-conda env create -f envs/environment.linux.yaml
-conda activate flyvis-gnn
+# 1. Build the pinned torch-env (one time per machine, per tag):
+cd path/to/torch-env
+make $(cat path/to/connectome-gnn/.torch-env-$(uname -s | tr A-Z a-z | sed s/darwin/mac/))
+
+# 2. Activate it from inside this repo and install the package (no deps,
+#    since the shared env already provides them):
+cd path/to/connectome-gnn
+torch-repo              # shell helper from torch-env/shell/torch-env.sh
+pip install -e . --no-deps
+
+# 3. Install repo-specific extras that aren't in torch-env yet (e.g.,
+#    flyvis from source).
 ```
+
+`torch-repo` reads `.torch-env-<plat>` and activates `torch-<tag>`. See
+the [torch-env README](https://github.com/vijk777/torch-env#shell-shortcuts)
+for setup.
 
 The pretrained flyvis model (model 000, ~105 KB) is bundled in `assets/flyvis_model/` and used automatically.
 
