@@ -510,7 +510,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 loss = run_recurrent_train_step(
                     model=model,
                     x_ts=x_ts,
-                    y_ts=y_ts,
+                    y_ts=y_ts_gpu,
                     edges=edges,
                     ids=hn.visible_ids,
                     hn=hn,

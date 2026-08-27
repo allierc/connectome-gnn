@@ -171,6 +171,28 @@ def load_run_config(config_file_: str, explicit_output_root: bool, task: str):
     return config, yaml_file
 
 
+def fit_residual_loss(residual, reduction="norm2"):
+    """Reduce a prediction residual to a scalar loss.
+
+    Single definition shared by the nominal one-step path
+    (training_utils.run_nominal_train_step) and the dense rollout curriculum
+    (recurrent_step._dense_rollout_loss). They must agree: when they silently
+    differed, the rollout arm's fit term was orders of magnitude weaker than the
+    unchanged regularisers and R^2_W collapsed to ~0 while nominal reached 0.98.
+
+    "norm2": sqrt(sum r^2)  — historical; magnitude-1 gradient, scales as
+             sqrt(n_elements), so the fit/regulariser balance moves with
+             batch_size and with the number of visible neurons.
+    "mean":  mean(r^2)      — plain MSE, as the task trainer uses; scale-free,
+             gradient shrinks with the residual. Needs coeff_* rescaled.
+    """
+    if reduction == "norm2":
+        return residual.norm(2)
+    if reduction == "mean":
+        return residual.pow(2).mean()
+    raise ValueError(f"unknown fit_reduction {reduction!r} (expected 'norm2' or 'mean')")
+
+
 def _batch_frames(frames, edge_index):
     """Batch multiple NeuronState frames into a single concatenated NeuronState + batched edge_index.
 
