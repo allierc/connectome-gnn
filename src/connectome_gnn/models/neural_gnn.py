@@ -198,6 +198,7 @@ class NeuralGNN(nn.Module):
         self.n_edges = simulation_config.n_edges
         self.n_extra_null_edges = simulation_config.n_extra_null_edges
         self.g_phi_positive = model_config.g_phi_positive
+        self.n_g_phi_noise_inputs = getattr(model_config, "n_g_phi_noise_inputs", 0)
 
         self.batch_size = config.training.batch_size
         self.update_type = model_config.update_type
@@ -622,6 +623,17 @@ class NeuralGNN(nn.Module):
             in_features = torch.cat([v[dst], v[src], emb[dst], emb[src]], dim=1)
         else:
             in_features = torch.cat([v[src], emb[src]], dim=1)
+
+        # Positive control (n_g_phi_noise_inputs > 0): append pure-noise columns that
+        # carry no information about the target. Standard normal, drawn fresh every
+        # forward so nothing about them is learnable or memorisable. Any weight g_phi
+        # puts on these is by construction credit that should not have been assigned.
+        if self.n_g_phi_noise_inputs > 0:
+            noise = torch.randn(
+                in_features.shape[0], self.n_g_phi_noise_inputs,
+                device=in_features.device, dtype=in_features.dtype,
+            )
+            in_features = torch.cat([in_features, noise], dim=1)
 
         # edge function
         g_phi_out = self.g_phi(in_features)

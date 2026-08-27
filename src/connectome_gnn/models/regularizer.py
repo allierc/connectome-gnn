@@ -327,14 +327,22 @@ class LossRegularizer:
         if self._coeffs['g_phi_input_group_L1'] > 0 and hasattr(model, 'g_phi'):
             first_layer = model.g_phi.layers[0]
             emb_dim = mc.embedding_dim
-            if first_layer.weight.shape[1] == 2 + 2 * emb_dim:
-                W0 = first_layer.weight  # (hidden, 2 + 2*emb_dim) = [vi, vj, ai, aj]
+            base_width = 2 + 2 * emb_dim
+            # >= not ==: the noise-probe control (n_g_phi_noise_inputs) widens the
+            # input, and an exact-width check would silently turn the group lasso
+            # OFF for exactly the runs that need it most.
+            if first_layer.weight.shape[1] >= base_width:
+                W0 = first_layer.weight  # (hidden, 2 + 2*emb_dim [+ n_noise]) = [vi, vj, ai, aj, noise...]
                 group_norm = (
                     W0[:, 0:1].norm(2)
                     + W0[:, 1:2].norm(2)
                     + W0[:, 2:2 + emb_dim].norm(2)
-                    + W0[:, 2 + emb_dim:2 + 2 * emb_dim].norm(2)
+                    + W0[:, 2 + emb_dim:base_width].norm(2)
                 )
+                # each noise column is its own group, so the lasso can kill them
+                # individually exactly as it can kill vi or ai
+                for _c in range(base_width, W0.shape[1]):
+                    group_norm = group_norm + W0[:, _c:_c + 1].norm(2)
                 regul_term = group_norm * _ct['g_phi_input_group_L1']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_input_group', regul_term)

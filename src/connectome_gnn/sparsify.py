@@ -9,6 +9,7 @@ from sklearn.cluster import DBSCAN, KMeans
 from sklearn.metrics import accuracy_score, adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 from sklearn.preprocessing import StandardScaler
 
+from connectome_gnn.models.utils import pad_g_phi_input
 from connectome_gnn.utils import fig_init, to_numpy
 
 
@@ -755,7 +756,7 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
                     edge_in = torch.cat([rr_flat * 0, rr_flat, emb_flat, emb_flat], dim=1)
                 else:
                     edge_in = torch.cat([rr_flat, emb_flat], dim=1)
-                edge_out = model.g_phi(edge_in.float())
+                edge_out = model.g_phi(pad_g_phi_input(edge_in.float(), model))
                 if g_phi_positive:
                     edge_out = edge_out ** 2
                 func_list_edge[start:end] = edge_out[:, 0].reshape(n_batch, n_pts)
@@ -837,7 +838,7 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
                     edge_in = torch.cat([rr_flat * 0, rr_flat, emb_flat, emb_flat], dim=1)
                 else:
                     edge_in = torch.cat([rr_flat, emb_flat], dim=1)
-                edge_out = model.g_phi(edge_in.float())
+                edge_out = model.g_phi(pad_g_phi_input(edge_in.float(), model))
                 if g_phi_positive:
                     edge_out = edge_out ** 2
                 pred_edge = edge_out[:, 0].reshape(n_batch, n_pts)

@@ -171,6 +171,31 @@ def load_run_config(config_file_: str, explicit_output_root: bool, task: str):
     return config, yaml_file
 
 
+def pad_g_phi_input(in_features, model):
+    """Pad a g_phi input up to the width g_phi was actually built with.
+
+    The noise-probe control (n_g_phi_noise_inputs) widens g_phi's input, but the
+    analysis paths build their own features from [vi, vj, ai, aj] and would feed
+    the base width -- a shape error at best, and at worst a silent mismatch if
+    the widths ever coincided. Padding is with fresh standard-normal draws, the
+    same distribution the model sees in training, so the analysis is evaluated at
+    a representative point of the noise input rather than at zero.
+
+    Returns in_features unchanged when the widths already match.
+    """
+    # accept either the GNN (use its g_phi) or a bare MLP
+    layer0 = model.g_phi.layers[0] if hasattr(model, "g_phi") else model.layers[0]
+    want = layer0.weight.shape[1]
+    have = in_features.shape[1]
+    if have == want:
+        return in_features
+    if have > want:
+        raise ValueError(f"g_phi input has {have} columns but the MLP takes {want}")
+    pad = torch.randn(in_features.shape[0], want - have,
+                      device=in_features.device, dtype=in_features.dtype)
+    return torch.cat([in_features, pad], dim=1)
+
+
 def fit_residual_loss(residual, reduction="norm2"):
     """Reduce a prediction residual to a scalar loss.
 
@@ -440,6 +465,17 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
         # flyvis_A, flyvis_C, flyvis_D, and default
         in_features = torch.cat((voltage_all, model.a), dim=1)
         in_features_next = torch.cat((voltage_all + delta_v, model.a), dim=1)
+
+    # Noise-probe control: g_phi was BUILT with the widened input, so the
+    # monotonicity/norm priors must feed it the same width or the matmul fails.
+    # The SAME noise draw is used for both features so the finite difference
+    # isolates the voltage perturbation rather than differencing two noise draws.
+    n_noise = getattr(model_config, "n_g_phi_noise_inputs", 0)
+    if n_noise > 0:
+        noise = torch.randn(in_features.shape[0], n_noise,
+                            device=in_features.device, dtype=in_features.dtype)
+        in_features = torch.cat((in_features, noise), dim=1)
+        in_features_next = torch.cat((in_features_next, noise), dim=1)
 
     return in_features, in_features_next
 
