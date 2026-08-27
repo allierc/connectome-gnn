@@ -16,6 +16,7 @@ import torch
 from scipy.optimize import curve_fit
 
 from connectome_gnn.fitting_models import linear_model
+from connectome_gnn.models.utils import pad_g_phi_input
 from connectome_gnn.utils import graphs_data_path, to_numpy
 
 # ------------------------------------------------------------------ #
@@ -538,7 +539,8 @@ def _batched_mlp_eval(mlp, model_a, rr, build_features_fn,
             in_features = build_features_fn(rr_flat, emb_flat)   # (C*n_pts, D)
 
         with torch.no_grad():
-            out = mlp(in_features.float())                       # (C*n_pts, 1)
+            # no-op unless the noise-probe control widened this MLP's input
+            out = mlp(pad_g_phi_input(in_features.float(), mlp))  # (C*n_pts, 1)
             if post_fn is not None:
                 out = post_fn(out)
 
@@ -808,7 +810,7 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
         in_features = torch.cat([vj_flat, aj_flat], dim=1)
 
     with torch.no_grad():
-        out = model.g_phi(in_features.float())
+        out = model.g_phi(pad_g_phi_input(in_features.float(), model))
         if g_phi_positive:
             out = out ** 2
 
@@ -875,7 +877,7 @@ def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
         else:
             in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
 
-        out = model.g_phi(in_features.float())
+        out = model.g_phi(pad_g_phi_input(in_features.float(), model))
         if g_phi_positive:
             out = out ** 2
         grad = torch.autograd.grad(out.sum(), vj_k, retain_graph=False, create_graph=False)[0]
@@ -1020,13 +1022,18 @@ def g_phi_first_layer_cosine_to_keep(model, emb_dim):
     """
     first_layer = model.g_phi.layers[0]
     W0 = first_layer.weight.detach()
-    if W0.shape[1] != 2 + 2 * emb_dim:
+    base = 2 + 2 * emb_dim
+    if W0.shape[1] < base:
         return float('nan')
+    # noise-probe columns (n_g_phi_noise_inputs) sit past the base layout and belong
+    # on the DISCARD side of the target direction, i.e. [0, 1, 0, 1, 0, ..., 0].
+    n_noise_cols = W0.shape[1] - base
     n_vi = W0[:, 0:1].norm(2).item()
     n_vj = W0[:, 1:2].norm(2).item()
     n_ai = W0[:, 2:2 + emb_dim].norm(2).item()
-    n_aj = W0[:, 2 + emb_dim:2 + 2 * emb_dim].norm(2).item()
-    v_norm = (n_vi ** 2 + n_vj ** 2 + n_ai ** 2 + n_aj ** 2) ** 0.5
+    n_aj = W0[:, 2 + emb_dim:base].norm(2).item()
+    n_noise = W0[:, base:].norm(2).item() if n_noise_cols else 0.0
+    v_norm = (n_vi ** 2 + n_vj ** 2 + n_ai ** 2 + n_aj ** 2 + n_noise ** 2) ** 0.5
     if v_norm <= 0:
         return float('nan')
     return (n_vj + n_aj) / (v_norm * (2 ** 0.5))
@@ -1041,13 +1048,23 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     do; see dev_g_phi_regularization_comparison.py for the comparison that
     established this.
 
-    Returns (ratio_vi, ratio_ai) floats; (nan, nan) if g_phi's input layout
-    isn't flyvis_conductance's [vi, vj, ai, aj].
+    Returns (ratio_vi, ratio_ai, ratio_noise). ratio_noise is nan unless the
+    noise-probe control is on (n_g_phi_noise_inputs > 0); it is the headline
+    number for that experiment, since the noise columns are uninformative BY
+    CONSTRUCTION, so any non-zero value is credit that should not have been
+    assigned. Compare it against ratio_vi: noise -> 0 while vi stays up means vi
+    is retained for a reason (it is redundant with f_theta's own vi input), not
+    because credit assignment failed.
+
+    All nan if g_phi's input layout isn't flyvis_conductance's [vi, vj, ai, aj].
     """
     device = model.a.device
     emb_dim = model.a.shape[1]
-    if model.g_phi.layers[0].weight.shape[1] != 2 + 2 * emb_dim:
-        return float('nan'), float('nan')
+    base = 2 + 2 * emb_dim
+    width = model.g_phi.layers[0].weight.shape[1]
+    if width < base:
+        return float('nan'), float('nan'), float('nan')
+    n_noise = width - base
 
     src = edges[0].to(device)
     dst = edges[1].to(device)
@@ -1061,28 +1078,40 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     aj_fixed = model.a[src]
     g_phi_positive = config.graph_model.g_phi_positive
 
-    abs_grad_vi, abs_grad_vj, grad_ai_norm = [], [], []
+    abs_grad_vi, abs_grad_vj, grad_ai_norm, grad_noise_norm = [], [], [], []
     for k in frame_idx:
         vj_k = voltage[k, src].clone().detach().requires_grad_(True)
         vi_k = voltage[k, dst].clone().detach().requires_grad_(True)
         ai_k = ai_fixed.clone().detach().requires_grad_(True)
 
-        in_features = torch.cat([vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed], dim=1)
-        out = model.g_phi(in_features.float())
+        parts = [vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed]
+        wrt = [vi_k, vj_k, ai_k]
+        if n_noise:
+            # same distribution the model draws internally, so the gradient is
+            # measured at a representative point of the noise input
+            noise_k = torch.randn(src.shape[0], n_noise, device=device).requires_grad_(True)
+            parts.append(noise_k)
+            wrt.append(noise_k)
+
+        in_features = torch.cat(parts, dim=1)
+        out = model.g_phi(pad_g_phi_input(in_features.float(), model))
         if g_phi_positive:
             out = out ** 2
 
-        grad_vi, grad_vj, grad_ai = torch.autograd.grad(
-            out.sum(), [vi_k, vj_k, ai_k], retain_graph=False, create_graph=False)
+        grads = torch.autograd.grad(out.sum(), wrt, retain_graph=False, create_graph=False)
+        grad_vi, grad_vj, grad_ai = grads[0], grads[1], grads[2]
 
         abs_grad_vi.append(grad_vi.detach().abs().mean().item())
         abs_grad_vj.append(grad_vj.detach().abs().mean().item())
         grad_ai_norm.append(grad_ai.detach().norm(dim=1).mean().item())
+        if n_noise:
+            grad_noise_norm.append(grads[3].detach().norm(dim=1).mean().item())
 
     m_vi, m_vj, m_ai = float(np.mean(abs_grad_vi)), float(np.mean(abs_grad_vj)), float(np.mean(grad_ai_norm))
+    m_noise = float(np.mean(grad_noise_norm)) if grad_noise_norm else float('nan')
     if m_vj <= 0:
-        return float('nan'), float('nan')
-    return m_vi / m_vj, m_ai / m_vj
+        return float('nan'), float('nan'), float('nan')
+    return m_vi / m_vj, m_ai / m_vj, m_noise / m_vj
 
 
 def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):

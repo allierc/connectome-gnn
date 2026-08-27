@@ -569,6 +569,18 @@ class GraphModelConfig(BaseModel):
     hidden_dim_encoder: int = 1
     n_layers_encoder: int = 1
 
+    # Positive control for the "can g_phi discard useless inputs?" experiment.
+    # Appends this many PURE NOISE columns to g_phi's per-edge input. They carry no
+    # information about the target by construction, so a credit-assignment mechanism
+    # that works must drive them to zero. Distinguishes two failure modes that the
+    # regularisation sweep alone cannot separate:
+    #   discards noise AND v_i/a_i -> credit assignment works
+    #   discards noise, KEEPS v_i  -> v_i is kept for a reason (it is redundant with
+    #                                 f_theta's own v_i input, not uninformative)
+    #   keeps even the noise       -> the regulariser is not biting at all
+    # input_size must be widened accordingly (6 + n_g_phi_noise_inputs for
+    # flyvis_conductance). 0 = off, and nothing is appended.
+    n_g_phi_noise_inputs: int = 0
     g_phi_positive: bool = False
 
     update_type: UpdateType = UpdateType.NONE

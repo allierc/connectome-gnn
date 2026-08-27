@@ -2423,6 +2423,7 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
     # rather than a config/model-type check here.
     g_phi_discard_log_path = os.path.join(log_dir, 'tmp_training', 'g_phi_discard.log')
     discard_iters, discard_score_vals, discard_ratio_vi, discard_ratio_ai = [], [], [], []
+    discard_ratio_noise = []
     if os.path.exists(g_phi_discard_log_path):
         try:
             with open(g_phi_discard_log_path) as f:
@@ -2435,6 +2436,8 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
                     discard_score_vals.append(_f(parts, 1))
                     discard_ratio_vi.append(_f(parts, 2))
                     discard_ratio_ai.append(_f(parts, 3))
+                    # column 4 only exists when the noise-probe control is on
+                    discard_ratio_noise.append(_f(parts, 4))
         except Exception:
             discard_iters = []
 
@@ -2606,6 +2609,15 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
         if ai_valid.any():
             ax_discard.plot(x_d[ai_valid], r_ai[ai_valid], color='#8c564b',
                             linewidth=1.2, label=r'grad ratio $|dg_\phi/da_i|/|dg_\phi/dv_j|$ (smaller better)')
+        # Noise-probe control: uninformative BY CONSTRUCTION, so this is the
+        # reference line — whatever it settles at is the floor credit assignment
+        # leaves on an input that provably deserves none. Only present when
+        # n_g_phi_noise_inputs > 0.
+        r_no = np.asarray(discard_ratio_noise, dtype=float) if discard_ratio_noise else np.array([np.nan])
+        no_valid = ~np.isnan(r_no)
+        if no_valid.any() and len(r_no) == len(x_d):
+            ax_discard.plot(x_d[no_valid], r_no[no_valid], color='#17becf', linewidth=1.4,
+                            linestyle=':', label=r'grad ratio $|dg_\phi/d\,\mathrm{noise}|/|dg_\phi/dv_j|$ (control)')
 
         ax_discard.set_yscale('log')
         ax_discard.set_ylim(1e-3, 1e0)

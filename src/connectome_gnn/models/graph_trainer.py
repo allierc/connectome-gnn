@@ -784,7 +784,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_cosine_to_keep
 
                     cosine_sim = g_phi_first_layer_cosine_to_keep(model, model.a.shape[1])
-                    ratio_vi, ratio_ai = compute_g_phi_grad_ratios(model, config, edges, x_ts)
+                    ratio_vi, ratio_ai, ratio_noise = compute_g_phi_grad_ratios(model, config, edges, x_ts)
 
                     g_phi_discard_log_path = os.path.join(log_dir, "tmp_training", "g_phi_discard.log")
                     with open(g_phi_discard_log_path, "a") as f:
@@ -792,7 +792,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             f"{regularizer.iter_count},"
                             f"{format_metric(cosine_sim)},"
                             f"{format_metric(ratio_vi)},"
-                            f"{format_metric(ratio_ai)}\n"
+                            f"{format_metric(ratio_ai)},"
+                            f"{format_metric(ratio_noise)}\n"
                         )
 
                 metrics_changed = True
