@@ -222,8 +222,13 @@ def _dense_rollout_loss(
         # path does: target y_ts[k+step] / ynorm, reduced with .norm(2). At
         # step 0 the state is the observed v(k), so n_steps=1 is term-for-term
         # the nominal objective. ---
+        # No unsqueeze: y_ts rows already carry the trailing dim that `pred` has,
+        # exactly as the nominal path uses `y_ts_gpu[k] / ynorm` directly. Adding
+        # one made the residual broadcast to (N*B, N*B, 1) — an 11 GiB square
+        # matrix whose norm is not the loss at all, which both OOMed and drove
+        # R^2_W negative.
         gt_parts = [
-            (y_ts[k_list[b_idx] + step] / ynorm).unsqueeze(-1)
+            y_ts[k_list[b_idx] + step] / ynorm
             for b_idx in range(len(state_batch))
         ]
         y_step = torch.cat(gt_parts, dim=0)

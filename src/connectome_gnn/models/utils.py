@@ -186,6 +186,16 @@ def fit_residual_loss(residual, reduction="norm2"):
     "mean":  mean(r^2)      — plain MSE, as the task trainer uses; scale-free,
              gradient shrinks with the residual. Needs coeff_* rescaled.
     """
+    if residual.dim() > 2 or (residual.dim() == 2 and residual.shape[0] == residual.shape[1] and residual.shape[0] > 1):
+        # A residual should be (n_elements, 1) or (n_elements,). Anything square or
+        # 3-D means the prediction and target broadcast against each other instead
+        # of subtracting elementwise — silent, enormous, and the resulting "loss"
+        # is meaningless. This exact mistake (a stray unsqueeze on the target)
+        # produced a (N*B, N*B, 1) tensor and drove R^2_W negative.
+        raise ValueError(
+            f"fit residual has shape {tuple(residual.shape)}; prediction and target "
+            "broadcast instead of matching elementwise"
+        )
     if reduction == "norm2":
         return residual.norm(2)
     if reduction == "mean":
