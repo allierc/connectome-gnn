@@ -325,6 +325,24 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
         Niter = int(sim.n_frames * training.data_augmentation_loop // training.batch_size * 0.2)
 
+        # Keep COMPUTE per epoch roughly constant across the curriculum. One
+        # iteration at horizon K costs K forward/backward passes, so without this
+        # epoch 10 would take ~10x the wall-clock of epoch 1 for the same Niter.
+        # Dividing by K holds Niter * batch_size * K, the number of network
+        # evaluations per epoch, approximately fixed.
+        #
+        # The trade-off is deliberate and worth stating: long-horizon epochs get
+        # proportionally FEWER gradient steps, not more. The diagnostic cadences
+        # (plot_frequency, connectivity_plot_frequency) derive from Niter, so they
+        # rescale with it automatically.
+        if rollout_horizon is not None and rollout_horizon > 1:
+            _niter_full = Niter
+            Niter = max(1, Niter // rollout_horizon)
+            logger.info(
+                f"epoch {epoch}: Niter {_niter_full} -> {Niter} "
+                f"(/{rollout_horizon}, constant compute per epoch)"
+            )
+
         if training.max_iterations_per_epoch > 0:
             Niter = min(Niter, training.max_iterations_per_epoch)
 
