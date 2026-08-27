@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, LambdaLR
 
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.neural_ode_wrapper import neural_ode_loss
-from connectome_gnn.models.utils import _batch_frames, _quick_ngp_pearson, set_trainable_parameters
+from connectome_gnn.models.utils import _batch_frames, _quick_ngp_pearson, fit_residual_loss, set_trainable_parameters
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, sort_key
 from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 from dataclasses import dataclass, field
@@ -2364,7 +2364,10 @@ def run_nominal_train_step(
         # -------------------------------------------------------------
 
         else:
-            loss = loss + (pred[ids_batch] - y_batch[ids_batch]).norm(2)
+            loss = loss + fit_residual_loss(
+                pred[ids_batch] - y_batch[ids_batch],
+                getattr(training, "fit_reduction", "norm2"),
+            )
 
             # Hidden self-consistency loss intentionally removed.
             #
@@ -2411,6 +2414,10 @@ def run_recurrent_train_step(
     Thin by design: recurrent_loss (recurrent_step.py) owns the rollout and
     dispatches on mode — dense-supervision curriculum when rollout_horizon is
     given, else multi-start or the legacy endpoint-only scheme.
+
+    y_ts must be the DEVICE tensor (data.y_ts_gpu), not data.y_ts, which is a
+    numpy array — the dense curriculum indexes it per step exactly as the nominal
+    path indexes y_ts_gpu.
 
     Batching: modes 1 (standard) and 4 (dense curriculum) concatenate
     training.batch_size sampled start frames into ONE graph via _batch_frames,

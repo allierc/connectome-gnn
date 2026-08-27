@@ -1123,6 +1123,18 @@ class TrainingConfig(BaseModel):
     # "xnorm": anchor to 2*xnorm.
     g_phi_norm_target: str = "auto"
     coeff_func_g_phi: float = 0.0  # Penalize g_phi output at zero input
+    # Reduction of the prediction residual. "norm2" = sqrt(sum r^2), the historical
+    # behaviour; "mean" = mean(r^2), i.e. plain MSE as the task trainer uses.
+    #
+    # These are NOT interchangeable at fixed coeff_*. norm2 scales as
+    # sqrt(n_visible * batch_size) while every coeff_* is fixed, so the
+    # fit/regulariser balance depends on batch size and on how many neurons are
+    # hidden; and d||r||/dr has magnitude 1 however small the residual is, so the
+    # data term never yields to the penalties. mean removes both effects (it is
+    # the proper penalised-least-squares form) but is ~sqrt(n*B)/(2*sqrt(mse))
+    # times weaker, so switching REQUIRES rescaling every coeff_* or the
+    # regularisers dominate and R^2_W collapses.
+    fit_reduction: str = "norm2"
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights
     # Group lasso (L2,1) on g_phi's first-layer input columns, grouped as [vi],[vj],[ai],[aj].

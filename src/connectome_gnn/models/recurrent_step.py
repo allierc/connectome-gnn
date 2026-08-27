@@ -56,7 +56,7 @@ longer and longer trajectories.
 
 import torch
 
-from connectome_gnn.models.utils import _batch_frames
+from connectome_gnn.models.utils import _batch_frames, fit_residual_loss
 
 
 def recurrent_loss(
@@ -97,8 +97,8 @@ def recurrent_loss(
 
     if n_steps is not None:
         return _dense_rollout_loss(
-            model, x_ts, edges, ids, frame_indices, iter_idx,
-            int(n_steps), sim, tc, device, xnorm, regularizer, has_visual_field,
+            model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
+            int(n_steps), sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
             hn=hn,
         )
     elif multi_start:
@@ -120,12 +120,12 @@ def recurrent_loss(
 # ------------------------------------------------------------------ #
 
 def _dense_rollout_loss(
-    model, x_ts, edges, ids, frame_indices, iter_idx,
-    n_steps, sim, tc, device, xnorm, regularizer, has_visual_field,
+    model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
+    n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
     hn=None,
 ):
     """Unroll n_steps from frame k, supervising EVERY step against the observed
-    voltage — the scheme both successful trainers in this repo use.
+    dynamics — the scheme both successful trainers in this repo use.
 
     Three deliberate departures from _standard_recurrent_loss, each chosen to
     match _data_train_task_pi (graph_trainer.py) and prototype train_eyeG.py:
@@ -133,8 +133,8 @@ def _dense_rollout_loss(
     1. DENSE supervision. The legacy path scores one state per rollout
        (recurrent_step.py:201), leaving the intermediate trajectory completely
        unconstrained — the model can take a wrong path that happens to land near
-       the endpoint. Here every intermediate state is scored against
-       x_ts.voltage[k+s], giving n_steps times more constraints per unit compute.
+       the endpoint. Here every intermediate state is scored (see 3), giving
+       n_steps times more constraints per unit compute.
        Requires observations at every step, i.e. an UNSTRIDED dataset
        (time_step == 1, so init_training_data's stride is 1).
 
@@ -143,14 +143,20 @@ def _dense_rollout_loss(
        stride). At stride 1 they exist, so the exogenous drive is advanced every step,
        removing a systematically-signed residual no parameter setting could absorb.
 
-    3. MEAN-SQUARE reduction, averaged over steps. The legacy `.norm(2)` has
-       d||r||/dr of unit norm however small the residual gets, so the fit-term
-       gradient never decays and the run cannot settle. Averaging over steps (not
-       summing) removes the MECHANICAL n_steps scaling of the fit term, so the
-       fit/regulariser balance does not drift by ~n_steps as the curriculum grows
-       and the regularisers do not silently anneal away. The residual itself still
-       grows with the horizon as integration error compounds — that part is the
-       signal the curriculum is meant to expose, not an artefact.
+    3. IDENTICAL TO THE NOMINAL OBJECTIVE AT n_steps=1. Each step scores the
+       model's DERIVATIVE against the precomputed derivative target
+       `y_ts[k+s] / ynorm`, reduced with `.norm(2)` — exactly the nominal path's
+       term (run_nominal_train_step). Averaged over steps, so n_steps=1 reduces
+       to nominal *term for term* and the curriculum is a strict extension.
+
+       This matters more than it looks. An earlier version scored the integrated
+       voltage against `x_ts.voltage[k+s]` with `.pow(2).mean()` and no ynorm.
+       `.norm(2)` is sqrt(sum r^2) over ~55k elements while `.mean()` is mean(r^2),
+       a 3-5 ORDER OF MAGNITUDE difference at the same residual — and since the
+       regularisers are unchanged parameter norms, the fit/regulariser balance
+       flipped (prediction fell from ~80% of the loss to ~12%). The W penalties
+       then dominated and drove R^2_W to ~0 while nominal reached ~0.98. Any
+       change to this reduction must keep n_steps=1 equal to nominal.
     """
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
@@ -211,21 +217,32 @@ def _dense_rollout_loss(
     update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
     loss = loss + update_regul
 
-    pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
-
     for step in range(n_steps):
-        # --- score this step against the observed voltage at k+step+1 ---
+        # --- score the DERIVATIVE at the current state, exactly as the nominal
+        # path does: target y_ts[k+step] / ynorm, reduced with .norm(2). At
+        # step 0 the state is the observed v(k), so n_steps=1 is term-for-term
+        # the nominal objective. ---
         gt_parts = [
-            x_ts.voltage[k_list[b_idx] + step + 1].unsqueeze(-1)
+            (y_ts[k_list[b_idx] + step] / ynorm).unsqueeze(-1)
             for b_idx in range(len(state_batch))
         ]
         y_step = torch.cat(gt_parts, dim=0)
         if not torch.isnan(y_step).any():
-            fit_loss = fit_loss + ((pred_x[ids_batch] - y_step[ids_batch]) / sim.delta_t).pow(2).mean()
+            fit_loss = fit_loss + fit_residual_loss(
+                pred[ids_batch] - y_step[ids_batch],
+                getattr(tc, "fit_reduction", "norm2"),
+            )
             n_scored += 1
 
         if step == n_steps - 1:
             break
+
+        # --- integrate one step to get the next state ---
+        if step == 0:
+            pred_x = (batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred
+                      + tc.noise_recurrent_level * torch.randn_like(pred))
+        else:
+            pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
         # --- advance the state, with the LIVE stimulus for the next frame ---
         for b_idx in range(len(state_batch)):
@@ -244,7 +261,7 @@ def _dense_rollout_loss(
 
         batched_state, batched_edges = _batch_frames(state_batch, edges)
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-        pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
 
     if n_scored == 0:
         return torch.zeros(1, device=device, requires_grad=True), regul_value
