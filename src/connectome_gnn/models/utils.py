@@ -196,7 +196,7 @@ def pad_g_phi_input(in_features, model):
     return torch.cat([in_features, pad], dim=1)
 
 
-def fit_residual_loss(residual, reduction="norm2"):
+def fit_residual_loss(residual, reduction="norm2", target=None, huber_delta=1.0):
     """Reduce a prediction residual to a scalar loss.
 
     Single definition shared by the nominal one-step path
@@ -210,6 +210,17 @@ def fit_residual_loss(residual, reduction="norm2"):
              batch_size and with the number of visible neurons.
     "mean":  mean(r^2)      — plain MSE, as the task trainer uses; scale-free,
              gradient shrinks with the residual. Needs coeff_* rescaled.
+    "huber": mean of the Huber penalty, quadratic below `huber_delta` and linear
+             above it. Caps the influence of the drifted late steps of a long
+             rollout, which under "mean" dominate the gradient because d(r^2)/dr
+             grows with r. Torch's huber is 0.5*r^2 in the quadratic branch, so
+             at residuals well below delta it is exactly HALF of "mean" — the
+             coeff_* that balance "mean" want doubling, not carrying over as is.
+    "relative_l2": ||r||_2 / (||y||_2 + eps), the normalized error used in the
+             PDE-surrogate literature. Needs `target`. Makes every rollout step
+             contribute comparably regardless of how large the target derivative
+             is at that moment, instead of letting the high-derivative frames set
+             the gradient.
     """
     if residual.dim() > 2 or (residual.dim() == 2 and residual.shape[0] == residual.shape[1] and residual.shape[0] > 1):
         # A residual should be (n_elements, 1) or (n_elements,). Anything square or
@@ -225,7 +236,16 @@ def fit_residual_loss(residual, reduction="norm2"):
         return residual.norm(2)
     if reduction == "mean":
         return residual.pow(2).mean()
-    raise ValueError(f"unknown fit_reduction {reduction!r} (expected 'norm2' or 'mean')")
+    if reduction == "huber":
+        return torch.nn.functional.huber_loss(
+            residual, torch.zeros_like(residual), reduction="mean", delta=huber_delta)
+    if reduction == "relative_l2":
+        if target is None:
+            raise ValueError("fit_reduction 'relative_l2' needs the target to normalize by")
+        return residual.norm(2) / (target.norm(2) + 1e-8)
+    raise ValueError(
+        f"unknown fit_reduction {reduction!r} "
+        "(expected 'norm2', 'mean', 'huber' or 'relative_l2')")
 
 
 def _batch_frames(frames, edge_index):

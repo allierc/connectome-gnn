@@ -119,6 +119,27 @@ def recurrent_loss(
 #  4. Dense-supervision rollout with a per-epoch horizon curriculum   #
 # ------------------------------------------------------------------ #
 
+def _rollout_step_weights(weighting, n_steps, gamma):
+    """Weight of each of the n_steps supervised rollout steps.
+
+    Returned unnormalised; _dense_rollout_loss divides by the weight it actually
+    applied (steps whose target is NaN are skipped), so any positive scaling here
+    is equivalent. Every scheme gives [1.0] at n_steps == 1, which is what keeps
+    the K=1 objective term-for-term identical to the nominal path.
+    """
+    if weighting == "uniform":
+        return [1.0] * n_steps
+    if weighting == "discount":
+        return [gamma ** s for s in range(n_steps)]
+    if weighting == "linear_decay":
+        return [(n_steps - s) / n_steps for s in range(n_steps)]
+    if weighting == "last":
+        return [0.0] * (n_steps - 1) + [1.0]
+    raise ValueError(
+        f"unknown rollout_step_weighting {weighting!r} "
+        "(expected 'uniform', 'discount', 'linear_decay' or 'last')")
+
+
 def _dense_rollout_loss(
     model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
     n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
@@ -157,6 +178,13 @@ def _dense_rollout_loss(
        flipped (prediction fell from ~80% of the loss to ~12%). The W penalties
        then dominated and drove R^2_W to ~0 while nominal reached ~0.98. Any
        change to this reduction must keep n_steps=1 equal to nominal.
+
+    Three orthogonal knobs shape the rollout objective, all no-ops at n_steps=1
+    so the equality above is preserved whatever they are set to:
+      tc.rollout_step_weighting  — how the n_steps terms are weighted
+      tc.rollout_bptt_window     — how far the gradient is carried back
+      tc.rollout_shooting_stride — how often the state is re-anchored on data
+    See config.py for what each is for.
     """
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
@@ -209,7 +237,15 @@ def _dense_rollout_loss(
 
     neurons_per_sample = state_batch[0].n_neurons
     fit_loss = torch.zeros((), device=device)
-    n_scored = 0
+    weight_scored = 0.0
+
+    reduction = getattr(tc, "fit_reduction", "norm2")
+    huber_delta = getattr(tc, "fit_huber_delta", 1.0)
+    weighting = getattr(tc, "rollout_step_weighting", "uniform")
+    gamma = getattr(tc, "rollout_discount", 0.9)
+    bptt_window = int(getattr(tc, "rollout_bptt_window", 0) or 0)
+    shooting_stride = int(getattr(tc, "rollout_shooting_stride", 0) or 0)
+    step_weights = _rollout_step_weights(weighting, n_steps, gamma)
 
     batched_state, batched_edges = _batch_frames(state_batch, edges)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
@@ -232,12 +268,15 @@ def _dense_rollout_loss(
             for b_idx in range(len(state_batch))
         ]
         y_step = torch.cat(gt_parts, dim=0)
-        if not torch.isnan(y_step).any():
-            fit_loss = fit_loss + fit_residual_loss(
+        w = step_weights[step]
+        if w > 0.0 and not torch.isnan(y_step).any():
+            fit_loss = fit_loss + w * fit_residual_loss(
                 pred[ids_batch] - y_step[ids_batch],
-                getattr(tc, "fit_reduction", "norm2"),
+                reduction,
+                target=y_step[ids_batch],
+                huber_delta=huber_delta,
             )
-            n_scored += 1
+            weight_scored += w
 
         if step == n_steps - 1:
             break
@@ -248,6 +287,27 @@ def _dense_rollout_loss(
                       + tc.noise_recurrent_level * torch.randn_like(pred))
         else:
             pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+
+        # --- truncate BPTT: cut the gradient path every bptt_window steps, so no
+        # chain is longer than the window. The model still sees its own drifted
+        # state (that is the point), it just is not differentiated through. ---
+        if bptt_window > 0 and (step + 1) % bptt_window == 0:
+            pred_x = pred_x.detach()
+
+        # --- multiple shooting: re-anchor on the observation, starting a fresh
+        # segment from an exact initial condition instead of continuing the free
+        # run. Overwrites the rolled state entirely, so it also cuts the gradient. ---
+        if shooting_stride > 0 and (step + 1) % shooting_stride == 0:
+            # Same observation the setup loop uses for the segment at step 0:
+            # the noisy voltage when the dataset carries measurement noise, so a
+            # shooting anchor is exactly as informative as the rollout's own start.
+            noisy = x_ts.noise is not None and sim.measurement_noise_level > 0
+            anchor = []
+            for b_idx in range(len(state_batch)):
+                kc = k_list[b_idx] + step + 1
+                v = x_ts.voltage[kc]
+                anchor.append(v + x_ts.noise[kc] if noisy else v)
+            pred_x = torch.cat(anchor, dim=0).unsqueeze(-1)
 
         # --- advance the state, with the LIVE stimulus for the next frame ---
         for b_idx in range(len(state_batch)):
@@ -268,11 +328,13 @@ def _dense_rollout_loss(
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
 
 
-    if n_scored == 0:
+    if weight_scored == 0.0:
         return torch.zeros(1, device=device, requires_grad=True), regul_value
 
-    # Average over scored steps -> objective scale is horizon-independent.
-    loss = loss + fit_loss / n_scored
+    # Normalise by the weight actually applied -> objective scale is
+    # horizon-independent AND weighting-independent, so coeff_* need no rescaling
+    # when the weighting changes.
+    loss = loss + fit_loss / weight_scored
     return loss, regul_value
 
 
