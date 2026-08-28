@@ -60,27 +60,30 @@ Each job differs from its Task-2 `nolasso` partner in **only** `signal_model_nam
 All cv00 · seed 1041 · 1.6 M steps. Task 4 keeps the noise columns (width 8); Task 4b removes
 them (width 6). Two dose curves that differ only in whether the calibration probe is attached.
 
-| lasso | Task 4 (width 8, **with** noise) | Task 4b (width 6, **no** noise) |
-|---|---|---|
-| 0 | 153765373 *(from Task 2)* | 153765457 *(from Task 5)* |
-| 2 | 153765368 *(from Task 2)* | 153765451 |
-| 5 | 153765398 | 153765452 |
-| 10 | 153765399 | 153765453 |
-| 20 | 153765400 | 153765454 |
-| 50 | 153765401 | 153765455 |
+| lasso | Task 4 config (width 8, **with** noise) | job | Task 4b config (width 6, **no** noise) | job |
+|---|---|---|---|---|
+| 0 | `noiseprobe_nolasso_cv00` *(from Task 2)* | 153765373 | `noiseseed_off_s1041` *(from Task 5)* | 153765457 |
+| 2 | `noiseprobe_lasso2_cv00` *(from Task 2)* | 153765368 | `lassoW6_2_cv00` | 153765451 |
+| 5 | `noiseprobe_lasso5_cv00` | 153765398 | `lassoW6_5_cv00` | 153765452 |
+| 10 | `noiseprobe_lasso10_cv00` | 153765399 | `lassoW6_10_cv00` | 153765453 |
+| 20 | `noiseprobe_lasso20_cv00` | 153765400 | `lassoW6_20_cv00` | 153765454 |
+| 50 | `noiseprobe_lasso50_cv00` | 153765401 | `lassoW6_50_cv00` | 153765455 |
 
 ## Task 5 — Is the noise-probe benefit repeatable, or a seed lottery?
 
 Dataset **cv00 held fixed** · group lasso 0 · every coefficient identical.
 Only the noise columns and the seed vary.
 
-| seed | noise ON (width 8) | noise OFF (width 6) |
-|---|---|---|
-| 1041 | 153765456 | 153765457 |
-| 1042 | 153765458 | 153765459 |
-| 1043 | 153765460 | 153765461 |
-| 1044 | 153765462 | 153765463 |
-| 1045 | 153765464 | 153765465 |
+| seed | noise ON config (width 8) | job | noise OFF config (width 6) | job |
+|---|---|---|---|---|
+| 1041 | `noiseseed_on_s1041` | 153765456 | `noiseseed_off_s1041` | 153765457 |
+| 1042 | `noiseseed_on_s1042` | 153765458 | `noiseseed_off_s1042` | 153765459 |
+| 1043 | `noiseseed_on_s1043` | 153765460 | `noiseseed_off_s1043` | 153765461 |
+| 1044 | `noiseseed_on_s1044` | 153765462 | `noiseseed_off_s1044` | 153765463 |
+| 1045 | `noiseseed_on_s1045` | 153765464 | `noiseseed_off_s1045` | 153765465 |
+
+`noiseseed_on_s1041` is config-identical to Task 2's `noiseprobe_nolasso_cv00` — the grid's only
+exact replicate, and the cheapest estimate of the run-to-run floor.
 
 ## Task 6 — Control for a prior that is not family-neutral
 
