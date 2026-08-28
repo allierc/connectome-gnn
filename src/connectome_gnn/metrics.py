@@ -1005,6 +1005,39 @@ def g_phi_first_layer_discard_score(model, emb_dim):
     return (n_vi + n_ai) / total if total > 0 else float('nan')
 
 
+def g_phi_column_layout(model, emb_dim):
+    """Column slices of g_phi's first-layer weight, by model family.
+
+    g_phi's input is built in two shapes (neural_gnn.py NeuralGNN.message):
+
+        flyvis_conductance : [v_i, v_j, a_i, a_j] + noise   width 2 + 2*emb + n
+        everything else    : [v_j, a_j]           + noise   width 1 + emb   + n
+
+    Dispatched on `model.model`, which is the exact attribute the forward pass
+    branches on — a metric that guessed the layout independently could silently
+    read a_j's columns as a_i's. Returns (layout, n_noise) where layout maps
+    'vi'/'vj'/'ai'/'aj'/'noise' to slices; 'vi' and 'ai' are None for the
+    non-conductance layout, which has no post-synaptic inputs to discard.
+
+    Returns (None, 0) if the width does not match either layout, so callers
+    stay no-ops on models this was never designed for.
+    """
+    width = model.g_phi.layers[0].weight.shape[1]
+    if getattr(model, "model", None) == "flyvis_conductance":
+        base = 2 + 2 * emb_dim
+        if width < base:
+            return None, 0
+        layout = {'vi': slice(0, 1), 'vj': slice(1, 2),
+                  'ai': slice(2, 2 + emb_dim), 'aj': slice(2 + emb_dim, base)}
+    else:
+        base = 1 + emb_dim
+        if width < base:
+            return None, 0
+        layout = {'vi': None, 'vj': slice(0, 1), 'ai': None, 'aj': slice(1, base)}
+    layout['noise'] = slice(base, width) if width > base else None
+    return layout, width - base
+
+
 def g_phi_first_layer_cosine_to_keep(model, emb_dim):
     """Cosine similarity between g_phi's first-layer per-group L2 norms
     [vi, vj, ai, aj] (the SAME quantity the group-lasso regularizer itself
@@ -1017,23 +1050,26 @@ def g_phi_first_layer_cosine_to_keep(model, emb_dim):
     mass unevenly between them -- only vi/ai carrying any weight at all
     pulls it down. 1 = fully aligned (vi=ai=0); 0 = all mass on vi/ai.
 
-    No-op (returns nan) unless g_phi's first layer has the flyvis_conductance
-    2+2*emb_dim input width -- matched structurally, not by model name.
+    Defined for both g_phi layouts (see g_phi_column_layout). On
+    flyvis_conductance the discard side is {vi, ai, noise}; on flyvis_A, whose
+    g_phi already takes only (vj, aj), it is {noise} alone -- which is exactly
+    the positive control: flyvis_A is the correctly-specified family, so any
+    weight it keeps on the noise columns is a failure of credit assignment that
+    cannot be blamed on the extra inputs being redundant.
+
+    No-op (returns nan) if g_phi's first layer matches neither layout.
     """
-    first_layer = model.g_phi.layers[0]
-    W0 = first_layer.weight.detach()
-    base = 2 + 2 * emb_dim
-    if W0.shape[1] < base:
+    layout, _ = g_phi_column_layout(model, emb_dim)
+    if layout is None:
         return float('nan')
-    # noise-probe columns (n_g_phi_noise_inputs) sit past the base layout and belong
-    # on the DISCARD side of the target direction, i.e. [0, 1, 0, 1, 0, ..., 0].
-    n_noise_cols = W0.shape[1] - base
-    n_vi = W0[:, 0:1].norm(2).item()
-    n_vj = W0[:, 1:2].norm(2).item()
-    n_ai = W0[:, 2:2 + emb_dim].norm(2).item()
-    n_aj = W0[:, 2 + emb_dim:base].norm(2).item()
-    n_noise = W0[:, base:].norm(2).item() if n_noise_cols else 0.0
-    v_norm = (n_vi ** 2 + n_vj ** 2 + n_ai ** 2 + n_aj ** 2 + n_noise ** 2) ** 0.5
+    W0 = model.g_phi.layers[0].weight.detach()
+
+    def gnorm(key):
+        sl = layout[key]
+        return W0[:, sl].norm(2).item() if sl is not None else 0.0
+
+    n_vj, n_aj = gnorm('vj'), gnorm('aj')
+    v_norm = sum(gnorm(k) ** 2 for k in ('vi', 'vj', 'ai', 'aj', 'noise')) ** 0.5
     if v_norm <= 0:
         return float('nan')
     return (n_vj + n_aj) / (v_norm * (2 ** 0.5))
@@ -1056,15 +1092,19 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     is retained for a reason (it is redundant with f_theta's own vi input), not
     because credit assignment failed.
 
-    All nan if g_phi's input layout isn't flyvis_conductance's [vi, vj, ai, aj].
+    On the flyvis_A layout g_phi has no vi/ai inputs at all, so ratio_vi and
+    ratio_ai are nan there by construction and ratio_noise is the whole result --
+    that is the point of running the probe on the correctly-specified family.
+
+    All nan if g_phi's input layout matches neither family (see
+    g_phi_column_layout).
     """
     device = model.a.device
     emb_dim = model.a.shape[1]
-    base = 2 + 2 * emb_dim
-    width = model.g_phi.layers[0].weight.shape[1]
-    if width < base:
+    layout, n_noise = g_phi_column_layout(model, emb_dim)
+    if layout is None:
         return float('nan'), float('nan'), float('nan')
-    n_noise = width - base
+    has_post = layout['vi'] is not None
 
     src = edges[0].to(device)
     dst = edges[1].to(device)
@@ -1084,8 +1124,14 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
         vi_k = voltage[k, dst].clone().detach().requires_grad_(True)
         ai_k = ai_fixed.clone().detach().requires_grad_(True)
 
-        parts = [vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed]
-        wrt = [vi_k, vj_k, ai_k]
+        if has_post:
+            parts = [vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed]
+            wrt = [vi_k, vj_k, ai_k]
+        else:
+            # flyvis_A layout: g_phi never sees v_i or a_i, so there is nothing
+            # post-synaptic to differentiate. vj is still index 0 of `wrt`.
+            parts = [vj_k.unsqueeze(1), aj_fixed]
+            wrt = [vj_k]
         if n_noise:
             # same distribution the model draws internally, so the gradient is
             # measured at a representative point of the noise input
@@ -1099,15 +1145,18 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
             out = out ** 2
 
         grads = torch.autograd.grad(out.sum(), wrt, retain_graph=False, create_graph=False)
-        grad_vi, grad_vj, grad_ai = grads[0], grads[1], grads[2]
-
-        abs_grad_vi.append(grad_vi.detach().abs().mean().item())
-        abs_grad_vj.append(grad_vj.detach().abs().mean().item())
-        grad_ai_norm.append(grad_ai.detach().norm(dim=1).mean().item())
+        if has_post:
+            abs_grad_vi.append(grads[0].detach().abs().mean().item())
+            abs_grad_vj.append(grads[1].detach().abs().mean().item())
+            grad_ai_norm.append(grads[2].detach().norm(dim=1).mean().item())
+        else:
+            abs_grad_vj.append(grads[0].detach().abs().mean().item())
         if n_noise:
-            grad_noise_norm.append(grads[3].detach().norm(dim=1).mean().item())
+            grad_noise_norm.append(grads[-1].detach().norm(dim=1).mean().item())
 
-    m_vi, m_vj, m_ai = float(np.mean(abs_grad_vi)), float(np.mean(abs_grad_vj)), float(np.mean(grad_ai_norm))
+    m_vj = float(np.mean(abs_grad_vj))
+    m_vi = float(np.mean(abs_grad_vi)) if abs_grad_vi else float('nan')
+    m_ai = float(np.mean(grad_ai_norm)) if grad_ai_norm else float('nan')
     m_noise = float(np.mean(grad_noise_norm)) if grad_noise_norm else float('nan')
     if m_vj <= 0:
         return float('nan'), float('nan'), float('nan')
