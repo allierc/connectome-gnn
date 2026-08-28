@@ -409,8 +409,37 @@ class LossRegularizer:
                 self._add('g_phi_diff', regul_term)
 
             if self._coeffs['g_phi_norm'] > 0:
+                # Pin EVERY voltage column, not just column 0.
+                #
+                # This is a scale anchor: it fixes the arbitrary W <-> g_phi gauge by
+                # pinning one point of g_phi. For that to be all it does, the probe
+                # must be a single POINT in voltage space. Pinning only one voltage
+                # column while the other keeps its per-neuron data value turns the
+                # constraint into "g_phi is FLAT along the unpinned axis", asserted
+                # over every row of `ids` -- which is not a gauge fix at all.
+                #
+                # Both one-column mistakes are live hazards here, in opposite
+                # directions. Pinning v_i (the pre-reorder layout) demanded flatness
+                # in v_j -- unsatisfiable for the true relu(v_j) and paid the model to
+                # invent a v_i x v_j interaction. Pinning v_j alone demands flatness
+                # in v_i -- satisfiable, but it is precisely the "g_phi discards v_i"
+                # conclusion these experiments measure, so it would manufacture the
+                # result. Anchoring both leaves g_phi = relu(v_j) + c*(v_i - 2*xnorm)
+                # free and asserts flatness along neither axis.
+                #
+                # Exactly a no-op for every single-voltage layout (flyvis_A/C/D and
+                # the signal models): 'vi' is None there, so only column 0 is written,
+                # bit-for-bit as before.
+                from connectome_gnn.metrics import g_phi_column_layout
+                _norm_layout, _ = g_phi_column_layout(model, mc.embedding_dim)
                 in_features_edge_norm = in_features_edge.clone()
-                in_features_edge_norm[:, 0] = 2 * xnorm
+                if _norm_layout is None:
+                    in_features_edge_norm[:, 0] = 2 * xnorm
+                else:
+                    for _vk in ('vj', 'vi'):
+                        _vs = _norm_layout[_vk]
+                        if _vs is not None:
+                            in_features_edge_norm[:, _vs] = 2 * xnorm
                 if mc.g_phi_positive:
                     msg_norm = model.g_phi(in_features_edge_norm[ids].clone().detach()) ** 2
                 else:

@@ -178,3 +178,35 @@ class TestNormAnchorNowTargetsVj:
         probe[:, 0] = 2.0
         # column 1 was v_j and stayed varying -> constant-output target => flat in v_j
         assert probe[:, 1].unique().numel() > 1
+
+    def test_anchor_must_pin_every_voltage_column(self):
+        """The reorder alone is NOT sufficient; the anchor must pin v_i too.
+
+        Pinning one voltage column while the other keeps per-neuron data values
+        turns a gauge fix into "g_phi is flat along the unpinned axis", asserted
+        over every scored row. Pre-reorder that axis was v_j (unsatisfiable for
+        the true relu(v_j)); post-reorder it would be v_i -- satisfiable, but it
+        is the discard hypothesis under test, so it would manufacture the result.
+        Only pinning both leaves the model free along both axes.
+        """
+        v, emb, src, dst = _voltages_and_embeddings()
+
+        class Fake(torch.nn.Module):
+            def __init__(s):
+                super().__init__()
+                s.model = "flyvis_conductance"
+                s.g_phi = MLP(input_size=2 + 2 * EMB, output_size=1, nlayers=2,
+                              hidden_size=8, device="cpu")
+                s.a = torch.zeros(N, EMB)
+
+        layout, _ = g_phi_column_layout(Fake(), EMB)
+        probe = _current(v, emb, src, dst).clone()
+        for key in ("vj", "vi"):
+            probe[:, layout[key]] = 2.0
+
+        assert probe[:, layout["vj"]].unique().numel() == 1, "v_j must be pinned"
+        assert probe[:, layout["vi"]].unique().numel() == 1, "v_i must be pinned too"
+        # only the embeddings may still vary — that is what a scale anchor
+        # legitimately normalises over
+        assert probe[:, layout["aj"]].unique().numel() > 1
+        assert probe[:, layout["ai"]].unique().numel() > 1
