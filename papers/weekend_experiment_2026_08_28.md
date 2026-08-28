@@ -201,6 +201,23 @@ asymmetry didn't matter.
 
 # PART 3 — RULES FOR READING THE RESULTS
 
+These are implemented in `tools/analyze_weekend_experiment.py`, which prints one table per
+task and is safe to run mid-training (every partial run is marked):
+
+```bash
+PYTHONPATH=src GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData \
+    python tools/analyze_weekend_experiment.py            # all tasks
+    python tools/analyze_weekend_experiment.py --task 5   # just the headline
+    python tools/analyze_weekend_experiment.py --csv out.csv
+```
+
+It estimates the resolution threshold **from inside the grid** rather than assuming one —
+`sigma_run` from the exact replicate pair, `sigma_seed` from Task 5's five noise-OFF seeds —
+and labels anything smaller `UNRESOLVED`. It also asserts the K=1 identity: all six rollout
+arms must agree exactly at any epoch-0 checkpoint, and it prints the spread so a knob leaking
+into the wrong regime shows up immediately.
+
+
 - **Never quote a single final checkpoint.** The reference runs contain one-checkpoint collapses of
   0.2–0.5 in `R²_W` (0.8985 → **0.3637** → 0.9104 in three consecutive rows). Use the median over
   the last ~320 k steps.
