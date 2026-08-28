@@ -495,8 +495,11 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device,
     if signal_model_name == 'flyvis_conductance':
         if perm_indices is None:
             perm_indices = torch.randperm(n_neurons, device=model.a.device)
-        in_features = torch.cat((voltage_all, voltage_all, model.a, model.a[perm_indices]), dim=1)
-        in_features_next = torch.cat((voltage_all, voltage_all + delta_v, model.a, model.a[perm_indices]), dim=1)
+        # [v_j, a_j, v_i, a_i]; a_j is the random partner, a_i the neuron itself.
+        # v_j is column 0 exactly as in the non-conductance branch below, so the
+        # delta_v perturbation lands on the same column in both families.
+        in_features = torch.cat((voltage_all, model.a[perm_indices], voltage_all, model.a), dim=1)
+        in_features_next = torch.cat((voltage_all + delta_v, model.a[perm_indices], voltage_all, model.a), dim=1)
     else:
         # flyvis_A, flyvis_C, flyvis_D, and default
         in_features = torch.cat((voltage_all, model.a), dim=1)

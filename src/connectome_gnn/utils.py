@@ -254,6 +254,36 @@ def migrate_state_dict(state_dict: dict) -> dict:
     return state_dict
 
 
+def legacy_g_phi_column_permutation(width: int, emb_dim: int) -> list[int]:
+    """Column permutation taking a PRE-REORDER flyvis_conductance g_phi first-layer
+    weight to the current layout.
+
+        legacy  : [v_i, v_j, a_i, a_j] + noise      (interleaved endpoints)
+        current : [v_j, a_j, v_i, a_i] + noise      (prefix-extension of [v_j, a_j])
+
+    Returns `idx` such that ``W_current = W_legacy[:, idx]``. Pure permutation, so
+    the function the network computes is preserved EXACTLY -- only the input
+    ordering changes.
+
+    Deliberately NOT wired into migrate_state_dict: checkpoints carry no layout
+    version marker, so an automatic permutation could not tell a legacy file from
+    a current one and would silently corrupt the latter. Apply it explicitly when
+    loading a conductance checkpoint trained before the reorder.
+    """
+    base = 2 + 2 * emb_dim
+    if width < base:
+        raise ValueError(
+            f"width {width} is narrower than the conductance layout {base}; "
+            "this permutation only applies to flyvis_conductance g_phi weights")
+    return (
+        [1]                              # v_j   <- legacy column 1
+        + list(range(2 + emb_dim, base))  # a_j   <- legacy a_j block
+        + [0]                            # v_i   <- legacy column 0
+        + list(range(2, 2 + emb_dim))     # a_i   <- legacy a_i block
+        + list(range(base, width))        # noise columns stay trailing
+    )
+
+
 def sort_key(filename: str) -> tuple[int, int, int]:
     """Sort checkpoint filenames numerically by (run, epoch, sub).
 

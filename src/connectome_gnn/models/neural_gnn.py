@@ -620,7 +620,12 @@ class NeuralGNN(nn.Module):
         # build per-edge features (ensure 2D even when embedding_dim=1)
         emb = embedding if embedding.dim() == 2 else embedding.unsqueeze(-1)
         if self.model == "flyvis_conductance":
-            in_features = torch.cat([v[dst], v[src], emb[dst], emb[src]], dim=1)
+            # [v_j, a_j, v_i, a_i] -- a PREFIX-EXTENSION of the non-conductance
+            # layout [v_j, a_j], so column 0 is v_j in EVERY family. The previous
+            # interleaved order [v_i, v_j, a_i, a_j] made column 0 mean v_i here and
+            # v_j elsewhere, which silently mis-aimed every hardcoded column index
+            # (see the coeff_g_phi_norm anchor).
+            in_features = torch.cat([v[src], emb[src], v[dst], emb[dst]], dim=1)
         else:
             in_features = torch.cat([v[src], emb[src]], dim=1)
 

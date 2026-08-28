@@ -604,7 +604,7 @@ def _build_g_phi_features(rr_flat, emb_flat, signal_model_name, emb_i_flat=None)
             raise ValueError(
                 "_build_g_phi_features: flyvis_conductance requires emb_i_flat (postsynaptic embedding)"
             )
-        return torch.cat([rr_flat * 0, rr_flat, emb_i_flat, emb_flat], dim=1)
+        return torch.cat([rr_flat, emb_flat, rr_flat * 0, emb_i_flat], dim=1)
     else:
         return torch.cat([rr_flat, emb_flat], dim=1)
 
@@ -805,7 +805,7 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
     vj_flat = vj.reshape(-1, 1)
 
     if 'flyvis_conductance' in signal_model_name:
-        in_features = torch.cat([vi_flat, vj_flat, ai_flat, aj_flat], dim=1)
+        in_features = torch.cat([vj_flat, aj_flat, vi_flat, ai_flat], dim=1)
     else:
         in_features = torch.cat([vj_flat, aj_flat], dim=1)
 
@@ -873,7 +873,7 @@ def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
         vi_k = voltage[k, dst].clone().detach()
 
         if 'flyvis_conductance' in signal_model_name:
-            in_features = torch.cat([vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai, aj], dim=1)
+            in_features = torch.cat([vj_k.unsqueeze(1), aj, vi_k.unsqueeze(1), ai], dim=1)
         else:
             in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
 
@@ -997,10 +997,10 @@ def g_phi_first_layer_discard_score(model, emb_dim):
     W0 = first_layer.weight.detach()
     if W0.shape[1] != 2 + 2 * emb_dim:
         return float('nan')
-    n_vi = W0[:, 0:1].abs().sum().item()
-    n_vj = W0[:, 1:2].abs().sum().item()
-    n_ai = W0[:, 2:2 + emb_dim].abs().sum().item()
-    n_aj = W0[:, 2 + emb_dim:2 + 2 * emb_dim].abs().sum().item()
+    n_vj = W0[:, 0:1].abs().sum().item()
+    n_aj = W0[:, 1:1 + emb_dim].abs().sum().item()
+    n_vi = W0[:, 1 + emb_dim:2 + emb_dim].abs().sum().item()
+    n_ai = W0[:, 2 + emb_dim:2 + 2 * emb_dim].abs().sum().item()
     total = n_vi + n_vj + n_ai + n_aj
     return (n_vi + n_ai) / total if total > 0 else float('nan')
 
@@ -1010,8 +1010,13 @@ def g_phi_column_layout(model, emb_dim):
 
     g_phi's input is built in two shapes (neural_gnn.py NeuralGNN.message):
 
-        flyvis_conductance : [v_i, v_j, a_i, a_j] + noise   width 2 + 2*emb + n
+        flyvis_conductance : [v_j, a_j, v_i, a_i] + noise   width 2 + 2*emb + n
         everything else    : [v_j, a_j]           + noise   width 1 + emb   + n
+
+    The conductance layout is a PREFIX-EXTENSION of the other one: columns
+    0..emb_dim are [v_j, a_j] in BOTH families. That is what makes every
+    hardcoded column index (notably the coeff_g_phi_norm anchor at column 0)
+    mean the same physical quantity everywhere.
 
     Dispatched on `model.model`, which is the exact attribute the forward pass
     branches on — a metric that guessed the layout independently could silently
@@ -1027,8 +1032,8 @@ def g_phi_column_layout(model, emb_dim):
         base = 2 + 2 * emb_dim
         if width < base:
             return None, 0
-        layout = {'vi': slice(0, 1), 'vj': slice(1, 2),
-                  'ai': slice(2, 2 + emb_dim), 'aj': slice(2 + emb_dim, base)}
+        layout = {'vj': slice(0, 1), 'aj': slice(1, 1 + emb_dim),
+                  'vi': slice(1 + emb_dim, 2 + emb_dim), 'ai': slice(2 + emb_dim, base)}
     else:
         base = 1 + emb_dim
         if width < base:
@@ -1124,12 +1129,15 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
         vi_k = voltage[k, dst].clone().detach().requires_grad_(True)
         ai_k = ai_fixed.clone().detach().requires_grad_(True)
 
+        # Both layouts start [v_j, a_j]; conductance appends [v_i, a_i]. wrt is
+        # ordered vj, (vi, ai), (noise) so grads[0] is ALWAYS d/dvj -- the shared
+        # denominator -- regardless of family.
         if has_post:
-            parts = [vi_k.unsqueeze(1), vj_k.unsqueeze(1), ai_k, aj_fixed]
-            wrt = [vi_k, vj_k, ai_k]
+            parts = [vj_k.unsqueeze(1), aj_fixed, vi_k.unsqueeze(1), ai_k]
+            wrt = [vj_k, vi_k, ai_k]
         else:
             # flyvis_A layout: g_phi never sees v_i or a_i, so there is nothing
-            # post-synaptic to differentiate. vj is still index 0 of `wrt`.
+            # post-synaptic to differentiate.
             parts = [vj_k.unsqueeze(1), aj_fixed]
             wrt = [vj_k]
         if n_noise:
@@ -1145,12 +1153,10 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
             out = out ** 2
 
         grads = torch.autograd.grad(out.sum(), wrt, retain_graph=False, create_graph=False)
+        abs_grad_vj.append(grads[0].detach().abs().mean().item())
         if has_post:
-            abs_grad_vi.append(grads[0].detach().abs().mean().item())
-            abs_grad_vj.append(grads[1].detach().abs().mean().item())
+            abs_grad_vi.append(grads[1].detach().abs().mean().item())
             grad_ai_norm.append(grads[2].detach().norm(dim=1).mean().item())
-        else:
-            abs_grad_vj.append(grads[0].detach().abs().mean().item())
         if n_noise:
             grad_noise_norm.append(grads[-1].detach().norm(dim=1).mean().item())
 
