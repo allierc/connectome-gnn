@@ -355,23 +355,27 @@ class LossRegularizer:
         # input pathway to ~0 instead of shrinking everything a little. Applied symmetrically to
         # all four inputs — it does not single out vi/ai, since presupposing which inputs are
         # spurious would beg the question this regularizer is meant to test. Only meaningful when
-        # g_phi's first layer has the flyvis_conductance [vi, vj, ai, aj] input layout; matched
-        # structurally by width, not by model name, so it's a no-op for every other model.
+        # Groups are taken from the model's ACTUAL g_phi column layout rather than
+        # inferred from the first layer's width. A width test cannot tell
+        # [v_j, a_j] + 4 noise columns (width 7) from [v_j, a_j, v_i, a_i] + 1
+        # (also width 7), and would silently apply conductance groupings to a
+        # flyvis_A model -- penalising a_j as though it were a_i.
         if self._coeffs['g_phi_input_group_L1'] > 0 and hasattr(model, 'g_phi'):
-            first_layer = model.g_phi.layers[0]
+            from connectome_gnn.metrics import g_phi_column_layout
             emb_dim = mc.embedding_dim
-            base_width = 2 + 2 * emb_dim
-            # >= not ==: the noise-probe control (n_g_phi_noise_inputs) widens the
-            # input, and an exact-width check would silently turn the group lasso
-            # OFF for exactly the runs that need it most.
-            if first_layer.weight.shape[1] >= base_width:
-                W0 = first_layer.weight  # (hidden, 2 + 2*emb_dim [+ n_noise]) = [vi, vj, ai, aj, noise...]
-                group_norm = (
-                    W0[:, 0:1].norm(2)
-                    + W0[:, 1:2].norm(2)
-                    + W0[:, 2:2 + emb_dim].norm(2)
-                    + W0[:, 2 + emb_dim:base_width].norm(2)
-                )
+            layout, _n_noise = g_phi_column_layout(model, emb_dim)
+            if layout is not None:
+                W0 = model.g_phi.layers[0].weight
+                base_width = W0.shape[1] - _n_noise
+                # one group per named input; absent groups (v_i/a_i on flyvis_A)
+                # simply contribute nothing
+                group_norm = None
+                for _k in ('vj', 'aj', 'vi', 'ai'):
+                    _sl = layout[_k]
+                    if _sl is None:
+                        continue
+                    _t = W0[:, _sl].norm(2)
+                    group_norm = _t if group_norm is None else group_norm + _t
                 # each noise column is its own group, so the lasso can kill them
                 # individually exactly as it can kill vi or ai
                 for _c in range(base_width, W0.shape[1]):
