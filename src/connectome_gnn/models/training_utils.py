@@ -360,8 +360,23 @@ def get_training_frame_sampling(sim, training, target_offset=None):
 
 def init_metrics_files(log_dir):
     """
-    Initialize the two metric log files used by the training monitor.
+    Initialize the metric log files used by the training monitor.
+
+    All of them are truncated here, including g_phi_discard.log, which the
+    training loop opens in APPEND mode. Without truncation, re-running into an
+    existing log dir (after a crash, or after LSF kills a job on its RUNLIMIT)
+    silently interleaves the dead run's rows with the new run's at overlapping
+    iteration numbers -- and unlike metrics.log there is no header row to make
+    the seam visible.
     """
+
+    g_phi_discard_log_path = os.path.join(
+        log_dir,
+        "tmp_training",
+        "g_phi_discard.log",
+    )
+    if os.path.exists(g_phi_discard_log_path):
+        os.remove(g_phi_discard_log_path)
 
     metrics_log_path = os.path.join(
         log_dir,
