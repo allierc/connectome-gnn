@@ -28,6 +28,20 @@ N, E, EMB = 64, 200, 2
 DEV = torch.device("cpu")
 
 
+@pytest.fixture(autouse=True)
+def _pin_cpu_default_device():
+    """Force the default device to CPU for this module.
+
+    Another test in the suite leaves torch's default device set to CUDA, which
+    made the bare torch.randn calls below allocate on the GPU while the MLPs and
+    inputs stayed on CPU — so these tests passed alone and failed in the full
+    run. Nothing here needs a GPU.
+    """
+    torch.set_default_device("cpu")
+    yield
+    torch.set_default_device("cpu")
+
+
 def _model_config(signal_model_name):
     return GraphModelConfig(
         signal_model_name=signal_model_name, prediction="first_derivative",
