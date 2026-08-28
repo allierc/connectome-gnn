@@ -527,6 +527,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                     regul_loss = regularizer.compute(
                         model=model, x=x, in_features=None, ids=ids,
                         ids_batch=None, edges=edges, device=device, xnorm=xnorm,
+                        perm_indices=regularizer.sample_g_phi_perm(device),
                     )
                     loss = loss + regul_loss
 

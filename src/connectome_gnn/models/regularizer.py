@@ -209,6 +209,39 @@ class LossRegularizer:
                 k: torch.tensor(float(v), device=self._device) for k, v in self._coeffs.items()
             }
 
+    def needs_g_phi_perm(self) -> bool:
+        """Whether compute() will consume a g_phi partner permutation this call.
+
+        Mirrors the two conditions that guarded the old in-place torch.randperm
+        exactly, so gating the draw on this leaves the RNG stream — and therefore
+        bit-reproducibility of every existing run — untouched.
+        """
+        return ((self._coeffs['g_phi_diff'] > 0 or self._coeffs['g_phi_norm'] > 0)
+                and self.model_config.signal_model_name == 'flyvis_conductance')
+
+    def sample_g_phi_perm(self, device=None):
+        """Draw the g_phi partner permutation OUTSIDE any torch.compile region.
+
+        Call immediately before each compute() and pass the result in as
+        perm_indices. It used to be drawn inside compute(), which is compiled with
+        fullgraph=True — torch.randperm is not traceable by inductor, so every
+        flyvis_conductance config had to set torch_compile: false to run at all.
+
+        Drawn per compute() call rather than stashed on self in reset_iteration()
+        for two reasons. It keeps the draw one-for-one with the consumer whatever
+        the caller's loop structure is (today every caller happens to reach
+        compute() exactly once per iteration — the batch loops in
+        run_nominal_train_step and graph_trainer_spend are guarded by
+        `if batch == 0` — but nothing enforces that). And a tensor read off `self`
+        inside a compiled fullgraph region is a silent-failure risk: it is only
+        re-read per call because Dynamo happens to guard it as a graph input, and
+        that is not a property worth depending on for a term whose whole purpose
+        is that it changes every iteration. An explicit argument cannot go stale.
+        """
+        if not self.needs_g_phi_perm():
+            return None
+        return torch.randperm(self.n_neurons, device=device or self._device)
+
     def should_record(self) -> bool:
         """Check if we should record to history this iteration."""
         return (self.iter_count % self.plot_frequency == 0) or (self.iter_count == 1)
@@ -230,7 +263,7 @@ class LossRegularizer:
         self._iter_tracker[name] = self._iter_tracker[name] + term.detach()
 
     def compute(self, model, x, in_features, ids, ids_batch, edges, device,
-                xnorm=1.0, index_weight=None):
+                xnorm=1.0, index_weight=None, perm_indices=None):
         """
         Compute all regularization terms internally.
 
@@ -357,7 +390,8 @@ class LossRegularizer:
 
         # --- g_phi diff/norm regularization ---
         if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0)) and hasattr(model, 'g_phi'):
-            in_features_edge, in_features_edge_next = get_in_features_g_phi(x, model, mc, xnorm, n_neurons, device)
+            in_features_edge, in_features_edge_next = get_in_features_g_phi(
+                x, model, mc, xnorm, n_neurons, device, perm_indices=perm_indices)
 
             if self._coeffs['g_phi_diff'] > 0:
                 if mc.g_phi_positive:
