@@ -464,11 +464,26 @@ def get_in_features_update(rr=None, model=None, embedding = None, device=None):
 
     return in_features
 
-def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
+def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device,
+                          perm_indices=None):
     """Build g_phi input features from voltage and embeddings.
 
     Args:
         x: NeuronState — uses x.voltage.
+        perm_indices: (n_neurons,) long tensor pairing each neuron i with a random
+            partner j, so the g_phi priors are enforced on a fresh Monte-Carlo
+            sample of (a_i, a_j) embedding pairs each call. Only used by
+            flyvis_conductance, whose g_phi takes both endpoints.
+
+            MUST be supplied by the caller when this runs inside a torch.compile
+            fullgraph region: torch.randperm is not traceable by inductor, which
+            is the sole reason every flyvis_conductance config carries
+            torch_compile: false. LossRegularizer.sample_g_phi_perm draws it just
+            outside the compiled call. Drawing it here instead is kept only as
+            the fallback for uncompiled callers — do NOT rely on it, and do not
+            "fix" the permutation to a constant to dodge the compile error: that
+            would pin the priors to 13,741 fixed pairs out of ~1.9e8 possible,
+            a slice g_phi can satisfy while violating everywhere else.
     """
     voltage_all = x.voltage.unsqueeze(-1)
     signal_model_name = model_config.signal_model_name
@@ -478,7 +493,8 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device):
     delta_v = 0.05 * max(float(xnorm), 1e-6)
 
     if signal_model_name == 'flyvis_conductance':
-        perm_indices = torch.randperm(n_neurons, device=model.a.device)
+        if perm_indices is None:
+            perm_indices = torch.randperm(n_neurons, device=model.a.device)
         in_features = torch.cat((voltage_all, voltage_all, model.a, model.a[perm_indices]), dim=1)
         in_features_next = torch.cat((voltage_all, voltage_all + delta_v, model.a, model.a[perm_indices]), dim=1)
     else:

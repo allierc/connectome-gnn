@@ -231,6 +231,7 @@ def _dense_rollout_loss(
     regul_loss = regularizer.compute(
         model=model, x=state_batch[0], in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
+        perm_indices=regularizer.sample_g_phi_perm(device),
     )
     loss = regul_loss.clone()
     regul_value = regul_loss.item()
@@ -403,6 +404,7 @@ def _standard_recurrent_loss(
     regul_loss = regularizer.compute(
         model=model, x=state_batch[0], in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
+        perm_indices=regularizer.sample_g_phi_perm(device),
     )
     loss = regul_loss.clone()
     regul_value = regul_loss.item()
@@ -488,6 +490,7 @@ def _multi_start_loss(
     regul_loss = regularizer.compute(
         model=model, x=x0, in_features=None,
         ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
+        perm_indices=regularizer.sample_g_phi_perm(device),
     )
     regul_value = regul_loss.item()
     loss = regul_loss.clone()

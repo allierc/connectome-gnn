@@ -2161,6 +2161,7 @@ def run_nominal_train_step(
                 edges=edges,
                 device=device,
                 xnorm=xnorm,
+                perm_indices=regularizer.sample_g_phi_perm(device),
             )
 
             loss = loss + regul_loss
