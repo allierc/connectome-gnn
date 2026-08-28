@@ -1146,7 +1146,11 @@ class TrainingConfig(BaseModel):
     # the proper penalised-least-squares form) but is ~sqrt(n*B)/(2*sqrt(mse))
     # times weaker, so switching REQUIRES rescaling every coeff_* or the
     # regularisers dominate and R^2_W collapses.
-    fit_reduction: str = "norm2"
+    # "huber" and "relative_l2" exist for the rollout curriculum, where the late
+    # steps carry much larger residuals than the early ones: huber caps their
+    # gradient share, relative_l2 normalizes each step by its own target norm.
+    fit_reduction: Literal["norm2", "mean", "huber", "relative_l2"] = "norm2"
+    fit_huber_delta: float = 1.0  # residual magnitude (in ynorm units) where huber turns linear
     coeff_g_phi_weight_L1: float = 0  # L1 penalty on g_phi MLP weights
     coeff_g_phi_weight_L2: float = 0  # L2 penalty on g_phi MLP weights
     # Group lasso (L2,1) on g_phi's first-layer input columns, grouped as [vi],[vj],[ai],[aj].
@@ -1345,6 +1349,50 @@ class TrainingConfig(BaseModel):
     # rather than lengthen the horizon; this knob lengthens the horizon at fixed dt.
     # Requires time_step == 1 (enforced in data_train_gnn) so intermediate frames exist.
     rollout_horizon_schedule: List[int] = Field(default_factory=list)
+
+    # -- How the K rollout steps are combined, how far the gradient is carried
+    #    back through them, and how often the state is re-anchored on data.
+    #    All three are no-ops when rollout_horizon_schedule is empty or K == 1.
+    #
+    # Weighting across the K supervised steps. The loss is
+    #     sum_s w_s * fit(pred_s - y_{k+s})  /  sum_s w_s
+    # so the objective scale stays horizon-independent under every choice.
+    #   'uniform'      w_s = 1                — every step counts the same.
+    #   'discount'     w_s = gamma^s          — the model-based-RL convention;
+    #                  down-weights the far, drifted steps whose targets the
+    #                  model can only reach through its own accumulated error.
+    #   'linear_decay' w_s = (K - s) / K      — gentler version of the above.
+    #   'last'         w_s = 1 iff s == K-1   — endpoint-only, i.e. the legacy
+    #                  _standard_recurrent_loss objective but on the dense
+    #                  unstrided grid with a live stimulus. Kept as the control
+    #                  that isolates "dense supervision" from "long horizon".
+    rollout_step_weighting: Literal["uniform", "discount", "linear_decay", "last"] = "uniform"
+    rollout_discount: float = 0.9  # gamma, used only by rollout_step_weighting='discount'
+
+    # Backprop-through-time depth, in rollout steps. 0 = full BPTT through all K
+    # (current behaviour): step s reaches the parameters by s+1 paths, so the
+    # earliest model call is differentiated K times over and the share of the
+    # gradient that is clean teacher-forced one-step supervision falls as 1/K.
+    # m > 0 detaches the rolled state every m steps, so no gradient path is
+    # longer than m. m = 1 is the "pushforward" trick of Brandstetter et al.
+    # (Message Passing Neural PDE Solvers, ICLR 2022): the model still SEES its
+    # own drifted states — which is the point, it is what makes one-step training
+    # robust to rollout distribution shift — but each step contributes only a
+    # one-step gradient, so nothing about the conditioning degrades with K.
+    rollout_bptt_window: int = 0
+
+    # Multiple shooting. 0 = off. m > 0 resets the rolled state to the OBSERVED
+    # voltage every m steps, so the trajectory is a chain of length-m shooting
+    # segments each launched from data rather than one length-K free run. This is
+    # the standard remedy in ODE parameter estimation (and the direct fix for the
+    # 1/K teacher-forcing dilution above): every segment gets an exact initial
+    # condition, so the number of teacher-forced anchors grows with K instead of
+    # staying at one. m = 1 degenerates to K independent one-step fits, i.e. the
+    # nominal objective evaluated at K consecutive frames — a useful anchor.
+    # NB: unlike textbook multiple shooting there is no continuity penalty
+    # between segments; the observations ARE the continuity constraint, since
+    # every segment start is pinned to data.
+    rollout_shooting_stride: int = 0
     multi_start_recurrent: bool = False
     consecutive_batch: bool = False
     coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training (NB: the self-consistency variant in graph_trainer was removed because it was a zero-attractor; only the GT-supervised variant in recurrent_step.py still reads this knob)
