@@ -2417,10 +2417,12 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
     # cosine_sim = cosine similarity between g_phi's first-layer per-group L2 norms
     # [vi, vj, ai, aj] and the target direction [0, 1, 0, 1] -- 1 = fully aligned
     # (vi=ai=0), 0 = all mass on vi/ai. Scale-invariant, unlike a linear discard
-    # fraction (see g_phi_first_layer_cosine_to_keep). Only written for
-    # flyvis_conductance (see graph_trainer.py's GNN R^2 branch) -- file simply
-    # doesn't exist for any other model, which is what gates this second row on
-    # rather than a config/model-type check here.
+    # fraction (see g_phi_first_layer_cosine_to_keep). Written for any model whose
+    # g_phi first layer matches a known column layout (see graph_trainer.py's GNN
+    # R^2 branch) -- file simply doesn't exist otherwise, which is what gates this
+    # second row on rather than a config/model-type check here. On flyvis_A there
+    # are no vi/ai inputs, so those two curves are all-nan and only the cosine and
+    # the noise ratio are drawn.
     g_phi_discard_log_path = os.path.join(log_dir, 'tmp_training', 'g_phi_discard.log')
     discard_iters, discard_score_vals, discard_ratio_vi, discard_ratio_ai = [], [], [], []
     discard_ratio_noise = []

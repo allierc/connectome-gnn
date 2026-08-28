@@ -793,12 +793,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"{epoch_state.metrics.n_total_tau}\n"
                     )
 
-                # g_phi first-layer cosine-to-[0,1,0,1] + gradient ratios (vi, ai vs vj) --
-                # only meaningful for flyvis_conductance's [vi, vj, ai, aj] g_phi
-                # input; no-op (file simply not written) for every other model.
+                # g_phi first-layer cosine-to-keep + gradient ratios. Written for ANY
+                # model whose g_phi first layer matches a known column layout, not just
+                # flyvis_conductance: on flyvis_A the vi/ai columns do not exist, so
+                # ratio_vi/ratio_ai are nan and ratio_noise carries the whole result --
+                # which is exactly the noise-probe positive control, since flyvis_A is
+                # the correctly-specified family and its noise columns are the ONLY
+                # useless inputs. Gating this on the model NAME (as it used to) silently
+                # produced no log file at all for those runs.
                 # Same eval cadence as R^2_W above, since it reuses the same real
                 # (edge, frame) sampling machinery and is comparable in cost.
-                if 'flyvis_conductance' in config.graph_model.signal_model_name:
+                from connectome_gnn.metrics import g_phi_column_layout
+                _g_phi_layout, _ = (
+                    g_phi_column_layout(model, model.a.shape[1])
+                    if hasattr(model, 'g_phi') and hasattr(model, 'a') else (None, 0)
+                )
+                if _g_phi_layout is not None:
                     from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_cosine_to_keep
 
                     cosine_sim = g_phi_first_layer_cosine_to_keep(model, model.a.shape[1])
