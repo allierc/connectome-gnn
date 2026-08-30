@@ -1318,6 +1318,12 @@ class TrainingConfig(BaseModel):
     ode_state_clamp: float = 10.0
     ode_stab_lambda: float = 0.0
     grad_clip_W: float = 0.0
+    # Global gradient-norm clip over ALL parameters, as GraphCast does at 32
+    # (supplement sec 4.4). grad_clip_W above clips only model.W and defaults
+    # off, so today nothing bounds f_theta / g_phi / a gradients at all -- a
+    # plausible cause of the one-checkpoint R^2_W collapses of 0.2-0.5 that
+    # force the trailing-median reading rule.
+    grad_clip_norm: float = 0.0
     use_gt_edges: bool = False  # True = use ground truth edge_index; False = fully connected graph
     w_init_mode: WInitMode = WInitMode.RANDN  # randn=std=1, randn_scaled=std=scale/sqrt(N), zeros
     w_init_scale: float = 1.0  # scaling factor for 'randn_scaled' mode
@@ -1331,7 +1337,17 @@ class TrainingConfig(BaseModel):
     alternate_lr_ratio: float = 0.1  # LR multiplier for W/g_phi during V_rest focus phase
 
     # Learning rate scheduler
-    lr_scheduler: str = "none"  # 'none' | 'cosine_warm_restarts' | 'linear_warmup_cosine'
+    # 'graphcast': linear warmup -> a SINGLE half-cosine decay -> a constant tail
+    # floor. Note 'linear_warmup_cosine' does NOT decay to zero: it chains warmup
+    # with CosineAnnealingWarmRestarts (T_mult=2), so the LR sawtooths back up and
+    # bottoms out at eta_min_ratio * lr. Use 'graphcast' for a monotone decay.
+    lr_scheduler: str = "none"  # 'none'|'cosine_warm_restarts'|'linear_warmup_cosine'|'graphcast'
+    # Fraction of the planned total updates over which the half-cosine runs. The
+    # remainder is the constant tail, which is where the rollout phase lives.
+    # GraphCast: 300000/311000 = 0.965.
+    lr_scheduler_decay_frac: float = 0.965
+    # Tail LR as a fraction of peak. GraphCast: 3e-7 / 1e-3 = 3e-4.
+    lr_scheduler_tail_ratio: float = 3e-4
     lr_scheduler_T0: int = 1000  # restart period in iterations
     lr_scheduler_T_mult: int = 2  # period multiplier after each restart
     lr_scheduler_eta_min_ratio: float = 0.01  # min LR as fraction of base LR
@@ -1349,6 +1365,12 @@ class TrainingConfig(BaseModel):
     # rather than lengthen the horizon; this knob lengthens the horizon at fixed dt.
     # Requires time_step == 1 (enforced in data_train_gnn) so intermediate frames exist.
     rollout_horizon_schedule: List[int] = Field(default_factory=list)
+    # Cap on iterations for epochs with K > 1, so the rollout phase can be a SHORT
+    # tail fine-tune rather than the bulk of training. GraphCast spends 96.5% of its
+    # updates at K=1 and only 3.5% ramping K upward, at an LR ~3300x below peak;
+    # without this knob a K>1 epoch costs Niter//K updates, which is far too many.
+    # 0 = no cap (the pre-existing behaviour).
+    rollout_tail_iters_per_epoch: int = 0
 
     # -- How the K rollout steps are combined, how far the gradient is carried
     #    back through them, and how often the state is re-anchored on data.

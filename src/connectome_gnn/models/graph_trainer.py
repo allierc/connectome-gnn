@@ -343,6 +343,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 f"(/{rollout_horizon}, constant compute per epoch)"
             )
 
+        # Short rollout tail: cap the K>1 epochs so the curriculum is a fine-tune
+        # on top of a long K=1 phase, the way GraphCast runs it.
+        _tail = getattr(training, 'rollout_tail_iters_per_epoch', 0)
+        if _tail and _tail > 0 and rollout_horizon is not None and rollout_horizon > 1:
+            if Niter > _tail:
+                logger.info(f"epoch {epoch}: rollout tail cap {Niter} -> {_tail}")
+            Niter = min(Niter, _tail)
+
         if training.max_iterations_per_epoch > 0:
             Niter = min(Niter, training.max_iterations_per_epoch)
 
@@ -583,6 +591,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 and model.W.grad is not None
             ):
                 torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
+
+            # Global clip over EVERY parameter (GraphCast clips at 32). Applied
+            # after the W-only clip so both can be on: the W-only one shapes the
+            # connectome update specifically, this one bounds the whole step.
+            _gcn = getattr(training, 'grad_clip_norm', 0.0)
+            if _gcn and _gcn > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=_gcn)
 
             optimizer.step()
 
