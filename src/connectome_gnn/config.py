@@ -1371,6 +1371,19 @@ class TrainingConfig(BaseModel):
     # without this knob a K>1 epoch costs Niter//K updates, which is far too many.
     # 0 = no cap (the pre-existing behaviour).
     rollout_tail_iters_per_epoch: int = 0
+    # Pin the start-frame sampling range across arms of one comparison.
+    #
+    # get_training_frame_sampling derives last_frame = n_frames - 4 - target_offset,
+    # and the rollout curriculum passes target_offset = max(K) while the one-step
+    # path derives it from time_step. So a K=1..5 curriculum samples from 63,991
+    # while its own t+1 control samples from 63,995: the two are NOT RNG-paired,
+    # and any difference smaller than the run-to-run floor is unattributable.
+    # A K=1 recurrent run SHOULD be identical to one-step training and was not.
+    #
+    # Set this to the largest horizon used anywhere in the comparison (including
+    # on the one-step arms) so every arm draws from the same range. 0 = derive as
+    # before.
+    frame_target_offset: int = 0
 
     # -- How the K rollout steps are combined, how far the gradient is carried
     #    back through them, and how often the state is re-anchored on data.

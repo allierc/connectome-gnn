@@ -333,7 +333,12 @@ def get_training_frame_sampling(sim, training, target_offset=None):
         and training.time_step > 1
     )
 
-    if target_offset is None:
+    # An explicit config pin wins over both the caller's argument and the derived
+    # value, so every arm of a comparison can be made to sample identically.
+    _pin = getattr(training, 'frame_target_offset', 0)
+    if _pin and _pin > 0:
+        target_offset = _pin
+    elif target_offset is None:
         target_offset = (
             1
             if stride_subsample
