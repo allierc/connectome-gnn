@@ -42,6 +42,19 @@ PREFIX = "flyvis_noise_005_"
 # ------------------------------------------------------------------ #
 
 TASKS = {
+    0: dict(
+        # Pre-existing baseline, not part of the weekend launch: flyvis_A trained on
+        # flyvis_A data with NO noise probe and NO group lasso -- the original setting
+        # the reviewer called "too close to the simulation". Same 1.6M-iteration budget.
+        # Valid despite predating the g_phi layout reorder and the g_phi_norm fix:
+        # both are exact no-ops on flyvis_A (its layout [v_j, a_j] is unchanged, and
+        # its norm anchor was always column 0 = v_j, i.e. already correct).
+        # NB the folds are NOT seed/dataset-matched to the weekend grid: these use
+        # seeds 1042-1046 and nominal_cv01 points at the cv00 DATASET, so compare the
+        # fold-level distribution, not fold-by-fold.
+        title="BASELINE: nominal flyvis_A five-fold (no probe, no lasso)",
+        runs=[f"nominal_cv0{c}" for c in range(5)],
+    ),
     1: dict(
         title="Does rollout training beat plain t+1?",
         runs=[f"rs_{a}_cv00" for a in
@@ -495,6 +508,70 @@ def task6(runs, window, thresh):
 
 # ------------------------------------------------------------------ #
 
+TASK_OF = {}
+for _t, _spec in TASKS.items():
+    for _n in _spec["runs"]:
+        TASK_OF.setdefault(_n, []).append(_t)
+
+
+def _baseline(runs, window):
+    hdr(f"TASK 0 — {TASKS[0]['title']}")
+    vals = []
+    print(f"{'fold':6}{'dataset':8}{'seed':6}{'prog':>6}{'R2_W':>9}")
+    print("-" * 100)
+    for n in TASKS[0]["runs"]:
+        r = runs.get(n)
+        if not (r and r.ok):
+            print(f"{n[-4:]:6}  {(r.why if r else 'missing')}")
+            continue
+        v, _, full = window_median(r.it, r.r2, window)
+        if v is not None:
+            vals.append(v)
+        print(f"{n[-4:]:6}{r.dataset:8}{r.seed:<6}{r.progress*100:>5.0f}%{fmt(v):>9}{mark(r, full)}")
+    if len(vals) >= 2:
+        print(f"\n  mean {statistics.mean(vals):.4f}  sd {statistics.stdev(vals):.4f}  (n={len(vals)})")
+
+
+def flat_table(runs, window, thresh):
+    """One row per run: full spec + every metric, all tasks in one table.
+
+    Same trailing-median rule as the per-task tables, so numbers here and there
+    agree. `!`/`~` mark preliminary rows exactly as elsewhere.
+    """
+    hdr(f"ALL RUNS — one row per configuration ({len(runs)} configs)")
+    print(f"{'task':6}{'config':30}{'model':6}{'ds':6}{'seed':6}{'w':3}{'nz':3}"
+          f"{'lasso':7}{'gnorm':8}{'knob':16}{'prog':>6}"
+          f"{'R2_W':>9}{'cosine':>9}{'d/dvi':>9}{'d/dai':>9}{'d/dnoise':>10}")
+    print("-" * 148)
+    order = sorted(runs, key=lambda n: (min(TASK_OF.get(n, [9])), n))
+    prev = None
+    for n in order:
+        r = runs[n]
+        t = ",".join(str(x) for x in TASK_OF.get(n, []))
+        if prev is not None and t != prev:
+            print("-" * 148)
+        prev = t
+        if not r.ok:
+            print(f"{t:6}{n[:29]:30}  {r.why}")
+            continue
+        v, _, full = window_median(r.it, r.r2, window)
+        c, vi, ai, no, _ = _discard_row(r, window)
+        knob = ("t+1" if not r.schedule else
+                f"bptt_win {r.bptt_window}" if r.bptt_window else
+                f"shoot {r.shooting_stride}" if r.shooting_stride else
+                (f"{r.weighting} g={r.gamma}" if r.weighting == "discount" else r.weighting))
+        model = "cond" if r.model == "flyvis_conductance" else "flyA"
+        print(f"{t:6}{n[:29]:30}{model:6}{r.dataset:6}{r.seed:<6}{r.input_size:<3}{r.n_noise:<3}"
+              f"{r.lasso:<7}{r.g_phi_norm:<8}{knob:16}{r.progress*100:>5.0f}%"
+              f"{fmt(v):>9}{fmt(c):>9}{fmt(vi):>9}{fmt(ai):>9}{fmt(no, 5):>10}{mark(r, full)}")
+    print("-" * 148)
+    print("model: flyA = flyvis_A (g_phi sees v_j,a_j) | cond = flyvis_conductance (also v_i,a_i)")
+    print("w = g_phi first-layer width, nz = pure-noise columns, gnorm = coeff_g_phi_norm")
+    print("d/dvi, d/dai, d/dnoise are gradient magnitudes RELATIVE to |d g_phi/d v_j|;")
+    print("nan for vi/ai on flyA because those inputs do not exist there.")
+    print(f"prog = fraction of the planned schedule completed.  ~/! = preliminary window.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -505,6 +582,8 @@ def main(argv=None):
     ap.add_argument("--threshold", type=float, default=None,
                     help="resolution threshold; default = max(sigma_seed, sigma_run, 0.010)")
     ap.add_argument("--csv", help="also dump one row per run")
+    ap.add_argument("--flat", action="store_true",
+                    help="one table with every run and every metric, instead of per-task tables")
     ap.add_argument("--output_root", default=None,
                     help="data root holding log/; same resolution as GNN_Main "
                          "(--output_root, else $GNN_OUTPUT_ROOT)")
@@ -541,7 +620,13 @@ def main(argv=None):
         thresh = max(cand)
     print(f"  -> differences below {thresh:.4f} reported as UNRESOLVED")
 
-    want = a.task or sorted(TASKS)
+    if 0 in (a.task or [0]):
+        _baseline(runs, a.window)
+    if a.flat:
+        flat_table(runs, a.window, thresh)
+        want = []
+    else:
+        want = a.task or sorted(TASKS)
     fns = {1: task1, 2: task2, 3: task3, 4: task4, 6: task6}
     for t in want:
         if t == 5:

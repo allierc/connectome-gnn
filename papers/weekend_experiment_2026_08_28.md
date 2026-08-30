@@ -1,6 +1,10 @@
 # Weekend experiment — 44 jobs, launched 2026-08-28
 
-All on `gpu_l4`, ~33 h each, one batch. 44 jobs, **41 distinct configurations**
+All on `gpu_l4`, ~33 h each, one batch.
+
+> **Results: [`weekend_benchmark_results_2026_08_29.md`](weekend_benchmark_results_2026_08_29.md).**
+> This document is the plan — what was launched and what each contrast was meant to show.
+> It deliberately contains no numbers. 44 jobs, **41 distinct configurations**
 (`noiseprobe_nolasso_cv00` and `noiseseed_on_s1041` are the same config — kept as a replicate).
 
 Everything below trains a GNN to recover a connectome `W` from simulated neural dynamics.
