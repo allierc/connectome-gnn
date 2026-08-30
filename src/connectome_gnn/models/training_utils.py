@@ -396,8 +396,14 @@ def init_metrics_files(log_dir):
         f.write(
             "iteration,"
             "connectivity_r2,"
-            "vrest_r2,"
-            "tau_r2,"
+            # RAW, i.e. over every neuron including the outliers. A handful of
+            # neurons with a near-zero fitted slope send these to -30 or worse, so
+            # they are NOT the numbers metrics.png shows and NOT the paper
+            # convention. The comparable values are vrest_r2_clean / tau_r2_clean
+            # below, with their outlier counts. Named _raw so that reading the
+            # obvious column no longer looks like a broken run.
+            "vrest_r2_raw,"
+            "tau_r2_raw,"
             "hidden_nnr_pearson,"
             "anchor_nnr_pearson,"
             "vrest_r2_clean,"

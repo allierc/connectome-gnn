@@ -684,8 +684,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     model, x_ts, ode_params, n_neurons=n_neurons, device=device
                 )
 
-                epoch_state.metrics.tau_r2 = 0.0
-                epoch_state.metrics.vrest_r2 = 0.0
+                # MLP models have no tau / V_rest to recover. Record nan, not 0.0:
+                # a placeholder must not be indistinguishable from a measurement of
+                # exactly zero in the log.
+                epoch_state.metrics.tau_r2 = float('nan')
+                epoch_state.metrics.vrest_r2 = float('nan')
 
                 with open(metrics_log_path, "a") as f:
                     f.write(
