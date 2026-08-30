@@ -841,6 +841,26 @@ def find_latest_epoch_checkpoint(log_dir, n_runs):
     return best_path, best_epoch
 
 
+def planned_total_updates(config):
+    """Total optimizer steps the run will take, from config alone.
+
+    Mirrors the trainer's own arithmetic (graph_trainer.py: Niter, then Niter//K
+    per epoch under the rollout curriculum), so the LR schedule can be laid out
+    before training starts without threading a counter through.
+    """
+    tc, sim = config.training, config.simulation
+    niter = int(sim.n_frames * tc.data_augmentation_loop // tc.batch_size * 0.2)
+    if getattr(tc, "max_iterations_per_epoch", 0) > 0:
+        niter = min(niter, tc.max_iterations_per_epoch)
+    K = list(getattr(tc, "rollout_horizon_schedule", []) or []) or [1] * tc.n_epochs
+    K = (K + [K[-1]] * tc.n_epochs)[: tc.n_epochs]
+    tail = getattr(tc, "rollout_tail_iters_per_epoch", 0)
+    def _n(k):
+        n = max(1, niter // k)
+        return min(n, tail) if (tail and tail > 0 and k > 1) else n
+    return sum(_n(k) for k in K)
+
+
 def build_lr_scheduler(optimizer, config):
     """Build LR scheduler from config.
 
@@ -892,6 +912,30 @@ def build_lr_scheduler(optimizer, config):
         cosine = CosineAnnealingWarmRestarts(
             optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min)
         return torch.optim.lr_scheduler.ChainedScheduler([warmup, cosine])
+
+    elif scheduler_type == 'graphcast':
+        # GraphCast's schedule (supplement sec 4.3-4.5): linear warmup, then ONE
+        # half-cosine decay, then a constant floor for the rollout tail. Deliberately
+        # a single LambdaLR rather than a ChainedScheduler of warm RESTARTS -- the
+        # point is that the LR is monotone non-increasing after warmup and ends near
+        # zero, which is what makes the final checkpoint usable instead of forcing a
+        # trailing-median read.
+        import math as _math
+        total = int(getattr(tc, 'lr_scheduler_total_iters', 0)) or planned_total_updates(config)
+        warmup = max(int(getattr(tc, 'lr_scheduler_warmup_iters', 100)), 0)
+        decay_frac = float(getattr(tc, 'lr_scheduler_decay_frac', 0.965))
+        tail = float(getattr(tc, 'lr_scheduler_tail_ratio', 3e-4))
+        decay_end = max(int(round(total * decay_frac)), warmup + 1)
+
+        def lr_lambda(step):
+            if step < warmup:
+                return max(step / max(warmup, 1), 1e-8)
+            if step >= decay_end:
+                return tail
+            p = (step - warmup) / max(decay_end - warmup, 1)
+            return tail + (1.0 - tail) * 0.5 * (1.0 + _math.cos(_math.pi * p))
+
+        return LambdaLR(optimizer, lr_lambda=lr_lambda)
 
     else:
         raise ValueError(f"Unknown lr_scheduler: {scheduler_type}")
