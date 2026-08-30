@@ -38,3 +38,44 @@ class TestDetermineLoadFields:
         fields = determine_load_fields(minimal_config)
         assert "calcium" not in fields
         assert "noise" not in fields
+
+
+class TestMetricsLogHeader:
+    """metrics.log's raw tau / V_rest columns must be named as raw.
+
+    Columns 2 and 3 are computed over EVERY neuron, so a handful with a
+    near-zero fitted slope drive them to -30 or worse. They are not what
+    metrics.png plots and not the paper convention -- the comparable values are
+    vrest_r2_clean / tau_r2_clean at columns 6 and 9, with their outlier counts.
+    Reading the obvious names made a healthy run look broken.
+
+    Positions are asserted too: plot.py reads this file positionally
+    (_f(parts, 2), _f(parts, 3), _f(parts, 6), _f(parts, 9)), so a rename must
+    not reorder anything.
+    """
+
+    def _header(self, tmp_path):
+        import os
+        from connectome_gnn.models.training_utils import init_metrics_files
+        os.makedirs(tmp_path / "tmp_training", exist_ok=True)
+        init_metrics_files(str(tmp_path))
+        with open(tmp_path / "tmp_training" / "metrics.log") as f:
+            return f.readline().strip().split(",")
+
+    def test_raw_columns_are_named_raw(self, tmp_path):
+        cols = self._header(tmp_path)
+        assert cols[2] == "vrest_r2_raw"
+        assert cols[3] == "tau_r2_raw"
+
+    def test_clean_columns_keep_their_positions(self, tmp_path):
+        cols = self._header(tmp_path)
+        assert cols[6] == "vrest_r2_clean"
+        assert cols[9] == "tau_r2_clean"
+
+    def test_full_layout_is_unchanged(self, tmp_path):
+        assert self._header(tmp_path) == [
+            "iteration", "connectivity_r2", "vrest_r2_raw", "tau_r2_raw",
+            "hidden_nnr_pearson", "anchor_nnr_pearson",
+            "vrest_r2_clean", "n_out_vrest", "n_total_vrest",
+            "tau_r2_clean", "n_out_tau", "n_total_tau",
+        ]
