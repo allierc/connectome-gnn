@@ -15,18 +15,49 @@ import math
 import pytest
 import torch
 
-from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.config import (GraphModelConfig, NeuralGraphConfig, PlottingConfig,
+                                   SimulationConfig, TrainingConfig)
 from connectome_gnn.models.training_utils import build_lr_scheduler, planned_total_updates
-from connectome_gnn.utils import config_path
 
 pytestmark = pytest.mark.tier2
 
-CFG = "fly/flyvis_noise_005_gc_graphcast_cv00.yaml"
-CFG_CTL = "fly/flyvis_noise_005_gc_control_cv00.yaml"
+# Built in-process, NOT loaded from config/fly/*.yaml: those are gitignored, so a
+# test that reads them passes on one checkout and fails on another. This module
+# previously depended on flyvis_noise_005_gc_*.yaml and broke the moment those
+# were deleted.
+CFG = "graphcast"
+CFG_CTL = "control"
 
 
-def _cfg(name):
-    return NeuralGraphConfig.from_yaml(config_path(name))
+def _cfg(kind):
+    """A minimal config exercising the graphcast knobs. Numbers mirror the arms:
+    1 epoch of 320,000 updates at K=1 x5, plus a capped K>1 tail."""
+    sim = SimulationConfig(params=[[1.0, 1.0, 1.0, 1.0]], n_frames=64000, delta_t=0.02,
+                           n_neurons=16, n_edges=32, n_input_neurons=2, n_neuron_types=2)
+    common = dict(n_epochs=5, batch_size=4, data_augmentation_loop=100)
+    if kind == "graphcast":
+        t = TrainingConfig(**{**common, "n_epochs": 9},
+                           rollout_horizon_schedule=[1, 1, 1, 1, 1, 2, 3, 4, 5],
+                           rollout_tail_iters_per_epoch=14500,
+                           recurrent_training=True, time_step=1,
+                           lr_scheduler="graphcast", lr_scheduler_warmup_iters=1000,
+                           lr_scheduler_decay_frac=0.965, lr_scheduler_tail_ratio=3e-4,
+                           grad_clip_norm=32.0)
+    elif kind == "anneal":
+        t = TrainingConfig(**common, lr_scheduler="graphcast",
+                           lr_scheduler_warmup_iters=1000, grad_clip_norm=0.0)
+    elif kind == "annealclip":
+        t = TrainingConfig(**common, lr_scheduler="graphcast",
+                           lr_scheduler_warmup_iters=1000, grad_clip_norm=32.0)
+    else:
+        t = TrainingConfig(**common, lr_scheduler="none", grad_clip_norm=0.0)
+    gm = GraphModelConfig(signal_model_name="flyvis_A", prediction="first_derivative",
+                          input_size=3, n_layers=2, hidden_dim=16, output_size=1,
+                          input_size_update=5, n_layers_update=2, hidden_dim_update=16,
+                          output_size_update=1, aggr_type="add", embedding_dim=2,
+                          update_type="generic")
+    return NeuralGraphConfig(dataset="unit-test", simulation=sim, training=t,
+                             graph_model=gm, plotting=PlottingConfig())
 
 
 def _lrs(cfg, n):
@@ -147,6 +178,6 @@ class TestGlobalClip:
 
     def test_arms_configure_it_as_intended(self):
         assert _cfg(CFG_CTL).training.grad_clip_norm == 0.0
-        assert _cfg("fly/flyvis_noise_005_gc_anneal_cv00.yaml").training.grad_clip_norm == 0.0
-        assert _cfg("fly/flyvis_noise_005_gc_annealclip_cv00.yaml").training.grad_clip_norm == 32.0
+        assert _cfg("anneal").training.grad_clip_norm == 0.0
+        assert _cfg("annealclip").training.grad_clip_norm == 32.0
         assert _cfg(CFG).training.grad_clip_norm == 32.0
