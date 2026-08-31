@@ -1,13 +1,13 @@
-description: 'ROLLOUT last arm, K=1..5 curriculum, flyvis_A noise-free, fold 0. Paired against flyvis_noise_free_nominal_cv00 exactly as the uniform arm is: 5 epochs x 100 loops vs the baseline s 1 x 500 (same 500 iterations), frame_target_offset 1 so both draw start frames from 63995. Differs from flyvis_noise_free_nominal_rc_uniform_cv00 in one knob only. endpoint-only supervision on the dense unstrided grid with a live stimulus. The control that isolates long horizon from dense supervision: same rollout, same K, only the intermediate targets removed.'
-dataset: flyvis_noise_free_blank50_cv00
+description: "blank50, LLM parameters, model_noise bug fixed, fold 00"
+dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -16,10 +16,10 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.0
+  noise_model_level: 0.05
   seed: 42
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -41,17 +41,17 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   torch_compile: true
-  mlp_precision: bf16
+  mlp_precision: fp32
   n_runs: 1
   device: auto
-  recurrent_training: true
+  recurrent_training: false
   time_step: 1
   batch_size: 4
   regul_batch_scaling: sqrt
@@ -74,10 +74,6 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1042
-  n_epochs: 5
-  data_augmentation_loop: 100
-  rollout_horizon_schedule: [1, 2, 3, 4, 5]
-  rollout_step_weighting: last
-  rollout_step_reduction: mean
-  frame_target_offset: 1
-config_file: fly/flyvis_noise_free_nominal_rc_last_cv00
+  deterministic: true
+  n_epochs: 1
+  data_augmentation_loop: 500

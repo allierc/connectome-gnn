@@ -106,6 +106,16 @@ def data_train(config=None, erase=False, best_model=None, style=None, device=Non
         from connectome_gnn.utils import set_deterministic
         set_deterministic(seed)
 
+    # 'tf32' is a global matmul setting, so it is set here rather than in the
+    # model; 'bf16' is an autocast region and lives in NeuralGNN._run_mlp, which
+    # is the only place that should be affected. Default 'fp32' asserts the
+    # historical setting explicitly instead of relying on the torch default.
+    _prec = getattr(config.training, "mlp_precision", "fp32")
+    torch.set_float32_matmul_precision("high" if _prec == "tf32" else "highest")
+    if _prec != "fp32":
+        _logger.info(f"mlp_precision: {_prec} — g_phi/f_theta matmuls only; "
+                     "the residual, the loss and every regulariser stay fp32")
+
     # torch.autograd.set_detect_anomaly(True)
 
     _logger.info(f"dataset: {config.dataset}")

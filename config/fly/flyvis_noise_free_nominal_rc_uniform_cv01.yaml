@@ -48,6 +48,7 @@ plotting:
   - 100
 training:
   torch_compile: true
+  mlp_precision: bf16
   n_runs: 1
   device: auto
   recurrent_training: true
