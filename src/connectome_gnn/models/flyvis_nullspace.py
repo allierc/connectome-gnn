@@ -563,10 +563,9 @@ def sparse_sum_preserving(W_gt, groups):
     type in different columns have CORRELATED but not identical activity
     (slightly shifted in time), so this is an approximation.
 
-    Results (noise-free W, verified by ODE rollout):
-        Edges zeroed:    308,160 / 434,112 = 71.0%
-        Connectivity R²: ~0.10  (sparse W looks very different from GT)
-        Rollout Pearson r: ~0.97  (dynamics largely preserved)
+    The collapse zeroes most edges, so the sparse W looks very different from the
+    ground truth while the dynamics are largely preserved -- that gap is the point
+    of the construction. Numbers live in papers/, not here.
 
     Returns:
         W_sparse: (E,) with 308,160 zeroed edges
@@ -619,9 +618,8 @@ def sparse_calibrated(W_gt, groups, edge_index, voltage_np):
     an approximation. Calibration corrects for the activation differences
     using a single scalar — sufficient to substantially reduce the rollout error.
 
-    Results:
-        Connectivity R²: ~0.39  (better than sum-preserving ~0.10)
-        Rollout Pearson r: ~0.99  (much better than sum-preserving ~0.97)
+    Recovers more of the GT weights than the plain sum-preserving collapse and
+    tracks the dynamics more closely. Numbers live in papers/, not here.
 
     Args:
         W_gt:       (E,) ground-truth weights

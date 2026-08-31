@@ -203,7 +203,8 @@ def fit_residual_loss(residual, reduction="norm2", target=None, huber_delta=1.0)
     (training_utils.run_nominal_train_step) and the dense rollout curriculum
     (recurrent_step._dense_rollout_loss). They must agree: when they silently
     differed, the rollout arm's fit term was orders of magnitude weaker than the
-    unchanged regularisers and R^2_W collapsed to ~0 while nominal reached 0.98.
+    unchanged regularisers, the penalties dominated and connectivity recovery
+    collapsed.
 
     "norm2": sqrt(sum r^2)  — historical; magnitude-1 gradient, scales as
              sqrt(n_elements), so the fit/regulariser balance moves with

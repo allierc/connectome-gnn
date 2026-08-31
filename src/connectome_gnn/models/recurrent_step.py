@@ -15,8 +15,7 @@ ROLLOUT  (`_dense_rollout_loss`)
 --------------------------------
 Activated by `rollout_horizon_schedule: [1, 2, 3, ...]`; epoch e unrolls K =
 schedule[e] steps from a sampled frame k and scores EVERY step. The only mode
-that has been benchmarked. Elsewhere it has also been called the
-"dense-supervision horizon curriculum" -- same code, one name from here on.
+that has been benchmarked. 
 
 Requires `time_step: 1` (unstrided data, so every intermediate frame exists) and
 advances the real stimulus at each step.
@@ -34,15 +33,13 @@ equality true whatever they are set to.
     rollout_shooting_stride     1              "shoot1"     re-anchor every step
                                 2              "shoot2"     re-anchor every 2nd
 
-Results (flyvis_A, noise-005, see papers/benchmark_results.md). All deltas are
-R^2_W, negative = WORSE:
-  "uniform" vs one-step         -0.004  (K=1..5, 5/5 folds worse, sd 0.002)
-  "pushforward" vs "uniform"    -0.077  (largest effect in the grid)
-  "last"        vs "uniform"    -0.022
-  "shoot1", "shoot2", "discount"        within the resolution floor
-Rollout never beat one-step on any fold. Note epoch 0 runs K=1, which IS one-step,
-so the whole -0.004 is produced by the K=2..5 epochs.
-
+MODE 1  (`_standard_recurrent_loss`, the default when neither of the above is set)
+---------------------------------------------------------------------------------
+Legacy. One start, unroll `time_step`, score ONLY the endpoint, on a
+stride-subsampled dataset with the stimulus frozen through the unroll. Built for
+the stride-5 regime where intermediate observations do not exist.
+NOT YET BENCHMARKED -- note this is NOT the same as the "last" arm above, which is
+endpoint-only on the dense unstrided grid with a live stimulus.
 
 MODE 2  (`_multi_start_loss`, `multi_start_recurrent: true`)
 -----------------------------------------------------------
@@ -52,13 +49,6 @@ enforce trajectory consistency, and independent start noise partially cancels.
 NOT YET BENCHMARKED.
 
 
-MODE 1  (`_standard_recurrent_loss`, the default when neither of the above is set)
----------------------------------------------------------------------------------
-Legacy. One start, unroll `time_step`, score ONLY the endpoint, on a
-stride-subsampled dataset with the stimulus frozen through the unroll. Built for
-the stride-5 regime where intermediate observations do not exist.
-NOT YET BENCHMARKED -- note this is NOT the same as the "last" arm above, which is
-endpoint-only on the dense unstrided grid with a live stimulus.
 """
 
 import torch
@@ -160,10 +150,9 @@ def _dense_rollout_loss(
 
        Do not break 3. An earlier version scored integrated VOLTAGE against
        x_ts.voltage[k+s] with .pow(2).mean() and no ynorm. norm2 = sqrt(sum r^2)
-       over ~55k elements vs mean(r^2) is 3-5 orders of magnitude at the same
-       residual, so the fit/regulariser balance flipped (fit fell from ~80% of the
-       loss to ~12%), the W penalties took over and R^2_W went to ~0 while one-step
-       reached 0.98.
+       and mean(r^2) differ by orders of magnitude at the same residual, so the
+       fit/regulariser balance flipped, the W penalties took over, and connectivity
+       recovery collapsed.
 
     Knobs -- all no-ops at K=1, so 3 holds whatever they are set to. Benchmark arm
     names in brackets; see the module docstring for the full table.

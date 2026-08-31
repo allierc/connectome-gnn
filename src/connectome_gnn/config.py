@@ -1321,8 +1321,8 @@ class TrainingConfig(BaseModel):
     # Global gradient-norm clip over ALL parameters, as GraphCast does at 32
     # (supplement sec 4.4). grad_clip_W above clips only model.W and defaults
     # off, so today nothing bounds f_theta / g_phi / a gradients at all -- a
-    # plausible cause of the one-checkpoint R^2_W collapses of 0.2-0.5 that
-    # force the trailing-median reading rule.
+    # plausible cause of the one-checkpoint R^2_W collapses that force the
+    # trailing-median reading rule.
     grad_clip_norm: float = 0.0
     use_gt_edges: bool = False  # True = use ground truth edge_index; False = fully connected graph
     w_init_mode: WInitMode = WInitMode.RANDN  # randn=std=1, randn_scaled=std=scale/sqrt(N), zeros
