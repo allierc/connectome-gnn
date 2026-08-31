@@ -190,7 +190,7 @@ class NeuralGNN(nn.Module):
         # and every regulariser keep full precision. Casting the LOSS would be a
         # different and much worse change: norm2 sums 1.7M squared residuals, and
         # bf16 has 8 mantissa bits.
-        self._amp_dtype = {"bf16": torch.bfloat16}.get(
+        self._amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(
             getattr(config.training, "mlp_precision", "fp32"))
 
         self.training_time_window = config.training.time_window

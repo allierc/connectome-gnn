@@ -1298,13 +1298,21 @@ class TrainingConfig(BaseModel):
     #           setting that reproduces an existing run to the last digit.
     #   'tf32'  TF32 tensor cores for the matmuls (10-bit mantissa). Measured on
     #           an A6000: g_phi fwd+bwd 20.75 -> 18.91 ms, max|d| 2.2e-4.
-    #   'bf16'  autocast the MLPs to bfloat16 (8-bit mantissa), which also halves
-    #           the [E*B, hidden] activation traffic -- the reason it wins most on
-    #           a bandwidth-starved card. A6000: 20.75 -> 10.21 ms, max|d| 3.4e-3.
+    #   'bf16'  autocast the MLPs to bfloat16 (8 exponent bits, 8 of significand),
+    #           which also halves the [E*B, hidden] activation traffic -- the
+    #           reason it wins most on a bandwidth-starved card.
+    #           A6000: 20.75 -> 10.21 ms, max|d| 3.4e-3.
+    #   'fp16'  autocast to float16. Same 16 bits spent differently: 11 bits of
+    #           significand against bf16's 8, so it is MORE accurate here, but 5
+    #           exponent bits against bf16's 8, so it underflows where bf16 would
+    #           not. There is no GradScaler in this path -- the loss and its
+    #           backward are fp32, only the MLP matmuls are cast -- so a gradient
+    #           small enough to flush to zero inside the autocast region does so
+    #           silently. Check the gradient norms before trusting a long run.
     # NOT free: tf32 and bf16 change the trajectory, so a run under them cannot be
     # compared digit-for-digit with an fp32 one. Judge them on the five-fold R2
     # distribution instead.
-    mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
+    mlp_precision: Literal["fp32", "tf32", "bf16", "fp16"] = "fp32"
 
     # external input learning
     learn_external_input: bool = False
