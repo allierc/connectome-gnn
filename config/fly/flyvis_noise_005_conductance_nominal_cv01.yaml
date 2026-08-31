@@ -1,4 +1,4 @@
-description: "blank50, LLM parameters, model_noise bug fixed   conn=-0.017 Vr=0.762(100%) τ=-7.512(94%)  16K>   35 it/s"
+description: "blank50, LLM parameters, model_noise bug fixed, fold 01"
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
