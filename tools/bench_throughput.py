@@ -43,6 +43,11 @@ LOG_ROOT = os.environ.get(
 )
 BENCH_DIR = os.path.join(REPO, "tools", "bench_results")
 CLUSTER_CWD = "~/Graph/connectome-gnn"
+# The interpreter by absolute path, not `python`. A bsub launched over ssh gets a
+# non-interactive shell with no conda activation, so bare `python` resolves to
+# miniforge3/bin/python and the job dies in 2 s on `import matplotlib` -- which
+# LSF reports as exit code 1 with no other clue.
+CLUSTER_PYTHON = "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/bin/python"
 
 GATE_COLUMNS = ("connectivity_r2", "vrest_r2_clean", "n_out_vrest",
                 "tau_r2_clean", "n_out_tau")
@@ -68,9 +73,14 @@ def write_spec(base, tag, compile_flag):
     return name
 
 
-def submit(spec, queue, walltime, stdout_path):
+def submit(spec, queue, walltime, stdout_rel):
+    # -o must be a path the CLUSTER can write: there is no /workspace there, the
+    # repo is ~/Graph/connectome-gnn on the same shared filesystem. LSF resolves a
+    # relative -o against the submission cwd, so keep it relative and let the
+    # `cd` do the work -- an absolute /workspace/... path makes bsub exit 1 with
+    # no output file at all, which reads as "the training crashed".
     cmd = (f"cd {CLUSTER_CWD} && bsub -n 8 -gpu \"num=1\" -q {queue} -W {walltime} "
-           f"-o {stdout_path} \"python GNN_Main.py -o train {spec}\"")
+           f"-o {stdout_rel} \"{CLUSTER_PYTHON} GNN_Main.py -o train {spec}\"")
     r = subprocess.run(["ssh", "allierc@login1", cmd],
                        capture_output=True, text=True, timeout=180)
     m = re.search(r"Job <(\d+)>", r.stdout)
@@ -139,7 +149,8 @@ def run(args):
     spec = write_spec(args.base_config, args.tag, args.compile)
     log_dir = os.path.join(LOG_ROOT, "log", "fly", spec)
     metrics = os.path.join(log_dir, "tmp_training", "metrics.log")
-    stdout_path = os.path.join(BENCH_DIR, f"{args.tag}.out")
+    stdout_rel = os.path.join("tools", "bench_results", f"{args.tag}.out")
+    stdout_path = os.path.join(REPO, stdout_rel)
 
     # A stale log dir would let read_gate() see the PREVIOUS run's 16001 row and
     # declare victory before this run has taken a single step.
@@ -154,7 +165,7 @@ def run(args):
     branch = subprocess.run(["git", "-C", REPO, "rev-parse", "--abbrev-ref", "HEAD"],
                             capture_output=True, text=True).stdout.strip()
 
-    job_id = submit(spec, args.queue, args.walltime, stdout_path)
+    job_id = submit(spec, args.queue, args.walltime, stdout_rel)
     print(f"[{args.tag}] job {job_id} on {args.queue}, spec {spec}, "
           f"{branch}@{commit}", flush=True)
 
