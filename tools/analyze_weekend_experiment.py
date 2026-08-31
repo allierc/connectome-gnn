@@ -80,6 +80,13 @@ TASKS = {
         title="Is the noise-probe benefit repeatable, or a seed lottery?",
         runs=[f"noiseseed_{o}_s{s}" for s in range(1041, 1046) for o in ("on", "off")],
     ),
+    7: dict(
+        title="GraphCast options: anneal / clip / rollout-as-tail (noise_005 + noise_free)",
+        runs=[f"flyvis_{nz}_gc_{a}_cv0{c}"
+              for nz in ("noise_005", "noise_free")
+              for a in ("control", "anneal", "annealclip", "graphcast")
+              for c in range(5)],
+    ),
     6: dict(
         title="Control for the family-dependent g_phi_norm prior",
         runs=["normctl_cond_cv00", "normctl_flyvisA_cv00"],
@@ -161,9 +168,16 @@ def _read_csv(path, n_cols):
     return cols
 
 
+def _full(name):
+    """Config stem for a run name. The weekend grid is all flyvis_noise_005_*, so
+    those names are given bare; the GraphCast grid spans two noise levels, so those
+    carry their own prefix."""
+    return name if name.startswith("flyvis_") else f"{PREFIX}{name}"
+
+
 def load(name) -> Run:
     r = Run(name=name)
-    cfg_file = config_path("fly", f"{PREFIX}{name}.yaml")
+    cfg_file = config_path("fly", f"{_full(name)}.yaml")
     if not os.path.exists(cfg_file):
         r.why = "no config"
         return r
@@ -188,7 +202,7 @@ def load(name) -> Run:
     r.planned_steps = sum(max(1, niter // k) for k in K)
     r.planned_evals = sum(max(1, niter // k) * k for k in K)
 
-    d = log_path("fly", f"{PREFIX}{name}", "tmp_training")
+    d = log_path("fly", _full(name), "tmp_training")
     it, r2 = _read_csv(os.path.join(d, "metrics.log"), 2)
     r.it, r.r2 = it, r2
     dc = _read_csv(os.path.join(d, "g_phi_discard.log"), 5)
@@ -532,6 +546,57 @@ def _baseline(runs, window):
         print(f"\n  mean {statistics.mean(vals):.4f}  sd {statistics.stdev(vals):.4f}  (n={len(vals)})")
 
 
+GC_ARMS = ("control", "anneal", "annealclip", "graphcast")
+
+
+def task7(runs, window, thresh):
+    hdr(f"TASK 7 — {TASKS[7]['title']}")
+    print("Reports the trailing-window MEDIAN and the FINAL checkpoint side by side.")
+    print("That gap is the readout arm 'anneal' exists to close: the collapses that force")
+    print("the median rule are hypothesised to be a symptom of never annealing the LR.")
+    print("If annealing works, median and final agree and the median rule retires.\n")
+    for nz in ("noise_005", "noise_free"):
+        print(f"--- {nz} " + "-" * 86)
+        print(f"{'arm':12}{'prog':>6}" + "".join(f"{'cv0'+str(c):>9}" for c in range(5))
+              + f"{'mean':>9}{'sd':>8}{'final':>9}{'|m-f|':>8}")
+        base = None
+        for arm in GC_ARMS:
+            meds, finals, prog = [], [], []
+            for c in range(5):
+                r = runs.get(f"flyvis_{nz}_gc_{arm}_cv0{c}")
+                if not (r and r.ok):
+                    meds.append(None); finals.append(None); continue
+                v, _, _ = window_median(r.it, r.r2, window)
+                meds.append(v)
+                fin = next((x for x in reversed(r.r2) if x is not None), None)
+                finals.append(fin); prog.append(r.progress)
+            got = [v for v in meds if v is not None]
+            fg = [v for v in finals if v is not None]
+            mean = statistics.mean(got) if got else None
+            sd = statistics.stdev(got) if len(got) > 1 else None
+            fmean = statistics.mean(fg) if fg else None
+            gap = abs(mean - fmean) if (mean is not None and fmean is not None) else None
+            if arm == "control":
+                base = mean
+            print(f"{arm:12}{(statistics.mean(prog)*100 if prog else 0):>5.0f}%"
+                  + "".join(fmt(v)[-8:].rjust(9) for v in meds)
+                  + f"{fmt(mean):>9}{('   -' if sd is None else f'{sd:.4f}'):>8}"
+                  + f"{fmt(fmean):>9}{('   -' if gap is None else f'{gap:.4f}'):>8}")
+        if base is not None:
+            print(f"\n  vs control ({base:.4f}):")
+            for arm in GC_ARMS[1:]:
+                got = [window_median(runs[f"flyvis_{nz}_gc_{arm}_cv0{c}"].it,
+                                     runs[f"flyvis_{nz}_gc_{arm}_cv0{c}"].r2, window)[0]
+                       for c in range(5) if runs.get(f"flyvis_{nz}_gc_{arm}_cv0{c}", Run("")).ok]
+                got = [g for g in got if g is not None]
+                if not got:
+                    continue
+                d = statistics.mean(got) - base
+                print(f"    {arm:14}{d:+.4f}   " +
+                      ("UNRESOLVED" if abs(d) < thresh else ("better" if d > 0 else "worse")))
+        print()
+
+
 def flat_table(runs, window, thresh):
     """One row per run: full spec + every metric, all tasks in one table.
 
@@ -627,7 +692,7 @@ def main(argv=None):
         want = []
     else:
         want = a.task or sorted(TASKS)
-    fns = {1: task1, 2: task2, 3: task3, 4: task4, 6: task6}
+    fns = {1: task1, 2: task2, 3: task3, 4: task4, 6: task6, 7: task7}
     for t in want:
         if t == 5:
             task5(runs, a.window, thresh, sigma)
