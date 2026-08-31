@@ -13,18 +13,30 @@ training**, so it must sample identically to `recurrent_training: false`.
 """
 import pytest
 
-from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.config import SimulationConfig, TrainingConfig
 from connectome_gnn.models.training_utils import get_training_frame_sampling
-from connectome_gnn.utils import config_path
 
 pytestmark = pytest.mark.tier2
 
-ONESTEP = "fly/flyvis_noise_005_rs_onestep_cv00.yaml"
-ROLLOUT = "fly/flyvis_noise_005_rs_uniform_cv00.yaml"
+# Built in-memory rather than read from config/fly: those specs are gitignored
+# experiment configs that come and go with each grid, and this invariant is a
+# property of the sampler, not of any one spec.
+N_FRAMES = 64000
+
+ONESTEP = dict(recurrent_training=False)
+ROLLOUT = dict(recurrent_training=True, rollout_horizon_schedule=[1, 2, 3, 4, 5])
 
 
-def _cfg(p):
-    return NeuralGraphConfig.from_yaml(config_path(p))
+class _Cfg:
+    def __init__(self, **train):
+        self.simulation = SimulationConfig(
+            params=[[1.0, 1.0, 1.0, 1.0]], n_frames=N_FRAMES, delta_t=0.02,
+            n_neurons=16, n_edges=32, n_input_neurons=2, n_neuron_types=2)
+        self.training = TrainingConfig(n_epochs=5, batch_size=4, time_step=1, **train)
+
+
+def _cfg(arm):
+    return _Cfg(**arm)
 
 
 def _range(cfg, target_offset=None):

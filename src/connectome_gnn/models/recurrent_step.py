@@ -1,4 +1,4 @@
-"""Recurrent (multi-step) training losses.
+r"""Recurrent (multi-step) training losses.
 
 THREE MODES, one dispatcher. `recurrent_loss` picks between them:
 
@@ -20,15 +20,31 @@ that has been benchmarked.
 Requires `time_step: 1` (unstrided data, so every intermediate frame exists) and
 advances the real stimulus at each step.
 
-Each step scores the DERIVATIVE against `y_ts[k+s] / ynorm`, averaged over the K
-steps. At K=1 this is term-for-term the one-step objective, so the curriculum is a
-strict extension of it -- and every knob below is a no-op at K=1, which keeps that
-equality true whatever they are set to.
+Each step scores the DERIVATIVE against `y_ts[k+s] / ynorm`. At K=1 this is
+term-for-term the one-step objective, so the curriculum is a strict extension of
+it -- and every knob below is a no-op at K=1, which keeps that equality true
+whatever they are set to.
+
+TWO REDUCTIONS, do not confuse them. The loss is
+
+    loss = REDUCE_s  w_s * fit_reduction( pred_s - y_{k+s} )   over s = 0..K-1
+                            \____________________________/
+                             collapses ONE step over n_visible * batch_size
+
+  * `fit_reduction` (shared with one-step training) collapses a single step's
+    residual over neurons AND batch. 'norm2' = ||r||_2 grows as sqrt(batch_size);
+    `regul_batch_scaling: sqrt` is what cancels that, so the regulariser/fit ratio
+    no longer depends on the batch size. 'mean' removes the coupling at the source
+    instead, and the two are mutually exclusive (config.py rejects the pair).
+  * `rollout_step_reduction` collapses the K steps: 'mean' (default) divides by
+    sum_s w_s, 'sum' does not. Only this one is horizon-related; it has nothing to
+    do with batch size.
 
     KNOB                        VALUE          BENCHMARK ARM
     (default = plain rollout)                  "uniform"
     rollout_step_weighting      "discount"     "discount"   w_s = gamma^s
                                 "last"         "last"       only the final step
+    rollout_step_reduction      "sum"          --           no 1/sum_s w_s
     rollout_bptt_window         1              "pushforward"  detach every step
     rollout_shooting_stride     1              "shoot1"     re-anchor every step
                                 2              "shoot2"     re-anchor every 2nd
@@ -158,6 +174,7 @@ def _dense_rollout_loss(
     names in brackets; see the module docstring for the full table.
 
       rollout_step_weighting   ["uniform"|"discount"|"last"]  how steps are weighted
+      rollout_step_reduction   ["mean"|"sum"]  how the K weighted terms combine
       rollout_bptt_window      [1 = "pushforward"]  detach the state every m steps
       rollout_shooting_stride  [1 = "shoot1", 2 = "shoot2"]  re-anchor on data
     """
@@ -219,6 +236,7 @@ def _dense_rollout_loss(
     reduction = getattr(tc, "fit_reduction", "norm2")
     huber_delta = getattr(tc, "fit_huber_delta", 1.0)
     weighting = getattr(tc, "rollout_step_weighting", "uniform")
+    step_reduction = getattr(tc, "rollout_step_reduction", "mean")
     gamma = getattr(tc, "rollout_discount", 0.9)
     bptt_window = int(getattr(tc, "rollout_bptt_window", 0) or 0)
     shooting_stride = int(getattr(tc, "rollout_shooting_stride", 0) or 0)
@@ -305,10 +323,16 @@ def _dense_rollout_loss(
     if weight_scored == 0.0:
         return torch.zeros(1, device=device, requires_grad=True), regul_value
 
-    # Divide by the weight actually applied (not by K): the objective scale is
-    # then independent of both horizon and weighting, so no coeff_* needs
-    # rescaling when either changes.
-    loss = loss + fit_loss / weight_scored
+    # Collapse the K steps. 'mean' divides by the weight actually applied (not by
+    # K), so the objective scale is independent of both horizon and weighting and
+    # no coeff_* needs rescaling when either changes. 'sum' leaves the weighted sum
+    # alone, so the fit grows with the horizon while the regulariser does not.
+    # This is the K-step reduction; fit_reduction already collapsed each step over
+    # n_visible * batch_size.
+    if step_reduction == "sum":
+        loss = loss + fit_loss
+    else:
+        loss = loss + fit_loss / weight_scored
     return loss, regul_value
 
 

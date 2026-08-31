@@ -1422,6 +1422,23 @@ class TrainingConfig(BaseModel):
     rollout_step_weighting: Literal["uniform", "discount", "linear_decay", "last"] = "uniform"
     rollout_discount: float = 0.9  # gamma, used only by rollout_step_weighting='discount'
 
+    # How the K weighted per-step terms are combined. This is a DIFFERENT reduction
+    # from fit_reduction: fit_reduction collapses the residual of ONE step over
+    # n_visible * batch_size elements, this one collapses the K steps.
+    #   'mean'  loss = sum_s w_s * fit_s / sum_s w_s   — the objective scale is
+    #           independent of the horizon, so coeff_* set at K=1 stay calibrated
+    #           as the curriculum grows K, and K=1 is term-for-term one-step
+    #           training under every weighting.
+    #   'sum'   loss = sum_s w_s * fit_s               — the fit term grows ~K, so
+    #           the regulariser/fit ratio falls as 1/K and coeff_* would have to be
+    #           re-tuned per horizon. Offered because with 'uniform' weights the
+    #           two differ by exactly the factor K, which makes 'sum' the honest
+    #           name for "no normalisation" rather than something to emulate by
+    #           hand-scaling the weights.
+    # NB neither touches the batch-size coupling: that is fit_reduction's job,
+    # compensated by regul_batch_scaling.
+    rollout_step_reduction: Literal["mean", "sum"] = "mean"
+
     # Backprop-through-time depth, in rollout steps. 0 = full BPTT through all K
     # (current behaviour): step s reaches the parameters by s+1 paths, so the
     # earliest model call is differentiated K times over and the share of the
