@@ -98,3 +98,26 @@ class TestSqrtScaling:
         assert r._coeffs["g_phi_diff"] == pytest.approx(2.0)
         # W_L1 is annealed -> anneal(1.0) * 2, and must be strictly between 0 and 2
         assert 0.0 < r._coeffs["W_L1"] < 2.0
+
+
+class TestMutualExclusionWithMean:
+    """'sqrt' and fit_reduction 'mean' fix the same coupling; both is a 2x error."""
+
+    @pytest.mark.parametrize("scaling,reduction", [
+        ("none", "norm2"), ("none", "mean"), ("sqrt", "norm2"),
+    ])
+    def test_valid_combinations_load(self, scaling, reduction):
+        TrainingConfig(n_epochs=1, batch_size=4,
+                       regul_batch_scaling=scaling, fit_reduction=reduction)
+
+    def test_sqrt_with_mean_is_rejected_at_load(self):
+        with pytest.raises(ValueError, match="double-corrects"):
+            TrainingConfig(n_epochs=1, batch_size=4,
+                           regul_batch_scaling="sqrt", fit_reduction="mean")
+
+    def test_the_error_names_the_over_correction(self):
+        """The message must say by how much, so the fix is obvious."""
+        with pytest.raises(ValueError) as e:
+            TrainingConfig(n_epochs=1, batch_size=16,
+                           regul_batch_scaling="sqrt", fit_reduction="mean")
+        assert "4.00" in str(e.value)      # sqrt(16)
