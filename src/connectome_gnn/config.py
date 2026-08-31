@@ -1291,6 +1291,21 @@ class TrainingConfig(BaseModel):
     # Compilation flag for torch.compile optimization
     torch_compile: bool = True
 
+    # Arithmetic precision of the two MLPs, g_phi (E*B = 1.7M rows at flyvis
+    # scale) and f_theta (N*B rows). Parameters, optimiser state, the residual and
+    # every reduction stay fp32 in all three settings -- only the matmuls change.
+    #   'fp32'  IEEE fp32 throughout. The published behaviour, and the only
+    #           setting that reproduces an existing run to the last digit.
+    #   'tf32'  TF32 tensor cores for the matmuls (10-bit mantissa). Measured on
+    #           an A6000: g_phi fwd+bwd 20.75 -> 18.91 ms, max|d| 2.2e-4.
+    #   'bf16'  autocast the MLPs to bfloat16 (8-bit mantissa), which also halves
+    #           the [E*B, hidden] activation traffic -- the reason it wins most on
+    #           a bandwidth-starved card. A6000: 20.75 -> 10.21 ms, max|d| 3.4e-3.
+    # NOT free: tf32 and bf16 change the trajectory, so a run under them cannot be
+    # compared digit-for-digit with an fp32 one. Judge them on the five-fold R2
+    # distribution instead.
+    mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
+
     # external input learning
     learn_external_input: bool = False
 

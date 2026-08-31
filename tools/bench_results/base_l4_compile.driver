@@ -1,0 +1,50 @@
+[base_l4_compile] job 153803962 on gpu_l4, spec flyvis_noise_005_bench_base_l4_compile, perf/fused-message-passing@f4b4679
+[base_l4_compile]    1.0 min  rows=[]  rate=- it/s (n=0)
+[base_l4_compile]    2.0 min  rows=[1]  rate=15.0 it/s (n=974)
+[base_l4_compile]    3.0 min  rows=[1]  rate=14.97 it/s (n=2356)
+[base_l4_compile]    4.1 min  rows=[1]  rate=14.95 it/s (n=3734)
+[base_l4_compile]    5.1 min  rows=[1]  rate=14.97 it/s (n=5113)
+[base_l4_compile]    6.1 min  rows=[1]  rate=14.96 it/s (n=6493)
+[base_l4_compile]    7.1 min  rows=[1]  rate=14.99 it/s (n=7873)
+[base_l4_compile]    8.1 min  rows=[1]  rate=14.99 it/s (n=9253)
+[base_l4_compile]    9.1 min  rows=[1]  rate=15.0 it/s (n=10633)
+[base_l4_compile]   10.2 min  rows=[1]  rate=14.96 it/s (n=12014)
+[base_l4_compile]   11.2 min  rows=[1]  rate=14.97 it/s (n=13394)
+[base_l4_compile]   12.2 min  rows=[1]  rate=14.97 it/s (n=14776)
+[base_l4_compile]   13.2 min  rows=[1]  rate=14.98 it/s (n=16042)
+[base_l4_compile]   14.2 min  rows=[1]  rate=14.99 it/s (n=17423)
+[base_l4_compile]   15.3 min  rows=[1]  rate=14.96 it/s (n=18803)
+[base_l4_compile]   16.3 min  rows=[1]  rate=14.98 it/s (n=20185)
+[base_l4_compile]   17.3 min  rows=[1]  rate=14.98 it/s (n=21566)
+[base_l4_compile]   18.3 min  rows=[1]  rate=15.0 it/s (n=22946)
+[base_l4_compile]   19.3 min  rows=[1, 16001]  rate=15.0 it/s (n=24130)
+[base_l4_compile] wrote /workspace/connectome-gnn/tools/bench_results/base_l4_compile.json
+{
+  "tag": "base_l4_compile",
+  "queue": "gpu_l4",
+  "spec": "flyvis_noise_005_bench_base_l4_compile",
+  "branch": "perf/fused-message-passing",
+  "commit": "f4b4679",
+  "job_id": "153803962",
+  "torch_compile": true,
+  "rate_last": 14.99,
+  "rate_median_tail": 15.0,
+  "rate_samples": 24130,
+  "minutes_to_gate": 19.4,
+  "gate": {
+    "1": {
+      "connectivity_r2": "-0.016676",
+      "vrest_r2_clean": "0.755654",
+      "n_out_vrest": "13701",
+      "tau_r2_clean": "-7.511984",
+      "n_out_tau": "12894"
+    },
+    "16001": {
+      "connectivity_r2": "0.950505",
+      "vrest_r2_clean": "0.563756",
+      "n_out_vrest": "2213",
+      "tau_r2_clean": "0.903719",
+      "n_out_tau": "230"
+    }
+  }
+}
