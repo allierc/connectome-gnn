@@ -175,6 +175,15 @@ class LossRegularizer:
         self._coeffs['V_rest_L1'] = anneal(getattr(tc, 'coeff_V_rest_L1', 0.0))
         self._coeffs['V_rest_L2'] = anneal(getattr(tc, 'coeff_V_rest_L2', 0.0))
 
+        # Batch-size decoupling (see config.regul_batch_scaling). Applied to the
+        # COEFFICIENTS rather than to the summed penalty so that every term, the
+        # per-component history and the total all carry the same factor -- the
+        # curves in loss.png then show what actually entered the loss.
+        if getattr(tc, 'regul_batch_scaling', 'none') == 'sqrt':
+            _s = float(tc.batch_size) ** 0.5
+            for _k in self._coeffs:
+                self._coeffs[_k] *= _s
+
     def set_epoch(self, epoch: int, plot_frequency: int = None, Niter: int = None):
         """Set current epoch and update coefficients."""
         self.epoch = epoch
