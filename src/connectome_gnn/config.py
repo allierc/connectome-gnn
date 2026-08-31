@@ -1385,6 +1385,24 @@ class TrainingConfig(BaseModel):
     # before.
     frame_target_offset: int = 0
 
+    # Decouple regularisation strength from batch_size.
+    #
+    # The fit term is one norm2 over the whole batched graph, ||r||_2 over
+    # n_visible * batch_size elements, so it grows as sqrt(batch_size) -- measured
+    # 1.99x at B=4, 3.98x at B=16. The regularisers are parameter norms, computed
+    # once per iteration and independent of B. So at fixed coeff_* the
+    # regulariser/fit ratio falls as 1/sqrt(batch_size): batch_size is silently a
+    # regularisation hyperparameter, and coeff_* cannot be copied between configs
+    # with different batch sizes.
+    #
+    #   'none'  multiplier 1.0        -- the historical behaviour, bit-identical.
+    #   'sqrt'  multiplier sqrt(B)    -- ratio constant in B, so coeff_* transfers.
+    #
+    # Default 'none' so every published config reproduces exactly. Do NOT combine
+    # with fit_reduction 'mean', which removes the same coupling a different way
+    # (mean(r^2) is already flat in B).
+    regul_batch_scaling: Literal["none", "sqrt"] = "none"
+
     # -- How the K rollout steps are combined, how far the gradient is carried
     #    back through them, and how often the state is re-anchored on data.
     #    All three are no-ops when rollout_horizon_schedule is empty or K == 1.

@@ -2115,18 +2115,6 @@ class HiddenNeuronHandler:
         return hidden_r2, hidden_std, anchor_r2, anchor_std
 
 
-
-# ---------------------------------------------------------------------------
-# Per-iteration training steps
-# ---------------------------------------------------------------------------
-# data_train_gnn's inner loop has two mutually exclusive bodies. They used to be
-# an `if recurrent: ... continue` branch followed by the standard path, which
-# meant the ~250-line metrics/plotting tail was duplicated and the two copies
-# drifted (the recurrent clone never gained within-epoch checkpoints or the
-# g_phi discard panel). Both bodies now return (loss, regul_val) and the caller
-# runs ONE shared backward/step/metrics tail.
-
-
 def run_nominal_train_step(
     model,
     x_ts,
@@ -2231,7 +2219,7 @@ def run_nominal_train_step(
                 device=device,
                 xnorm=xnorm,
                 perm_indices=regularizer.sample_g_phi_perm(device),
-            )
+            ) 
 
             loss = loss + regul_loss
 
