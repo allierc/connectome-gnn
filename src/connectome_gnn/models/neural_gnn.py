@@ -184,6 +184,15 @@ class NeuralGNN(nn.Module):
         self.calcium_type = simulation_config.calcium_type
         self.MLP_activation = config.graph_model.MLP_activation
 
+        # training.mlp_precision: 'fp32' | 'tf32' | 'bf16'. Only the two MLPs are
+        # affected, and only their matmuls -- their outputs are cast straight back
+        # to fp32 so the residual, the norm2 reduction over n_visible*batch_size
+        # and every regulariser keep full precision. Casting the LOSS would be a
+        # different and much worse change: norm2 sums 1.7M squared residuals, and
+        # bf16 has 8 mantissa bits.
+        self._amp_dtype = {"bf16": torch.bfloat16}.get(
+            getattr(config.training, "mlp_precision", "fp32"))
+
         self.training_time_window = config.training.time_window
 
         self.input_size = model_config.input_size
@@ -600,6 +609,19 @@ class NeuralGNN(nn.Module):
 
         return reconstructed_field
 
+    def _run_mlp(self, mlp, x):
+        """Evaluate one MLP under training.mlp_precision, returning fp32.
+
+        The cast back is not cosmetic. g_phi runs over E*B = 1.7M edges at flyvis
+        scale; leaving its output in bf16 would push the reduced precision into the
+        residual, the loss and every metric, which is not what the knob is for.
+        """
+        if self._amp_dtype is None:
+            return mlp(x)
+        with torch.autocast(device_type=x.device.type, dtype=self._amp_dtype):
+            out = mlp(x)
+        return out.float()
+
     def _compute_messages(self, v, embedding, edge_index):
         """Compute per-edge messages and aggregate via scatter_add.
 
@@ -641,7 +663,7 @@ class NeuralGNN(nn.Module):
             in_features = torch.cat([in_features, noise], dim=1)
 
         # edge function
-        g_phi_out = self.g_phi(in_features)
+        g_phi_out = self._run_mlp(self.g_phi, in_features)
         if self.g_phi_positive:
             g_phi_out = g_phi_out**2
 
@@ -683,7 +705,7 @@ class NeuralGNN(nn.Module):
         msg = self._compute_messages(v, embedding, edge_index)
 
         in_features = torch.cat([v, embedding, msg, excitation], dim=1)
-        pred = self.f_theta(in_features)
+        pred = self._run_mlp(self.f_theta, in_features)
 
         if return_all:
             return pred, in_features, msg

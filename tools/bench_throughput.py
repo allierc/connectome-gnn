@@ -56,7 +56,7 @@ GATE_ITERATIONS = (1, 16001)
 
 # ----------------------------------------------------------------- spec + submit
 
-def write_spec(base, tag, compile_flag):
+def write_spec(base, tag, compile_flag, precision=None):
     """A bench spec is the base spec under a new name, so it gets its own log dir."""
     src = os.path.join(CONFIG_DIR, base + ".yaml")
     name = f"flyvis_noise_005_bench_{tag}"
@@ -69,6 +69,8 @@ def write_spec(base, tag, compile_flag):
         if ln.startswith("config_file:"):
             ln = f"config_file: fly/{name}"
         out.append(ln)
+        if precision is not None and re.match(r"^  torch_compile:", ln):
+            out.append(f"  mlp_precision: {precision}")
     open(dst, "w").write("\n".join(out))
     return name
 
@@ -146,7 +148,7 @@ def read_rate(stdout_path):
 
 def run(args):
     os.makedirs(BENCH_DIR, exist_ok=True)
-    spec = write_spec(args.base_config, args.tag, args.compile)
+    spec = write_spec(args.base_config, args.tag, args.compile, args.precision)
     log_dir = os.path.join(LOG_ROOT, "log", "fly", spec)
     metrics = os.path.join(log_dir, "tmp_training", "metrics.log")
     stdout_rel = os.path.join("tools", "bench_results", f"{args.tag}.out")
@@ -196,7 +198,7 @@ def run(args):
     result = {
         "tag": args.tag, "queue": args.queue, "spec": spec,
         "branch": branch, "commit": commit, "job_id": job_id,
-        "torch_compile": args.compile,
+        "torch_compile": args.compile, "mlp_precision": args.precision,
         "rate_last": last, "rate_median_tail": med, "rate_samples": n,
         "minutes_to_gate": round((time.time() - t0) / 60, 1),
         "gate": {str(k): v for k, v in sorted(gate.items())},
@@ -218,11 +220,11 @@ def compare(tags):
             sys.exit(f"no result for tag {t!r} ({p})")
         res.append(json.load(open(p)))
 
-    print(f"\n{'tag':<18}{'queue':<10}{'commit':<10}{'compile':<9}"
+    print(f"\n{'tag':<18}{'queue':<10}{'commit':<10}{'compile':<9}{'prec':<7}"
           f"{'it/s':>8}{'min':>7}")
     for r in res:
         print(f"{r['tag']:<18}{r['queue']:<10}{r['commit']:<10}"
-              f"{str(r['torch_compile']):<9}"
+              f"{str(r['torch_compile']):<9}{str(r.get('mlp_precision') or '-'):<7}"
               f"{(r['rate_median_tail'] or 0):>8.2f}{r['minutes_to_gate']:>7.1f}")
 
     ref = res[0]
@@ -257,6 +259,8 @@ def main():
     p.add_argument("--base-config", default="flyvis_noise_005_nominal")
     p.add_argument("--compile", type=lambda s: s.lower() == "true", default=None,
                    help="override torch_compile in the bench spec")
+    p.add_argument("--precision", choices=["fp32", "tf32", "bf16"],
+                   help="override training.mlp_precision in the bench spec")
     p.add_argument("--walltime", default="4:00")
     p.add_argument("--poll", type=int, default=60, help="seconds between polls")
     p.add_argument("--timeout", type=int, default=90, help="minutes")
