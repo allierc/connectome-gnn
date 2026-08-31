@@ -952,9 +952,8 @@ def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, 
     (vj>0) and to slopes consistent with the monotonicity prior (slope>0),
     then a 10-90 percentile-trimmed mean per presynaptic neuron j — trimming
     rejects the large local-slope outliers introduced by vi's uncontrolled
-    variation between the two finite-difference points. Achieved R^2(W) =
-    0.875 vs 0.873 for the 1D-sweep baseline, and matched an independently
-    derived autograd-gradient method (0.876) on flyvis_noise_005_conductance_cv00.
+    variation between the two finite-difference points. Validated against the
+    1D-sweep baseline and an independently derived autograd-gradient method.
 
     Returns:
         (n_neurons,) numpy array — one correction factor per neuron;
