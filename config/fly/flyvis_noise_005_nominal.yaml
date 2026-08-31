@@ -47,7 +47,7 @@ plotting:
     - -100
     - 100
 training:
-  torch_compile: true
+  torch_compile: false
   n_runs: 1
   device: auto
   recurrent_training: false
