@@ -1,0 +1,30 @@
+{
+  "tag": "bf16_a100",
+  "queue": "gpu_a100",
+  "spec": "flyvis_noise_005_bench_bf16_a100",
+  "branch": "perf/fused-message-passing",
+  "commit": "096399e",
+  "job_id": "153804003",
+  "torch_compile": true,
+  "mlp_precision": "bf16",
+  "rate_last": 95.12,
+  "rate_median_tail": 95.14,
+  "rate_samples": 21530,
+  "minutes_to_gate": 5.1,
+  "gate": {
+    "1": {
+      "connectivity_r2": "-0.017703",
+      "vrest_r2_clean": "0.751183",
+      "n_out_vrest": "13700",
+      "tau_r2_clean": "-7.472771",
+      "n_out_tau": "12889"
+    },
+    "16001": {
+      "connectivity_r2": "0.949097",
+      "vrest_r2_clean": "0.593298",
+      "n_out_vrest": "2526",
+      "tau_r2_clean": "0.896753",
+      "n_out_tau": "232"
+    }
+  }
+}

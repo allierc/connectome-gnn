@@ -1,0 +1,30 @@
+{
+  "tag": "tf32_a100",
+  "queue": "gpu_a100",
+  "spec": "flyvis_noise_005_bench_tf32_a100",
+  "branch": "perf/fused-message-passing",
+  "commit": "096399e",
+  "job_id": "153804002",
+  "torch_compile": true,
+  "mlp_precision": "tf32",
+  "rate_last": 73.6,
+  "rate_median_tail": 73.6,
+  "rate_samples": 21232,
+  "minutes_to_gate": 7.1,
+  "gate": {
+    "1": {
+      "connectivity_r2": "-0.016720",
+      "vrest_r2_clean": "0.756671",
+      "n_out_vrest": "13701",
+      "tau_r2_clean": "-7.505027",
+      "n_out_tau": "12895"
+    },
+    "16001": {
+      "connectivity_r2": "0.950196",
+      "vrest_r2_clean": "0.588225",
+      "n_out_vrest": "2411",
+      "tau_r2_clean": "0.891973",
+      "n_out_tau": "291"
+    }
+  }
+}
