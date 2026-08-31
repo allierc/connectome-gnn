@@ -1477,6 +1477,30 @@ class TrainingConfig(BaseModel):
 
     MPM_trainer : str = "F"
 
+    @model_validator(mode="after")
+    def _regul_batch_scaling_not_with_mean(self):
+        """regul_batch_scaling and fit_reduction 'mean' fix the SAME coupling.
+
+        The batch-size dependence comes from the fit term: norm2 is ||r||_2 over
+        n_visible * batch_size elements, so it grows as sqrt(batch_size) while the
+        regularisers do not. 'sqrt' compensates by scaling the coefficients;
+        fit_reduction 'mean' removes the dependence at the source, since mean(r^2)
+        is already flat in batch_size. Enabling both over-corrects by sqrt(B) --
+        a 2x over-regularisation at the usual batch_size 4, silently.
+
+        Rejected rather than silently forced to 'none': a config that asks for two
+        conflicting corrections is a mistake the author should see, and silent
+        overrides are exactly the failure mode this codebase keeps hitting.
+        """
+        if self.regul_batch_scaling != "none" and self.fit_reduction == "mean":
+            raise ValueError(
+                f"regul_batch_scaling={self.regul_batch_scaling!r} with "
+                f"fit_reduction='mean' double-corrects the batch-size coupling "
+                f"(over-regularises by sqrt(batch_size)={float(self.batch_size) ** 0.5:.2f}). "
+                "mean(r^2) is already batch-size independent -- set "
+                "regul_batch_scaling='none', or keep 'sqrt' with fit_reduction='norm2'."
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
