@@ -1,57 +1,59 @@
-"""Recurrent multi-step training loss for GNN.
+"""Recurrent (multi-step) training losses.
 
-Overview of recurrent / noise-aware training strategies
--------------------------------------------------------
-All strategies load a pretrained one-step model and fine-tune it.
-The goal is to improve robustness to observation noise (process +
-measurement) without sacrificing connectivity R².
+THREE MODES, one dispatcher. `recurrent_loss` picks between them:
 
-1. **Standard recurrent** (``recurrent_training=True``):
-   Pick one random frame k, unroll time_step forward using the model's
-   own predictions, compare predicted voltage at k+time_step to the
-   observed (noisy) target. Forces the model to be self-consistent
-   over multiple steps, but gradient flows through a long noisy chain.
-   Config: ``recurrent_training: true, time_step: N``
+    n_steps is not None      -> _dense_rollout_loss     ("ROLLOUT", below)
+    multi_start_recurrent    -> _multi_start_loss       (untested)
+    otherwise                -> _standard_recurrent_loss (legacy, untested)
 
-2. **Multi-start recurrent** (``multi_start_recurrent=True``):
-   For a target frame T, launch time_step parallel rollouts from
-   T-time_step, T-time_step+1, ..., T-1 (lengths time_step down to 1).
-   All predictions target the same observed v(T). Each start has
-   independent noise on its initial voltage, so gradient noise from
-   different starts partially cancels. Short paths (1-step) anchor the
-   gradient while long paths enforce trajectory consistency.
-   Config: ``recurrent_training: true, multi_start_recurrent: true, time_step: N``
+A fourth strategy, `consecutive_batch`, is a *sampling* change and lives in
+training_utils.py, not here. One-step (t+1) training does not enter this module
+at all -- it goes through run_nominal_train_step.
 
-3. **Consecutive batch** (``consecutive_batch=True``):
-   Instead of sampling batch_size random frames, pick one random start k
-   and use frames k, k+1, ..., k+batch_size-1. Each frame gets a
-   standard one-step prediction (no unrolling). Consecutive frames share
-   the same local dynamics but have independent noise realisations, so
-   the gradient over the batch naturally averages out noise. Simplest
-   approach: no extra memory, no multi-step backprop, just a sampling
-   change.
-   Config: ``consecutive_batch: true, batch_size: N``
-   (no recurrent_training needed)
 
-4. **Dense-supervision horizon curriculum** (``rollout_horizon_schedule``):
-   Epoch e unrolls ``rollout_horizon_schedule[e]`` steps from frame k and
-   scores EVERY intermediate state against the observed voltage, with the
-   real stimulus advanced at each step. Requires ``time_step: 1`` so the
-   dataset is not decimated and every intermediate frame exists. This is
-   the scheme both trainers that work in this repo use — the task trainer
-   ``_data_train_task_pi`` (per-frame loss over a horizon grown by
-   ``n_steps_schedule``) and the oculomotor prototype ``train_eyeG.py``
-   (per-frame loss over a horizon grown by its ``sched`` list).
-   Config: ``recurrent_training: true, time_step: 1,
-   rollout_horizon_schedule: [1, 2, 3, ...]``
+ROLLOUT  (`_dense_rollout_loss`)
+--------------------------------
+Activated by `rollout_horizon_schedule: [1, 2, 3, ...]`; epoch e unrolls K =
+schedule[e] steps from a sampled frame k and scores EVERY step. The only mode
+that has been benchmarked. Elsewhere it has also been called the
+"dense-supervision horizon curriculum" -- same code, one name from here on.
 
-Modes 1, 2 and 4 are implemented in this module. Mode 3 is a sampling
-change in graph_trainer.py (no dedicated function needed).
+Requires `time_step: 1` (unstrided data, so every intermediate frame exists) and
+advances the real stimulus at each step.
 
-Note on 1 vs 4: mode 1 was built for the stride-5 regime, where the
-observable is given only every ``time_step`` steps, so it can only score
-the endpoint. Mode 4 is for the dense regime — observable at every step,
-longer and longer trajectories.
+Each step scores the DERIVATIVE against `y_ts[k+s] / ynorm`, averaged over the K
+steps. At K=1 this is term-for-term the one-step objective, so the curriculum is a
+strict extension of it -- and every knob below is a no-op at K=1, which keeps that
+equality true whatever they are set to.
+
+    KNOB                        VALUE          BENCHMARK ARM
+    (default = plain rollout)                  "uniform"
+    rollout_step_weighting      "discount"     "discount"   w_s = gamma^s
+                                "last"         "last"       only the final step
+    rollout_bptt_window         1              "pushforward"  detach every step
+    rollout_shooting_stride     1              "shoot1"     re-anchor every step
+                                2              "shoot2"     re-anchor every 2nd
+
+Results (flyvis_A, noise-005, see papers/benchmark_results.md): "pushforward"
+-0.077 and "last" -0.022 vs "uniform"; "shoot1", "shoot2", "discount" all within
+the resolution floor. "uniform" itself is ~0.004 below one-step.
+
+
+MODE 2  (`_multi_start_loss`, `multi_start_recurrent: true`)
+-----------------------------------------------------------
+For a target frame T, launch `time_step` rollouts from T-time_step ... T-1, all
+predicting the same observed v(T). Short paths anchor the gradient, long ones
+enforce trajectory consistency, and independent start noise partially cancels.
+NOT YET BENCHMARKED.
+
+
+MODE 1  (`_standard_recurrent_loss`, the default when neither of the above is set)
+---------------------------------------------------------------------------------
+Legacy. One start, unroll `time_step`, score ONLY the endpoint, on a
+stride-subsampled dataset with the stimulus frozen through the unroll. Built for
+the stride-5 regime where intermediate observations do not exist.
+NOT YET BENCHMARKED -- note this is NOT the same as the "last" arm above, which is
+endpoint-only on the dense unstrided grid with a live stimulus.
 """
 
 import torch
@@ -76,18 +78,12 @@ def recurrent_loss(
     hn=None,
     n_steps=None,
 ):
-    """Compute one training iteration of recurrent (possibly multi-start) loss.
+    """Dispatch to one of the three modes. See the module docstring.
 
-    hn: HiddenNeuronHandler (see training_utils.py), or None if the model
-    has no hidden neurons.
+    n_steps: the epoch's rollout horizon K. Given -> ROLLOUT; None -> mode 1 or 2.
+    hn: HiddenNeuronHandler, or None if the model has no hidden neurons.
 
-    n_steps: when given (the per-epoch rollout-horizon curriculum, mode 4 below),
-    unroll this many steps with DENSE supervision on an unstrided dataset instead
-    of the legacy endpoint-only stride-subsampled scheme. None = legacy behaviour.
-
-    Returns:
-        loss: scalar tensor (already includes regularisation)
-        regul_value: float, regularisation component for logging
+    Returns (loss including regularisation, regularisation value for logging).
     """
     sim = config.simulation
     tc = config.training
@@ -116,16 +112,15 @@ def recurrent_loss(
 
 
 # ------------------------------------------------------------------ #
-#  4. Dense-supervision rollout with a per-epoch horizon curriculum   #
+#  ROLLOUT: unroll K steps, score every one                          #
 # ------------------------------------------------------------------ #
 
 def _rollout_step_weights(weighting, n_steps, gamma):
-    """Weight of each of the n_steps supervised rollout steps.
+    """Per-step weights: "uniform" | "discount" | "linear_decay" | "last".
 
-    Returned unnormalised; _dense_rollout_loss divides by the weight it actually
-    applied (steps whose target is NaN are skipped), so any positive scaling here
-    is equivalent. Every scheme gives [1.0] at n_steps == 1, which is what keeps
-    the K=1 objective term-for-term identical to the nominal path.
+    Unnormalised -- the caller divides by the weight actually applied, so any
+    positive scaling is equivalent. All schemes return [1.0] at K=1, which is what
+    keeps the K=1 objective identical to one-step training.
     """
     if weighting == "uniform":
         return [1.0] * n_steps
@@ -145,46 +140,32 @@ def _dense_rollout_loss(
     n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
     hn=None,
 ):
-    """Unroll n_steps from frame k, supervising EVERY step against the observed
-    dynamics — the scheme both successful trainers in this repo use.
+    """ROLLOUT: unroll K = n_steps from frame k, scoring every step.
 
-    Three deliberate departures from _standard_recurrent_loss, each chosen to
-    match _data_train_task_pi (graph_trainer.py) and prototype train_eyeG.py:
+    Three things distinguish this from the legacy mode 1, all chosen to match the
+    two trainers that work in this repo (_data_train_task_pi, train_eyeG.py):
 
-    1. DENSE supervision. The legacy path scores one state per rollout
-       (recurrent_step.py:201), leaving the intermediate trajectory completely
-       unconstrained — the model can take a wrong path that happens to land near
-       the endpoint. Here every intermediate state is scored (see 3), giving
-       n_steps times more constraints per unit compute.
-       Requires observations at every step, i.e. an UNSTRIDED dataset
-       (time_step == 1, so init_training_data's stride is 1).
+    1. DENSE supervision -- every intermediate state is scored, not just the
+       endpoint, so the trajectory cannot wander and still land correctly.
+       Needs an unstrided dataset (time_step == 1).
+    2. LIVE stimulus -- advanced each step rather than frozen through the unroll.
+    3. K=1 EQUALS one-step training, term for term. Each step scores the
+       derivative against y_ts[k+s]/ynorm with the same reduction the one-step
+       path uses, averaged over K.
 
-    2. LIVE stimulus. The legacy path freezes the stimulus for the whole unroll
-       ("intermediate frames not available" — they were decimated away by the
-       stride). At stride 1 they exist, so the exogenous drive is advanced every step,
-       removing a systematically-signed residual no parameter setting could absorb.
+       Do not break 3. An earlier version scored integrated VOLTAGE against
+       x_ts.voltage[k+s] with .pow(2).mean() and no ynorm. norm2 = sqrt(sum r^2)
+       over ~55k elements vs mean(r^2) is 3-5 orders of magnitude at the same
+       residual, so the fit/regulariser balance flipped (fit fell from ~80% of the
+       loss to ~12%), the W penalties took over and R^2_W went to ~0 while one-step
+       reached 0.98.
 
-    3. IDENTICAL TO THE NOMINAL OBJECTIVE AT n_steps=1. Each step scores the
-       model's DERIVATIVE against the precomputed derivative target
-       `y_ts[k+s] / ynorm`, reduced with `.norm(2)` — exactly the nominal path's
-       term (run_nominal_train_step). Averaged over steps, so n_steps=1 reduces
-       to nominal *term for term* and the curriculum is a strict extension.
+    Knobs -- all no-ops at K=1, so 3 holds whatever they are set to. Benchmark arm
+    names in brackets; see the module docstring for the full table.
 
-       This matters more than it looks. An earlier version scored the integrated
-       voltage against `x_ts.voltage[k+s]` with `.pow(2).mean()` and no ynorm.
-       `.norm(2)` is sqrt(sum r^2) over ~55k elements while `.mean()` is mean(r^2),
-       a 3-5 ORDER OF MAGNITUDE difference at the same residual — and since the
-       regularisers are unchanged parameter norms, the fit/regulariser balance
-       flipped (prediction fell from ~80% of the loss to ~12%). The W penalties
-       then dominated and drove R^2_W to ~0 while nominal reached ~0.98. Any
-       change to this reduction must keep n_steps=1 equal to nominal.
-
-    Three orthogonal knobs shape the rollout objective, all no-ops at n_steps=1
-    so the equality above is preserved whatever they are set to:
-      tc.rollout_step_weighting  — how the n_steps terms are weighted
-      tc.rollout_bptt_window     — how far the gradient is carried back
-      tc.rollout_shooting_stride — how often the state is re-anchored on data
-    See config.py for what each is for.
+      rollout_step_weighting   ["uniform"|"discount"|"last"]  how steps are weighted
+      rollout_bptt_window      [1 = "pushforward"]  detach the state every m steps
+      rollout_shooting_stride  [1 = "shoot1", 2 = "shoot2"]  re-anchor on data
     """
     batch_size = tc.batch_size
     n_neurons = sim.n_neurons
@@ -226,7 +207,8 @@ def _dense_rollout_loss(
     ids_batch = torch.cat(ids_list, dim=0)
     data_id = torch.zeros((ids_index, 1), dtype=torch.int, device=device)
 
-    # Regularisation (computed once on the initial state, as in the legacy path)
+    # Regularisation: once per iteration, not once per rollout step -- it
+    # penalises parameters, which do not change within the unroll.
     regularizer.reset_iteration(device=device)
     regul_loss = regularizer.compute(
         model=model, x=state_batch[0], in_features=None,
@@ -255,15 +237,11 @@ def _dense_rollout_loss(
     loss = loss + update_regul
 
     for step in range(n_steps):
-        # --- score the DERIVATIVE at the current state, exactly as the nominal
-        # path does: target y_ts[k+step] / ynorm, reduced with .norm(2). At
-        # step 0 the state is the observed v(k), so n_steps=1 is term-for-term
-        # the nominal objective. ---
-        # No unsqueeze: y_ts rows already carry the trailing dim that `pred` has,
-        # exactly as the nominal path uses `y_ts_gpu[k] / ynorm` directly. Adding
-        # one made the residual broadcast to (N*B, N*B, 1) — an 11 GiB square
-        # matrix whose norm is not the loss at all, which both OOMed and drove
-        # R^2_W negative.
+        # Score the derivative, exactly as the one-step path does. At step 0 the
+        # state is the observed v(k), so K=1 is term-for-term one-step training.
+        # No unsqueeze: y_ts rows already carry pred's trailing dim. Adding one
+        # broadcasts the residual to (N*B, N*B, 1) -- an 11 GiB matrix whose norm
+        # is not the loss (OOM, and R^2_W went negative).
         gt_parts = [
             y_ts[k_list[b_idx] + step] / ynorm
             for b_idx in range(len(state_batch))
@@ -289,19 +267,20 @@ def _dense_rollout_loss(
         else:
             pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
-        # --- truncate BPTT: cut the gradient path every bptt_window steps, so no
-        # chain is longer than the window. The model still sees its own drifted
-        # state (that is the point), it just is not differentiated through. ---
+        # "pushforward" (bptt_window=1): cut the gradient every m steps so no
+        # chain is longer than m. The model still SEES its drifted state -- that is
+        # the point -- it just is not differentiated through.
         if bptt_window > 0 and (step + 1) % bptt_window == 0:
             pred_x = pred_x.detach()
 
-        # --- multiple shooting: re-anchor on the observation, starting a fresh
-        # segment from an exact initial condition instead of continuing the free
-        # run. Overwrites the rolled state entirely, so it also cuts the gradient. ---
+        # "shoot1"/"shoot2" (shooting_stride): re-anchor on the observation every
+        # m steps, starting a fresh segment from an exact initial condition instead
+        # of continuing the free run. Overwrites the state, so it also cuts the
+        # gradient.
         if shooting_stride > 0 and (step + 1) % shooting_stride == 0:
-            # Same observation the setup loop uses for the segment at step 0:
-            # the noisy voltage when the dataset carries measurement noise, so a
-            # shooting anchor is exactly as informative as the rollout's own start.
+            # Use the same observation the setup loop uses at step 0 (noisy when
+            # the dataset has measurement noise), so an anchor is exactly as
+            # informative as the rollout's own start.
             noisy = x_ts.noise is not None and sim.measurement_noise_level > 0
             anchor = []
             for b_idx in range(len(state_batch)):
@@ -332,15 +311,15 @@ def _dense_rollout_loss(
     if weight_scored == 0.0:
         return torch.zeros(1, device=device, requires_grad=True), regul_value
 
-    # Normalise by the weight actually applied -> objective scale is
-    # horizon-independent AND weighting-independent, so coeff_* need no rescaling
-    # when the weighting changes.
+    # Divide by the weight actually applied (not by K): the objective scale is
+    # then independent of both horizon and weighting, so no coeff_* needs
+    # rescaling when either changes.
     loss = loss + fit_loss / weight_scored
     return loss, regul_value
 
 
 # ------------------------------------------------------------------ #
-#  Standard recurrent: single start, unroll time_step forward         #
+#  MODE 1 (legacy): single start, unroll time_step, score the endpoint #
 # ------------------------------------------------------------------ #
 
 def _standard_recurrent_loss(
@@ -456,7 +435,7 @@ def _standard_recurrent_loss(
 
 
 # ------------------------------------------------------------------ #
-#  Multi-start recurrent: time_step starts all targeting frame T      #
+#  MODE 2: time_step starts, all targeting frame T                    #
 # ------------------------------------------------------------------ #
 
 def _multi_start_loss(
