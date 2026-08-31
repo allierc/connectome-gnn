@@ -298,6 +298,29 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     )
     model = model.to(device)
 
+    # EVALUATION IS ALWAYS fp32, whatever training.mlp_precision says.
+    #
+    # The rollout is one continuous free run over ~7200 frames -- x.voltage is
+    # never reset from ground truth -- and it is the reported result. Measured on
+    # flyvis_noise_005_nominal_cv00, the SAME fp32-trained checkpoint scored under
+    # bf16 instead of fp32:
+    #
+    #     fp32   RMSE 0.0165   r 0.999 +/- 0.003   Fisher-z 3.7991
+    #     bf16   RMSE 0.0211   r 0.998 +/- 0.007   Fisher-z 3.3619
+    #
+    # +24% RMSE, and the z mean falls 11.5%. The error does NOT compound -- the
+    # per-window ratio is 1.22-1.26 from frame 0 to 7207, flat, because the
+    # stimulus re-anchors the state every step -- but a constant 24% is still 24%.
+    # And there is nothing to buy with it: the rollout is no_grad and already runs
+    # at ~172 it/s, so bf16 would trade a fifth of the reported accuracy for
+    # throughput nobody is waiting on. Without this, `-o train,test` under bf16
+    # would silently evaluate in bf16 too.
+    if getattr(model, "_amp_dtype", None) is not None:
+        logger.info(f"mlp_precision {config.training.mlp_precision} ignored at "
+                    "test time — evaluation runs in fp32")
+        model._amp_dtype = None
+    torch.set_float32_matmul_precision("highest")
+
     if best_model == 'best':
         files = glob.glob(f"{log_dir}/models/best_model_with_*.pt")
         if not files:
