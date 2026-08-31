@@ -153,7 +153,7 @@ if __name__ == "__main__":
     else:
         best_model = ''
         task = task = 'train'
-        config_list = ['flyvis_noise_005_conductance_cv00'] 
+        config_list = ['flyvis_noise_005_nominal'] 
         test_config_name = None
 
     if task == 'cv':

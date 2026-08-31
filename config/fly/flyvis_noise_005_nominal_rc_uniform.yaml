@@ -1,4 +1,4 @@
-description: 'ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_noise_005_nominal_cv00 on flyvis_A noise-005, fold 0. 5 epochs x 100 augmentation loops against the baseline s 1 x 500, so the two run the same 500 iterations; the curriculum needs one epoch per horizon because rollout_horizon_schedule is indexed by epoch. frame_target_offset 1 holds the start-frame range at the baseline s 63995, so the sampled-k distribution is identical and epoch 0 draws the baseline s first 400 frames. Epochs 1-4 draw from RandomState(seed+epoch), which the 1-epoch baseline has no counterpart for -- the arms are iteration-matched, not stream-identical. DEBUG TWIN of flyvis_noise_005_nominal_rc_uniform_cv00, byte-identical to it. Exists only so an interactive run writes to its own log dir instead of overwriting the fold-0 result.'
+description: "ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_noise_005_nominal_cv00 on flyvis_A noise-005, conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)  48 it/s "
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
