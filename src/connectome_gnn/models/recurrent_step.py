@@ -34,9 +34,14 @@ equality true whatever they are set to.
     rollout_shooting_stride     1              "shoot1"     re-anchor every step
                                 2              "shoot2"     re-anchor every 2nd
 
-Results (flyvis_A, noise-005, see papers/benchmark_results.md): "pushforward"
--0.077 and "last" -0.022 vs "uniform"; "shoot1", "shoot2", "discount" all within
-the resolution floor. "uniform" itself is ~0.004 below one-step.
+Results (flyvis_A, noise-005, see papers/benchmark_results.md). All deltas are
+R^2_W, negative = WORSE:
+  "uniform" vs one-step         -0.004  (K=1..5, 5/5 folds worse, sd 0.002)
+  "pushforward" vs "uniform"    -0.077  (largest effect in the grid)
+  "last"        vs "uniform"    -0.022
+  "shoot1", "shoot2", "discount"        within the resolution floor
+Rollout never beat one-step on any fold. Note epoch 0 runs K=1, which IS one-step,
+so the whole -0.004 is produced by the K=2..5 epochs.
 
 
 MODE 2  (`_multi_start_loss`, `multi_start_recurrent: true`)
