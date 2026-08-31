@@ -1,6 +1,6 @@
 # GraphCast ideas for the recurrent-training benchmark
 
-Handoff note. Context: [`weekend_benchmark_results_2026_08_29.md`](weekend_benchmark_results_2026_08_29.md)
+Handoff note. Context: [`benchmark_results.md`](benchmark_results.md)
 Task 1 found rollout does **not** beat one-step (best arm = plain t+1 at 46% of the updates;
 `pushforward` −0.082, `last` −0.028, everything else within the 0.015 floor).
 
