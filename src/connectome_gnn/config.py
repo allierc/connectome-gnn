@@ -1298,21 +1298,18 @@ class TrainingConfig(BaseModel):
     #           setting that reproduces an existing run to the last digit.
     #   'tf32'  TF32 tensor cores for the matmuls (10-bit mantissa). Measured on
     #           an A6000: g_phi fwd+bwd 20.75 -> 18.91 ms, max|d| 2.2e-4.
-    #   'bf16'  autocast the MLPs to bfloat16 (8 exponent bits, 8 of significand),
-    #           which also halves the [E*B, hidden] activation traffic -- the
-    #           reason it wins most on a bandwidth-starved card.
-    #           A6000: 20.75 -> 10.21 ms, max|d| 3.4e-3.
-    #   'fp16'  autocast to float16. Same 16 bits spent differently: 11 bits of
-    #           significand against bf16's 8, so it is MORE accurate here, but 5
-    #           exponent bits against bf16's 8, so it underflows where bf16 would
-    #           not. There is no GradScaler in this path -- the loss and its
-    #           backward are fp32, only the MLP matmuls are cast -- so a gradient
-    #           small enough to flush to zero inside the autocast region does so
-    #           silently. Check the gradient norms before trusting a long run.
+    #   'bf16'  autocast the MLPs to bfloat16 (8-bit mantissa), which also halves
+    #           the [E*B, hidden] activation traffic -- the reason it wins most on
+    #           a bandwidth-starved card. A6000: 20.75 -> 10.21 ms, max|d| 3.4e-3.
+    # fp16 is deliberately NOT offered. Measured against bf16 on the same step it
+    # is both slower (2.08x vs 2.71x) and flushes 3x as many gradients to exactly
+    # zero -- 5 exponent bits against bf16's 8 -- and there is no GradScaler in
+    # this path to catch that. Its one advantage, 11 bits of significand against
+    # 8, is not what this workload is short of.
     # NOT free: tf32 and bf16 change the trajectory, so a run under them cannot be
     # compared digit-for-digit with an fp32 one. Judge them on the five-fold R2
     # distribution instead.
-    mlp_precision: Literal["fp32", "tf32", "bf16", "fp16"] = "fp32"
+    mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
 
     # external input learning
     learn_external_input: bool = False
