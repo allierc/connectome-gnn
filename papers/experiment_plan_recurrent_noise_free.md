@@ -3,7 +3,7 @@
 Two experiments. **Experiment 1** is the main one: recurrent-training options on noise-free, five
 folds. **Experiment 2** is GraphCast-specific and depends on Experiment 1's checkpoints.
 
-Prior: [`weekend_benchmark_results_2026_08_29.md`](weekend_benchmark_results_2026_08_29.md) (Task 1),
+Prior: [`benchmark_results.md`](benchmark_results.md) (Task 1),
 [`graphcast_for_recurrent_training.md`](graphcast_for_recurrent_training.md).
 
 ---
@@ -51,21 +51,34 @@ target from the generator's analytic drift `f(v[t])` to the observed finite diff
 **No noise-free run has been done since.** I searched every branch, remote and archived log
 directory: `0.899` is the only noise-free number that exists anywhere, and it is pre-fix.
 
-This matters because the fix should bite hardest exactly here. With `ξ = 0` it adds no noise to the
-target; it replaces an exact derivative with a first-order difference, so the target now carries an
-**O(Δt) truncation error** that is the *only* error at σ = 0. At σ = 0.05 that bias is swamped by
-`ξ/Δt`, which predicts: noise-005 unchanged, noise-free degraded. The pilot is consistent
-(0.74 at 15 % trained) but proves nothing at that stage.
+**RESOLVED 2026-08-31 — the fix is a no-op at σ = 0, and the pilot's 0.74 was a config error.**
+The generator integrates by forward Euler at the same `Δt`
+(`x.voltage = x.voltage + sim.delta_t * dv_step`), so at σ = 0 the finite difference **is** the
+analytic drift exactly; there is no truncation error to introduce. The published before/after table
+agrees: 0.889 → 0.896, Δ +0.006.
 
-**So Experiment 1's control arm is doing double duty**: it is the reference every rollout arm is
-measured against, *and* the first post-fd-fix noise-free number. Report it against 0.899 explicitly.
+An earlier draft of this section argued the opposite — that the fix introduces an O(Δt) truncation
+error that bites hardest at σ = 0. That was wrong; it assumed a finer internal integrator than the
+code uses.
+
+The pilot's 0.741 came from the **config lineage**, not the fix: those arms inherited
+`fit_reduction: mean` with every `coeff_*` divided by 70,467 from the Task 1 `rs_onestep` base — a
+rescale calibrated at the noise-005 operating point, which does not transfer to σ = 0. Rerunning the
+published `norm2` spec on current `main` reproduces the documented row: at 60 % trained,
+R²_W 0.884 (target 0.896 ± 0.038), R²_τ 0.915 (target 0.912 ± 0.024), R²_Vrest 0.850
+(target 0.779 ± 0.080). **No code regression; no bisect needed.**
+
+**Consequence for this plan: every arm must be built on the published `norm2` spec**, not on the
+Task 1 `mean` lineage. Experiment 1's control arm still doubles as the post-fd-fix noise-free
+reference — report it against 0.896.
 
 ---
 
 # EXPERIMENT 1 (MAIN) — recurrent-training options on noise-free
 
-`flyvis_A`, `flyvis_noise_free_blank50_cv00..04`, seeds 1041–1045, `fit_reduction: mean`,
-5 epochs × dal 100. **7 arms × 5 folds = 35 jobs.**
+`flyvis_A`, `flyvis_noise_free_blank50_cv00..04`, seeds 1041–1045, **`norm2` with the published
+coefficients** (base `flyvis_noise_free_blank50_unified_fd`), 5 epochs × dal 100,
+`frame_target_offset: 5` on every arm so K=1 recurrent samples identically to one-step. **7 arms × 5 folds = 35 jobs.**
 
 | arm | knob | question |
 |---|---|---|
@@ -142,8 +155,9 @@ rollout phase at ~6,000× lower LR. That is a precise candidate explanation for 
   pilot it turned two significant results into "unresolved".
 - The noise-005 `flyvis_A` run-to-run floor was 0.015. Noise-free's is unknown; estimate it from the
   across-fold spread of the control arm.
-- This grid uses `fit_reduction: mean` with coefficients divided by 70,467. Internally consistent,
-  **not** comparable to the `norm2` `nominal_cv` series.
+- This grid uses the published `norm2` coefficients, so it IS comparable to the `nominal_cv`
+  series. (The superseded draft used `fit_reduction: mean` with coefficients divided by 70,467,
+  which is what produced the void 0.741 pilot.)
 - Watch for a single dominant fold. In the pilot, noise-free cv00 was an outlier in every arm
   (control 0.555 vs 0.75–0.85 elsewhere) and contributed most of the between-arm spread. Report
   per-fold values, not just means.

@@ -3,7 +3,7 @@
 All on `gpu_l4`, ~33 h each, one batch. 44 jobs, **41 distinct configurations**
 (`noiseprobe_nolasso_cv00` and `noiseseed_on_s1041` are the same config — kept as a replicate).
 
-> **Results: [`weekend_benchmark_results_2026_08_29.md`](weekend_benchmark_results_2026_08_29.md).**
+> **Results: [`benchmark_results.md`](benchmark_results.md).**
 > This document is the plan — what was launched and what each contrast was meant to show.
 > It deliberately contains no numbers.
 
