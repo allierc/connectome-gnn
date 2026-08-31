@@ -114,7 +114,15 @@ Resolution floor for `flyvis_A`: **0.015** (measured run-to-run).
 Only two arms clear the floor, both negative. **`pushforward`** — truncating BPTT to one step —
 costs 0.082, so the long gradient chain is load-bearing, not the cause of the horizon decay we set
 out to explain. **`last`** (endpoint-only) costs 0.028, so dense per-step supervision earns its keep.
-Everything else is within ±0.006 and unresolved. The best arm is plain t+1 at 46 % of the updates.
+Everything else is within ±0.006 and unresolved. See §4b for the full scheme-by-scheme account,
+the n=5 follow-up, and the scope limit.
+
+⚠ An earlier version of this section said *"the best arm is plain t+1 at 46 % of the updates"*
+(`onestep_step_matched`, +0.0017). That is inside the floor **and** across an unpaired boundary —
+`onestep` sampled start frames from 63,995 while the rollout arms sampled from 63,991, because
+`target_offset` was passed only on the rollout path. Fixed in `648e5cd`; do not read it as a
+ranking. The rollout-vs-rollout comparisons (`pushforward`, `last`) were always properly paired
+and are unaffected.
 
 All six rollout arms were verified bit-identical through epoch 0 (`spread 0.00e+00`), confirming
 every rollout knob is inert at K = 1 as designed.
@@ -140,6 +148,74 @@ seed lottery plus a contaminated prior (§6).
 
 Turning the prior off now *lowers* conductance by 0.067 and is ~neutral on `flyvis_A`. Before the
 fix it *raised* conductance by +0.28 — which is what exposed the bug.
+
+---
+
+## 4b. Recurrent training — every scheme, and how the loss is reduced
+
+### How the loss is formed
+
+Two reductions compose, and they are different operations:
+
+**Across the K rollout steps: a plain AVERAGE.** `_dense_rollout_loss` accumulates
+`fit_loss += w_s · fit(pred_s − y_{k+s})` and returns `fit_loss / Σ w_s`, so with uniform weights it
+is the mean over lead times — the same choice GraphCast makes ("loss on every step, uniformly
+averaged over lead times"). Normalising by the *applied* weight rather than by K keeps the objective
+scale independent of both horizon and weighting, so no `coeff_*` needs rescaling when either changes.
+
+**Within a step: an L2 NORM, not a sum or a mean.** `fit_reduction: norm2` (the published default,
+and what every arm below uses) returns `‖r‖₂ = √(Σ r²)` over neurons × batch. It is neither
+`Σ r²` nor `mean(r²)`: it scales as `√(n·B)`, and `d‖r‖/dr` has magnitude 1 no matter how small the
+residual, so the data term never yields to the penalties. `fit_reduction: mean` returns `mean(r²)`
+and is ~√(n·B)/(2√mse) times weaker — roughly 7×10⁴ at our operating point — so the two are **not**
+interchangeable at fixed `coeff_*`.
+
+### Schemes tested
+
+All on `flyvis_A`, noise-005. Task 1 is n=1 on cv00; `rs5` is n=5 paired folds on the published
+`norm2` config with the frame sampling pinned.
+
+| scheme | what it changes | result |
+|---|---|---|
+| **one-step (t+1)** | no rollout — the control | `rs5` 0.9694 ± 0.0044 (n=5); matches the published baseline 0.9662 |
+| **uniform** | K = 1…5, every step scored, weights equal, full BPTT | **−0.0037 vs t+1, 5/5 folds negative, sd 0.0017** (n=5) |
+| **pushforward** | gradient detached every step (BPTT window 1); the model still *sees* its drifted states | **−0.077 vs uniform** — the largest effect in the grid |
+| **last** | only the final step scored (the legacy endpoint-only objective) | **−0.022 vs uniform** |
+| **shoot1** | state re-anchored on the observation at *every* step ⇒ K independent one-step fits | +0.000 — unresolved |
+| **shoot2** | re-anchored every 2 steps | −0.002 — unresolved, and near-inert by construction (4 anchor events in 730,666 steps) |
+| **discount** | step weights γ^s, γ = 0.5 | −0.002 — unresolved |
+| **step-matched t+1** | one-step at the rollout arms' *update count* (dal 46) | +0.002 — inside the floor, and across the unpaired boundary; not a ranking |
+
+### Schemes NOT yet tested
+
+| scheme | why it matters |
+|---|---|
+| **rollout as a short tail fine-tune** | bulk of training at K=1 under a decaying LR, then a brief K-ramp at ~1/3000 of peak LR. **This is the only form GraphCast actually uses** (96.5 % of its updates are one-step; rollout is a 3.5 % tail at 3e-7). Every scheme above ran rollout as the *objective*, across the whole run at constant LR — which is the one candidate explanation left for the observed "reached 0.983 fast, then decayed to 0.961". Code exists (`73eb4e6`: `lr_scheduler: graphcast`, `rollout_tail_iters_per_epoch`), never run. |
+| **multi-start / longer horizons** | K > 5 untested; `multi_start_recurrent` untested under the dense-supervision loss |
+| **`huber` / `relative_l2` reductions** | implemented, never run. `huber` needs `fit_huber_delta ≈ 2e-3` (residual RMS is ~1.7e-3); at the 1.0 default it is exactly `mean/2`, i.e. a pure LR rescale |
+| **increment-variance target weighting** | GraphCast's `s_j = Var[x_{t+1} − x_t]^{-1}`. `ynorm` is hardcoded to 1.0 today, so there is no target normalisation at all |
+
+### ⚠ Preliminary conclusion — and why it is weaker than it looks
+
+The statement *"rollout training does not beat one-step"* is currently established on **one regime
+only: `flyvis_A` at σ = 0.05, where the one-step baseline is already 0.97.** That is close to
+ceiling, so there is very little headroom for any scheme to demonstrate an advantage, and the
+measured penalty is small (−0.004) and consistent rather than catastrophic. Read positively: at
+K = 1…5 the recurrent objective **tracks one-step closely and behaves consistently** — it is not
+broken, it simply has nothing to win here.
+
+The regimes where a difference could actually show are the ones with a **lower baseline**, and none
+have been tested:
+
+| regime | baseline `R²_W` | headroom |
+|---|---|---|
+| `flyvis_A`, σ = 0.05 *(the only one tested)* | 0.966 | ~0.03 |
+| `flyvis_A`, noise-free | 0.896 | ~0.10 |
+| `flyvis_conductance`, σ = 0.05, **no regularisation** | 0.795 | ~0.20 |
+| `flyvis_conductance`, noise-free, no regularisation | unmeasured | presumably largest |
+
+So the honest scope is: **rollout does not help when the one-step fit is already near ceiling.**
+Whether it helps where the inverse problem is genuinely hard is open, and is the next thing to run.
 
 ---
 
