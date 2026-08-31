@@ -2147,13 +2147,13 @@ def run_nominal_train_step(
     ynorm,
     injection_active,
 ):
-    """One iteration of standard (non-recurrent) training: build the frame batch,
-    forward, accumulate the prediction loss and every loss term that goes with it.
+    """One iteration of standard (non-recurrent) training: compute the loss and
+    update the regularizer.
 
-    Returns the loss, still attached to the graph — the caller owns backward/step.
-    The regularisation component is NOT returned: the shared tail reads it from
-    the regularizer only when it actually records, so returning it here would add
-    a .item() GPU sync on every iteration.
+    Returns the loss still attached to the graph — the caller owns backward/step.
+    The regularisation value is not returned: it is accumulated on the regularizer
+    object here and read by the caller only when it records, which keeps the
+    .item() GPU sync off the per-iteration path.
     """
     state_batch = []
     y_list = []
