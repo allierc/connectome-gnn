@@ -4,9 +4,10 @@ data_paths.json
 # Track only biomodel config folders (fly, drosophila_cx, larva, zebrafish_oculomotor)
 config/*
 !config/fly/
-config/fly/*.yaml
-config/fly/archive/*
-config/fly/archive_2/*
+# Root config/fly/*.yaml IS tracked: those are the live experiment specs. The
+# archive_* folders are superseded grids kept only for provenance -- ignored as
+# whole directories, so git does not descend into them.
+config/fly/archive*/
 
 # Ignore LLM-generated config files (environment-specific, stored in GraphData)
 config/**/*_Claude_*.yaml
