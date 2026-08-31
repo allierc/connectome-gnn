@@ -2150,10 +2150,9 @@ def run_nominal_train_step(
     """One iteration of standard (non-recurrent) training: compute the loss and
     update the regularizer.
 
-    Returns the loss still attached to the graph — the caller owns backward/step.
-    The regularisation value is not returned: it is accumulated on the regularizer
-    object here and read by the caller only when it records, which keeps the
-    .item() GPU sync off the per-iteration path.
+    Returns the loss still attached to the AUTOGRAD graph (it carries grad_fn), so
+    the caller owns backward/step. Not the connectome graph.
+    The regularisation value is not returned: it is accumulated on the regularizer object.
     """
     state_batch = []
     y_list = []
