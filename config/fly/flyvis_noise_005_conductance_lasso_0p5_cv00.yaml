@@ -67,7 +67,7 @@ training:
   coeff_g_phi_weight_L1: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_g_phi_weight_L2: 0
-  coeff_g_phi_input_group_L1: 1
+  coeff_g_phi_input_group_L1: 0.5
   coeff_f_theta_weight_L2: 0.0005
   coeff_W_L1: 7.5e-05
   coeff_W_L2: 7.5e-07
