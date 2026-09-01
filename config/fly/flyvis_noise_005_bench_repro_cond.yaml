@@ -1,14 +1,13 @@
-description: 'Nominal noise-free t+1 baseline, fold=2 (blank50).
-  sim_seed=44 train_seed=1044. HPs: flyvis_unified_blank50_fd_winner.yaml. Renamed from flyvis_noise_free_blank50_unified_fd_cv02, which it reproduces verbatim.'
-dataset: flyvis_noise_free_blank50_cv02
+description: "cv00 baseline with ALL g_phi sparsity regularizers off (coeff_g_phi_weight_L1=0, weight_L2=0, input_group_L1=0) — isolates how much of cv00's R2_W comes from the L1 pressure vs the rest of the loss/training setup"
+dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -17,16 +16,16 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.0
-  seed: 44
+  noise_model_level: 0.05
+  seed: 42
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_A
+  signal_model_name: flyvis_conductance
   prediction: first_derivative
-  input_size: 3
+  input_size: 6
   n_layers: 3
   hidden_dim: 80
   output_size: 1
@@ -42,11 +41,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   torch_compile: true
   mlp_precision: bf16
@@ -65,16 +64,17 @@ training:
   coeff_g_phi_diff: 375
   coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0.45
-  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_weight_L1: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_g_phi_weight_L2: 0
+  coeff_g_phi_input_group_L1: 0
   coeff_f_theta_weight_L2: 0.0005
   coeff_W_L1: 7.5e-05
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1044
+  seed: 1042
+  deterministic: false
   n_epochs: 1
   data_augmentation_loop: 500
-config_file: fly/flyvis_noise_free_nominal_cv02
