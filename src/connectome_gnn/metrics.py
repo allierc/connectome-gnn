@@ -745,6 +745,13 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
     return to_numpy(rr), to_numpy(func), valid
 
 
+# Rows per g_phi evaluation in sample_g_phi_vi_vj_observed. 1e6 rows keeps the
+# [rows, hidden] activation near 300 MB at hidden 80, so the conductance
+# W-correction runs on a 24 GB l4 as well as an a100. Purely a memory knob --
+# the result does not depend on it.
+G_PHI_EVAL_CHUNK = 1_000_000
+
+
 def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames=2000, seed=0):
     """Evaluate learned g_phi at REAL, co-occurring (vi(t), vj(t)) pairs for a
     sample of real edges — not an independent (vi, vj) grid.
@@ -804,15 +811,30 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
     vi_flat = vi.reshape(-1, 1)
     vj_flat = vj.reshape(-1, 1)
 
-    if 'flyvis_conductance' in signal_model_name:
-        in_features = torch.cat([vj_flat, aj_flat, vi_flat, ai_flat], dim=1)
-    else:
-        in_features = torch.cat([vj_flat, aj_flat], dim=1)
-
+    # CHUNKED, because the caller passes EVERY edge: compute_g_phi_fd_slope asks
+    # for n_edges = edges.shape[1], so at flyvis scale this is 434,112 x 32 =
+    # 13.9M rows. One call means a [13.9M, hidden] activation inside g_phi --
+    # 4.14 GiB at hidden 80 -- which fits a 40-80 GB a100 and OOMs a 24 GB l4
+    # every time, at the first plot_training_gnn after the 16k checkpoint.
+    #
+    # Bit-identical: rows are independent, nothing is reduced across them, so
+    # splitting and concatenating returns the same tensor. Cost is unchanged --
+    # same FLOPs, same traffic, ~14 extra kernel launches against 13.9M rows --
+    # which matters because this runs at every connectivity checkpoint.
     with torch.no_grad():
-        out = model.g_phi(pad_g_phi_input(in_features.float(), model))
-        if g_phi_positive:
-            out = out ** 2
+        outs = []
+        for _lo in range(0, vj_flat.shape[0], G_PHI_EVAL_CHUNK):
+            _hi = _lo + G_PHI_EVAL_CHUNK
+            if 'flyvis_conductance' in signal_model_name:
+                _in = torch.cat([vj_flat[_lo:_hi], aj_flat[_lo:_hi],
+                                 vi_flat[_lo:_hi], ai_flat[_lo:_hi]], dim=1)
+            else:
+                _in = torch.cat([vj_flat[_lo:_hi], aj_flat[_lo:_hi]], dim=1)
+            _o = model.g_phi(pad_g_phi_input(_in.float(), model))
+            if g_phi_positive:
+                _o = _o ** 2
+            outs.append(_o)
+        out = torch.cat(outs, dim=0)
 
     g_phi_vals = out.reshape(n_e, n_frames)
 
