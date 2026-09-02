@@ -342,10 +342,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             requires_grad=self.cond_neuron_params != "frozen")
         # Initialised straddling the voltage range so both driving forces start
         # with the right sign; flyvis voltages are O(1) about 0.
-        self.E_exc = nn.Parameter(torch.tensor(1.0, device=device),
-                                  requires_grad=getattr(tc, "cond_learn_reversal", True))
-        self.E_inh = nn.Parameter(torch.tensor(-1.0, device=device),
-                                  requires_grad=getattr(tc, "cond_learn_reversal", True))
+        self.cond_reversal_mode = getattr(tc, "cond_reversal_mode", "margin")
+        self.delta_inh = float(getattr(tc, "cond_delta_inh", 0.4))
+        self.delta_exc = float(getattr(tc, "cond_delta_exc", 1.0))
+        _free = (getattr(tc, "cond_learn_reversal", True)
+                 and self.cond_reversal_mode == "learned")
+        self.E_exc = nn.Parameter(torch.tensor(1.0, device=device), requires_grad=_free)
+        self.E_inh = nn.Parameter(torch.tensor(-1.0, device=device), requires_grad=_free)
+        self._range_set = False
         self.W.requires_grad_(bool(getattr(tc, "cond_learn_edges", True)))
         n_w = self.n_edges + self.n_extra_null_edges
         self.register_buffer(
@@ -366,6 +370,21 @@ class FlyvisConductanceKnownODE(KnownODEBase):
     def _node_index(self, particle_id):
         """Neuron id -> parameter row. Identity per-neuron, cell type per-type."""
         return self.type_index[particle_id] if self.cond_neuron_params == "per_type" else particle_id
+
+    def set_teacher_voltage_range(self, v_min, v_max):
+        """Pin the reversals OUTSIDE the teacher's voltage range (cond_reversal_mode margin).
+
+        E_exc = V_max + delta_exc * span, E_inh = V_min - delta_inh * span. Bracketing
+        is then structural: V_i lies in [V_min, V_max] by definition, so (E_exc - V_i)
+        > 0 and (E_inh - V_i) < 0 for every voltage the teacher ever visits, for any
+        delta > 0. Nothing to penalise and nothing to check at runtime.
+        """
+        v_min, v_max = float(v_min), float(v_max)
+        span = max(v_max - v_min, 1e-6)
+        with torch.no_grad():
+            self.E_exc.fill_(v_max + self.delta_exc * span)
+            self.E_inh.fill_(v_min - self.delta_inh * span)
+        self._range_set = True
 
     def set_neuron_types(self, type_list):
         """(N,) cell-type id per neuron, for cond_neuron_params: per_type."""
@@ -405,6 +424,11 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         force is (E - v_i), i.e. it depends on the POSTsynaptic voltage, which is
         the one structural difference between this model and FlyvisKnownODE.
         """
+        if self.cond_reversal_mode == "margin" and not self._range_set:
+            raise RuntimeError(
+                "flyvis_cond_known_ode: cond_reversal_mode 'margin' needs the teacher's "
+                "voltage range; set_teacher_voltage_range() was never called, so the "
+                "reversals would sit at their +-1 placeholders and could be crossed.")
         if not self._sign_set:
             raise RuntimeError(
                 "flyvis_cond_known_ode: set_presynaptic_sign() was never called, so "
