@@ -428,6 +428,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 lr_update=(lr_update * circuit_lr_damp),
                 lr_W=(lr_W * circuit_lr_damp),
                 lr_NNR_f=lr_NNR_f,
+                beta2=getattr(training, 'adam_beta2', 0.999),
             )
 
             lr_scheduler = build_lr_scheduler(optimizer, config)
@@ -526,7 +527,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 lr_embedding = training.lr_embedding
 
                 optimizer, n_total_params = set_trainable_parameters(
-                    model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W
+                    model=model, lr_embedding=lr_embedding, lr=lr, lr_update=lr_update, lr_W=lr_W,
+                    beta2=getattr(training, 'adam_beta2', 0.999)
                 )
 
                 _logger.debug(f"unfreezing embedding at iteration {N}/{Niter}")

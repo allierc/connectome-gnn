@@ -519,7 +519,7 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device,
 
     return in_features, in_features_next
 
-def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_NNR_f=[]):
+def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr_W=[], lr_NNR_f=[], beta2=0.999):
 
     trainable_params = [param for _, param in model.named_parameters() if param.requires_grad]
     n_total_params = sum(p.numel() for p in trainable_params)
@@ -553,7 +553,7 @@ def set_trainable_parameters(model=[], lr_embedding=[], lr=[],  lr_update=[], lr
         pg['base_lr'] = pg['lr']
 
     # fused=True collapses per-param kernel launches into one CUDA kernel per group
-    optimizer = torch.optim.Adam(param_groups, fused=True)
+    optimizer = torch.optim.Adam(param_groups, fused=True, betas=(0.9, beta2))
 
     return optimizer, n_total_params
 
