@@ -1681,6 +1681,27 @@ def init_training_model(
                     "cond_reversal_mode 'margin' needs the teacher's voltage range and "
                     "this dataset carries no x_ts.voltage")
             model.set_teacher_voltage_range(float(v.min()), float(v.max()))
+        if getattr(training, "cond_init", "teacher_closed_form") == "teacher_closed_form":
+            # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
+            # about the type's mean postsynaptic voltage, and the teacher's own
+            # tau/V_rest are type-constant too. Falls back to a per-neuron mean when
+            # no type map is available.
+            xt = getattr(data, "x_ts", None)
+            v = getattr(xt, "voltage", None) if xt is not None else None
+            ei = _get("edge_index")
+            if v is None or ei is None:
+                raise RuntimeError(
+                    "cond_init 'teacher_closed_form' needs x_ts.voltage and "
+                    "ode_params.edge_index")
+            vbar = v.float().mean(dim=0)                       # (N,) per-neuron mean
+            if tl is not None:
+                t = torch.as_tensor(tl).reshape(-1).long().to(vbar.device)
+                nt = int(t.max()) + 1
+                sums = torch.zeros(nt, device=vbar.device).index_add_(0, t, vbar)
+                cnts = torch.zeros(nt, device=vbar.device).index_add_(
+                    0, t, torch.ones_like(vbar))
+                vbar = (sums / cnts.clamp_min(1))[t]           # type mean, per neuron
+            model.init_from_teacher(w, ei, vbar)
         if getattr(training, "cond_neuron_params", "per_type") == "frozen":
             tau, vr = _get("tau_i"), _get("V_i_rest")
             if tau is None or vr is None:

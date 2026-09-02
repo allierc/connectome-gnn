@@ -1367,6 +1367,29 @@ class TrainingConfig(BaseModel):
     # the teacher, continuously. The asymmetric default mirrors the inhibitory
     # driving force being roughly half the excitatory one in real neurons.
     cond_reversal_mode: Literal["learned", "margin"] = "margin"
+    # STAGE-1 CLOSED-FORM INITIALISATION, from the conductance-twin methods.
+    # The two models differ only in what multiplies the synaptic activation
+    # N f(V_j): a constant s_ij alpha_curr for the teacher, a state-dependent
+    # alpha_cond (E - V_i) for the twin. Expanding about the per-cell-type mean
+    # postsynaptic voltage Vbar_ti and equating the zeroth-order terms,
+    #
+    #     alpha_cond = alpha_curr / (E - Vbar_ti)          > 0
+    #
+    # positive by construction, because E - Vbar carries the same sign s_ij that
+    # alpha_curr does -- E_exc lies above and E_inh below every voltage the teacher
+    # visits, which is exactly what cond_reversal_mode 'margin' guarantees. Exact
+    # wherever the postsynaptic cell sits at its mean, and exact everywhere as
+    # delta -> infinity. One number per (presynaptic type, postsynaptic type) group.
+    #
+    # This is an INITIALISER, not a fitting stage: it replaces w_init_mode's random
+    # start with a physically motivated one and then hands over to the usual
+    # derivative loss. Stage 2 of the methods -- the per-cell-type NNLS on synaptic
+    # currents -- is deliberately NOT implemented: it solves for a SHARED alpha per
+    # group, a few thousand unknowns, where this model learns 434,112 per-edge
+    # weights, so its answer could only ever be a prior, and that is what stage 1
+    # already provides more cheaply. It would also need the teacher's synaptic
+    # current I_i(t) as a target, which the generator does not store.
+    cond_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
     cond_delta_inh: float = 0.4
     cond_delta_exc: float = 1.0
 
