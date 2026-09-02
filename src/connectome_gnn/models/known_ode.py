@@ -354,6 +354,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         self.E_exc = nn.Parameter(torch.ones(n_rev, device=device), requires_grad=_free)
         self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
         self.register_buffer("_range_set_b", torch.zeros(1, dtype=torch.bool, device=device))
+        self._range_set = False
         self.W.requires_grad_(bool(getattr(tc, "cond_learn_edges", True)))
         n_w = self.n_edges + self.n_extra_null_edges
         self.register_buffer(
@@ -364,7 +365,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         # with both flags False and the guard raised. graph_tester builds the model
         # and loads a checkpoint; it never calls the setters, and it should not have
         # to, because everything they set is already in the state dict.
+        # TWO REPRESENTATIONS OF THE SAME FACT, and both are needed. The BUFFER
+        # persists through the checkpoint, so `-o test` gets a configured model
+        # without calling the setters. The PYTHON BOOL is what forward() tests:
+        # `bool(tensor)` inside a torch.compile'd forward is data-dependent control
+        # flow and dynamo refuses it, which killed all six runs at iteration 0.
+        # _load_from_state_dict below syncs the bool from the buffer.
         self.register_buffer("_sign_set_b", torch.zeros(1, dtype=torch.bool, device=device))
+        self._sign_set = False
 
     def set_presynaptic_sign(self, w_signed):
         """Partition edges by presynaptic polarity from the connectome's own sign.
@@ -375,11 +383,17 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         s = torch.as_tensor(w_signed).reshape(-1).to(self.edge_is_inh.device)
         n = min(s.numel(), self.edge_is_inh.numel())
         self.edge_is_inh[:n] = s[:n] < 0
-        self._sign_set_b.fill_(True)
+        self._sign_set_b.fill_(True); self._sign_set = True
 
     def _node_index(self, particle_id):
         """Neuron id -> parameter row. Identity per-neuron, cell type per-type."""
         return self.type_index[particle_id] if self.cond_neuron_params == "per_type" else particle_id
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        """Restore the python guard flags from their persisted buffers."""
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+        self._sign_set = bool(self._sign_set_b)
+        self._range_set = bool(self._range_set_b)
 
     def _rev_index(self, neuron_ids):
         """Postsynaptic neuron id -> reversal row. E belongs to the POSTsynaptic cell.
@@ -430,7 +444,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
                 span = (hi_r - lo_r).clamp_min(1e-3)
                 self.E_exc.copy_(hi_r + self.delta_exc * span)
                 self.E_inh.copy_(lo_r - self.delta_inh * span)
-        self._range_set_b.fill_(True)
+        self._range_set_b.fill_(True); self._range_set = True
 
     def init_from_teacher(self, w_signed, edge_index, v_mean_per_neuron):
         """Stage-1 closed form: W^2 <- alpha_curr / (E - Vbar_ti). See cond_init.
@@ -511,14 +525,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         force is (E - v_i), i.e. it depends on the POSTsynaptic voltage, which is
         the one structural difference between this model and FlyvisKnownODE.
         """
-        if not bool(self._range_set_b):
+        if not self._range_set:
             raise RuntimeError(
                 "flyvis_cond_known_ode: set_teacher_voltage_range() was never called, so "
                 "the reversals sit at their +-1 placeholders. Under 'margin' they would "
                 "not bracket the teacher's range; under 'learned' the closed-form init "
                 "would divide by an (E - Vbar) of the wrong sign. Both modes need it -- "
                 "'learned' STARTS from the margin and fits from there.")
-        if not bool(self._sign_set_b):
+        if not self._sign_set:
             raise RuntimeError(
                 "flyvis_cond_known_ode: set_presynaptic_sign() was never called, so "
                 "every edge would be treated as excitatory and E_inh would never "
