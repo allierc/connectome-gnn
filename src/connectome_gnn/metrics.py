@@ -1475,7 +1475,9 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     if ode_params.has_tau():
         gt_tau = ode_params.gt_tau(n_neurons)
         if gt_tau is not None:
-            learned_tau = (model.get_learned_tau() if _direct
+            # .cpu(): derive_tau returns something recovery_param_metrics can call
+            # .numpy() on; the model's own parameter is still on the GPU.
+            learned_tau = (model.get_learned_tau().detach().cpu() if _direct
                            else ode_params.derive_tau(slopes, n_neurons))
             tm = recovery_param_metrics(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
             out['tau_r2']        = tm['r2']
@@ -1486,7 +1488,7 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     if ode_params.has_vrest():
         gt_vrest = ode_params.gt_vrest(n_neurons)
         if gt_vrest is not None:
-            learned_vrest = (model.get_learned_vrest() if _direct
+            learned_vrest = (model.get_learned_vrest().detach().cpu() if _direct
                              else ode_params.derive_vrest(slopes, offsets, n_neurons))
             vm = recovery_param_metrics(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
             out['vrest_r2']        = vm['r2']
