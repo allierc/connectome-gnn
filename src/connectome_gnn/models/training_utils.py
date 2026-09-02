@@ -1673,7 +1673,11 @@ def init_training_model(
         tl = getattr(data, "type_list", None)
         if tl is not None:
             model.set_neuron_types(tl)
-        if getattr(training, "cond_reversal_mode", "margin") == "margin":
+        # BOTH modes: 'margin' fixes the reversals here, 'learned' merely starts
+        # from them. Leaving 'learned' at +-1 made the closed-form init divide by an
+        # (E - Vbar) whose sign did not match the connectome's on 44,735 of 434,112
+        # edges, which the guard caught as a negative conductance at second zero.
+        if True:
             xt = getattr(data, "x_ts", None)
             v = getattr(xt, "voltage", None) if xt is not None else None
             if v is None:
