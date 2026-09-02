@@ -1654,6 +1654,31 @@ def init_training_model(
     if training.fix_embedding:
         model.a.requires_grad_(False)
 
+    # flyvis_cond_known_ode needs three things the config cannot carry: the per-edge
+    # polarity, the cell-type map, and (when frozen) the teacher's own neuron
+    # constants. All three are GT STRUCTURE rather than fitted quantities -- only the
+    # SIGN of ode_params.W is read, never its magnitude. Dale's law does NOT hold in
+    # this connectome (4,573 of 13,279 presynaptic neurons have mixed-sign outgoing
+    # edges), so the polarity has to be per EDGE; a per-neuron or per-type reduction
+    # would silently pick one sign for a third of them.
+    if hasattr(model, "set_presynaptic_sign"):
+        op = getattr(data, "ode_params", None)
+        _get = (lambda k: op.get(k)) if isinstance(op, dict) else (lambda k: getattr(op, k, None))
+        w = _get("W") if op is not None else None
+        if w is None:
+            raise RuntimeError(
+                "flyvis_cond_known_ode needs ode_params.W for the per-edge polarity; "
+                "this dataset carries none")
+        model.set_presynaptic_sign(w)
+        tl = getattr(data, "type_list", None)
+        if tl is not None:
+            model.set_neuron_types(tl)
+        if getattr(training, "cond_neuron_params", "per_type") == "frozen":
+            tau, vr = _get("tau_i"), _get("V_i_rest")
+            if tau is None or vr is None:
+                raise RuntimeError("cond_neuron_params 'frozen' needs ode_params tau_i/V_i_rest")
+            model.set_teacher_neuron_params(tau, vr)
+
     model.train()
 
     return model, start_epoch

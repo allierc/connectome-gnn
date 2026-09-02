@@ -1337,6 +1337,22 @@ class TrainingConfig(BaseModel):
     # 1/std range and almost certainly amplifying measurement noise.
     target_weight_floor_pct: float = 5.0
 
+    # ---- flyvis_cond_known_ode: which parameter groups are learnable -------------
+    # The student has three groups and they differ by orders of magnitude in size,
+    # so which are free is the experiment rather than a detail:
+    #   reversals      2            E_exc, E_inh
+    #   edges          434,112      W, entering squared so the conductance is >= 0
+    #   neuron params  see below    tau, V_rest
+    cond_learn_reversal: bool = True
+    cond_learn_edges: bool = True
+    # tau and V_rest. The teacher's own values have exactly 65 DISTINCT entries over
+    # 13,741 neurons -- one per cell type -- so per-neuron spends 27,482 parameters
+    # to represent 130, and 'per_type' is both smaller and the structure the data
+    # actually has. 'frozen' pins them at the teacher's values, which turns the fit
+    # into "can a conductance synapse reproduce this activity given the right
+    # neurons" rather than "can it reproduce it at all".
+    cond_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
+
     # Adam's second-moment decay. GraphCast (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary
     # gradient scale faster, which is what a curriculum that changes the objective
