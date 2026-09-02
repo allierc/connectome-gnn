@@ -75,7 +75,7 @@ training:
   use_gt_edges: true
   seed: 1042
   n_epochs: 1
-  data_augmentation_loop: 500
+  data_augmentation_loop: 100
   cond_reversal_mode: learned
   cond_reversal_dim: global
   cond_neuron_params: per_type
