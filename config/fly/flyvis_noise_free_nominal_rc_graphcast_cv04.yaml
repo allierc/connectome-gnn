@@ -1,4 +1,4 @@
-description: 'ROLLOUT pushforward arm, K=1..5 curriculum, flyvis_A noise-free, fold 4. Paired against flyvis_noise_free_nominal_cv04 exactly as the uniform arm is: 5 epochs x 100 loops vs the baseline s 1 x 500 (same 500 iterations), frame_target_offset 1 so both draw start frames from 63995. Differs from flyvis_noise_free_nominal_rc_uniform_cv04 in one knob only. Brandstetter et al. ICLR 2022: detach the rolled state every step, so the model still SEES its own drifted states but each step contributes only a one-step gradient. Tests whether the benefit of rollout is distribution shift or BPTT.'
+description: 'GraphCast curriculum on flyvis_A noise-free, fold 4. Four refinements from the supplement, together, against flyvis_noise_free_nominal_cv04: (1) rollout as a 3.5%% TAIL fine-tune rather than a training scheme -- 1,600,000 one-step updates first, then 5,333 per horizon; (2) AR steps ramped 2->12 rather than stopping at 5; (3) linear warmup then ONE half-cosine decay to a 3e-4 floor, so the last checkpoint is the usable one; (4) global grad-norm clip 32 and Adam beta2 0.95 instead of 0.999. frame_target_offset 1 holds the start-frame range at the baseline s 63995. Costs ~26%% more network calls than the baseline (2.01M vs 1.60M), which is the price of the tail.'
 dataset: flyvis_noise_free_blank50_cv04
 simulation:
   connectivity_file: to be specified
@@ -74,11 +74,17 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1046
-  n_epochs: 5
-  data_augmentation_loop: 100
-  rollout_horizon_schedule: [1, 2, 3, 4, 5]
+  n_epochs: 12
+  data_augmentation_loop: 500
+  rollout_horizon_schedule: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
+  rollout_tail_iters_per_epoch: 5333
+  lr_scheduler: graphcast
+  lr_scheduler_warmup_iters: 5333
+  lr_scheduler_decay_frac: 0.965
+  lr_scheduler_tail_ratio: 0.0003
+  grad_clip_norm: 32
+  adam_beta2: 0.95
   frame_target_offset: 1
-  rollout_bptt_window: 1
-config_file: fly/flyvis_noise_free_nominal_rc_pushforward_cv04
+config_file: fly/flyvis_noise_free_nominal_rc_graphcast_cv04

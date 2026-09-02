@@ -62,12 +62,12 @@ training:
   lr: 0.0018
   lr_embedding: 0.002325
   coeff_g_phi_diff: 375
-  coeff_f_theta_msg_diff: 0
   coeff_g_phi_norm: 0.45
   coeff_g_phi_weight_L1: 0
-  coeff_f_theta_weight_L1: 0.025
   coeff_g_phi_weight_L2: 0
   coeff_g_phi_input_group_L1: 2.5
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
   coeff_f_theta_weight_L2: 0.0005
   coeff_W_L1: 7.5e-05
   coeff_W_L2: 7.5e-07

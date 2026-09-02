@@ -1311,6 +1311,12 @@ class TrainingConfig(BaseModel):
     # distribution instead.
     mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
 
+    # Adam's second-moment decay. GraphCast (supplement sec 4.4) uses 0.95 rather
+    # than torch's 0.999: a shorter second-moment window tracks a non-stationary
+    # gradient scale faster, which is what a curriculum that changes the objective
+    # partway through produces. Default keeps torch's value.
+    adam_beta2: float = 0.999
+
     # external input learning
     learn_external_input: bool = False
 
