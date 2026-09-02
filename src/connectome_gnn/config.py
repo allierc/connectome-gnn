@@ -1352,6 +1352,23 @@ class TrainingConfig(BaseModel):
     # into "can a conductance synapse reproduce this activity given the right
     # neurons" rather than "can it reproduce it at all".
     cond_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
+    # HOW THE REVERSAL POTENTIALS ARE SET. Not a regulariser -- a reparametrisation,
+    # which is why it can GUARANTEE what a penalty could only encourage.
+    #   'learned'  E_exc, E_inh are free parameters. Nothing stops them crossing the
+    #              teacher's voltage range, and if V_i crosses E the driving force
+    #              flips sign and excitation silently becomes inhibition.
+    #   'margin'   E_exc = V_max + delta_exc * span, E_inh = V_min - delta_inh * span,
+    #              with V_min/V_max/span measured from the teacher. Bracketing then
+    #              holds by construction for any delta > 0, so the sign cannot flip.
+    # delta is also the CONTINUITY KNOB between the two models: as delta grows,
+    # (E - V_i) -> delta and loses its V_i dependence, so with a conductance scale
+    # going as 1/delta the message tends to s_ij alpha' N f(V_j) -- the current-based
+    # teacher. Small delta is strongly conductance-like; large delta degenerates to
+    # the teacher, continuously. The asymmetric default mirrors the inhibitory
+    # driving force being roughly half the excitatory one in real neurons.
+    cond_reversal_mode: Literal["learned", "margin"] = "margin"
+    cond_delta_inh: float = 0.4
+    cond_delta_exc: float = 1.0
 
     # Adam's second-moment decay. GraphCast (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary

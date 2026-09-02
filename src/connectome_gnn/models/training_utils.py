@@ -1673,6 +1673,14 @@ def init_training_model(
         tl = getattr(data, "type_list", None)
         if tl is not None:
             model.set_neuron_types(tl)
+        if getattr(training, "cond_reversal_mode", "margin") == "margin":
+            xt = getattr(data, "x_ts", None)
+            v = getattr(xt, "voltage", None) if xt is not None else None
+            if v is None:
+                raise RuntimeError(
+                    "cond_reversal_mode 'margin' needs the teacher's voltage range and "
+                    "this dataset carries no x_ts.voltage")
+            model.set_teacher_voltage_range(float(v.min()), float(v.max()))
         if getattr(training, "cond_neuron_params", "per_type") == "frozen":
             tau, vr = _get("tau_i"), _get("V_i_rest")
             if tau is None or vr is None:
