@@ -376,12 +376,19 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         return self.type_index[particle_id] if self.cond_neuron_params == "per_type" else particle_id
 
     def _rev_index(self, neuron_ids):
-        """Postsynaptic neuron id -> reversal row. E belongs to the POSTsynaptic cell."""
+        """Postsynaptic neuron id -> reversal row. E belongs to the POSTsynaptic cell.
+
+        MODULO n_neurons because _batch_frames replicates the graph B times with an
+        offset, so dst spans [0, N*B) while type_index and the reversals are declared
+        once per network. Without it a batched run indexes out of bounds and dies as
+        a bare CUDA device-side assert with no line number.
+        """
+        ids = neuron_ids % self.n_neurons
         if self.cond_reversal_dim == "global":
-            return torch.zeros_like(neuron_ids)
+            return torch.zeros_like(ids)
         if self.cond_reversal_dim == "per_type":
-            return self.type_index[neuron_ids]
-        return neuron_ids
+            return self.type_index[ids]
+        return ids
 
     def set_teacher_voltage_range(self, v_min, v_max):
         """Pin the reversals OUTSIDE the teacher's voltage range (cond_reversal_mode margin).
@@ -434,8 +441,22 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         vbar = torch.as_tensor(v_mean_per_neuron).reshape(-1).to(dev)
         n = min(w.numel(), self.W.shape[0])
         r = self._rev_index(dst[:n])
+        # VBAR AT E'S OWN GRANULARITY. The margin brackets whatever range E was built
+        # from; a Vbar reduced differently can fall outside it and flip the sign of
+        # (E - Vbar). Measured: per-neuron reversals against a per-CELL-TYPE Vbar gave
+        # 512 of 434,112 edges a negative conductance. Reducing Vbar onto the same
+        # rows removes the mismatch by construction.
+        if self.cond_reversal_dim != "per_neuron" and vbar.numel() == self.n_neurons:
+            ridx = self._rev_index(torch.arange(self.n_neurons, device=dev))
+            nrow = self.E_exc.numel()
+            sums = torch.zeros(nrow, device=dev).index_add_(0, ridx, vbar)
+            cnts = torch.zeros(nrow, device=dev).index_add_(0, ridx, torch.ones_like(vbar))
+            vbar_row = sums / cnts.clamp_min(1)
+            vbar_e = vbar_row[r]
+        else:
+            vbar_e = vbar[dst[:n] % self.n_neurons]
         E = torch.where(self.edge_is_inh[:n], self.E_inh[r], self.E_exc[r])
-        alpha = (w[:n] / (E - vbar[dst[:n]]))
+        alpha = (w[:n] / (E - vbar_e))
         neg = int((alpha < 0).sum())
         if neg:
             raise RuntimeError(
@@ -484,11 +505,13 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         force is (E - v_i), i.e. it depends on the POSTsynaptic voltage, which is
         the one structural difference between this model and FlyvisKnownODE.
         """
-        if self.cond_reversal_mode == "margin" and not self._range_set:
+        if not self._range_set:
             raise RuntimeError(
-                "flyvis_cond_known_ode: cond_reversal_mode 'margin' needs the teacher's "
-                "voltage range; set_teacher_voltage_range() was never called, so the "
-                "reversals would sit at their +-1 placeholders and could be crossed.")
+                "flyvis_cond_known_ode: set_teacher_voltage_range() was never called, so "
+                "the reversals sit at their +-1 placeholders. Under 'margin' they would "
+                "not bracket the teacher's range; under 'learned' the closed-form init "
+                "would divide by an (E - Vbar) of the wrong sign. Both modes need it -- "
+                "'learned' STARTS from the margin and fits from there.")
         if not self._sign_set:
             raise RuntimeError(
                 "flyvis_cond_known_ode: set_presynaptic_sign() was never called, so "
