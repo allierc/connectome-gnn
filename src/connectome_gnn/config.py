@@ -1367,6 +1367,17 @@ class TrainingConfig(BaseModel):
     # the teacher, continuously. The asymmetric default mirrors the inhibitory
     # driving force being roughly half the excitatory one in real neurons.
     cond_reversal_mode: Literal["learned", "margin"] = "margin"
+    # GRANULARITY of E. The driving force is (E - V_i), so E belongs to the
+    # POSTSYNAPTIC cell -- these are per postsynaptic neuron/type, not per edge.
+    #   'global'      two scalars, E_exc and E_inh.
+    #   'per_type'    two per cell type. Closest to PR #46, which carries one
+    #                 reversal per (presynaptic type -> postsynaptic type) group.
+    #   'per_neuron'  two per neuron: the overparameterised control. Physically a
+    #                 reversal is a property of the receptor, shared by synapse type,
+    #                 so a per-neuron gain is capacity absorbing model mismatch.
+    # Crosses with cond_reversal_mode: 'learned' fits them, 'margin' sets them from
+    # the teacher's voltage range measured AT THE SAME GRANULARITY.
+    cond_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
     # STAGE-1 CLOSED-FORM INITIALISATION, from the conductance-twin methods.
     # The two models differ only in what multiplies the synaptic activation
     # N f(V_j): a constant s_ij alpha_curr for the teacher, a state-dependent

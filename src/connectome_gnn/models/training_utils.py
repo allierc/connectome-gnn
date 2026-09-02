@@ -1680,7 +1680,10 @@ def init_training_model(
                 raise RuntimeError(
                     "cond_reversal_mode 'margin' needs the teacher's voltage range and "
                     "this dataset carries no x_ts.voltage")
-            model.set_teacher_voltage_range(float(v.min()), float(v.max()))
+            # per-neuron extremes; the model reduces them to whatever granularity
+            # cond_reversal_dim asks for (global / per cell type / per neuron)
+            model.set_teacher_voltage_range(
+                v.float().amin(dim=0), v.float().amax(dim=0))
         if getattr(training, "cond_init", "teacher_closed_form") == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
             # about the type's mean postsynaptic voltage, and the teacher's own
