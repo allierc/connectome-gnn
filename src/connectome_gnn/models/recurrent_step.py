@@ -88,6 +88,7 @@ def recurrent_loss(
     has_visual_field=False,
     hn=None,
     n_steps=None,
+    target_weight=None,
 ):
     """Dispatch to one of the three modes. See the module docstring.
 
@@ -106,7 +107,7 @@ def recurrent_loss(
         return _dense_rollout_loss(
             model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
             int(n_steps), sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-            hn=hn,
+            hn=hn, target_weight=target_weight,
         )
     elif multi_start:
         return _multi_start_loss(
@@ -149,7 +150,7 @@ def _rollout_step_weights(weighting, n_steps, gamma):
 def _dense_rollout_loss(
     model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
     n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-    hn=None,
+    hn=None, target_weight=None,
 ):
     """ROLLOUT: unroll K = n_steps from frame k, scoring every step.
 
@@ -266,6 +267,7 @@ def _dense_rollout_loss(
                 reduction,
                 target=y_step[ids_batch],
                 huber_delta=huber_delta,
+                weight=None if target_weight is None else target_weight[ids_batch],
             )
             weight_scored += w
 
