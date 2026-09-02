@@ -81,4 +81,6 @@ training:
   cond_neuron_params: per_type
   cond_learn_edges: true
   cond_init: teacher_closed_form
+  train_on_teacher: true
+  teacher_rollout_frames: 1000
 config_file: fly/flyvis_noise_free_cond_learned_perneuron_cv00

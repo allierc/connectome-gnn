@@ -1337,6 +1337,19 @@ class TrainingConfig(BaseModel):
     # 1/std range and almost certainly amplifying measurement noise.
     target_weight_floor_pct: float = 5.0
 
+    # TEACHER-STUDENT DISTILLATION. False (default) is ordinary training against a
+    # dataset, and every existing spec is unaffected. True marks the run as fitting a
+    # STUDENT to a teacher's recorded activity, which changes what the run is judged
+    # on: R2_W is meaningless here -- the teacher is current-based and has no
+    # conductance ground truth to recover -- so the acceptance test is the ROLLOUT,
+    # whether the student runs free and stays on the teacher's trajectory.
+    train_on_teacher: bool = False
+    # Frames in the in-training rollout. The full test rollout is ~7,200 frames and
+    # takes ~40 s; 1,000 is a second and enough to see divergence, which is what a
+    # per-checkpoint diagnostic is for. The reported number is Pearson r over all
+    # (neuron, frame) pairs, the same statistic results_rollout.log quotes.
+    teacher_rollout_frames: int = 1000
+
     # ---- flyvis_cond_known_ode: which parameter groups are learnable -------------
     # The student has three groups and they differ by orders of magnitude in size,
     # so which are free is the experiment rather than a detail:
