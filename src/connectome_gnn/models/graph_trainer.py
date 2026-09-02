@@ -707,6 +707,30 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
             is_early_r2 = N < epoch_state.connectivity_plot_frequency and N % epoch_state.early_r2_frequency == 0
 
+            # TEACHER-STUDENT: the rollout is the acceptance test, so it is measured
+            # at the same cadence R2_W is. In process -- the model, x_ts, edges and
+            # device are all in memory here, so a 1,000-frame free run costs about a
+            # second, against minutes to reload 8 GB in a `-o test` subprocess that
+            # could not open the GPU anyway (LSF grants it exclusive_process) and
+            # would clobber this run's results_rollout.log. Writes its own
+            # tmp_training/rollout_r.log rather than a metrics.log column, because
+            # plot.py reads metrics.log by positional index.
+            if getattr(training, "train_on_teacher", False) and (is_regular_r2 or is_early_r2):
+                from connectome_gnn.models.teacher_eval import evaluate_teacher_rollout
+                try:
+                    _r, _rmse = evaluate_teacher_rollout(
+                        model, x_ts, edges, sim, device, log_dir,
+                        regularizer.iter_count,
+                        n_frames=int(getattr(training, "teacher_rollout_frames", 1000)),
+                        has_visual_field=train.has_visual_field, hn=hn,
+                        type_names=getattr(ode_params, "type_names", None)
+                        if not isinstance(ode_params, dict) else ode_params.get("type_names"),
+                        type_list=type_list)
+                    logger.info(f"iter {regularizer.iter_count}: rollout r={_r:.4f} rmse={_rmse:.4f}")
+                except Exception as _e:
+                    # A failed diagnostic must not take the training run with it.
+                    logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")
+
             if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
                 from connectome_gnn.metrics import compute_jacobian_connectivity_r2
 
