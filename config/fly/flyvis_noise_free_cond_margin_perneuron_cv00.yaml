@@ -1,4 +1,4 @@
-description: 'Conductance STUDENT distilled from the current-based flyvis teacher, noise-free, fold 0. msg_ij = W_ij^2 * relu(v_j) * (E_ij - v_i), dv/dt = (-v + sum msg + I + V_rest)/tau, with E_ij = E_inh where the connectome sign is negative and E_exc where positive, assigned PER EDGE because Dale s law fails here (4,573 of 13,279 presynaptic neurons have mixed-sign outgoing edges). W enters squared so the conductance is non-negative and the message sign comes from the driving force alone. This is NOT parameter recovery -- the teacher has no (E - v_i) term, so there is no conductance ground truth and a discrepancy in the learned constants is expected. The test is the ROLLOUT: this model is only useful if it can run free and stay on the teacher s trajectory, because it then becomes the ground truth for the noise_free/005/05 datasets. RIG: tau and V_rest PINNED at the teacher''s values. Asks whether a conductance synapse can reproduce this activity GIVEN the right neurons, so any failure is the synapse model.'
+description: 'Conductance student distilled from the current-based flyvis teacher, noise-free, fold 0. E reversal rig margin/perneuron: SET from the teacher''s voltage range at that granularity, E_exc = V_max + 1.0*span, E_inh = V_min - 0.4*span. Bracketing is then structural and E is not fitted. Granularity: two per neuron, the overparameterised control: a reversal is physically a receptor property shared by synapse type, so a per-neuron gain is capacity absorbing model mismatch. Everything else held -- W learned per edge and entering squared, tau/V_rest learned per cell type, stage-1 closed-form init alpha = alpha_curr/(E - Vbar_ti), per-edge polarity from the connectome sign (Dale fails here, 4,573 of 13,279 presynaptic neurons have mixed-sign outgoing edges). NOT parameter recovery: the teacher has no (E - v_i) term, so the acceptance test is the ROLLOUT.'
 dataset: flyvis_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -76,7 +76,9 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 500
-  cond_neuron_params: frozen
-  cond_learn_reversal: true
+  cond_reversal_mode: margin
+  cond_reversal_dim: per_neuron
+  cond_neuron_params: per_type
   cond_learn_edges: true
-config_file: fly/flyvis_noise_free_cond_frozen_cv00
+  cond_init: teacher_closed_form
+config_file: fly/flyvis_noise_free_cond_margin_perneuron_cv00

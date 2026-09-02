@@ -347,8 +347,12 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         self.delta_exc = float(getattr(tc, "cond_delta_exc", 1.0))
         _free = (getattr(tc, "cond_learn_reversal", True)
                  and self.cond_reversal_mode == "learned")
-        self.E_exc = nn.Parameter(torch.tensor(1.0, device=device), requires_grad=_free)
-        self.E_inh = nn.Parameter(torch.tensor(-1.0, device=device), requires_grad=_free)
+        self.cond_reversal_dim = getattr(tc, "cond_reversal_dim", "global")
+        n_rev = {"global": 1,
+                 "per_type": int(getattr(config.simulation, "n_neuron_types", 0) or self.n_neurons),
+                 "per_neuron": self.n_neurons}[self.cond_reversal_dim]
+        self.E_exc = nn.Parameter(torch.ones(n_rev, device=device), requires_grad=_free)
+        self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
         self._range_set = False
         self.W.requires_grad_(bool(getattr(tc, "cond_learn_edges", True)))
         n_w = self.n_edges + self.n_extra_null_edges
@@ -371,6 +375,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         """Neuron id -> parameter row. Identity per-neuron, cell type per-type."""
         return self.type_index[particle_id] if self.cond_neuron_params == "per_type" else particle_id
 
+    def _rev_index(self, neuron_ids):
+        """Postsynaptic neuron id -> reversal row. E belongs to the POSTsynaptic cell."""
+        if self.cond_reversal_dim == "global":
+            return torch.zeros_like(neuron_ids)
+        if self.cond_reversal_dim == "per_type":
+            return self.type_index[neuron_ids]
+        return neuron_ids
+
     def set_teacher_voltage_range(self, v_min, v_max):
         """Pin the reversals OUTSIDE the teacher's voltage range (cond_reversal_mode margin).
 
@@ -379,14 +391,32 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         > 0 and (E_inh - V_i) < 0 for every voltage the teacher ever visits, for any
         delta > 0. Nothing to penalise and nothing to check at runtime.
         """
-        v_min, v_max = float(v_min), float(v_max)
-        # 1e-3 floor, matching PR #46's derive_conductance_twin: at 1e-6 a
-        # degenerate recording puts the reversals a millionth outside the range,
-        # which brackets in principle but leaves no usable driving force.
-        span = max(v_max - v_min, 1e-3)
+        # Accepts scalars or (N,) per-neuron extremes; reduced to whatever
+        # granularity cond_reversal_dim asks for. 1e-3 span floor matching PR #46's
+        # derive_conductance_twin: at 1e-6 a degenerate recording puts the reversals
+        # a millionth outside the range, which brackets in principle but leaves no
+        # usable driving force.
+        dev = self.E_exc.device
+        lo = torch.as_tensor(v_min, dtype=torch.float32, device=dev).reshape(-1)
+        hi = torch.as_tensor(v_max, dtype=torch.float32, device=dev).reshape(-1)
         with torch.no_grad():
-            self.E_exc.fill_(v_max + self.delta_exc * span)
-            self.E_inh.fill_(v_min - self.delta_inh * span)
+            if self.E_exc.numel() == 1 or lo.numel() == 1:
+                lo_r, hi_r = lo.min(), hi.max()
+                span = (hi_r - lo_r).clamp_min(1e-3)
+                self.E_exc.fill_(float(hi_r + self.delta_exc * span))
+                self.E_inh.fill_(float(lo_r - self.delta_inh * span))
+            else:
+                idx = self._rev_index(torch.arange(lo.numel(), device=dev))
+                n = self.E_exc.numel()
+                lo_r = torch.full((n,), float("inf"), device=dev).scatter_reduce(
+                    0, idx, lo, reduce="amin", include_self=True)
+                hi_r = torch.full((n,), float("-inf"), device=dev).scatter_reduce(
+                    0, idx, hi, reduce="amax", include_self=True)
+                empty = ~torch.isfinite(lo_r)          # rows no neuron maps to
+                lo_r[empty] = lo.min(); hi_r[empty] = hi.max()
+                span = (hi_r - lo_r).clamp_min(1e-3)
+                self.E_exc.copy_(hi_r + self.delta_exc * span)
+                self.E_inh.copy_(lo_r - self.delta_inh * span)
         self._range_set = True
 
     def init_from_teacher(self, w_signed, edge_index, v_mean_per_neuron):
@@ -403,7 +433,8 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         dst = torch.as_tensor(edge_index[1]).reshape(-1).long().to(dev)
         vbar = torch.as_tensor(v_mean_per_neuron).reshape(-1).to(dev)
         n = min(w.numel(), self.W.shape[0])
-        E = torch.where(self.edge_is_inh[:n], self.E_inh, self.E_exc)
+        r = self._rev_index(dst[:n])
+        E = torch.where(self.edge_is_inh[:n], self.E_inh[r], self.E_exc[r])
         alpha = (w[:n] / (E - vbar[dst[:n]]))
         neg = int((alpha < 0).sum())
         if neg:
@@ -469,7 +500,9 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             n_edges_batch, device=self.device) % (self.n_edges + self.n_extra_null_edges)
 
         g = self.W[edge_W_idx] ** 2                          # (E,1) conductance >= 0
-        E = torch.where(self.edge_is_inh[edge_W_idx], self.E_inh, self.E_exc).unsqueeze(-1)
+        r = self._rev_index(dst)
+        E = torch.where(self.edge_is_inh[edge_W_idx],
+                        self.E_inh[r], self.E_exc[r]).unsqueeze(-1)
         edge_msg = g * self._activation(v[src]) * (E - v[dst])
 
         msg = torch.zeros(v.shape[0], 1, device=self.device, dtype=v.dtype)
