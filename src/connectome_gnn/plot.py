@@ -161,6 +161,14 @@ def _plot_curves_fast(ax, rr, func, type_list, cmap, linewidth=1, alpha=0.1):
 # ------------------------------------------------------------------ #
 
 def plot_embedding(ax, model, type_list, n_types, cmap):
+    # known_ode models carry no learned embedding, so there is nothing to scatter.
+    # Draw the empty panel and say why, rather than raising out of plot_training_gnn
+    # and taking the whole training run with it.
+    if not hasattr(model, "a"):
+        ax.text(0.5, 0.5, "no embedding\n(known_ode model)", ha="center", va="center",
+                transform=ax.transAxes, fontsize=11, color="0.4")
+        ax.set_xticks([]); ax.set_yticks([])
+        return
     """Plot embedding scatter colored by neuron type.
 
     Args:
