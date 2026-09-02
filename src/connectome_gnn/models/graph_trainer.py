@@ -726,7 +726,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         type_names=getattr(ode_params, "type_names", None)
                         if not isinstance(ode_params, dict) else ode_params.get("type_names"),
                         type_list=type_list)
-                    logger.info(f"iter {regularizer.iter_count}: rollout r={_r:.4f} rmse={_rmse:.4f}")
+                    logger.info(f"iter {regularizer.iter_count}: rollout r={_r:.4f} rmse={_rmse:.4f} (TRAIN split -- the held-out number is `-o test`)")
                 except Exception as _e:
                     # A failed diagnostic must not take the training run with it.
                     logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")

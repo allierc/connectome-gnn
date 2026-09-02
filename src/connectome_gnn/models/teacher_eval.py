@@ -22,8 +22,17 @@ alternative. Four reasons, and none of them is style:
 The trainer already holds the model, x_ts, edges and device at the checkpoint, so
 everything the rollout needs is in memory.
 
+IN SAMPLE, AND THAT IS THE POINT OF IT. The trainer loads the TRAIN split, so this
+rolls out over the very frames the derivative loss is fitted on. It is a training
+DIAGNOSTIC -- it answers "is the student still on the teacher's trajectory or has
+it started to drift", per checkpoint, for free. It is NOT the acceptance test.
+The held-out number comes from `GNN_Main.py -o test`, which rolls out on
+x_list_test (graph_tester only falls back to training frames when a field INR was
+learned, which these models do not have). Quote the -o test number in anything
+that leaves this repo; quote this one as train-split.
+
 WHAT IT WRITES, both under tmp_training/ and NEITHER touching metrics.log:
-  rollout_r.log        iteration,pearson_r,rmse,n_frames
+  rollout_r.log        iteration,pearson_r,rmse,n_frames   -- TRAIN split
   traces/<iter>.png    green ground truth, black rollout, red stimulus
 
 metrics.log is deliberately left alone. Adding a column there means editing the
