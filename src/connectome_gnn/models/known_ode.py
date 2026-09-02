@@ -380,7 +380,10 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         delta > 0. Nothing to penalise and nothing to check at runtime.
         """
         v_min, v_max = float(v_min), float(v_max)
-        span = max(v_max - v_min, 1e-6)
+        # 1e-3 floor, matching PR #46's derive_conductance_twin: at 1e-6 a
+        # degenerate recording puts the reversals a millionth outside the range,
+        # which brackets in principle but leaves no usable driving force.
+        span = max(v_max - v_min, 1e-3)
         with torch.no_grad():
             self.E_exc.fill_(v_max + self.delta_exc * span)
             self.E_inh.fill_(v_min - self.delta_inh * span)

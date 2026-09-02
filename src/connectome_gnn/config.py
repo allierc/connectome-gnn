@@ -1390,6 +1390,10 @@ class TrainingConfig(BaseModel):
     # already provides more cheaply. It would also need the teacher's synaptic
     # current I_i(t) as a target, which the generator does not store.
     cond_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
+    # (0.4, 1.0) is PR #46's own default -- derive_conductance_twin's
+    # `reversal_margin: Union[float, Tuple[float, float]] = (0.4, 1.0)`, ordered
+    # (inh, exc) -- reused deliberately so the twin derived there and the student
+    # fitted here sit at the same operating point and their results are comparable.
     cond_delta_inh: float = 0.4
     cond_delta_exc: float = 1.0
 
