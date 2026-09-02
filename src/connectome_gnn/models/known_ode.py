@@ -386,6 +386,32 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             self.E_inh.fill_(v_min - self.delta_inh * span)
         self._range_set = True
 
+    def init_from_teacher(self, w_signed, edge_index, v_mean_per_neuron):
+        """Stage-1 closed form: W^2 <- alpha_curr / (E - Vbar_ti). See cond_init.
+
+        Requires set_presynaptic_sign() and (under 'margin') set_teacher_voltage_range()
+        to have run, since it needs the per-edge polarity and the reversals. The
+        quotient is positive by construction -- alpha_curr and (E - Vbar) carry the
+        same sign -- so the sqrt is real without a clamp doing any work; the clamp is
+        only there for an edge whose teacher weight is exactly zero.
+        """
+        dev = self.W.device
+        w = torch.as_tensor(w_signed).reshape(-1).to(dev)
+        dst = torch.as_tensor(edge_index[1]).reshape(-1).long().to(dev)
+        vbar = torch.as_tensor(v_mean_per_neuron).reshape(-1).to(dev)
+        n = min(w.numel(), self.W.shape[0])
+        E = torch.where(self.edge_is_inh[:n], self.E_inh, self.E_exc)
+        alpha = (w[:n] / (E - vbar[dst[:n]]))
+        neg = int((alpha < 0).sum())
+        if neg:
+            raise RuntimeError(
+                f"cond_init teacher_closed_form: {neg} of {n} edges gave a NEGATIVE "
+                "conductance, which means E - Vbar does not carry the connectome sign "
+                "on them -- the reversals are not bracketing the teacher's range. "
+                "Check cond_reversal_mode and the deltas.")
+        with torch.no_grad():
+            self.W[:n, 0] = alpha.clamp_min(0.0).sqrt()
+
     def set_neuron_types(self, type_list):
         """(N,) cell-type id per neuron, for cond_neuron_params: per_type."""
         t = torch.as_tensor(type_list).reshape(-1).long().to(self.type_index.device)
