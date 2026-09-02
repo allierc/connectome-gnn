@@ -193,6 +193,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     edges = data.edges
     gt_weights = data.gt_weights
 
+    # training.target_weighting: per-neuron 1/std(dv/dt) on the RESIDUAL, after
+    # GraphCast's s_j. None when the knob is off, so the default path is untouched.
+    # Saved for auditability only -- the model keeps predicting physical dv/dt, so
+    # nothing at inference has to read it back.
+    from connectome_gnn.models.utils import compute_target_weights
+    target_weight = compute_target_weights(
+        y_ts_gpu, config.training, config.training.batch_size, device)
+    if target_weight is not None:
+        _w = target_weight[: data.n_neurons, 0]
+        _logger.info(
+            f"target_weighting=inv_increment_std: per-neuron weights "
+            f"min {_w.min():.3f} median {_w.median():.3f} max {_w.max():.3f} "
+            f"(mean 1 by construction)")
+        torch.save(target_weight.detach().cpu(),
+                   os.path.join(log_dir, 'target_weights.pt'))
+
     # ---------------------------------------------------------------------
     # Model
     # ---------------------------------------------------------------------
@@ -562,6 +578,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     xnorm=xnorm,
                     ynorm=ynorm,
                     rollout_horizon=rollout_horizon,
+                    target_weight=target_weight,
                 )
 
             else:
@@ -584,6 +601,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     xnorm=xnorm,
                     ynorm=ynorm,
                     injection_active=injection_active,
+                    target_weight=target_weight,
                 )
 
 

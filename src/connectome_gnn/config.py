@@ -1311,6 +1311,32 @@ class TrainingConfig(BaseModel):
     # distribution instead.
     mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
 
+    # Per-neuron reweighting of the fit residual, after GraphCast's s_j (supplement
+    # sec 4.2), the "per-variable-level inverse variance of time differences".
+    #   'none'                every neuron weighted equally -- the historical behaviour.
+    #   'inv_increment_std'   weight_j = 1 / std_t(dv_j/dt), renormalised to mean 1.
+    # Measured on flyvis_noise_free_blank50_cv00: the per-neuron std of the target
+    # spans 4250x (min 5.9e-3, median 4.8, max 25.2), only 49% of neurons are within
+    # 2x of the median, and the fastest 10% carry 45% of the squared loss. Unweighted,
+    # the slow neurons are almost invisible to the objective.
+    #
+    # Applied to the RESIDUAL, not the target, so the model keeps predicting physical
+    # dv/dt. Weighting the target instead -- which is GraphCast's literal form -- would
+    # change the output units and silently break all 12 sites that integrate
+    # `voltage + delta_t * pred`, and would need the weights reloaded at inference.
+    # This way nothing downstream changes and no artifact has to be read back.
+    #
+    # Renormalised to RMS 1, not mean 1: 1/std is heavy-tailed, and norm2's magnitude
+    # goes as sum(w^2), so mean-1 inflated the fit term 6.3x and would have
+    # decalibrated every coeff_*. RMS 1 leaves it where it was.
+    target_weighting: Literal["none", "inv_increment_std"] = "none"
+    # Floor the per-neuron std at this percentile before inverting, so a near-silent
+    # neuron (min is 800x below the median here) is not amplified 4000-fold into
+    # dominating the loss with its own noise. 0 disables the floor. p5 keeps the
+    # weight spread at 61x; p1 leaves it at 2971x and p0 at 4250x, which is the raw
+    # 1/std range and almost certainly amplifying measurement noise.
+    target_weight_floor_pct: float = 5.0
+
     # Adam's second-moment decay. GraphCast (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary
     # gradient scale faster, which is what a curriculum that changes the objective

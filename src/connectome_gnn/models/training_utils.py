@@ -2134,6 +2134,7 @@ def run_nominal_train_step(
     xnorm,
     ynorm,
     injection_active,
+    target_weight=None,
 ):
     """One iteration of standard (non-recurrent) training: compute the loss and
     update the regularizer.
@@ -2425,6 +2426,7 @@ def run_nominal_train_step(
             loss = loss + fit_residual_loss(
                 pred[ids_batch] - y_batch[ids_batch],
                 getattr(training, "fit_reduction", "norm2"),
+                weight=None if target_weight is None else target_weight[ids_batch],
             )
 
             # Hidden self-consistency loss intentionally removed.
@@ -2464,6 +2466,7 @@ def run_recurrent_train_step(
     xnorm,
     ynorm,
     rollout_horizon,
+    target_weight=None,
 ):
     """One iteration of recurrent training. Returns the loss, same contract as
     run_nominal_train_step — the caller owns backward/step and the shared
@@ -2500,6 +2503,7 @@ def run_recurrent_train_step(
         has_visual_field=train.has_visual_field,
         hn=hn,
         n_steps=rollout_horizon,
+        target_weight=target_weight,
     )
 
     return loss
