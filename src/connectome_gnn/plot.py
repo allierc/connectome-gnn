@@ -2732,6 +2732,32 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     )
     from connectome_gnn.utils import CustomColorMap
 
+    # KNOWN-ODE MODELS HAVE NEITHER AN EMBEDDING NOR A g_phi, and this whole
+    # function is built around both: it scatters model.a, fits g_phi curves, and
+    # derives the W correction from them. Every path here reaches `model.a` sooner
+    # or later -- plot_embedding at :2735 and compute_all_corrected_weights via
+    # metrics.py:1699 are only the first two -- so it is gated once, here, rather
+    # than guarded site by site.
+    #
+    # This is NOT specific to flyvis_cond_known_ode: model_family() reports "gnn"
+    # for every KnownODEBase subclass, so flyvis_known_ode, drosophila_cx_known_ode,
+    # larva_known_ode and zebrafish_known_ode all enter this function and would all
+    # die the same way at their first checkpoint. No known_ode run exists in the log
+    # tree to have caught it.
+    #
+    # W recovery is still measured -- compute_jacobian_connectivity_r2 needs no g_phi
+    # and runs from graph_trainer's own branch -- so the run keeps its headline
+    # metric and loses only the g_phi/embedding panels, which describe parts these
+    # models do not have.
+    if not hasattr(model, "a") or not hasattr(model, "g_phi"):
+        from connectome_gnn.metrics import compute_jacobian_connectivity_r2
+        try:
+            r2 = compute_jacobian_connectivity_r2(
+                model, x_ts, ode_params, n_neurons=n_neurons, device=device)
+        except Exception:
+            r2 = float("nan")
+        return r2, float("nan"), float("nan"), float("nan")
+
     if n_neurons is None:
         n_neurons = len(type_list)
 
