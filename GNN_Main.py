@@ -392,6 +392,18 @@ if __name__ == "__main__":
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
+
+            # Conductance-twin parameter panels. No-op for every other model:
+            # plot_twin_params returns None unless the checkpoint carries E_exc.
+            try:
+                from connectome_gnn.plot_twin import plot_twin_params
+                from connectome_gnn.models.training_utils import init_training_data
+                _d = init_training_data(config, device)
+                _p = plot_twin_params(run_log_dir, _d.ode_params, x_ts=_d.x_ts)
+                if _p:
+                    print(f"twin parameter panels -> {_p}")
+            except Exception as _e:
+                print(f"twin parameter panels skipped: {type(_e).__name__}: {_e}")
             # CX / zebrafish navigation-task runs: also emit the multi-panel
             # training dashboard into <log_dir>/results/ (the a–j evolution
             # figure for the sign-locked RNN, the a–k panel layout for the
