@@ -454,7 +454,24 @@ class EyeView:
 # ---------------------------------------------------------------------------
 # the figure
 # ---------------------------------------------------------------------------
-def build_figure(reach, hidden, n_act, act_names, img0, title):
+def build_figure(reach, hidden, n_act, act_names, img0, title,
+                 conn=None, conn_blocks=None):
+    """The three panels. `conn` swaps the middle one's content.
+
+    Without it (the free ctRNN) the middle panel is the web interface's pixel
+    layout: inputs, the recurrent rates as a square, the motor drives. There
+    is nothing else to show -- a free (hidden, hidden) matrix has no structure
+    worth a picture.
+
+    With it (a connectome-constrained circuit) the same panel shows the
+    CONNECTIVITY, `conn` being an (N, N) signed post-x-pre array already
+    scaled for display, with the live rates as a strip beneath it. That is the
+    substantive difference between the two models, so it is the thing the
+    middle panel should carry: for the zebrafish circuit the matrix is the
+    measured connectome and the square of rates is a reshape with no meaning
+    (285 is not a square, and neighbouring cells in it are not neighbours).
+    `conn_blocks` is [(name, first_row), ...] for the cell-type boundaries.
+    """
     fig = plt.figure(figsize=(16.0, 5.6), facecolor=BG)
     gs = fig.add_gridspec(1, 3, width_ratios=[1.05, 0.75, 1.0], wspace=0.16,
                           left=0.05, right=0.985, top=0.965, bottom=0.10)
@@ -506,17 +523,62 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     ax_c.set_xlim(0, 1); ax_c.set_ylim(0, 1); ax_c.axis("off")
     im_in = ax_c.imshow(np.zeros((2, 1)), cmap="viridis", vmin=-1, vmax=1,
                         extent=(0.015, 0.10, 0.36, 0.64), aspect="auto", zorder=3)
-    im_rec = ax_c.imshow(np.zeros((side, side)), cmap="viridis", vmin=-1, vmax=1,
-                         extent=(0.235, 0.765, 0.235, 0.765), aspect="auto", zorder=3)
     im_out = ax_c.imshow(np.zeros((n_act, 1)), cmap="viridis", vmin=0, vmax=1,
                          extent=(0.90, 0.985, 0.28, 0.72), aspect="auto", zorder=3)
-    for x0, x1, y in ((0.10, 0.235, 0.5), (0.765, 0.90, 0.5)):
+    im_rate = None
+    if conn is None:
+        im_rec = ax_c.imshow(np.zeros((side, side)), cmap="viridis", vmin=-1, vmax=1,
+                             extent=(0.235, 0.765, 0.235, 0.765), aspect="auto", zorder=3)
+        ax_c.text(0.5, 0.185, f"{hidden} rates   $r=\\tanh v$", color="#ffffff",
+                  fontsize=11, ha="center", va="top")
+        mid_l, mid_r = 0.235, 0.765
+    else:
+        mid_l, mid_r, lo, hi = 0.20, 0.80, 0.235, 0.885
+        # Diverging, but centred on BLACK rather than white: 94% of the 285x285
+        # pairs have no measured synapse, and a white-centred map like `bwr`
+        # hands the whole panel to them -- the sparse structure this exists to
+        # show becomes a few marks on a white field, and the figure's own black
+        # background is inverted. Blue inhibitory, red excitatory, absent = the
+        # background colour.
+        from matplotlib.colors import LinearSegmentedColormap
+        cmap_ei = LinearSegmentedColormap.from_list(
+            "ei_black", ["#3d8bff", "#0d1c33", "#000000", "#33130d", "#ff4d3d"])
+        im_rec = ax_c.imshow(conn, cmap=cmap_ei, vmin=-1, vmax=1,
+                             extent=(mid_l, mid_r, lo, hi), aspect="auto",
+                             zorder=3, interpolation="nearest")
+        n = conn.shape[0]
+        # Label a block only where there is room for the text, so the eight
+        # cell-type names do not overprint each other; the rules are drawn for
+        # every block either way.
+        last_y = np.inf
+        for nm, r0 in (conn_blocks or []):
+            y = hi - (hi - lo) * r0 / n
+            x = mid_l + (mid_r - mid_l) * r0 / n
+            ax_c.plot([mid_l, mid_r], [y, y], color="#777", lw=0.45,
+                      alpha=0.5, zorder=4)
+            ax_c.plot([x, x], [lo, hi], color="#777", lw=0.45, alpha=0.5, zorder=4)
+            if last_y - y > 0.045:
+                ax_c.text(mid_l - 0.008, y, nm, color="#ccc", fontsize=6.2,
+                          ha="right", va="center")
+                last_y = y
+        ax_c.add_patch(plt.Rectangle((mid_l, lo), mid_r - mid_l, hi - lo,
+                                     fill=False, ec="#777", lw=0.6, zorder=5))
+        # the live state, as a strip under the matrix: 285 is not a square and
+        # adjacent cells in a reshape are not adjacent in the circuit, so the
+        # rates are shown in the matrix's own row order instead.
+        im_rate = ax_c.imshow(np.zeros((1, n)), cmap="viridis", vmin=-1, vmax=1,
+                              extent=(mid_l, mid_r, 0.175, 0.225),
+                              aspect="auto", zorder=3, interpolation="nearest")
+        ax_c.text(0.5, 0.155, f"{n} rates   $r=\\tanh v$   (row order)",
+                  color="#ffffff", fontsize=10, ha="center", va="top")
+        ax_c.text(0.5, 0.945, r"$\hat W_{ij}=|S_{ij}|\,\mathrm{sign}(W^{con}_{ij})$"
+                  "   post $\\times$ pre", color="#ffffff", fontsize=10.5,
+                  ha="center", va="bottom")
+    for x0, x1, y in ((0.10, mid_l, 0.5), (mid_r, 0.90, 0.5)):
         ax_c.annotate("", xy=(x1, y), xytext=(x0, y),
                       arrowprops=dict(arrowstyle="-|>", color="#ffffff", lw=1.3))
     ax_c.text(0.058, 0.30, r"$(\dot x,\dot y)$", color="#ffffff", fontsize=11,
               ha="center", va="top")
-    ax_c.text(0.5, 0.185, f"{hidden} rates   $r=\\tanh v$", color="#ffffff",
-              fontsize=11, ha="center", va="top")
     ax_c.text(0.943, 0.235, f"$m=[\\hat W^{{out}}r]_+$", color="#ffffff",
               fontsize=11, ha="center", va="top")
     for k, nm in enumerate(act_names):
@@ -534,7 +596,7 @@ def build_figure(reach, hidden, n_act, act_names, img0, title):
     art = dict(trail_t=trail_t, trail_c=trail_c, trail_g=trail_g, dot_t=dot_t,
                dot_c=dot_c, dot_g=dot_g, im_in=im_in, im_rec=im_rec,
                im_out=im_out, im_eye=im_eye, txt_ang=txt_ang, phase=phase,
-               side=side, hidden=hidden)
+               side=side, hidden=hidden, im_rate=im_rate)
     return fig, art
 
 

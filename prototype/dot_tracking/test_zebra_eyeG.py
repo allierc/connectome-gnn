@@ -16,8 +16,19 @@ WHAT DIFFERS, AND WHY EACH DIFFERENCE IS FORCED
 
   the controller   `ZebrafishCircuitRNN` (285 real cells, Dale-signed, masked
                    to 5013 measured synapses) instead of a free (64, 64)
-                   matrix. The middle panel's "recurrent rates" square is
-                   therefore 17x17 = 289 with 4 pad cells, not 8x8.
+                   matrix.
+
+  the middle panel THE 285x285 CONNECTIVITY, red excitatory / blue inhibitory
+                   / black for the 94% of pairs with no measured synapse,
+                   with the live rates as a strip beneath it. test_eyeG draws
+                   a square of rates there because a free matrix has no
+                   structure worth a picture; here the matrix IS the result,
+                   and a 17x17 reshape of 285 cells would be worse than
+                   uninformative -- 285 is not a square and neighbours in the
+                   reshape are not neighbours in the circuit. Shown on a
+                   signed log scale: the weights are heavy-tailed (median
+                   0.17, max 4.7 after the spectral rescale) and a linear map
+                   would show only the largest few.
 
   the stimulus     HORIZONTAL, via `sequence_h` below. test_eyeG's `sequence`
                    opens with two CIRCLE phases and walks a 2-D curve; this
@@ -163,6 +174,20 @@ def main():
     p.add_argument("--saccade", action="store_true",
                    help="six L/R saccade rates instead of the horizontal regimes")
     p.add_argument("--render", default="surface", choices=TE.EyeView.MODES)
+    p.add_argument("--phi-zero", action="store_true",
+                   help="DISPLAY ONLY: draw the gaze and rotate the eye with "
+                        "phi forced to 0, so the movie reads as pure "
+                        "left-right. The model is untouched -- nothing is "
+                        "retrained, no loss changes -- and the true mean |phi| "
+                        "is still printed and still written to the json, so "
+                        "the number this hides stays on the record. Use it to "
+                        "look at horizontal tracking without the vertical "
+                        "offset in the way; do not use it to claim the circuit "
+                        "holds phi at zero. It does not: phi is reachable over "
+                        "5.13 deg from LR+MR alone, with a hard floor of 2.3 "
+                        "deg at one end of the gaze range, so making it "
+                        "emergent means putting phi in the LOSS "
+                        "(train_zebra_eyeG --track-phi), not zeroing it here.")
     p.add_argument("--device", default="cpu")
     a = p.parse_args()
 
@@ -212,12 +237,19 @@ def main():
         x, m, R = model(torch.tensor(v[None]), want_states=True)
         cmd = eye.equilibrium(m)
     x = x[0].numpy(); m = m[0].numpy(); R = R[0].numpy(); cmd = cmd[0].numpy()
+    phi_true = float(np.abs(x[:, 1]).mean())
+    if a.phi_zero:
+        x = x.copy(); cmd = cmd.copy()
+        x[:, 1] = 0.0; cmd[:, 1] = 0.0
+        print(f"[test] --phi-zero: drawing phi as 0. The model's actual mean "
+              f"|phi| is {phi_true:.2f} deg and is unchanged.")
 
     # theta only: phi is unreachable from this pool, so a 2-D error would be
     # dominated by an axis the controller was never asked about.
     err = np.abs(x[:, 0] - tgt[:, 0])
     print(f"[test] |err_theta| mean {err.mean():.3f} deg   mean |torsion| "
-          f"{np.abs(x[:, 2]).mean():.2f} deg   |phi| {np.abs(x[:, 1]).mean():.2f} deg")
+          f"{np.abs(x[:, 2]).mean():.2f} deg   |phi| {phi_true:.2f} deg"
+          + ("  (drawn as 0)" if a.phi_zero else ""))
     per = [float(err[bounds[i]:bounds[i + 1]].mean()) for i in range(len(labels))]
     for lb, e in zip(labels, per):
         print(f"         {lb:22s} {e:.3f} deg")
@@ -230,9 +262,32 @@ def main():
     else:
         view = TE.EyeView(geo, mode=a.render)
         img0 = view.frame(x[0], m[0])
+    # The LEARNED connectivity, not the raw connectome: |S| after training,
+    # still masked to the measured synapses and still Dale-signed.
+    #
+    # Gamma-compressed against the 95th percentile, because the weights are
+    # heavy-tailed -- median 0.17 against a max of 8.67 -- so a linear map
+    # renders the median synapse at 2% and the panel shows a dozen outliers on
+    # an empty field. Clipping at p95 and taking the 0.35 power puts the median
+    # at 54% intensity and 56% of synapses above half, which is what makes the
+    # 5013-synapse block structure legible. The 5% above p95 saturate; they are
+    # the strongest connections and losing their relative order costs nothing a
+    # movie frame could have conveyed anyway.
+    with torch.no_grad():
+        What = model.W_hat().numpy()
+    lim = float(np.percentile(np.abs(What[What != 0]), 95)) or 1.0
+    conn = np.sign(What) * np.clip(np.abs(What) / lim, 0.0, 1.0) ** 0.35
+    blocks, seen = [], None
+    for r, nm in enumerate(circuit["names"]):
+        if nm != seen:
+            blocks.append((str(nm), r))
+            seen = nm
     title = (f"{name} — 285-cell oculomotor circuit ({ck.get('eye_side')} eye), "
-             f"eye G — horizontal regimes — mean |err| {err.mean():.3f}°")
-    fig, art = TE.build_figure(reach, model.N, eye.n_act, names, img0, title)
+             f"eye G — horizontal regimes — mean |err| {err.mean():.3f}°"
+             + (f"   [φ drawn as 0; true mean |φ| {phi_true:.2f}°]"
+                if a.phi_zero else ""))
+    fig, art = TE.build_figure(reach, model.N, eye.n_act, names, img0, title,
+                               conn=conn, conn_blocks=blocks)
 
     step = max(1, int(round(1.0 / (a.fps * a.dt))))
     keep = int(a.trail / a.dt)
@@ -252,7 +307,10 @@ def main():
         art["dot_c"].set_data([cmd[k, 0]], [cmd[k, 1]])
         art["dot_g"].set_data([x[k, 0]], [x[k, 1]])
         art["im_in"].set_data(np.clip(v[k][:, None] / 1.5, -1, 1))
-        art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
+        if art["im_rate"] is not None:
+            art["im_rate"].set_data(R[k][None, :])      # matrix row order
+        else:
+            art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
         art["im_eye"].set_data(view.frame(k) if a.render == "surface"
                                else view.frame(x[k], m[k]))
@@ -266,7 +324,8 @@ def main():
                "n_cells": int(model.N), "saccade": bool(a.saccade),
                "err_theta_mean_deg": float(err.mean()),
                "mean_abs_torsion_deg": float(np.abs(x[:, 2]).mean()),
-               "mean_abs_phi_deg": float(np.abs(x[:, 1]).mean()),
+               "mean_abs_phi_deg": phi_true,
+               "phi_zero_in_movie": bool(a.phi_zero),
                "per_phase": dict(zip(labels, per)), "movie": out},
               open(rep, "w"), indent=2)
     print(f"[test] wrote {rep}")
