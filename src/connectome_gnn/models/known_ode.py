@@ -410,7 +410,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             return self.type_index[ids]
         return ids
 
-    def set_teacher_voltage_range(self, v_min, v_max):
+    def set_teacher_voltage_range(self, v_min, v_max, v_lo=None, v_hi=None):
         """Pin the reversals OUTSIDE the teacher's voltage range (cond_reversal_mode margin).
 
         E_exc = V_max + delta_exc * span, E_inh = V_min - delta_inh * span. Bracketing
@@ -426,10 +426,18 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         dev = self.E_exc.device
         lo = torch.as_tensor(v_min, dtype=torch.float32, device=dev).reshape(-1)
         hi = torch.as_tensor(v_max, dtype=torch.float32, device=dev).reshape(-1)
+        # BRACKET from lo/hi, MEASURE delta in v_lo..v_hi. Separating the two is the
+        # whole of cond_span_mode: the bracket must come from the extremes or the
+        # sign guarantee fails, but delta's unit does not have to, and on a
+        # heavy-tailed voltage the extremes make it ~3.4x too large.
+        slo = lo if v_lo is None else torch.as_tensor(
+            v_lo, dtype=torch.float32, device=dev).reshape(-1)
+        shi = hi if v_hi is None else torch.as_tensor(
+            v_hi, dtype=torch.float32, device=dev).reshape(-1)
         with torch.no_grad():
             if self.E_exc.numel() == 1 or lo.numel() == 1:
                 lo_r, hi_r = lo.min(), hi.max()
-                span = (hi_r - lo_r).clamp_min(1e-3)
+                span = (shi.max() - slo.min()).clamp_min(1e-3)
                 self.E_exc.fill_(float(hi_r + self.delta_exc * span))
                 self.E_inh.fill_(float(lo_r - self.delta_inh * span))
             else:
@@ -439,9 +447,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
                     0, idx, lo, reduce="amin", include_self=True)
                 hi_r = torch.full((n,), float("-inf"), device=dev).scatter_reduce(
                     0, idx, hi, reduce="amax", include_self=True)
+                slo_r = torch.full((n,), float("inf"), device=dev).scatter_reduce(
+                    0, idx, slo, reduce="amin", include_self=True)
+                shi_r = torch.full((n,), float("-inf"), device=dev).scatter_reduce(
+                    0, idx, shi, reduce="amax", include_self=True)
                 empty = ~torch.isfinite(lo_r)          # rows no neuron maps to
                 lo_r[empty] = lo.min(); hi_r[empty] = hi.max()
-                span = (hi_r - lo_r).clamp_min(1e-3)
+                slo_r[empty] = slo.min(); shi_r[empty] = shi.max()
+                span = (shi_r - slo_r).clamp_min(1e-3)
                 self.E_exc.copy_(hi_r + self.delta_exc * span)
                 self.E_inh.copy_(lo_r - self.delta_inh * span)
         self._range_set_b.fill_(True); self._range_set = True
