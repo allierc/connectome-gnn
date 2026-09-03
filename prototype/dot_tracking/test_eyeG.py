@@ -728,17 +728,21 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
         ax_k.set_yticks([]); ax_k.set_xticks([])
         for sp_ in ax_k.spines.values():
             sp_.set_color("#777"); sp_.set_linewidth(0.5)
-        for lbl, a0, a1 in (("AF5", 0, conn["n_in"]),
-                            ("INTG", conn["n_in"], conn["n_in"] + conn["n_intg"]),
-                            ("AMN/AIN", conn["n_in"] + conn["n_intg"], conn["n"])):
+        # AMN and AIN get their own bands: they are the two motor pools and
+        # they drive different muscles from different hemispheres (AMN-L -> LR,
+        # AIN-R -> MR), so merging them into one "AMN/AIN" row hides the split
+        # the readout is built on.
+        _kb = conn.get("kino_blocks") or [
+            ("AF5", 0), ("INTG", conn["n_in"]),
+            ("AMN/AIN", conn["n_in"] + conn["n_intg"])]
+        _edges = [r for _, r in _kb] + [conn["n"]]
+        for i, (lbl, a0) in enumerate(_kb):
             if a0:
                 ax_k.axhline(a0, color="#777", lw=0.5, alpha=0.6)
-            ax_k.text(-0.004, 1.0 - (a0 + a1) / (2 * conn["n"]), lbl,
+            ax_k.text(-0.004, 1.0 - (a0 + _edges[i + 1]) / (2 * conn["n"]), lbl,
                       transform=ax_k.transAxes, color="#ccc", fontsize=FS_TICK,
                       ha="right", va="center")
-        ax_k.set_xlabel("time  (the window slides once the trace reaches the "
-                        "right edge)", color="#ddd", fontsize=FS_AXIS,
-                        labelpad=4)
+        ax_k.set_xlabel("time", color="#ddd", fontsize=FS_AXIS, labelpad=4)
         ax_k.set_ylabel(f"all {conn['n']} rates", color="#ddd",
                         fontsize=FS_AXIS, labelpad=34)
 
