@@ -347,8 +347,22 @@ def main():
     KINO_S = 12.0
     kino_w = int(round(KINO_S / a.dt))
     kino_full = np.clip(R.T.astype(np.float32), -1.0, 1.0)   # (n, T)
+    # Same readout mask as the output column: the 61 output-role cells with no
+    # path to a muscle are blanked, so the kinograph and the vector beside the
+    # matrix agree about which cells are actually driving this eye.
+    _dead = idx_out[~out_keep]
+    kino_full[_dead, :] = np.nan
+    # AMN and AIN banded separately -- one drives LR from the left hemisphere,
+    # the other MR from the right.
+    kino_blocks = [("AF5", 0), ("INTG", int(idx_in.size))]
+    for nm in ("AMN", "AIN"):
+        rows = np.where(names_arr == nm)[0]
+        if rows.size:
+            kino_blocks.append((nm, int(rows.min())))
+    kino_blocks.sort(key=lambda t: t[1])
     conn_meta = dict(n=int(model.N), n_in=int(idx_in.size),
-                     n_intg=int(idx_intg.size), kino_w=kino_w)
+                     n_intg=int(idx_intg.size), kino_w=kino_w,
+                     kino_blocks=kino_blocks)
 
     def kino_frame(k):
         if k + 1 >= kino_w:                       # sliding
