@@ -1694,20 +1694,33 @@ def init_training_model(
             if _sm == "extremes":
                 _lo = _hi = None
             else:
+                # torch.quantile REFUSES INPUTS OVER ~16M ELEMENTS ("input tensor is
+                # too large") and allocates a full sort besides, so the obvious
+                # (20000, 13741) call both raises and OOMs at 3 GB. Subsample frames,
+                # then chunk over neurons.
                 _q = {"p99": 0.01, "p95": 0.05, "p90": 0.10}[_sm]
-                _idx = torch.linspace(0, v.shape[0] - 1,
-                                      min(20000, v.shape[0]), device=v.device).long()
+                _nf = min(4000, v.shape[0])
+                _idx = torch.linspace(0, v.shape[0] - 1, _nf, device=v.device).long()
                 _sub = v[_idx].float()
                 if getattr(training, "cond_reversal_dim", "global") == "global":
                     # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
                     # per-neuron quantiles and then the widest across neurons is a
                     # different and much larger statistic (span 9.2 against 3.9 here),
                     # because it keeps the most extreme neuron's tail.
-                    _lo = torch.quantile(_sub.reshape(-1), _q).expand(v.shape[1])
-                    _hi = torch.quantile(_sub.reshape(-1), 1.0 - _q).expand(v.shape[1])
+                    _flat = _sub.reshape(-1)
+                    _step = max(1, _flat.numel() // 4_000_000)
+                    _flat = _flat[::_step]
+                    _lo = torch.quantile(_flat, _q).expand(v.shape[1]).contiguous()
+                    _hi = torch.quantile(_flat, 1.0 - _q).expand(v.shape[1]).contiguous()
                 else:
-                    _lo = torch.quantile(_sub, _q, dim=0)
-                    _hi = torch.quantile(_sub, 1.0 - _q, dim=0)
+                    _chunk = max(1, 4_000_000 // max(_nf, 1))
+                    _lo = torch.empty(v.shape[1], device=v.device)
+                    _hi = torch.empty(v.shape[1], device=v.device)
+                    for _c0 in range(0, v.shape[1], _chunk):
+                        _c = _sub[:, _c0:_c0 + _chunk]
+                        _lo[_c0:_c0 + _chunk] = torch.quantile(_c, _q, dim=0)
+                        _hi[_c0:_c0 + _chunk] = torch.quantile(_c, 1.0 - _q, dim=0)
+                del _sub
             model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
         if getattr(training, "cond_init", "teacher_closed_form") == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
