@@ -44,6 +44,8 @@ import json
 import os
 import sys
 
+import shutil
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -59,6 +61,65 @@ MODELS = TG.MODELS
 DEFAULT_CORPUS = os.path.join(
     os.path.dirname(os.path.dirname(HERE)), "config", "zebrafish",
     "dot_corpus_1d.yaml")
+
+
+# ---------------------------------------------------------------------------
+# the run spec -- what was trained, declared rather than typed at a prompt
+# ---------------------------------------------------------------------------
+_SPEC_TO_ARG = {                       # spec training: key -> argparse dest
+    "epochs": "epochs", "batch": "batch", "lr": "lr", "tau0": "tau0",
+    "lam_psi": "lam_psi", "track_phi": "track_phi", "dt": "dt", "seed": "seed",
+}
+
+
+def load_run_spec(path, a, parser):
+    """Read a nominal spec and fold it into the parsed args.
+
+    Precedence is spec-over-default but CLI-over-spec: a flag whose value
+    still equals its argparse default is taken from the spec, anything the
+    user actually typed wins. So `--spec X` reproduces X exactly, and
+    `--spec X --lr 1e-3` is an ablation OF X rather than a silent divergence
+    from it -- which matters because the spec is copied into the run
+    directory as the record of what was trained.
+    """
+    import yaml
+    with open(path) as f:
+        spec = yaml.safe_load(f)
+    for k in ("name", "circuit_config", "corpus", "training"):
+        if k not in spec:
+            raise ValueError(f"{path}: missing required key {k!r}")
+    here = os.path.dirname(os.path.abspath(path))
+    spec["_path"] = os.path.abspath(path)
+
+    # Paths in the spec resolve relative to the spec itself.
+    if a.config == DEFAULT_CONFIG:
+        a.config = os.path.join(here, spec["circuit_config"])
+    if a.corpus == DEFAULT_CORPUS:
+        a.corpus = os.path.join(here, spec["corpus"])
+    eye = spec.get("eye") or {}
+    if "dir" in eye and a.eye_dir == TG.EYE_DIR:
+        a.eye_dir = eye["dir"]
+    if "fit_cache" in eye and a.eye_fit == TG.EYE_FIT_PATH:
+        a.eye_fit = eye["fit_cache"] if os.path.isabs(eye["fit_cache"]) \
+            else os.path.join(HERE, eye["fit_cache"])
+
+    unknown = set(spec["training"]) - set(_SPEC_TO_ARG)
+    if unknown:
+        raise ValueError(f"{path}: training has unknown keys {sorted(unknown)}")
+    for key, dest in _SPEC_TO_ARG.items():
+        if key in spec["training"] and getattr(a, dest) == parser.get_default(dest):
+            setattr(a, dest, spec["training"][key])
+    if a.tag == parser.get_default("tag"):
+        a.tag = spec["name"]
+    return spec
+
+
+def run_dir(spec, out_root=None):
+    """`<root>/log/zebrafish/<name>/` -- the repo's own layout (config.yaml +
+    models/ + results/ beside each other), so a run of this prototype is
+    findable the same way a GNN_Main.py run is."""
+    root = out_root or TG.trajectory.output_root()
+    return os.path.join(root, "log", "zebrafish", spec["name"])
 
 
 # ---------------------------------------------------------------------------
@@ -173,9 +234,13 @@ def main():
                         "hemisphere that innervates this eye.")
     p.add_argument("--tag", default="zebraEyeG", help="checkpoint name")
     p.add_argument("--tau0", type=float, default=0.1, help="initial time constant, s")
+    p.add_argument("--seed", type=int, default=0)
     p.add_argument("--epochs", type=int, default=150)
-    p.add_argument("--batch", type=int, default=32)
-    p.add_argument("--lr", type=float, default=2e-5)
+    p.add_argument("--batch", type=int, default=32,
+                   help="what matters empirically is lr/batch (the step per "
+                        "sample); the 22-cell sweep optimum is ~3e-4, and it "
+                        "degrades above ~6e-4")
+    p.add_argument("--lr", type=float, default=1e-2)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
     p.add_argument("--duration", type=float, default=8.0,
                    help="unused when --corpus is given; the spec owns it")
@@ -196,10 +261,33 @@ def main():
                         "OMN (SR/IR/SO/IO) joins the pool and phi is actually "
                         "reachable; nothing else below needs to change.")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    p.add_argument("--spec", default=None,
+                   help="nominal run spec (config/zebrafish/*_nominal.yaml). "
+                        "It owns the circuit, the corpus and every "
+                        "hyperparameter; an explicitly-passed flag still wins, "
+                        "so `--spec X --lr 1e-3` is an ablation OF X.")
+    p.add_argument("--out-root", default=None,
+                   help="overrides $GNN_OUTPUT_ROOT for the log/ tree")
     a = p.parse_args()
+
+    run_spec = load_run_spec(a.spec, a, p) if a.spec else None
     tag = a.tag
     dev = torch.device(a.device)
     os.makedirs(MODELS, exist_ok=True)
+
+    # Where the run is written. With --spec it follows the repo's log layout
+    # (log/<biomodel>/<name>/{config.yaml,models,results}); without one it
+    # stays in prototype/dot_tracking/models/ as before, so every existing
+    # invocation keeps working.
+    if run_spec is not None:
+        out_dir = run_dir(run_spec, a.out_root)
+        os.makedirs(os.path.join(out_dir, "models"), exist_ok=True)
+        os.makedirs(os.path.join(out_dir, "results"), exist_ok=True)
+        shutil.copyfile(run_spec["_path"], os.path.join(out_dir, "config.yaml"))
+        print(f"[run] {run_spec['name']} -> {out_dir}")
+    else:
+        out_dir = None
+    torch.manual_seed(int(a.seed))
 
     # --- the eye (unchanged from train_eyeG.py) ---------------------------
     spec = TG.fit_eye(a.eye_dir, cache=a.eye_fit, refit=a.refit)
@@ -264,7 +352,6 @@ def main():
     (Pdot_tr, Star_tr), (Pdot_va, Star_va), (Pdot_te, Star_te) = \
         sp["train"], sp["val"], sp["test"]
 
-    torch.manual_seed(0)
     model = ZebrafishCircuitRNN(circuit, tau0=a.tau0, dt=a.dt).to(dev)
     model.eye = eye
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -345,7 +432,8 @@ def main():
         print(f"[done] phi (untracked, not in the loss) drifts to "
               f"{phi_drift:.2f} deg mean |phi| -- expected: nothing asked it not to.")
 
-    ck = os.path.join(MODELS, f"{tag}.pt")
+    ck = os.path.join(out_dir, "models", "best.pt") if out_dir \
+        else os.path.join(MODELS, f"{tag}.pt")
     torch.save({"state": model.state_dict(),
                 "eye": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
                         for k, v in spec.items()},
@@ -353,7 +441,8 @@ def main():
                 "eye_side": eye_side,
                 "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                 "dt": a.dt, "scale": scale.tolist(), "tau0": a.tau0}, ck)
-    rep = os.path.join(MODELS, f"{tag}.json")
+    rep = os.path.join(out_dir, "results", "report.json") if out_dir \
+        else os.path.join(MODELS, f"{tag}.json")
     json.dump({"tag": tag, "n_cells": len(circuit["names"]),
                "eye_side": eye_side,
                "corpus": corpus["name"], "corpus_axis": corpus["axis"],
