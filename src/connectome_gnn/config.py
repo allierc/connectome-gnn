@@ -1847,6 +1847,26 @@ class CircuitConfig(BaseModel):
 
     ``None`` (default) keeps the legacy behaviour: no hemisphere filtering."""
 
+    spectral_target: Optional[float] = None
+    """Rescale the signed connectome to this spectral radius before it is used
+    as a recurrent weight init: ``J <- spectral_target * J / max(Re lambda)``.
+
+    A single GLOBAL scalar, so every relative synapse magnitude is preserved
+    exactly — this changes the units of the reconstruction's weights, not the
+    circuit. Matches the repo's existing convention (``dale_spectral_target:
+    0.9`` throughout ``generators/circuits.py``; the rescale itself is
+    ``connectome_loaders.py``'s ``Jf = 0.9 * J2 / max(Re(u))``).
+
+    Why it is not optional in practice: EM reconstructions carry weights in
+    physical units (synapse contact area, here a median of 897 and a max of
+    24368), and a tanh network initialised at those values has ~91% of its
+    units past |v| > 3 after a single step. The recurrence is then saturated
+    flat, no gradient reaches the recurrent weights, and lowering the learning
+    rate treats the symptom rather than the cause.
+
+    ``None`` (default) leaves the raw magnitudes alone, which is only correct
+    if the consumer normalises them itself."""
+
     cell_types: Optional[List[CellTypeSpec]] = None
     """Cell-type keep-list restricting the source reconstruction to the pool
     this circuit models. Entries are matched against the ``type`` column of

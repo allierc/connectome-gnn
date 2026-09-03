@@ -276,7 +276,16 @@ def main():
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sch = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs)
     T = Pdot_tr.shape[1]
-    sched = [max(60, int(T * f)) for f in (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)]
+    # Truncated-BPTT curriculum: train on a growing prefix of each trial. The
+    # index MUST span the whole list -- when this was 4 stages the hardcoded
+    # `min(3, int(4 * ep / ...))` covered it, and the 2026-08-24 commit that
+    # added four finer early stages left the 3/4 behind, pinning the horizon at
+    # sched[0..3] = 60 frames for every epoch of every run. The model then
+    # trained on 1 s of an 8 s trial and was scored on all 8. Duplicates are
+    # dropped so `max(60, ...)` collapsing the early stages costs no epochs.
+    sched = sorted({max(60, int(T * f))
+                    for f in (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)})
+    n_stage = len(sched)
 
     def evaluate(Pdot, Star):
         model.eval()
@@ -301,7 +310,7 @@ def main():
     best, best_state = np.inf, None
     for ep in range(a.epochs):
         model.train()
-        h = sched[min(3, int(4 * ep / max(a.epochs - 1, 1)))]
+        h = sched[min(n_stage - 1, int(n_stage * ep / max(a.epochs, 1)))]
         perm = torch.randperm(Pdot_tr.shape[0], device=dev)
         tot = 0.0
         for i in range(0, len(perm), a.batch):
