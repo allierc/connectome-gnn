@@ -1,12 +1,19 @@
 {
   "tag": "zebraEyeG",
   "n_cells": 285,
+  "eye_side": "left",
+  "corpus": "dot_corpus_1d",
+  "corpus_axis": "horizontal",
+  "readout_cells": {
+    "AIN": 19,
+    "AMN": 47
+  },
   "n_track": 1,
   "track_phi": false,
-  "gaze_err_mean_deg": 1.8137904405593872,
-  "val_err_deg": 1.8289262056350708,
-  "mean_abs_torsion_deg": 0.9168077707290649,
-  "untracked_phi_drift_deg": 2.697481870651245,
+  "gaze_err_mean_deg": 0.04860886558890343,
+  "val_err_deg": 0.04899116978049278,
+  "mean_abs_torsion_deg": 0.9773359298706055,
+  "untracked_phi_drift_deg": 2.903430938720703,
   "deg_per_unit_h": 7.283477783203125,
   "deg_per_unit_v": 7.48308801651001,
   "span_h_deg": 14.161512851715088,
