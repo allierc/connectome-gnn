@@ -587,8 +587,10 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     im_in = ax_c.imshow(np.zeros((2, 1)),
                         cmap=EI_CMAP if conn is not None else "viridis",
                         vmin=-1, vmax=1, extent=_in_ext, aspect="auto", zorder=3)
-    im_out = ax_c.imshow(np.zeros((n_act, 1)), cmap="viridis", vmin=0, vmax=1,
-                         extent=(0.90, 0.985, 0.28, 0.72), aspect="auto", zorder=3)
+    n_eye_out = 1 if conn is None else int(conn.get("n_eye", 1))
+    im_out = ax_c.imshow(np.zeros((n_act, n_eye_out)), cmap="viridis",
+                         vmin=0, vmax=1, extent=(0.90, 0.985, 0.28, 0.72),
+                         aspect="auto", zorder=3)
     im_rate = None
     if conn is None:
         im_rec = ax_c.imshow(np.zeros((side, side)), cmap="viridis", vmin=-1, vmax=1,
@@ -699,16 +701,25 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
         # so all five stages of the flow line up with what they feed.
         im_in.set_extent((0.082, 0.122, _yc_in - 0.055, _yc_in + 0.055))
         out_lo, out_hi = _yc_out - 0.105, _yc_out + 0.105
-        im_out.set_extent((0.858, 0.898, out_lo, out_hi))
+        # one column of six drives PER EYE, side by side: with two readouts
+        # the interesting quantity is how the two differ, and a single averaged
+        # bar would hide exactly that.
+        _ow = 0.040 * n_eye_out
+        im_out.set_extent((0.858, 0.858 + _ow, out_lo, out_hi))
+        for _e in range(n_eye_out):
+            ax_c.text(0.858 + _ow * (_e + 0.5) / n_eye_out, out_hi + 0.010,
+                      (conn.get("eye_names") or ["L"])[_e][:1].upper(),
+                      color="#ffffff", fontsize=FS_NOTE, ha="center",
+                      va="bottom")
         for _x0, _x1, _y0, _y1 in ((0.082, 0.122, _yc_in - 0.055, _yc_in + 0.055),
-                                   (0.858, 0.898, out_lo, out_hi)):
+                                   (0.858, 0.858 + _ow, out_lo, out_hi)):
             ax_c.add_patch(plt.Rectangle((_x0, _y0), _x1 - _x0, _y1 - _y0,
                                          fill=False, ec="#777", lw=0.5,
                                          zorder=7))
         ax_c.text(0.102, _yc_in + 0.062, r"$(\dot x,\dot y)$", color="#ffffff",
                   fontsize=FS_NOTE, ha="center", va="bottom")
     for k, nm in enumerate(act_names):
-        ax_c.text(0.907 if conn is not None else 0.995,
+        ax_c.text((0.862 + _ow) if conn is not None else 0.995,
                   out_hi - (out_hi - out_lo) * (k + 0.5) / n_act, nm,
                   color="#ffffff", fontsize=FS_NOTE, ha="left", va="center")
 

@@ -159,34 +159,55 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
     effector_col = {s.name: MUSCLES.index(s.effector) for s in specs
                     if s.effector}
 
-    # Output readout: one eye, so one hemisphere per output type.
     hemi_sel = hemi[sel]
     side = _side_of(hemi_sel)
     if eye_side is None:
         eye_side = cfg.circuit.eye_side
     proj_of = {s.name: s.projection for s in specs}
-    output_idx = {}
-    for n in output_names:
-        rows = np.where(names == n)[0]
-        proj = proj_of.get(n)
-        if eye_side is not None and proj is not None:
-            want = eye_side[:1] if proj == "ipsilateral" else \
-                ("r" if eye_side == "left" else "l")
-            rows = rows[side[rows] == want]
-            if rows.size == 0:
-                raise ValueError(
-                    f"output type {n} ({proj} to the {eye_side} eye) has no "
-                    f"cell in the required hemisphere -- the readout would be "
-                    f"empty")
-        elif eye_side is not None:
-            print(f"[circuit] WARNING: output type {n} declares no "
-                  f"`projection:`, so BOTH hemispheres drive its muscle")
-        output_idx[n] = rows
+
+    def _readout_for(which):
+        """The output rows that drive ONE eye: each output type restricted to
+        the hemisphere its `projection` names relative to `which`."""
+        out = {}
+        for n in sorted(output_names):
+            rows = np.where(names == n)[0]
+            proj = proj_of.get(n)
+            if which is not None and proj is not None:
+                want = which[:1] if proj == "ipsilateral" else \
+                    ("r" if which == "left" else "l")
+                rows = rows[side[rows] == want]
+                if rows.size == 0:
+                    raise ValueError(
+                        f"output type {n} ({proj} to the {which} eye) has no "
+                        f"cell in the required hemisphere -- the readout would "
+                        f"be empty")
+            elif which is not None:
+                print(f"[circuit] WARNING: output type {n} declares no "
+                      f"`projection:`, so BOTH hemispheres drive its muscle")
+            out[n] = rows
+        return out
+
+    # BOTH eyes get a readout. They are disjoint by construction -- an output
+    # type is ipsilateral or contralateral, so a cell drives one eye or the
+    # other and never both -- and together they cover the whole output block.
+    # `eye_side` still selects which one a single-eye model uses; a two-eye
+    # model takes both from `readout`.
+    readout = {w: _readout_for(w) for w in ("left", "right")}
+    # `output_idx` is the SINGLE-eye view. With eye_side "both" there is no
+    # single one, so it holds every driven cell -- the union of the two
+    # readouts, which is the whole output block -- and a two-eye caller reads
+    # `readout` instead.
+    output_idx = (_readout_for(eye_side) if eye_side in ("left", "right")
+                  else {n: np.sort(np.concatenate(
+                      [readout[w][n] for w in ("left", "right")]))
+                      for n in sorted(output_names)}
+                  if eye_side == "both" else _readout_for(eye_side))
 
     return dict(names=names, W_mag=W_mag.astype(np.float32),
                 spectral_scale=spectral_scale, spectral_target=rho,
                 sign_col=sign_col, support=W_mag > 0, afferent=afferent,
-                output_idx=output_idx, effector_col=effector_col, cfg=cfg,
+                output_idx=output_idx, readout=readout,
+                effector_col=effector_col, cfg=cfg,
                 hemi=hemi_sel, eye_side=eye_side)
 
 

@@ -214,7 +214,7 @@ def _speed_profile(rng, motion, v, n, dt):
 
 def generate(shape="curve", motion="continue", speed="middle", angle="low",
              duration=20.0, dt=1.0 / 60.0, seed=None, start="random",
-             axis="plane"):
+             axis="plane", speed_scale=1.0):
     """Return a dict with t, x, y, speed and the settings that produced them."""
     for k, v in (("shape", shape), ("motion", motion), ("speed", speed),
                  ("angle", angle), ("start", start), ("axis", axis)):
@@ -225,7 +225,7 @@ def generate(shape="curve", motion="continue", speed="middle", angle="low",
     rng = np.random.default_rng(seed)
 
     n = int(round(duration / dt))
-    v = SPEED_UPS[speed]
+    v = SPEED_UPS[speed] * float(speed_scale)
     sp = _speed_profile(rng, motion, v, n, dt)
     need = float(sp.sum() * dt) * 1.15 + 1.0      # margin for spline stretch
 
@@ -248,7 +248,8 @@ def generate(shape="curve", motion="continue", speed="middle", angle="low",
         "speed": sp.tolist(),
         "settings": {"shape": shape, "motion": motion, "speed": speed,
                      "angle": angle, "axis": axis, "start": start,
-                     "duration": duration, "dt": dt, "seed": seed},
+                     "speed_scale": speed_scale, "duration": duration,
+                     "dt": dt, "seed": seed},
         "path_len": float(s_path[-1]),
         "n_waypoints": int(len(path)),
     }
@@ -313,6 +314,13 @@ def build_corpus(spec, root=None, force=False, viz=True):
     duration, dt = float(spec["duration"]), float(spec["dt"])
     start = spec.get("start", "center")
     axis = spec["axis"]
+    # `speed_scale` multiplies SPEED_UPS. It exists so a corpus can be paired
+    # with a WIDER eye without also making the task faster: the corpus is in
+    # grid units and the trainer maps the arena onto the eye's own reach, so a
+    # plant with 1.8x the span traverses 1.8x the degrees per second on the
+    # same corpus. Setting speed_scale = 1/1.8 there holds deg/s fixed, and
+    # eye_G vs eye_GL then isolates span instead of confounding it with speed.
+    sscale = float(spec.get("speed_scale", 1.0))
 
     paths = {}
     for split, s in spec["splits"].items():
@@ -322,7 +330,8 @@ def build_corpus(spec, root=None, force=False, viz=True):
             z = np.load(path, allow_pickle=False)
             if (z["u"].shape[0] == n_per * len(conds)
                     and abs(float(z["duration"]) - duration) < 1e-9
-                    and str(z["axis"]) == axis):
+                    and str(z["axis"]) == axis
+                    and abs(float(z.get("speed_scale", 1.0)) - sscale) < 1e-9):
                 print(f"[corpus] reuse {path}  u{z['u'].shape}")
                 paths[split] = path
                 continue
@@ -330,6 +339,7 @@ def build_corpus(spec, root=None, force=False, viz=True):
         for ci, cond in enumerate(conds):
             for k in range(n_per):
                 tr = generate(duration=duration, dt=dt, start=start, axis=axis,
+                              speed_scale=sscale,
                               seed=int(s["seed0"]) + ci * 100000 + k, **cond)
                 x = np.asarray(tr["x"], np.float32)
                 y = np.asarray(tr["y"], np.float32)
@@ -340,7 +350,7 @@ def build_corpus(spec, root=None, force=False, viz=True):
         Y = np.asarray(Y, np.float32)
         np.savez_compressed(path, u=U, y=Y, cond=np.asarray(C, np.int64),
                             dt=dt, duration=duration, axis=axis,
-                            conditions=json.dumps(conds))
+                            speed_scale=sscale, conditions=json.dumps(conds))
         print(f"[corpus] {path}  u{U.shape} y{Y.shape}  {U.nbytes / 1e6:.0f} MB")
         paths[split] = path
 
@@ -497,6 +507,7 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     for k, opts in SPEC.items():
         p.add_argument(f"--{k}", default=opts[0], choices=opts)
+    p.add_argument("--speed-scale", type=float, default=1.0)
     p.add_argument("--duration", type=float, default=20.0)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
     p.add_argument("--seed", type=int, default=None)
@@ -523,7 +534,7 @@ def main():
         return
 
     tr = generate(a.shape, a.motion, a.speed, a.angle, a.duration, a.dt,
-                  a.seed, a.start, a.axis)
+                  a.seed, a.start, a.axis, a.speed_scale)
     print(f"{tr['settings']}\n  samples={len(tr['t'])}  "
           f"path_len={tr['path_len']:.2f}  waypoints={tr['n_waypoints']}  "
           f"x in [{min(tr['x']):.2f},{max(tr['x']):.2f}]  "

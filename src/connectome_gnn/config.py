@@ -1834,8 +1834,14 @@ class CircuitConfig(BaseModel):
 
     name: Optional[str] = None
 
-    eye_side: Optional[Literal["left", "right"]] = None
+    eye_side: Optional[Literal["left", "right", "both"]] = None
     """Which of the two eyes this circuit's motor readout drives.
+
+    ``both`` gives the circuit TWO readouts, one per eye, over disjoint cell
+    sets: the left eye takes AMN-L (ipsi) and AIN-R (contra), the right eye
+    takes AMN-R and AIN-L, and together they cover the output block exactly
+    once. With ``left`` or ``right`` the other eye's motor neurons stay in the
+    recurrence but drive nothing.
 
     The pool itself stays bilateral — both hemispheres are simulated, and the
     contralateral INTG projections that make the integrator work are part of
