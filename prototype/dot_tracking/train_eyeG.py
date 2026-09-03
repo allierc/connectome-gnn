@@ -38,11 +38,15 @@ import torch.nn as nn
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import learn                                            # noqa: E402
+import trajectory                                      # noqa: E402
 
 EYE_DIR = "/workspace/Plexus/prototype/eye/archive/eye_G"
 EYE_FIT_PATH = os.path.join(HERE, "eye_fit.json")
 MODELS = os.path.join(HERE, "models")
 BOUND = 0.95                       # arena half-width, as in openloop
+DEFAULT_CORPUS = os.path.join(
+    os.path.dirname(os.path.dirname(HERE)), "config", "zebrafish",
+    "dot_corpus_2d.yaml")
 GATE_H, GATE_V = 15.0, 10.0        # the span the task needs; 25 was unreachable
 MUSCLES = ["LR", "SR", "MR", "IR", "SO", "IO"]
 
@@ -411,7 +415,12 @@ def main():
     p.add_argument("--batch", type=int, default=128)
     p.add_argument("--lr", type=float, default=2e-3)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
-    p.add_argument("--duration", type=float, default=8.0)
+    p.add_argument("--duration", type=float, default=8.0,
+                   help="unused when --corpus is given; the spec owns it")
+    p.add_argument("--corpus", default=DEFAULT_CORPUS,
+                   help="corpus yaml. The free ctRNN prototype is the PLANE "
+                        "(2-D) calibration: it drives the full six-muscle eye, "
+                        "so nothing about it is restricted to horizontal.")
     p.add_argument("--lam-psi", type=float, default=0.05,
                    help="torsion penalty; Donders' law in its simplest form")
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -450,10 +459,17 @@ def main():
     scale = np.array([reach[0], reach[1]], np.float32) / BOUND    # deg per grid unit: converts arena position to gaze degrees
     print(f"[data] anisotropic world: h x{scale[0]:.2f}, v x{scale[1]:.2f} deg/unit "
           f"(+-{reach[0]:.1f} / +-{reach[1]:.1f} deg)")
+    corpus, splits = learn.load_corpus(a.corpus)
+    if abs(float(corpus["dt"]) - a.dt) > 1e-12:
+        raise SystemExit(f"--dt {a.dt} but {corpus['name']} was sampled at "
+                         f"{corpus['dt']}; the plant is integrated at the "
+                         f"corpus rate, so these cannot differ")
+    print(f"[data] corpus {corpus['name']} (axis={corpus['axis']}, "
+          f"{corpus['duration']}s, {len(corpus['condition_list'])} conditions) "
+          f"from {trajectory.corpus_dir(corpus)}")
     sp = {}
-    for nm, n, s0 in (("train", 150, 0), ("val", 25, 5_000_000),
-                      ("test", 40, 9_000_000)):
-        pdot, target_angles, _ = learn.load_split(nm, n, a.duration, a.dt, s0)
+    for nm in ("train", "val", "test"):
+        pdot, target_angles, _ = splits[nm]
         sp[nm] = (torch.as_tensor(pdot).to(dev),                  # p_dot, eq:input-vector
                   torch.as_tensor(target_angles * scale).to(dev))  # (theta*, phi*), degrees
     (Pdot_tr, Target_angles_tr), (Pdot_va, Target_angles_va), (Pdot_te, Target_angles_te) = \
@@ -521,12 +537,14 @@ def main():
                 "eye_shapes": {k: list(v.shape) for k, v in spec.items()
                                if isinstance(v, np.ndarray)},
                 "hidden": a.hidden, "dt": a.dt, "scale": scale.tolist(),
+                "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                 "act_names": eye.act_names, "kind": eye.kind}, ck)
     rep = os.path.join(MODELS, f"{tag}.json")
     json.dump({"tag": tag, "n_act": eye.n_act,
                "act_names": eye.act_names,
                "gaze_err_mean_deg": test, "val_err_deg": best,
                "mean_abs_torsion_deg": psi,
+               "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                "deg_per_unit_h": float(scale[0]), "deg_per_unit_v": float(scale[1]),
                "span_h_deg": float(span_h), "span_v_deg": float(span_v),
                "gate_pass": bool(span_h >= GATE_H and span_v >= GATE_V),

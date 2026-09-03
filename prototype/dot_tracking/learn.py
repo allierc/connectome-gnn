@@ -52,6 +52,7 @@ import torch
 import torch.nn as nn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import trajectory                                          # noqa: E402
 from trajectory import SPEC, generate                      # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -95,6 +96,35 @@ def build_dataset(n_per_cond, duration, dt, seed0, path):
     print(f"[data] {path}  u{U.shape} y{Y.shape}  "
           f"{U.nbytes / 1e6:.0f} MB in memory")
     return U, Y, C
+
+
+def load_corpus(spec_path, root=None, build=True):
+    """Load a whole corpus declared by a yaml under ``config/zebrafish/``.
+
+    Returns ``(spec, {split: (u, y, cond)})`` with the arrays as written by
+    ``trajectory.build_corpus`` -- generating them under
+    ``$GNN_OUTPUT_ROOT/graphs_data/zebrafish/<name>/`` if they are missing.
+
+    This is the replacement for ``load_split`` on any run that has a spec:
+    ``load_split``'s corpus is defined by its call site (a tuple of counts and
+    seed offsets repeated in each training script), which is exactly what made
+    "which dataset was this trained on?" unanswerable from a checkpoint. Here
+    the answer is the yaml's ``name``, and it is written into the report."""
+    spec = trajectory.load_corpus_spec(spec_path)
+    out = trajectory.corpus_dir(spec, root)
+    missing = [s for s in spec["splits"]
+               if not os.path.isfile(os.path.join(out, f"{s}.npz"))]
+    if missing:
+        if not build:
+            raise FileNotFoundError(
+                f"{out}: missing {missing}. Run "
+                f"`python trajectory.py --corpus {spec_path}`")
+        trajectory.build_corpus(spec, root=root, viz=False)
+    data = {}
+    for split in spec["splits"]:
+        z = np.load(os.path.join(out, f"{split}.npz"), allow_pickle=False)
+        data[split] = (z["u"], z["y"], z["cond"])
+    return spec, data
 
 
 def load_split(name, n_per_cond, duration, dt, seed0, force=False):

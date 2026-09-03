@@ -56,6 +56,9 @@ from zebrafish_circuit import (                           # noqa: E402
 )
 
 MODELS = TG.MODELS
+DEFAULT_CORPUS = os.path.join(
+    os.path.dirname(os.path.dirname(HERE)), "config", "zebrafish",
+    "dot_corpus_1d.yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -163,13 +166,24 @@ def main():
                    help="circuit yaml with circuit.cell_types")
     p.add_argument("--pkl", default=DEFAULT_PKL,
                    help="the oculomotor connectome pickle")
+    p.add_argument("--eye-side", default=None, choices=["left", "right"],
+                   help="which eye the readout drives; overrides the yaml's "
+                        "circuit.eye_side. The pool stays bilateral either "
+                        "way -- only the AMN/AIN readout is restricted to the "
+                        "hemisphere that innervates this eye.")
     p.add_argument("--tag", default="zebraEyeG", help="checkpoint name")
     p.add_argument("--tau0", type=float, default=0.1, help="initial time constant, s")
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--dt", type=float, default=1.0 / 60.0)
-    p.add_argument("--duration", type=float, default=8.0)
+    p.add_argument("--duration", type=float, default=8.0,
+                   help="unused when --corpus is given; the spec owns it")
+    p.add_argument("--corpus", default=DEFAULT_CORPUS,
+                   help="corpus yaml. Defaults to the HORIZONTAL (1-D) corpus: "
+                        "the 285-cell pool drives LR and MR only, so a "
+                        "vertical stimulus component is an input the circuit "
+                        "has no output to answer with.")
     p.add_argument("--lam-psi", type=float, default=0.05,
                    help="torsion penalty; Donders' law in its simplest form")
     p.add_argument("--track-phi", action="store_true",
@@ -200,11 +214,21 @@ def main():
               f"the {TG.GATE_H:.0f}/{TG.GATE_V:.0f} the task needs.")
 
     # --- the circuit --------------------------------------------------------
-    circuit = load_oculomotor_circuit(a.config, a.pkl)
+    circuit = load_oculomotor_circuit(a.config, a.pkl, eye_side=a.eye_side)
     n_e = int((circuit["sign_col"] > 0).sum())
     print(f"[circuit] {circuit['cfg'].circuit.name}: {len(circuit['names'])} cells, "
           f"{int(circuit['support'].sum())} edges, {n_e}E/{len(circuit['names']) - n_e}I, "
           f"{int(circuit['afferent'].sum())} afferent (AF5)")
+    eye_side = circuit["eye_side"]
+    if eye_side is None:
+        print("[circuit] WARNING: no circuit.eye_side and no --eye-side, so BOTH "
+              "hemispheres' motor neurons drive the one modelled eye")
+    else:
+        _side = np.array([str(h).lower()[:1] for h in circuit["hemi"]])
+        _who = ", ".join(
+            f"{nm} {'/'.join(sorted(set(_side[i]))) or '-'} ({len(i)})"
+            for nm, i in sorted(circuit["output_idx"].items()))
+        print(f"[circuit] readout drives the {eye_side.upper()} eye: {_who}")
     reachable = sorted(v for v in circuit["effector_col"].values() if v in (0, 2))
     print(f"[circuit] muscles reachable: {[MUSCLES[i] for i in reachable]}; "
           f"NOT reachable (held at zero): "
@@ -220,10 +244,21 @@ def main():
     scale = np.array([reach[0], reach[1]], np.float32) / TG.BOUND
     print(f"[data] anisotropic world: h x{scale[0]:.2f}, v x{scale[1]:.2f} deg/unit "
           f"(+-{reach[0]:.1f} / +-{reach[1]:.1f} deg)")
+    corpus, splits = TG.learn.load_corpus(a.corpus)
+    if abs(float(corpus["dt"]) - a.dt) > 1e-12:
+        raise SystemExit(f"--dt {a.dt} but {corpus['name']} was sampled at "
+                         f"{corpus['dt']}; the circuit is integrated at the "
+                         f"corpus rate, so these cannot differ")
+    if corpus["axis"] != "horizontal":
+        print(f"[data] WARNING: corpus {corpus['name']} is axis={corpus['axis']}. "
+              f"This pool reaches LR/MR only, so its vertical component is an "
+              f"input no output can answer.")
+    print(f"[data] corpus {corpus['name']} (axis={corpus['axis']}, "
+          f"{corpus['duration']}s, {len(corpus['condition_list'])} conditions) "
+          f"from {TG.trajectory.corpus_dir(corpus)}")
     sp = {}
-    for nm, n, s0 in (("train", 150, 0), ("val", 25, 5_000_000),
-                      ("test", 40, 9_000_000)):
-        pdot, star, _ = TG.learn.load_split(nm, n, a.duration, a.dt, s0)
+    for nm in ("train", "val", "test"):
+        pdot, star, _ = splits[nm]
         sp[nm] = (torch.as_tensor(pdot).to(dev),
                   torch.as_tensor(star * scale).to(dev))
     (Pdot_tr, Star_tr), (Pdot_va, Star_va), (Pdot_te, Star_te) = \
@@ -306,9 +341,15 @@ def main():
                 "eye": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
                         for k, v in spec.items()},
                 "circuit_config": a.config, "circuit_pkl": a.pkl,
+                "eye_side": eye_side,
+                "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                 "dt": a.dt, "scale": scale.tolist(), "tau0": a.tau0}, ck)
     rep = os.path.join(MODELS, f"{tag}.json")
     json.dump({"tag": tag, "n_cells": len(circuit["names"]),
+               "eye_side": eye_side,
+               "corpus": corpus["name"], "corpus_axis": corpus["axis"],
+               "readout_cells": {nm: int(len(i))
+                                 for nm, i in sorted(circuit["output_idx"].items())},
                "n_track": n_track, "track_phi": bool(a.track_phi),
                "gaze_err_mean_deg": test, "val_err_deg": best,
                "mean_abs_torsion_deg": psi,
