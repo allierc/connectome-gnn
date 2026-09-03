@@ -73,10 +73,14 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
                                       afferent -> recurrent -> output, and
                                       within a type left before right --
                                       the exact order Figure 1 panel (b)/(c) use
-      W_mag        (285, 285) f32    the reconstruction's raw weight, |.| already
-                                      (synapse contact area by default); this is
-                                      what a trainable S is initialised from,
-                                      NOT what the model multiplies -- see W_hat
+      W_mag        (285, 285) f32    the reconstruction's weight, |.| already
+                                      (synapse contact area by default), scaled
+                                      by `spectral_scale`; this is what a
+                                      trainable S is initialised from, NOT what
+                                      the model multiplies -- see W_hat
+      spectral_scale float           the single global factor applied to W_mag
+                                      so the SIGNED matrix has spectral radius
+                                      circuit.spectral_target (1.0 if unset)
       sign_col     (285,) f32        +1/-1, the Dale sign of the COLUMN's
                                       (presynaptic) cell type, from the yaml
       support      (285, 285) bool   W_mag > 0 -- the measured synapses; a
@@ -130,6 +134,25 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
     sign_of = {s.name: (1.0 if (s.sign or "E") == "E" else -1.0) for s in specs}
     sign_col = np.array([sign_of[str(t)] for t in names], np.float32)
 
+    # Spectral rescale. The reconstruction's weights are synapse contact areas
+    # (median 897, max 24368 here) -- physical units, not network units. Used
+    # raw as a tanh recurrent init they put ~91% of cells past |v| > 3 after
+    # ONE step, so the recurrence saturates flat and no gradient reaches S.
+    # One global scalar fixes it and preserves every relative magnitude:
+    # `Jf = rho * J / max(Re lambda)`, the same form as
+    # connectome_loaders.py's Dale rescale. Declared as
+    # circuit.spectral_target, not hardcoded.
+    spectral_scale = 1.0
+    rho = cfg.circuit.spectral_target
+    if rho is not None:
+        max_re = float(np.linalg.eigvals(W_mag * sign_col[None, :]).real.max())
+        if not np.isfinite(max_re) or max_re <= 0:
+            raise ValueError(
+                f"spectral_target={rho} but the signed connectome's largest "
+                f"real eigenvalue is {max_re}; nothing to normalise against")
+        spectral_scale = rho / max_re
+        W_mag = W_mag * spectral_scale
+
     afferent_names = set(cfg.circuit.types_by_role("afferent"))
     output_names = set(cfg.circuit.types_by_role("output"))
     afferent = np.isin(names, list(afferent_names))
@@ -161,6 +184,7 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
         output_idx[n] = rows
 
     return dict(names=names, W_mag=W_mag.astype(np.float32),
+                spectral_scale=spectral_scale, spectral_target=rho,
                 sign_col=sign_col, support=W_mag > 0, afferent=afferent,
                 output_idx=output_idx, effector_col=effector_col, cfg=cfg,
                 hemi=hemi_sel, eye_side=eye_side)
@@ -179,6 +203,9 @@ def main():
     n_e = int((c["sign_col"] > 0).sum())
     print(f"[circuit] {c['cfg'].circuit.name}: {n} cells, "
           f"{int(c['support'].sum())} edges, {n_e} excitatory / {n - n_e} inhibitory")
+    _nz = c["W_mag"][c["W_mag"] > 0]
+    print(f"[circuit] spectral_target={c['spectral_target']}  scale={c['spectral_scale']:.4g}"
+          f"  -> |W| median {np.median(_nz):.4g} max {_nz.max():.4g}")
     print(f"[circuit] afferent (AF5): {int(c['afferent'].sum())} cells")
     print(f"[circuit] readout drives the {c['eye_side'] or 'BOTH (unfiltered)'} eye")
     side = _side_of(c["hemi"])

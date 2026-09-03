@@ -45,6 +45,7 @@ circuit:
   # (the contralateral INTG projections ARE the integrator); only the output
   # selection is one-sided, per each output type's `projection:` below.
   eye_side: left
+  spectral_target: 0.9
   # Exact `type` strings from the pickle, not prefixes.
   # 29 + 12 + 38 + 27 + 34 + 18 + 92 + 35 = 285.
   # Roles, signs and triggers below are the CIRCUIT OWNER'S claims, not
