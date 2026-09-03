@@ -95,6 +95,9 @@ EI_E, EI_I = "#1f4fd8", "#d81b26"
 from matplotlib.colors import LinearSegmentedColormap as _LSC
 EI_CMAP = _LSC.from_list("ei_black",
                          [EI_I, "#3a0a0e", "#000000", "#0a1440", EI_E])
+# NaN = not applicable (a cell with no path to a muscle, a not-yet-filled
+# kinograph column) must read as background, not as the zero colour.
+EI_CMAP.set_bad(BG)
 
 
 # ---------------------------------------------------------------------------
@@ -503,16 +506,19 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     (285 is not a square, and neighbouring cells in it are not neighbours).
     `conn_blocks` is [(name, first_row), ...] for the cell-type boundaries.
     """
-    fig = plt.figure(figsize=(18.5 if conn is not None else 16.0, 5.6),
+    fig = plt.figure(figsize=(18.5, 7.8) if conn is not None else (16.0, 5.6),
                      facecolor=BG)
     # The middle panel is wider when it carries the connectome: it has a
     # 285x285 matrix plus three neuron-group vectors to fit, where the free
     # ctRNN's version is one small square.
-    gs = fig.add_gridspec(1, 3,
-                          width_ratios=[0.92, 1.45, 0.92] if conn is not None
-                          else [1.05, 0.75, 1.0],
-                          wspace=0.11 if conn is not None else 0.16,
-                          left=0.05, right=0.985, top=0.965, bottom=0.10)
+    if conn is not None:
+        gs = fig.add_gridspec(2, 3, width_ratios=[0.92, 1.45, 0.92],
+                              height_ratios=[1.0, 0.62], wspace=0.11,
+                              hspace=0.11, left=0.05, right=0.985,
+                              top=0.975, bottom=0.075)
+    else:
+        gs = fig.add_gridspec(1, 3, width_ratios=[1.05, 0.75, 1.0], wspace=0.16,
+                              left=0.05, right=0.985, top=0.965, bottom=0.10)
     ax_w, ax_c, ax_e = (fig.add_subplot(gs[0, k]) for k in range(3))
     if conn is not None:
         # The world panel is `aspect="equal"` on a symmetric range, so its
@@ -706,6 +712,36 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
                   out_hi - (out_hi - out_lo) * (k + 0.5) / n_act, nm,
                   color="#ffffff", fontsize=FS_NOTE, ha="left", va="center")
 
+    # --- kinograph -------------------------------------------------------
+    # Every cell's rate against time, under the matrix whose rows they are.
+    # The matrix shows one instant; this shows the history that produced it,
+    # which is the only place a leak or a drift in the integrator is visible
+    # at all. Row order is the matrix's, so a band here is the same population
+    # as the band above it.
+    im_kino = None
+    if conn is not None:
+        ax_k = fig.add_subplot(gs[1, :])
+        ax_k.set_facecolor(BG)
+        im_kino = ax_k.imshow(np.zeros((conn["n"], conn["kino_w"])),
+                              cmap=EI_CMAP, vmin=-1, vmax=1, aspect="auto",
+                              interpolation="nearest", origin="upper")
+        ax_k.set_yticks([]); ax_k.set_xticks([])
+        for sp_ in ax_k.spines.values():
+            sp_.set_color("#777"); sp_.set_linewidth(0.5)
+        for lbl, a0, a1 in (("AF5", 0, conn["n_in"]),
+                            ("INTG", conn["n_in"], conn["n_in"] + conn["n_intg"]),
+                            ("AMN/AIN", conn["n_in"] + conn["n_intg"], conn["n"])):
+            if a0:
+                ax_k.axhline(a0, color="#777", lw=0.5, alpha=0.6)
+            ax_k.text(-0.004, 1.0 - (a0 + a1) / (2 * conn["n"]), lbl,
+                      transform=ax_k.transAxes, color="#ccc", fontsize=FS_TICK,
+                      ha="right", va="center")
+        ax_k.set_xlabel("time  (the window slides once the trace reaches the "
+                        "right edge)", color="#ddd", fontsize=FS_AXIS,
+                        labelpad=4)
+        ax_k.set_ylabel(f"all {conn['n']} rates", color="#ddd",
+                        fontsize=FS_AXIS, labelpad=34)
+
     # --- eye -------------------------------------------------------------
     ax_e.axis("off")
     im_eye = ax_e.imshow(img0)
@@ -722,7 +758,7 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     art = dict(trail_t=trail_t, trail_c=trail_c, trail_g=trail_g, dot_t=dot_t,
                dot_c=dot_c, dot_g=dot_g, im_in=im_in, im_rec=im_rec,
                im_out=im_out, im_eye=im_eye, txt_ang=txt_ang,
-               txt_hud=txt_hud, phase=phase,
+               txt_hud=txt_hud, phase=phase, im_kino=im_kino,
                side=side, hidden=hidden, im_rate=im_rate,
                im_cin=locals().get("im_cin"), im_cout=locals().get("im_cout"),
                im_intg=locals().get("im_intg"))

@@ -325,12 +325,37 @@ def main():
     idx_in = np.where(roles == "afferent")[0]
     idx_intg = np.where(roles == "recurrent")[0]
     idx_out = np.where(roles == "output")[0]
+    # Of the 127 output-role cells, only the ones this eye's readout uses are
+    # driven: LR from AMN-L (47), MR from AIN-R (19). The other 61 are in the
+    # circuit and have rates, but no path to a muscle. The column keeps all 127
+    # rows so it stays aligned with the matrix, and the unused cells are drawn
+    # as NaN -- i.e. as background -- so the mask itself is visible rather than
+    # implied.
+    idx_readout = np.sort(np.concatenate(
+        [np.asarray(v, int) for v in circuit["output_idx"].values()]))
+    out_keep = np.isin(idx_out, idx_readout)
+    print(f"[test] readout mask: {int(out_keep.sum())} of {idx_out.size} "
+          f"output-role cells drive a muscle")
     # The ordering is afferent -> recurrent -> output by construction, so the
     # three groups are contiguous blocks and a vector drawn beside the matrix
     # lines up with its own rows.
     assert idx_in.max() < idx_intg.min() and idx_intg.max() < idx_out.min()
+    # Kinograph window: KINO_S seconds of history. The trace fills left to
+    # right and the window then slides, so the newest sample is always at the
+    # right edge and the x axis is a fixed span of time rather than the whole
+    # run squeezed into a panel.
+    KINO_S = 12.0
+    kino_w = int(round(KINO_S / a.dt))
+    kino_full = np.clip(R.T.astype(np.float32), -1.0, 1.0)   # (n, T)
     conn_meta = dict(n=int(model.N), n_in=int(idx_in.size),
-                     n_intg=int(idx_intg.size))
+                     n_intg=int(idx_intg.size), kino_w=kino_w)
+
+    def kino_frame(k):
+        if k + 1 >= kino_w:                       # sliding
+            return kino_full[:, k + 1 - kino_w:k + 1]
+        buf = np.full((model.N, kino_w), np.nan, np.float32)
+        buf[:, :k + 1] = kino_full[:, :k + 1]     # filling, left-aligned
+        return buf
     blocks, seen = [], None
     for r, nm in enumerate(names_arr):
         if nm != seen:
@@ -361,8 +386,11 @@ def main():
         if art["im_cin"] is not None:
             art["im_rec"].set_data(conn_frame(k))
             art["im_cin"].set_data(R[k][idx_in][:, None])
-            art["im_cout"].set_data(R[k][idx_out][:, None])
+            _o = R[k][idx_out].astype(np.float32).copy()
+            _o[~out_keep] = np.nan
+            art["im_cout"].set_data(_o[:, None])
             art["im_intg"].set_data(R[k][idx_intg][:, None])
+            art["im_kino"].set_data(kino_frame(k))
         else:
             art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
