@@ -344,9 +344,25 @@ def main():
     # right and the window then slides, so the newest sample is always at the
     # right edge and the x axis is a fixed span of time rather than the whole
     # run squeezed into a panel.
+    # RATE LUT. r = tanh v is heavily skewed on this circuit -- median |r| =
+    # 0.022, 78% of samples below 0.10 -- so on a linear +-1 map the median
+    # cell renders at 2% intensity and the panels read as black with a few
+    # bright rows. A signed power law against the 90th percentile puts the
+    # median near 45% and saturates ~10% of samples, which is the trade the
+    # panels want: the point is which cells are active at all, and the top
+    # decile is already legible when it is clipped.
+    RATE_P, RATE_G = 90.0, 0.35
+    _rl = float(np.percentile(np.abs(R[np.abs(R) > 0]), RATE_P)) or 1.0
+
+    def rate_disp(v):
+        out = np.sign(v) * np.clip(np.abs(v) / _rl, 0.0, 1.0) ** RATE_G
+        return out
+    print(f"[test] rate LUT: |r| clipped at p{RATE_P:.0f} = {_rl:.3f}, "
+          f"gamma {RATE_G}  (median |r| = {np.median(np.abs(R)):.4f})")
+
     KINO_S = 12.0
     kino_w = int(round(KINO_S / a.dt))
-    kino_full = np.clip(R.T.astype(np.float32), -1.0, 1.0)   # (n, T)
+    kino_full = rate_disp(R.T.astype(np.float32))            # (n, T)
     # Same readout mask as the output column: the 61 output-role cells with no
     # path to a muscle are blanked, so the kinograph and the vector beside the
     # matrix agree about which cells are actually driving this eye.
@@ -399,11 +415,11 @@ def main():
         art["im_in"].set_data(np.clip(v[k][:, None] / 1.5, -1, 1))
         if art["im_cin"] is not None:
             art["im_rec"].set_data(conn_frame(k))
-            art["im_cin"].set_data(R[k][idx_in][:, None])
-            _o = R[k][idx_out].astype(np.float32).copy()
+            art["im_cin"].set_data(rate_disp(R[k][idx_in])[:, None])
+            _o = rate_disp(R[k][idx_out].astype(np.float32)).copy()
             _o[~out_keep] = np.nan
             art["im_cout"].set_data(_o[:, None])
-            art["im_intg"].set_data(R[k][idx_intg][:, None])
+            art["im_intg"].set_data(rate_disp(R[k][idx_intg])[:, None])
             art["im_kino"].set_data(kino_frame(k))
         else:
             art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
