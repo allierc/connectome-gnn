@@ -82,6 +82,19 @@ MUS_COLOR = {"LR": (0.30, 0.55, 0.95), "SR": (0.85, 0.25, 0.25),
              "MR": (0.90, 0.75, 0.25), "IR": (0.35, 0.75, 0.45),
              "SO": (0.60, 0.40, 0.80), "IO": (0.90, 0.55, 0.25)}
 BG = "#000000"
+# One type scale for every panel: axis name / tick or category label /
+# everything else. Before this the same kind of label was 13pt in the world
+# panel and 8.5pt in the circuit panel, which read as two figures side by side.
+FS_AXIS, FS_TICK, FS_NOTE = 11.0, 9.0, 9.0
+# Figure 1c's E/I key (scripts/plot_oculomotor_connectome._EI_COLOR): BLUE
+# excitatory, RED inhibitory. Figure 1c is a paper figure on white and uses
+# RdBu, whose centre is white; on this movie's black background that would
+# hand the panel to the 94% of pairs with no synapse and invert the figure.
+# So: the same two endpoint colours, centred on black instead.
+EI_E, EI_I = "#1f4fd8", "#d81b26"
+from matplotlib.colors import LinearSegmentedColormap as _LSC
+EI_CMAP = _LSC.from_list("ei_black",
+                         [EI_I, "#3a0a0e", "#000000", "#0a1440", EI_E])
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +349,8 @@ class SurfaceView:
     the honest version -- the MPM run on the controller's own command -- is `--compose`.
     """
 
-    def __init__(self, geo, angles, cmd, act, dt, size=(620, 620), az=25.0):
+    def __init__(self, geo, angles, cmd, act, dt, size=(620, 620), az=25.0,
+                 hud=True):
         import render_surface_vtk as RS
         c, T = geo["centre"], len(angles)
         pad = np.zeros((T, 6))
@@ -348,7 +362,24 @@ class SurfaceView:
                "gaze": np.asarray(angles), "target": np.asarray(cmd),
                "frame": np.arange(T)}
         self.scene = RS.SurfaceScene(cap, side="R", size=size, globe_alpha=0.20)
+        if not hud:
+            # `SurfaceScene._text` draws the frame/gaze HUD and the activation
+            # legend with pyvista's add_text, i.e. in VTK's own bitmap font at
+            # its own sizes, while every other label in this figure is
+            # matplotlib's. Rather than port two panels of axes, ticks and
+            # colormaps to VTK for the sake of one font, suppress those two
+            # actors and redraw the same text in matplotlib. Patched here and
+            # not in Plexus: render_surface_vtk is another repo's renderer and
+            # this is a preference of THIS figure, not a fix to it.
+            _add = self.scene.p.add_text
+
+            def _skip_named(*args, **kw):
+                if kw.get("name") in ("hud", "legend"):
+                    return None
+                return _add(*args, **kw)
+            self.scene.p.add_text = _skip_named
         self.az, self.dt = az, dt
+        self.angles, self.cmd, self.act = np.asarray(angles), np.asarray(cmd), pad
 
     def frame(self, k):
         return np.asarray(self.scene.frame(int(k), self.az, self.dt))
@@ -455,7 +486,7 @@ class EyeView:
 # the figure
 # ---------------------------------------------------------------------------
 def build_figure(reach, hidden, n_act, act_names, img0, title,
-                 conn=None, conn_blocks=None):
+                 conn=None, conn_blocks=None, cmd_trail=True):
     """The three panels. `conn` swaps the middle one's content.
 
     Without it (the free ctRNN) the middle panel is the web interface's pixel
@@ -472,10 +503,28 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     (285 is not a square, and neighbouring cells in it are not neighbours).
     `conn_blocks` is [(name, first_row), ...] for the cell-type boundaries.
     """
-    fig = plt.figure(figsize=(16.0, 5.6), facecolor=BG)
-    gs = fig.add_gridspec(1, 3, width_ratios=[1.05, 0.75, 1.0], wspace=0.16,
+    fig = plt.figure(figsize=(18.5 if conn is not None else 16.0, 5.6),
+                     facecolor=BG)
+    # The middle panel is wider when it carries the connectome: it has a
+    # 285x285 matrix plus three neuron-group vectors to fit, where the free
+    # ctRNN's version is one small square.
+    gs = fig.add_gridspec(1, 3,
+                          width_ratios=[0.92, 1.45, 0.92] if conn is not None
+                          else [1.05, 0.75, 1.0],
+                          wspace=0.11 if conn is not None else 0.16,
                           left=0.05, right=0.985, top=0.965, bottom=0.10)
     ax_w, ax_c, ax_e = (fig.add_subplot(gs[0, k]) for k in range(3))
+    if conn is not None:
+        # The world panel is `aspect="equal"` on a symmetric range, so its
+        # square is sized by the axes HEIGHT and fills the row -- which left it
+        # visibly larger than the matrix beside it, and the two read as
+        # different scales rather than as one figure. Narrowing the column
+        # cannot fix that (it only adds side padding), so shrink the axes box
+        # itself until the square matches the matrix's drawn height.
+        _p = ax_w.get_position()
+        _k = 0.66
+        ax_w.set_position([_p.x0, _p.y0 + _p.height * (1 - _k) / 2,
+                           _p.width, _p.height * _k])
     for ax in (ax_w, ax_c, ax_e):
         ax.set_facecolor(BG)
 
@@ -487,19 +536,20 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     ax_w.add_patch(plt.Rectangle((-reach[0], -reach[1]), 2 * reach[0], 2 * reach[1],
                                  fill=False, ec="#ffffff", ls=":", lw=1.0,
                                  alpha=0.45))
-    ax_w.text(-reach[0], reach[1] * 1.03, f"eye reach  ±{reach[0]:.1f}° h / "
+    _ = lambda *_a, **_k: None
+    _(-reach[0], reach[1] * 1.03, f"eye reach  ±{reach[0]:.1f}° h / "
               f"±{reach[1]:.1f}° v", color="#ffffff", fontsize=10, va="bottom")
     for s in ax_w.spines.values():
         s.set_color("#444")
-    ax_w.tick_params(colors="#ffffff", labelsize=12)
+    ax_w.tick_params(colors="#ffffff", labelsize=FS_TICK)
     from matplotlib.ticker import MultipleLocator, FuncFormatter
     step = 2.0 if lim_h < 12 else 5.0
     ax_w.xaxis.set_major_locator(MultipleLocator(step))
     ax_w.yaxis.set_major_locator(MultipleLocator(step))
     deg = FuncFormatter(lambda t, _: f"{t:.0f}°")
     ax_w.xaxis.set_major_formatter(deg); ax_w.yaxis.set_major_formatter(deg)
-    ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#ffffff", fontsize=13)
-    ax_w.set_ylabel("φ  vertical gaze (deg)", color="#ffffff", fontsize=13)
+    ax_w.set_xlabel("θ  horizontal gaze (deg)", color="#ffffff", fontsize=FS_AXIS)
+    ax_w.set_ylabel("φ  vertical gaze (deg)", color="#ffffff", fontsize=FS_AXIS)
     # The right panel looks AT the eye, so its left is the eye's right. Mirroring
     # both axes here makes a rightward excursion move rightward in both panels;
     # only the display is flipped, never the data.
@@ -507,7 +557,12 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     trail_t, = ax_w.plot([], [], "-", color="#ffffff", lw=1.0, alpha=0.45)
     # red is the command, which is context for the two traces that matter; it is
     # drawn back so the white target and the blue gaze read first
-    trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.0, alpha=0.35)
+    # The command's TRAIL is context, not a result, and on a horizontal task it
+    # simply doubles the gaze trace. `cmd_trail=False` keeps the red dot -- the
+    # instantaneous equilibrium the muscles are asking for, which is worth
+    # seeing lead the gaze -- and drops the history behind it.
+    trail_c, = ax_w.plot([], [], "-", color="#e05a4a", lw=1.0,
+                         alpha=0.35 if cmd_trail else 0.0)
     trail_g, = ax_w.plot([], [], "-", color="#4da3ff", lw=1.6, alpha=0.95)
     # the target is a RING, not a disc: the gaze dot sits inside it when the
     # controller is working, and a filled marker would simply hide the thing the
@@ -521,8 +576,11 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     # same way as the world panel beside it and as Figure 1e of the note.
     side = int(np.ceil(np.sqrt(hidden)))
     ax_c.set_xlim(0, 1); ax_c.set_ylim(0, 1); ax_c.axis("off")
-    im_in = ax_c.imshow(np.zeros((2, 1)), cmap="viridis", vmin=-1, vmax=1,
-                        extent=(0.015, 0.10, 0.36, 0.64), aspect="auto", zorder=3)
+    _in_ext = (0.015, 0.088, 0.50, 0.74) if conn is not None \
+        else (0.015, 0.10, 0.36, 0.64)
+    im_in = ax_c.imshow(np.zeros((2, 1)),
+                        cmap=EI_CMAP if conn is not None else "viridis",
+                        vmin=-1, vmax=1, extent=_in_ext, aspect="auto", zorder=3)
     im_out = ax_c.imshow(np.zeros((n_act, 1)), cmap="viridis", vmin=0, vmax=1,
                          extent=(0.90, 0.985, 0.28, 0.72), aspect="auto", zorder=3)
     im_rate = None
@@ -530,73 +588,144 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
         im_rec = ax_c.imshow(np.zeros((side, side)), cmap="viridis", vmin=-1, vmax=1,
                              extent=(0.235, 0.765, 0.235, 0.765), aspect="auto", zorder=3)
         ax_c.text(0.5, 0.185, f"{hidden} rates   $r=\\tanh v$", color="#ffffff",
-                  fontsize=11, ha="center", va="top")
+                  fontsize=FS_NOTE, ha="center", va="top")
         mid_l, mid_r = 0.235, 0.765
     else:
-        mid_l, mid_r, lo, hi = 0.20, 0.80, 0.235, 0.885
-        # Diverging, but centred on BLACK rather than white: 94% of the 285x285
-        # pairs have no measured synapse, and a white-centred map like `bwr`
-        # hands the whole panel to them -- the sparse structure this exists to
-        # show becomes a few marks on a white field, and the figure's own black
-        # background is inverted. Blue inhibitory, red excitatory, absent = the
-        # background colour.
-        from matplotlib.colors import LinearSegmentedColormap
-        cmap_ei = LinearSegmentedColormap.from_list(
-            "ei_black", ["#3d8bff", "#0d1c33", "#000000", "#33130d", "#ff4d3d"])
-        im_rec = ax_c.imshow(conn, cmap=cmap_ei, vmin=-1, vmax=1,
+        n = conn["n"]
+        n_in, n_intg = conn["n_in"], conn["n_intg"]
+        n_out_cells = n - n_in - n_intg
+        mid_l, mid_r, lo, hi = 0.320, 0.712, 0.300, 0.880
+        cmap_ei = EI_CMAP
+        # The matrix, in Figure 1c's own terms: post x pre, sign taken from the
+        # PRESYNAPTIC column's Dale assignment, blue excitatory and red
+        # inhibitory. What differs is the intensity -- Figure 1c shows the
+        # static synapse weight, this shows |W_ij r_j|, the MESSAGE actually
+        # crossing that synapse this frame, so a still of the movie is the
+        # circuit's traffic rather than its wiring.
+        im_rec = ax_c.imshow(np.zeros((n, n)), cmap=cmap_ei, vmin=-1, vmax=1,
                              extent=(mid_l, mid_r, lo, hi), aspect="auto",
                              zorder=3, interpolation="nearest")
-        n = conn.shape[0]
-        # Label a block only where there is room for the text, so the eight
-        # cell-type names do not overprint each other; the rules are drawn for
-        # every block either way.
+        # Rules on the block BOUNDARIES, labels at the block CENTRES. A label
+        # on the boundary names the row where a type starts, which reads as if
+        # it belonged to the type above it; centred, it names the band it
+        # actually spans.
+        _blocks = list(conn_blocks or [])
+        _edges = [r0 for _, r0 in _blocks] + [n]
         last_y = np.inf
-        for nm, r0 in (conn_blocks or []):
+        for i, (nm, r0) in enumerate(_blocks):
             y = hi - (hi - lo) * r0 / n
             x = mid_l + (mid_r - mid_l) * r0 / n
-            ax_c.plot([mid_l, mid_r], [y, y], color="#777", lw=0.45,
-                      alpha=0.5, zorder=4)
-            ax_c.plot([x, x], [lo, hi], color="#777", lw=0.45, alpha=0.5, zorder=4)
-            if last_y - y > 0.045:
-                ax_c.text(mid_l - 0.008, y, nm, color="#ccc", fontsize=6.2,
+            if i:                                   # no rule on the outer edge
+                ax_c.plot([mid_l, mid_r], [y, y], color="#777", lw=0.4,
+                          alpha=0.45, zorder=4)
+                ax_c.plot([x, x], [lo, hi], color="#777", lw=0.4, alpha=0.45,
+                          zorder=4)
+            y_c = hi - (hi - lo) * 0.5 * (r0 + _edges[i + 1]) / n
+            if last_y - y_c > 0.026:
+                ax_c.text(mid_l - 0.008, y_c, nm, color="#ccc", fontsize=FS_TICK,
                           ha="right", va="center")
-                last_y = y
+                last_y = y_c
         ax_c.add_patch(plt.Rectangle((mid_l, lo), mid_r - mid_l, hi - lo,
                                      fill=False, ec="#777", lw=0.6, zorder=5))
-        # the live state, as a strip under the matrix: 285 is not a square and
-        # adjacent cells in a reshape are not adjacent in the circuit, so the
-        # rates are shown in the matrix's own row order instead.
-        im_rate = ax_c.imshow(np.zeros((1, n)), cmap="viridis", vmin=-1, vmax=1,
-                              extent=(mid_l, mid_r, 0.175, 0.225),
-                              aspect="auto", zorder=3, interpolation="nearest")
-        ax_c.text(0.5, 0.155, f"{n} rates   $r=\\tanh v$   (row order)",
-                  color="#ffffff", fontsize=10, ha="center", va="top")
-        ax_c.text(0.5, 0.945, r"$\hat W_{ij}=|S_{ij}|\,\mathrm{sign}(W^{con}_{ij})$"
-                  "   post $\\times$ pre", color="#ffffff", fontsize=10.5,
-                  ha="center", va="bottom")
-    for x0, x1, y in ((0.10, mid_l, 0.5), (mid_r, 0.90, 0.5)):
-        ax_c.annotate("", xy=(x1, y), xytext=(x0, y),
-                      arrowprops=dict(arrowstyle="-|>", color="#ffffff", lw=1.3))
-    ax_c.text(0.058, 0.30, r"$(\dot x,\dot y)$", color="#ffffff", fontsize=11,
-              ha="center", va="top")
-    ax_c.text(0.943, 0.235, f"$m=[\\hat W^{{out}}r]_+$", color="#ffffff",
-              fontsize=11, ha="center", va="top")
+
+        # THE THREE GROUPS, EACH BESIDE ITS OWN ROWS. A rate is produced at the
+        # cell's ROW -- it is the postsynaptic sum that drives it -- so a vector
+        # drawn level with its rows can be read straight across into the matrix.
+        # The ordering is afferent -> recurrent -> output, so the three blocks
+        # are contiguous and together they cover all n rows exactly once: AF5 on
+        # the left where the velocity arrives, then the integrator and the motor
+        # cells stacked on the right in the order the signal reaches them.
+        def _rows(a0, a1):
+            return hi - (hi - lo) * a1 / n, hi - (hi - lo) * a0 / n
+
+        y_in0, y_in1 = _rows(0, n_in)
+        y_intg0, y_intg1 = _rows(n_in, n_in + n_intg)
+        y_out0, y_out1 = _rows(n_in + n_intg, n)
+        y_in_c = 0.5 * (y_in0 + y_in1)
+        y_intg_c = 0.5 * (y_intg0 + y_intg1)
+        y_out_c = 0.5 * (y_out0 + y_out1)
+
+        def _col(x0, x1, k, y0, y1):
+            return ax_c.imshow(np.zeros((k, 1)), cmap=cmap_ei, vmin=-1, vmax=1,
+                               extent=(x0, x1, y0, y1), aspect="auto",
+                               zorder=3, interpolation="nearest")
+        im_cin = _col(0.150, 0.190, n_in, y_in0, y_in1)
+        im_intg = _col(0.727, 0.767, n_intg, y_intg0, y_intg1)
+        im_cout = _col(0.727, 0.767, n_out_cells, y_out0, y_out1)
+        for x0, x1, y0, y1 in ((0.150, 0.190, y_in0, y_in1),
+                               (0.727, 0.767, y_intg0, y_intg1),
+                               (0.727, 0.767, y_out0, y_out1)):
+            ax_c.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0,
+                                         fill=False, ec="#777", lw=0.5, zorder=5))
+        ax_c.text(0.170, y_in1 + 0.010, f"AF5 ({n_in})", color="#ffffff",
+                  fontsize=FS_NOTE, ha="center", va="bottom")
+        ax_c.text(0.775, y_intg_c, f"INTG ({n_intg})", color="#ffffff",
+                  fontsize=FS_NOTE, ha="left", va="center")
+        # below its own column: to its right is where the arrow to the
+        # muscle drives runs, and the label sat on top of it.
+        ax_c.text(0.747, y_out0 - 0.010, f"AMN/AIN ({n_out_cells})",
+                  color="#ffffff", fontsize=FS_NOTE, ha="center", va="top")
+        ax_c.text(mid_l - 0.175, 0.5 * (lo + hi), "postsynaptic",
+                  color="#ddd", fontsize=FS_AXIS, ha="center", va="center",
+                  rotation=90)
+        ax_c.text(0.5, lo - 0.022, "presynaptic", color="#ddd",
+                  fontsize=FS_AXIS, ha="center", va="top")
+        # velocity -> AF5 -> circuit -> AMN/AIN -> drives, each arrow level
+        # with the blocks it joins
+        for x0, x1, yy in ((0.126, 0.146, y_in_c),
+                           (mid_r + 0.004, 0.723, y_out_c),
+                           (0.771, 0.854, y_out_c)):
+            ax_c.annotate("", xy=(x1, yy), xytext=(x0, yy),
+                          arrowprops=dict(arrowstyle="-|>", color="#ffffff",
+                                          lw=1.1))
+        _yc_in, _yc_out = y_in_c, y_out_c
+    if conn is None:
+        for x0, x1, y in ((0.10, mid_l, 0.5), (mid_r, 0.90, 0.5)):
+            ax_c.annotate("", xy=(x1, y), xytext=(x0, y),
+                          arrowprops=dict(arrowstyle="-|>", color="#ffffff", lw=1.3))
+        ax_c.text(0.058, 0.30, r"$(\dot x,\dot y)$", color="#ffffff",
+                  fontsize=FS_NOTE, ha="center", va="top")
+        ax_c.text(0.943, 0.235, f"$m=[\\hat W^{{out}}r]_+$", color="#ffffff",
+                  fontsize=FS_NOTE, ha="center", va="top")
+        out_lo, out_hi = 0.28, 0.72
+    else:
+        # centre the velocity pair on AF5's rows and the drives on AMN/AIN's,
+        # so all five stages of the flow line up with what they feed.
+        im_in.set_extent((0.082, 0.122, _yc_in - 0.055, _yc_in + 0.055))
+        out_lo, out_hi = _yc_out - 0.105, _yc_out + 0.105
+        im_out.set_extent((0.858, 0.898, out_lo, out_hi))
+        for _x0, _x1, _y0, _y1 in ((0.082, 0.122, _yc_in - 0.055, _yc_in + 0.055),
+                                   (0.858, 0.898, out_lo, out_hi)):
+            ax_c.add_patch(plt.Rectangle((_x0, _y0), _x1 - _x0, _y1 - _y0,
+                                         fill=False, ec="#777", lw=0.5,
+                                         zorder=7))
+        ax_c.text(0.102, _yc_in + 0.062, r"$(\dot x,\dot y)$", color="#ffffff",
+                  fontsize=FS_NOTE, ha="center", va="bottom")
     for k, nm in enumerate(act_names):
-        ax_c.text(0.995, 0.72 - 0.44 * (k + 0.5) / n_act, nm, color="#ffffff",
-                  fontsize=9.5, ha="left", va="center")
+        ax_c.text(0.907 if conn is not None else 0.995,
+                  out_hi - (out_hi - out_lo) * (k + 0.5) / n_act, nm,
+                  color="#ffffff", fontsize=FS_NOTE, ha="left", va="center")
 
     # --- eye -------------------------------------------------------------
     ax_e.axis("off")
     im_eye = ax_e.imshow(img0)
     txt_ang = ax_e.text(0.02, 0.02, "", transform=ax_e.transAxes, color="#ffffff",
-                        fontsize=12, va="bottom", family="monospace")
+                        fontsize=FS_NOTE, va="bottom")
+    # Replaces SurfaceScene's own upper-left HUD when SurfaceView(hud=False)
+    # suppresses it, so the whole figure is one font at one set of sizes.
+    txt_hud = ax_e.text(0.02, 0.98, "", transform=ax_e.transAxes,
+                        color="#ffffff", fontsize=FS_NOTE, va="top", ha="left",
+                        linespacing=1.35)
     # the regime, boxed in the world panel's top right, where the eye is not
     phase = ax_w.text(0.975, 0.965, "", transform=ax_w.transAxes, color="#ffffff",
-                      fontsize=13, ha="right", va="top")
+                      fontsize=FS_NOTE, ha="right", va="top")
     art = dict(trail_t=trail_t, trail_c=trail_c, trail_g=trail_g, dot_t=dot_t,
                dot_c=dot_c, dot_g=dot_g, im_in=im_in, im_rec=im_rec,
-               im_out=im_out, im_eye=im_eye, txt_ang=txt_ang, phase=phase,
-               side=side, hidden=hidden, im_rate=im_rate)
+               im_out=im_out, im_eye=im_eye, txt_ang=txt_ang,
+               txt_hud=txt_hud, phase=phase,
+               side=side, hidden=hidden, im_rate=im_rate,
+               im_cin=locals().get("im_cin"), im_cout=locals().get("im_cout"),
+               im_intg=locals().get("im_intg"))
     return fig, art
 
 

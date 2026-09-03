@@ -18,17 +18,31 @@ WHAT DIFFERS, AND WHY EACH DIFFERENCE IS FORCED
                    to 5013 measured synapses) instead of a free (64, 64)
                    matrix.
 
-  the middle panel THE 285x285 CONNECTIVITY, red excitatory / blue inhibitory
-                   / black for the 94% of pairs with no measured synapse,
-                   with the live rates as a strip beneath it. test_eyeG draws
-                   a square of rates there because a free matrix has no
-                   structure worth a picture; here the matrix IS the result,
-                   and a 17x17 reshape of 285 cells would be worse than
-                   uninformative -- 285 is not a square and neighbours in the
-                   reshape are not neighbours in the circuit. Shown on a
-                   signed log scale: the weights are heavy-tailed (median
-                   0.17, max 4.7 after the spectral rescale) and a linear map
-                   would show only the largest few.
+  the middle panel FIGURE 1c OF THE NOTE, MADE LIVE, and wider than
+                   test_eyeG's because it has more to carry. The 285x285
+                   matrix keeps Figure 1c's key exactly -- post x pre, BLUE
+                   excitatory and RED inhibitory, the sign taken from the
+                   presynaptic column's Dale assignment -- and changes only
+                   what sets the brightness: |W_ij r_j|, the message crossing
+                   that synapse this frame, instead of the static synapse
+                   weight. Sign from the connectome, weight from training,
+                   brightness from the traffic.
+
+                   Around it, the three neuron groups as vectors of live
+                   rates on that same blue/red scale: AF5 as a column beside
+                   its own rows on the left, AMN/AIN as a column beside
+                   theirs on the right, and the INTG integrator as a row
+                   along the bottom in the matrix's column order. So the
+                   panel reads left to right in the direction the signal
+                   travels -- velocity, afferent cells, the circuit, motor
+                   cells, muscle drive -- with every value on one key.
+
+                   test_eyeG draws a square of rates there instead, because a
+                   free (hidden, hidden) matrix has no structure worth a
+                   picture. Here the matrix IS the result, and a 17x17
+                   reshape of 285 cells would be worse than uninformative:
+                   285 is not a square, and neighbours in the reshape are not
+                   neighbours in the circuit.
 
   the stimulus     HORIZONTAL, via `sequence_h` below. test_eyeG's `sequence`
                    opens with two CIRCLE phases and walks a 2-D curve; this
@@ -174,6 +188,12 @@ def main():
     p.add_argument("--saccade", action="store_true",
                    help="six L/R saccade rates instead of the horizontal regimes")
     p.add_argument("--render", default="surface", choices=TE.EyeView.MODES)
+    p.add_argument("--preview", type=float, default=None, metavar="FRAC",
+                   help="render ONE frame at this fraction of the run (0..1) "
+                        "to <results>/<name>_preview.png and stop. The movie "
+                        "takes ~4 min; a layout change needs one frame to "
+                        "check, so iterate with this and render the mp4 once "
+                        "the panel is right.")
     p.add_argument("--phi-zero", action="store_true",
                    help="DISPLAY ONLY: draw the gaze and rotate the eye with "
                         "phi forced to 0, so the movie reads as pure "
@@ -257,28 +277,62 @@ def main():
     # --- render: test_eyeG's own figure and views, unchanged ---------------
     geo = TE.load_geometry(a.eye_dir)
     if a.render == "surface":
-        view = TE.SurfaceView(geo, x, cmd, m, a.dt)
+        view = TE.SurfaceView(geo, x, cmd, m, a.dt, hud=False)
         img0 = view.frame(0)
     else:
         view = TE.EyeView(geo, mode=a.render)
         img0 = view.frame(x[0], m[0])
-    # The LEARNED connectivity, not the raw connectome: |S| after training,
-    # still masked to the measured synapses and still Dale-signed.
+    # THE MESSAGE PASSING, not the wiring. Figure 1c of the note shows this
+    # matrix with its intensity set by the static synapse weight; here the
+    # intensity is |W_ij r_j| -- what actually crosses that synapse this frame
+    # -- while the COLOUR stays Figure 1c's, the Dale sign of the presynaptic
+    # column: blue excitatory, red inhibitory. Sign from the connectome, weight
+    # from training, brightness from the traffic.
     #
-    # Gamma-compressed against the 95th percentile, because the weights are
-    # heavy-tailed -- median 0.17 against a max of 8.67 -- so a linear map
-    # renders the median synapse at 2% and the panel shows a dozen outliers on
-    # an empty field. Clipping at p95 and taking the 0.35 power puts the median
-    # at 54% intensity and 56% of synapses above half, which is what makes the
-    # 5013-synapse block structure legible. The 5% above p95 saturate; they are
-    # the strongest connections and losing their relative order costs nothing a
-    # movie frame could have conveyed anyway.
+    # The sign is deliberately the column's and not the message's. r_j = tanh v
+    # is signed, so sign(W_ij r_j) flickers with every rate zero-crossing and
+    # the E/I band structure -- the one thing this panel exists to make
+    # falsifiable by eye, per _panel_signed_matrix's docstring -- would strobe
+    # away. Brightness carries the dynamics; colour carries the anatomy.
     with torch.no_grad():
         What = model.W_hat().numpy()
-    lim = float(np.percentile(np.abs(What[What != 0]), 95)) or 1.0
-    conn = np.sign(What) * np.clip(np.abs(What) / lim, 0.0, 1.0) ** 0.35
+    absW = np.abs(What)
+    col_sign = circuit["sign_col"].astype(np.float32)
+
+    # One fixed scale for the whole movie, so two frames are comparable. Taken
+    # from the 99.5th percentile of the messages that actually occur over the
+    # run rather than from the weights, which would leave the panel dark: a
+    # strong synapse onto a silent cell carries nothing.
+    _s = R[::max(1, len(R) // 120)]
+    _mag = (absW[None] * np.abs(_s)[:, None, :]).reshape(-1)
+    msg_lim = float(np.percentile(_mag[_mag > 0], 99.5)) or 1.0
+
+    # log1p, as Figure 1c does -- the messages span decades -- and the same
+    # 2x2 grey_dilation, without which a 285x285 matrix drawn at movie
+    # resolution loses most of its 5013 synapses to pixel rounding.
+    from scipy.ndimage import grey_dilation
+    _knee = np.log1p(9.0)
+
+    def conn_frame(k):
+        mag = np.log1p(9.0 * absW * np.abs(R[k])[None, :] / msg_lim) / _knee
+        mag = grey_dilation(mag, size=(2, 2))
+        return np.clip(mag, 0.0, 1.0) * col_sign[None, :]
+
+    names_arr = circuit["names"]
+    role_of = {s.name: (s.role or "recurrent")
+               for s in circuit["cfg"].circuit.cell_types}
+    roles = np.array([role_of[str(t)] for t in names_arr])
+    idx_in = np.where(roles == "afferent")[0]
+    idx_intg = np.where(roles == "recurrent")[0]
+    idx_out = np.where(roles == "output")[0]
+    # The ordering is afferent -> recurrent -> output by construction, so the
+    # three groups are contiguous blocks and a vector drawn beside the matrix
+    # lines up with its own rows.
+    assert idx_in.max() < idx_intg.min() and idx_intg.max() < idx_out.min()
+    conn_meta = dict(n=int(model.N), n_in=int(idx_in.size),
+                     n_intg=int(idx_intg.size))
     blocks, seen = [], None
-    for r, nm in enumerate(circuit["names"]):
+    for r, nm in enumerate(names_arr):
         if nm != seen:
             blocks.append((str(nm), r))
             seen = nm
@@ -287,18 +341,15 @@ def main():
              + (f"   [φ drawn as 0; true mean |φ| {phi_true:.2f}°]"
                 if a.phi_zero else ""))
     fig, art = TE.build_figure(reach, model.N, eye.n_act, names, img0, title,
-                               conn=conn, conn_blocks=blocks)
+                               conn=conn_meta, conn_blocks=blocks,
+                               cmd_trail=False)
 
     step = max(1, int(round(1.0 / (a.fps * a.dt))))
     keep = int(a.trail / a.dt)
-    import imageio.v2 as iio
-    from tqdm import tqdm
-    w = iio.get_writer(out, fps=a.fps, codec="libx264", quality=8,
-                       macro_block_size=1)
     side, hidden = art["side"], art["hidden"]
     pad = np.zeros(side * side - hidden, np.float32)
-    for k in tqdm(range(0, len(x), step), desc=f"[render] {os.path.basename(out)}",
-                  unit="frame", ncols=100):
+
+    def draw(k):
         lo = max(0, k - keep)
         art["trail_t"].set_data(tgt[lo:k + 1, 0], tgt[lo:k + 1, 1])
         art["trail_c"].set_data(cmd[lo:k + 1, 0], cmd[lo:k + 1, 1])
@@ -307,15 +358,51 @@ def main():
         art["dot_c"].set_data([cmd[k, 0]], [cmd[k, 1]])
         art["dot_g"].set_data([x[k, 0]], [x[k, 1]])
         art["im_in"].set_data(np.clip(v[k][:, None] / 1.5, -1, 1))
-        if art["im_rate"] is not None:
-            art["im_rate"].set_data(R[k][None, :])      # matrix row order
+        if art["im_cin"] is not None:
+            art["im_rec"].set_data(conn_frame(k))
+            art["im_cin"].set_data(R[k][idx_in][:, None])
+            art["im_cout"].set_data(R[k][idx_out][:, None])
+            art["im_intg"].set_data(R[k][idx_intg][:, None])
         else:
             art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
         art["im_eye"].set_data(view.frame(k) if a.render == "surface"
                                else view.frame(x[k], m[k]))
+        # SurfaceView paints its own angle overlay; setting txt_ang too would
+        # print the numbers twice. Same rule as test_eyeG's writer loop.
+        # SurfaceScene's VTK HUD is suppressed (hud=False), so the same
+        # content is drawn here in the figure's own font.
+        art["txt_hud"].set_text(
+            f"frame {k}   t = {k * a.dt:5.2f} s\n"
+            f"command   h {cmd[k,0]:+5.1f}   v {cmd[k,1]:+5.1f}   "
+            f"\u03c8 {cmd[k,2]:+5.1f}\n"
+            f"gaze      h {x[k,0]:+5.1f}   v {x[k,1]:+5.1f}   "
+            f"\u03c8 {x[k,2]:+5.1f}")
+        # two rows of three: one line of six ran off the panel and lost IO
+        art["txt_ang"].set_text(
+            "activation   " + "  ".join(f"{nm} {m[k, j]:.2f}"
+                                        for j, nm in enumerate(names[:3]))
+            + "\n             " + "  ".join(f"{nm} {m[k, j + 3]:.2f}"
+                                             for j, nm in enumerate(names[3:])))
+        art["phase"].set_text(labels[max(0, int(np.searchsorted(cuts, k, "right")))])
         fig.canvas.draw()
-        w.append_data(np.asarray(fig.canvas.buffer_rgba())[..., :3])
+        return np.asarray(fig.canvas.buffer_rgba())[..., :3]
+
+    if a.preview is not None:
+        k = int(np.clip(a.preview, 0.0, 1.0) * (len(x) - 1))
+        png = os.path.join(out_dir, f"{name}_preview.png")
+        import imageio.v2 as iio
+        iio.imwrite(png, draw(k))
+        print(f"[test] preview frame {k} of {len(x)} -> {png}")
+        return
+
+    import imageio.v2 as iio
+    from tqdm import tqdm
+    w = iio.get_writer(out, fps=a.fps, codec="libx264", quality=8,
+                       macro_block_size=1)
+    for k in tqdm(range(0, len(x), step), desc=f"[render] {os.path.basename(out)}",
+                  unit="frame", ncols=100):
+        w.append_data(draw(k))
     w.close()
     print(f"[test] wrote {out}")
 
