@@ -162,21 +162,57 @@ class ZebrafishCircuitRNN(nn.Module):
         self.register_buffer("afferent_mask", afferent)
         self.Win = nn.Parameter(torch.randn(N, 2) * 0.1 * afferent[:, None])
 
-        # Wout is (2, N): row 0 -> LR (from AMN cells only), row 1 -> MR (from
-        # AIN cells only). No cross terms -- an AMN cell cannot feed MR.
+        # Wout, ONE PER EYE. Row 0 -> LR, row 1 -> MR; no cross terms, an AMN
+        # cell cannot feed MR. With `eye_side: both` there are two, over
+        # DISJOINT cell sets -- left takes AMN-L (ipsi) and AIN-R (contra),
+        # right takes AMN-R and AIN-L -- so each of the 127 output cells drives
+        # exactly one eye. Modelling a single eye left 61 of them in the
+        # recurrence with no path out.
         eff = circuit["effector_col"]                    # {"AMN": 0 (LR), "AIN": 2 (MR)}
-        out_idx = circuit["output_idx"]                  # {"AMN": rows, "AIN": rows}
         row_of_muscle = {0: 0, 2: 1}                      # MUSCLES index -> Wout row
-        out_mask = np.zeros((2, N), np.float32)
-        self.muscle_row = {}                              # Wout row -> index into MUSCLES(6)
-        for name, muscle_idx in eff.items():
-            if muscle_idx not in row_of_muscle:
-                continue                                   # only LR/MR are wired below
-            row = row_of_muscle[muscle_idx]
-            out_mask[row, out_idx[name]] = 1.0
-            self.muscle_row[row] = muscle_idx
-        self.register_buffer("out_mask", torch.as_tensor(out_mask))
-        self.Wout = nn.Parameter(torch.randn(2, N) * 0.1 * torch.as_tensor(out_mask))
+        self.eyes = (["left", "right"] if circuit["eye_side"] == "both"
+                     else [circuit["eye_side"] or "left"])
+        self.muscle_row = {}                              # Wout row -> MUSCLES index
+        masks = []
+        for which in self.eyes:
+            out_idx = (circuit["readout"][which] if circuit["eye_side"] == "both"
+                       else circuit["output_idx"])
+            mk = np.zeros((2, N), np.float32)
+            for name, muscle_idx in eff.items():
+                if muscle_idx not in row_of_muscle:
+                    continue                               # only LR/MR are wired
+                row = row_of_muscle[muscle_idx]
+                mk[row, out_idx[name]] = 1.0
+                self.muscle_row[row] = muscle_idx
+            masks.append(mk)
+        self.register_buffer("out_mask", torch.as_tensor(np.stack(masks, 0)))
+        self.Wout = nn.Parameter(torch.randn(len(self.eyes), 2, N) * 0.1
+                                 * self.out_mask)
+        # eye G is a LEFT eye. The right eye is its mirror through the sagittal
+        # plane: horizontal gaze and torsion flip sign, vertical does not. One
+        # fitted plant therefore serves both, and the right eye is not a second
+        # fit but the same one read into world coordinates -- which is what
+        # makes the two gazes directly comparable in the loss.
+        self.register_buffer("mirror", torch.tensor(
+            [[-1.0, 1.0, -1.0] if w == "right" else [1.0, 1.0, 1.0]
+             for w in self.eyes]))
+
+    def _load_from_state_dict(self, state, prefix, *args, **kw):
+        """Accept pre-two-eye checkpoints.
+
+        `Wout` and `out_mask` were (2, N) when there was one readout and are
+        (n_eye, 2, N) now. A checkpoint written before the change is a valid
+        single-eye model, so give it the missing leading axis rather than
+        making every earlier run unloadable -- and supply `mirror`, which
+        is the identity for a lone left eye.
+        """
+        for k in ("Wout", "out_mask"):
+            v = state.get(prefix + k)
+            if v is not None and v.dim() == 2:
+                state[prefix + k] = v[None]
+        if prefix + "mirror" not in state:
+            state[prefix + "mirror"] = self.mirror.clone()
+        return super()._load_from_state_dict(state, prefix, *args, **kw)
 
     @property
     def n_act(self):
@@ -188,9 +224,12 @@ class ZebrafishCircuitRNN(nn.Module):
         return (self.S.abs() * self.support) * self.sign_col[None, :]
 
     def forward(self, pdot, want_states=False):
-        """pdot = (x_dot, y_dot), eq:input-vector, the only input. Returns
-        (u, m) -- u the gaze, m the six muscle drives (four of them always
-        zero) -- or (u, m, R) with the firing rates too if `want_states`."""
+        """pdot = (x_dot, y_dot), eq:input-vector, the only input.
+
+        Returns (u, m), or (u, m, R) with the rates too. With one eye u is
+        (B, T, 3) and m is (B, T, 6) exactly as before; with `eye_side: both`
+        both gain an eye axis -- (B, T, n_eye, 3) and (B, T, n_eye, 6) -- so a
+        caller wanting one eye indexes it and the loss averages over it."""
         alpha = (self.dt / self.log_tau.exp()).clamp(1e-4, 1.0)   # dt / tau_i
         B, T, _ = pdot.shape
         v = torch.zeros(B, self.N, device=pdot.device, dtype=pdot.dtype)  # v_i(0)=0
@@ -203,12 +242,17 @@ class ZebrafishCircuitRNN(nn.Module):
             rates.append(r)
             v = v + alpha * (-v + r @ What.T + I[:, t])     # eq:euler-circuit
         R = torch.stack(rates, 1)                          # (B, T, N)
-        Wout_eff = self.Wout * self.out_mask
-        drive = nn.functional.softplus(R @ Wout_eff.T)      # (B, T, 2): [LR, MR]
-        m = torch.zeros(B, T, 6, device=pdot.device, dtype=pdot.dtype)
+        Wout_eff = self.Wout * self.out_mask               # (n_eye, 2, N)
+        drive = nn.functional.softplus(
+            torch.einsum("btn,ekn->btek", R, Wout_eff))     # (B, T, n_eye, 2)
+        n_eye = len(self.eyes)
+        m = torch.zeros(B, T, n_eye, 6, device=pdot.device, dtype=pdot.dtype)
         for row, muscle_idx in self.muscle_row.items():
             m[..., muscle_idx] = drive[..., row]
-        u = self.eye(m)                                     # set in main(); (B,T,3) deg
+        u = torch.stack([self.eye(m[:, :, e]) * self.mirror[e]
+                         for e in range(n_eye)], dim=2)     # (B, T, n_eye, 3)
+        if n_eye == 1:
+            u, m = u[:, :, 0], m[:, :, 0]
         return (u, m, R) if want_states else (u, m)
 
 
@@ -356,6 +400,10 @@ def main():
     model.eye = eye
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_out_cells = sum(idx.size for idx in circuit["output_idx"].values())
+    print(f"[circuit] eyes driven: {', '.join(model.eyes)}  "
+          f"({len(model.eyes)} readout"
+          f"{'s' if len(model.eyes) > 1 else ''}, "
+          f"{int(model.out_mask.sum())} output cells wired)")
     print(f"[circuit] {n_params} trainable parameters "
           f"(S masked to {int(circuit['support'].sum())} synapses, "
           f"Win on {int(circuit['afferent'].sum())} afferent rows, "
@@ -374,14 +422,23 @@ def main():
                     for f in (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)})
     n_stage = len(sched)
 
+    def tgt(u, S):
+        """The target, broadcast over the eye axis when there is one.
+
+        Both eyes track the SAME point: conjugate gaze is the whole content of
+        the horizontal task, and the mirror in the plant already puts the two
+        gazes in one world frame, so a single target serves both and the loss
+        is their mean rather than two objectives to weigh against each other."""
+        return S[:, :, None, :] if u.dim() == 4 else S
+
     def evaluate(Pdot, Star):
         model.eval()
         with torch.no_grad():
             errs = []
             for i in range(0, Pdot.shape[0], a.batch):
                 u, _ = model(Pdot[i:i + a.batch])
-                errs.append((u[..., :n_track] - Star[i:i + a.batch, :, :n_track])
-                            .norm(dim=-1))
+                S = tgt(u, Star[i:i + a.batch])
+                errs.append((u[..., :n_track] - S[..., :n_track]).norm(dim=-1))
             return float(torch.cat(errs).mean())
 
     def untracked_phi_drift(Pdot):
@@ -403,8 +460,10 @@ def main():
         for i in range(0, len(perm), a.batch):
             j = perm[i:i + a.batch]
             u, _ = model(Pdot_tr[j, :h])
-            # eq:loss / eq:loss-again, restricted to the n_track reachable angles
-            loss = ((u[..., :n_track] - Star_tr[j, :h, :n_track]) ** 2).mean() \
+            # eq:loss / eq:loss-again, restricted to the n_track reachable
+            # angles, and averaged over both eyes when there are two
+            S = tgt(u, Star_tr[j, :h])
+            loss = ((u[..., :n_track] - S[..., :n_track]) ** 2).mean() \
                 + a.lam_psi * (u[..., 2] ** 2).mean()
             opt.zero_grad(); loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -438,13 +497,13 @@ def main():
                 "eye": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
                         for k, v in spec.items()},
                 "circuit_config": a.config, "circuit_pkl": a.pkl,
-                "eye_side": eye_side,
+                "eye_side": eye_side, "eyes": list(model.eyes), "eyes": list(model.eyes),
                 "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                 "dt": a.dt, "scale": scale.tolist(), "tau0": a.tau0}, ck)
     rep = os.path.join(out_dir, "results", "report.json") if out_dir \
         else os.path.join(MODELS, f"{tag}.json")
     json.dump({"tag": tag, "n_cells": len(circuit["names"]),
-               "eye_side": eye_side,
+               "eye_side": eye_side, "eyes": list(model.eyes),
                "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                "readout_cells": {nm: int(len(i))
                                  for nm, i in sorted(circuit["output_idx"].items())},

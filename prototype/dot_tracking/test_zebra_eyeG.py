@@ -255,8 +255,23 @@ def main():
     tgt = xy * scale
     with torch.no_grad():
         x, m, R = model(torch.tensor(v[None]), want_states=True)
-        cmd = eye.equilibrium(m)
+        # equilibrium is per eye, and the right eye's is read through the same
+        # mirror its gaze is, so the red command dot stays in world coordinates
+        if x.dim() == 4:
+            cmd = torch.stack([eye.equilibrium(m[:, :, e]) * model.mirror[e]
+                               for e in range(len(model.eyes))], dim=2)
+        else:
+            cmd = eye.equilibrium(m)
     x = x[0].numpy(); m = m[0].numpy(); R = R[0].numpy(); cmd = cmd[0].numpy()
+    eyes = list(model.eyes)
+    if x.ndim == 3:                       # (T, n_eye, 3) -> the LEFT eye is
+        e_show = eyes.index("left")       # what the world and eye panels draw
+        m_all, x_all = m, x               # kept for the per-eye drive vectors
+        x, cmd, m = x[:, e_show], cmd[:, e_show], m[:, e_show]
+    else:
+        e_show, m_all, x_all = 0, m[:, None], x[:, None]
+    print(f"[test] eyes driven: {', '.join(eyes)}; world/eye panels show "
+          f"the {eyes[e_show]} eye")
     phi_true = float(np.abs(x[:, 1]).mean())
     if a.phi_zero:
         x = x.copy(); cmd = cmd.copy()
@@ -334,8 +349,9 @@ def main():
     idx_readout = np.sort(np.concatenate(
         [np.asarray(v, int) for v in circuit["output_idx"].values()]))
     out_keep = np.isin(idx_out, idx_readout)
-    print(f"[test] readout mask: {int(out_keep.sum())} of {idx_out.size} "
-          f"output-role cells drive a muscle")
+    print(f"[test] readout: {int(out_keep.sum())} of {idx_out.size} "
+          f"output-role cells drive a muscle"
+          + ("" if out_keep.all() else "  (the rest are drawn blank)"))
     # The ordering is afferent -> recurrent -> output by construction, so the
     # three groups are contiguous blocks and a vector drawn beside the matrix
     # lines up with its own rows.
@@ -378,7 +394,8 @@ def main():
     kino_blocks.sort(key=lambda t: t[1])
     conn_meta = dict(n=int(model.N), n_in=int(idx_in.size),
                      n_intg=int(idx_intg.size), kino_w=kino_w,
-                     kino_blocks=kino_blocks)
+                     kino_blocks=kino_blocks, n_eye=len(eyes),
+                     eye_names=eyes)
 
     def kino_frame(k):
         if k + 1 >= kino_w:                       # sliding
@@ -423,7 +440,7 @@ def main():
             art["im_kino"].set_data(kino_frame(k))
         else:
             art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
-        art["im_out"].set_data(np.clip(m[k][:, None], 0, 1))
+        art["im_out"].set_data(np.clip(m_all[k].T, 0, 1))   # (6, n_eye)
         art["im_eye"].set_data(view.frame(k) if a.render == "surface"
                                else view.frame(x[k], m[k]))
         # SurfaceView paints its own angle overlay; setting txt_ang too would
@@ -438,10 +455,11 @@ def main():
             f"\u03c8 {x[k,2]:+5.1f}")
         # two rows of three: one line of six ran off the panel and lost IO
         art["txt_ang"].set_text(
-            "activation   " + "  ".join(f"{nm} {m[k, j]:.2f}"
-                                        for j, nm in enumerate(names[:3]))
-            + "\n             " + "  ".join(f"{nm} {m[k, j + 3]:.2f}"
-                                             for j, nm in enumerate(names[3:])))
+            "\n".join(
+                f"{('drive ' + eyes[e][0].upper()):8s} "
+                + "  ".join(f"{nm} {m_all[k, e, j]:.2f}"
+                            for j, nm in enumerate(names))
+                for e in range(len(eyes))))
         art["phase"].set_text(labels[max(0, int(np.searchsorted(cuts, k, "right")))])
         fig.canvas.draw()
         return np.asarray(fig.canvas.buffer_rgba())[..., :3]
