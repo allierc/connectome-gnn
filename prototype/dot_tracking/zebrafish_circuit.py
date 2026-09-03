@@ -58,8 +58,13 @@ DEFAULT_CONFIG = os.path.join(REPO, "config", "zebrafish",
 MUSCLES = ["LR", "SR", "MR", "IR", "SO", "IO"]               # eye_anatomy order
 
 
+def _side_of(hemi):
+    """'l'/'r' per cell, from the pickle's Hemi column ('left'/'right')."""
+    return np.array([str(h).lower()[:1] for h in hemi])
+
+
 def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
-                            weights="size"):
+                            weights="size", eye_side=None):
     """Everything a training script needs, in `eq:circuit`/`eq:sign-lock`'s own
     layout: row = post, column = pre.
 
@@ -78,9 +83,24 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
                                       trainable S must stay zero off this mask,
                                       or "connectome-constrained" is a fiction
       afferent     (285,) bool       AF5_ipsi / AF5_contra rows
-      output_idx   dict[str,int]     {"AMN": row indices, "AIN": row indices}
+      output_idx   dict[str,int]     {"AMN": row indices, "AIN": row indices},
+                                      restricted to the ONE hemisphere that
+                                      drives `eye_side`'s eye -- see below
       effector_col dict[str,int]     {"AMN": MUSCLES.index("LR"), "AIN": ...}
+      eye_side     str | None        which eye the readout drives
       cfg          CircuitConfig     cfg.circuit, for role/sign/effector lookup
+
+    ONE EYE, TWO HEMISPHERES. The pool is bilateral and stays that way -- the
+    contralateral INTG projections are the integrator, so the recurrence must
+    keep both sides. But a single eye is not driven by both sides' motor
+    neurons: its lateral rectus takes the IPSILATERAL abducens motor neurons,
+    and its medial rectus takes the CONTRALATERAL abducens internuclear
+    neurons (which cross to the oculomotor nucleus; the yaml collapses that
+    two-synapse path into one arrow, so the crossing is carried by
+    `CellTypeSpec.projection` instead). `eye_side` (default:
+    `circuit.eye_side` in the yaml) therefore filters `output_idx` only.
+    Leaving it None pools both hemispheres into each muscle channel, which is
+    the pre-2026-09 behaviour and is anatomically wrong for a one-eye plant.
     """
     d, types, hemi, body = POC.load_pickle(pkl_path)
     A = np.asarray(d[f"adjacency_matrix_{weights}"], dtype=np.float64)
@@ -113,14 +133,37 @@ def load_oculomotor_circuit(config_path=DEFAULT_CONFIG, pkl_path=DEFAULT_PKL,
     afferent_names = set(cfg.circuit.types_by_role("afferent"))
     output_names = set(cfg.circuit.types_by_role("output"))
     afferent = np.isin(names, list(afferent_names))
-    output_idx = {n: np.where(names == n)[0] for n in output_names}
     effector_col = {s.name: MUSCLES.index(s.effector) for s in specs
                     if s.effector}
+
+    # Output readout: one eye, so one hemisphere per output type.
+    hemi_sel = hemi[sel]
+    side = _side_of(hemi_sel)
+    if eye_side is None:
+        eye_side = cfg.circuit.eye_side
+    proj_of = {s.name: s.projection for s in specs}
+    output_idx = {}
+    for n in output_names:
+        rows = np.where(names == n)[0]
+        proj = proj_of.get(n)
+        if eye_side is not None and proj is not None:
+            want = eye_side[:1] if proj == "ipsilateral" else \
+                ("r" if eye_side == "left" else "l")
+            rows = rows[side[rows] == want]
+            if rows.size == 0:
+                raise ValueError(
+                    f"output type {n} ({proj} to the {eye_side} eye) has no "
+                    f"cell in the required hemisphere -- the readout would be "
+                    f"empty")
+        elif eye_side is not None:
+            print(f"[circuit] WARNING: output type {n} declares no "
+                  f"`projection:`, so BOTH hemispheres drive its muscle")
+        output_idx[n] = rows
 
     return dict(names=names, W_mag=W_mag.astype(np.float32),
                 sign_col=sign_col, support=W_mag > 0, afferent=afferent,
                 output_idx=output_idx, effector_col=effector_col, cfg=cfg,
-                hemi=hemi[sel])
+                hemi=hemi_sel, eye_side=eye_side)
 
 
 def main():
@@ -128,17 +171,24 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--pkl", default=DEFAULT_PKL)
+    p.add_argument("--eye-side", default=None, choices=["left", "right"],
+                   help="override circuit.eye_side from the yaml")
     a = p.parse_args()
-    c = load_oculomotor_circuit(a.config, a.pkl)
+    c = load_oculomotor_circuit(a.config, a.pkl, eye_side=a.eye_side)
     n = len(c["names"])
     n_e = int((c["sign_col"] > 0).sum())
     print(f"[circuit] {c['cfg'].circuit.name}: {n} cells, "
           f"{int(c['support'].sum())} edges, {n_e} excitatory / {n - n_e} inhibitory")
     print(f"[circuit] afferent (AF5): {int(c['afferent'].sum())} cells")
+    print(f"[circuit] readout drives the {c['eye_side'] or 'BOTH (unfiltered)'} eye")
+    side = _side_of(c["hemi"])
     for muscle_name, idx in c["output_idx"].items():
         eff = c["effector_col"].get(muscle_name)
         eff = MUSCLES[eff] if eff is not None else "(none)"
-        print(f"[circuit] output {muscle_name}: {len(idx)} cells -> muscle {eff}")
+        n_all = int((c["names"] == muscle_name).sum())
+        sides = "/".join(sorted(set(side[idx]))) or "-"
+        print(f"[circuit] output {muscle_name}: {len(idx)} of {n_all} cells "
+              f"(hemisphere {sides}) -> muscle {eff}")
     reachable = sorted(c["effector_col"].values())
     unreachable = [m for i, m in enumerate(MUSCLES) if i not in reachable]
     print(f"[circuit] muscles reachable from this pool: "

@@ -1794,6 +1794,23 @@ class CellTypeSpec(BaseModel):
     readout is coupled to the soft-body eye rather than to an abstract
     scalar position."""
 
+    projection: Optional[Literal["ipsilateral", "contralateral"]] = None
+    """Output types only: which eye this population's ``effector`` belongs to,
+    relative to the population's OWN hemisphere. Read together with
+    ``CircuitConfig.eye_side`` to pick the half of a bilateral pool that drives
+    the one eye being modelled: ``ipsilateral`` keeps the cells on the same
+    side as the eye, ``contralateral`` keeps the opposite side.
+
+    Abducens motor neurons are ``ipsilateral`` (AMN-L pulls the left lateral
+    rectus). Abducens internuclear neurons are ``contralateral``: they project
+    across the midline to the oculomotor nucleus, so the LEFT eye's medial
+    rectus is driven by AIN-R. When that two-synapse path is collapsed into a
+    direct AIN -> MR arrow (no OMN in the pool), the crossing has to be carried
+    here or the collapse silently drives the wrong eye.
+
+    ``None`` = unannotated, which means both hemispheres feed the channel — the
+    correct reading only for a type declared ``lateralized: false``."""
+
     @model_validator(mode="before")
     @classmethod
     def _accept_bare_name(cls, v):
@@ -1816,6 +1833,19 @@ class CircuitConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[str] = None
+
+    eye_side: Optional[Literal["left", "right"]] = None
+    """Which of the two eyes this circuit's motor readout drives.
+
+    The pool itself stays bilateral — both hemispheres are simulated, and the
+    contralateral INTG projections that make the integrator work are part of
+    the recurrence. Only the OUTPUT selection is one-sided: each output type is
+    restricted to the hemisphere its ``CellTypeSpec.projection`` names relative
+    to this side. Without it a bilateral pool drives one eye from both sides'
+    motor neurons at once (e.g. AMN-L and AMN-R both pulling one lateral
+    rectus), which no eye receives in vivo.
+
+    ``None`` (default) keeps the legacy behaviour: no hemisphere filtering."""
 
     cell_types: Optional[List[CellTypeSpec]] = None
     """Cell-type keep-list restricting the source reconstruction to the pool

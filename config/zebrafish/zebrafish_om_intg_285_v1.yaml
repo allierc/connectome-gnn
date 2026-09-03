@@ -41,6 +41,10 @@ simulation:
   seed: 47006
 circuit:
   name: zebrafish_OM_INTG_285_v1
+  # Which eye the motor readout drives. Both hemispheres are still simulated
+  # (the contralateral INTG projections ARE the integrator); only the output
+  # selection is one-sided, per each output type's `projection:` below.
+  eye_side: left
   # Exact `type` strings from the pickle, not prefixes.
   # 29 + 12 + 38 + 27 + 34 + 18 + 92 + 35 = 285.
   # Roles, signs and triggers below are the CIRCUIT OWNER'S claims, not
@@ -109,6 +113,9 @@ circuit:
     lateralized: true
     function: motor drive, pulls the muscle
     effector: LR
+    # Abducens motor neurons innervate the lateral rectus of their OWN side:
+    # eye_side left -> AMN left (47 of 92 cells).
+    projection: ipsilateral
 
   - name: AIN
     role: output
@@ -116,6 +123,10 @@ circuit:
     lateralized: true
     function: motor drive, pulls the muscle (via OMN in vivo; collapsed here)
     effector: MR
+    # The collapsed AIN -> OMN -> MR path crosses the midline, so the LEFT
+    # eye's medial rectus is driven by AIN RIGHT: eye_side left -> AIN right
+    # (19 of 35 cells).
+    projection: contralateral
 graph_model:
   signal_model_name: zebrafish_hd_si
   aggr_type: add

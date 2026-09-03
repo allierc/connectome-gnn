@@ -1,0 +1,24 @@
+name: dot_corpus_2d
+axis: plane
+start: center
+duration: 8.0
+dt: 0.016666666666666666
+conditions:
+  shape: [segment, curve]
+  motion: [continue, stop_and_go]
+  speed: [slow, middle, fast]
+  angle: [low, sharp]
+splits:
+  train:
+    n_per_cond: 150
+    seed0: 0
+  val:
+    n_per_cond: 25
+    seed0: 5000000
+  test:
+    n_per_cond: 40
+    seed0: 9000000
+viz:
+  n_trials_mp4: 12
+  fps: 30
+  trail_s: 1.5
