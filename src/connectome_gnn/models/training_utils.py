@@ -1684,10 +1684,31 @@ def init_training_model(
                 raise RuntimeError(
                     "cond_reversal_mode 'margin' needs the teacher's voltage range and "
                     "this dataset carries no x_ts.voltage")
-            # per-neuron extremes; the model reduces them to whatever granularity
-            # cond_reversal_dim asks for (global / per cell type / per neuron)
-            model.set_teacher_voltage_range(
-                v.float().amin(dim=0), v.float().amax(dim=0))
+            # Per-neuron extremes for the BRACKET, and per-neuron percentiles for
+            # delta's UNIT when cond_span_mode asks for them. The model reduces both
+            # to whatever granularity cond_reversal_dim wants. Frames are subsampled
+            # for the quantile: (64000, 13741) exact quantiles cost more than the
+            # answer is worth and the tails are what we are deliberately trimming.
+            _vmin, _vmax = v.float().amin(dim=0), v.float().amax(dim=0)
+            _sm = getattr(training, "cond_span_mode", "extremes")
+            if _sm == "extremes":
+                _lo = _hi = None
+            else:
+                _q = {"p99": 0.01, "p95": 0.05, "p90": 0.10}[_sm]
+                _idx = torch.linspace(0, v.shape[0] - 1,
+                                      min(20000, v.shape[0]), device=v.device).long()
+                _sub = v[_idx].float()
+                if getattr(training, "cond_reversal_dim", "global") == "global":
+                    # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
+                    # per-neuron quantiles and then the widest across neurons is a
+                    # different and much larger statistic (span 9.2 against 3.9 here),
+                    # because it keeps the most extreme neuron's tail.
+                    _lo = torch.quantile(_sub.reshape(-1), _q).expand(v.shape[1])
+                    _hi = torch.quantile(_sub.reshape(-1), 1.0 - _q).expand(v.shape[1])
+                else:
+                    _lo = torch.quantile(_sub, _q, dim=0)
+                    _hi = torch.quantile(_sub, 1.0 - _q, dim=0)
+            model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
         if getattr(training, "cond_init", "teacher_closed_form") == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
             # about the type's mean postsynaptic voltage, and the teacher's own

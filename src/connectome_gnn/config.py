@@ -1391,6 +1391,25 @@ class TrainingConfig(BaseModel):
     # Crosses with cond_reversal_mode: 'learned' fits them, 'margin' sets them from
     # the teacher's voltage range measured AT THE SAME GRANULARITY.
     cond_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
+    # WHAT delta IS MEASURED IN. The reversals bracket from the teacher's min/max in
+    # every case -- that is what guarantees the sign and the convex-hull bound -- but
+    # delta needs a UNIT, and PR #46 uses (v_max - v_min), the raw extremes.
+    #
+    # On this teacher that unit is set by outliers: 98% of the voltage lies in a band
+    # of width 3.86 while the global range is 16.27, a 3.4x inflation. The nominal
+    # margin (0.4, 1.0) therefore acts ~3.4x larger than intended and E lands far
+    # outside anything the network does -- E_exc = 24.6, against which (E_exc - V_i)
+    # varies by only 16% across the entire bulk of the data. That is the delta ->
+    # infinity limit the methods describe as degeneracy TO the current-based teacher,
+    # reached by accident: the twin is then only weakly conductance-like.
+    #
+    # A percentile span keeps the bracket and restores the state dependence:
+    #     extremes  span 16.271  E_exc 24.611  driving force varies 16.0%
+    #     p99       span  3.862  E_exc 12.203                        32.8%
+    #     p95       span  2.255  E_exc 10.595                        38.0%
+    #     p90       span  1.405  E_exc  9.745                        41.4%
+    # Default 'extremes' reproduces PR #46 exactly.
+    cond_span_mode: Literal["extremes", "p99", "p95", "p90"] = "extremes"
     # STAGE-1 CLOSED-FORM INITIALISATION, from the conductance-twin methods.
     # The two models differ only in what multiplies the synaptic activation
     # N f(V_j): a constant s_ij alpha_curr for the teacher, a state-dependent
