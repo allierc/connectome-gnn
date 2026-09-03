@@ -743,8 +743,7 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
                       transform=ax_k.transAxes, color="#ccc", fontsize=FS_TICK,
                       ha="right", va="center")
         ax_k.set_xlabel("time", color="#ddd", fontsize=FS_AXIS, labelpad=4)
-        ax_k.set_ylabel(f"all {conn['n']} rates", color="#ddd",
-                        fontsize=FS_AXIS, labelpad=34)
+        # no y axis name: the four band labels already say what the rows are
 
     # --- eye -------------------------------------------------------------
     ax_e.axis("off")
