@@ -2949,11 +2949,24 @@ def data_generate_voltage(
                 f"[{_bracket['E_inh']:+.3f}, {_bracket['E_exc']:+.3f}])")
         if _tot:
             logger.error(_msg)
+            # The zarr writers have already flushed by this point, so x_list_*
+            # and y_list_* ARE on disk. What is withheld is generation_log.txt
+            # and .generate_done, without which _have_data refuses the dataset.
+            # Record the numbers next to the half-written data so the failure is
+            # inspectable later rather than only in whatever captured stderr.
+            with open(graphs_data_path(config.dataset, "BRACKET_VIOLATION.txt"), "w") as _bf:
+                _bf.write(_msg + "\n")
+                for _k, _v in _bracket.items():
+                    _bf.write(f"{_k}: {_v}\n")
             raise ValueError(
                 _msg + " -- the generated voltages leave the bracket, so some "
-                "edges reverse their driving force mid-run. The dataset is not "
-                "written. Widen the reversals (conductance_delta_inh/exc) or use "
-                "a student fitted over a wider voltage range.")
+                "edges reverse their driving force mid-run. Below E_inh this is "
+                "self-amplifying: the inhibitory driving force turns positive, so "
+                "inhibitory synapses start exciting. The partial x_list_*/y_list_* "
+                "are left on disk but no generation_log.txt is written, so the "
+                "dataset will not validate. Lower noise_model_level, widen the "
+                "reversals (conductance_delta_inh/exc), or use a student fitted "
+                "over a wider voltage range.")
         logger.info(_msg)
     # --------------------------------------------------------------------------
 
