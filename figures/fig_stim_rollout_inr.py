@@ -302,7 +302,7 @@ def ensure_nf_synthetic_bundle():
     from flyvis.utils.config_utils import CONFIG_PATH, get_default_config
     from connectome_gnn.config import NeuralGraphConfig
     from connectome_gnn.generators.flyvis_ode import FlyVisODE
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
     from connectome_gnn.neuron_state import NeuronState
     from connectome_gnn.utils import setup_flyvis_model_path
 
@@ -322,7 +322,7 @@ def ensure_nf_synthetic_bundle():
     net.load_state_dict(nnv.init_network(checkpoint=0).state_dict())
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
+    ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index
     pde = FlyVisODE(
         ode_params=ode_params,

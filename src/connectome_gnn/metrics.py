@@ -1435,23 +1435,23 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             n_total_tau    : total neurons evaluated for tau
     """
     from connectome_gnn.generators.ode_params import (
-        FlyVisODEParams, get_ode_params_class,
+        FlyVisCurrentODEParams, get_ode_params_class,
     )
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
     except KeyError:
-        OdeParamsCls = FlyVisODEParams
+        OdeParamsCls = FlyVisCurrentODEParams
     try:
         ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     except FileNotFoundError:
         return dict(_DYNAMICS_R2_EMPTY)
     except TypeError:
         # On-disk schema mismatch (e.g. signal_model=drosophila_cx maps to
-        # DrosophilaCxODEParams but the file holds FlyVisODEParams from the
-        # voltage-recovery generator). Fall back to FlyVisODEParams.
+        # DrosophilaCxODEParams but the file holds FlyVisCurrentODEParams from the
+        # voltage-recovery generator). Fall back to FlyVisCurrentODEParams.
         try:
-            ode_params = FlyVisODEParams.load(
+            ode_params = FlyVisCurrentODEParams.load(
                 graphs_data_path(config.dataset), device=device
             )
         except (FileNotFoundError, TypeError):
@@ -1511,12 +1511,12 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisCurrentODEParams
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
     except KeyError:
-        OdeParamsCls = FlyVisODEParams
+        OdeParamsCls = FlyVisCurrentODEParams
     ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     gt_weights = to_numpy(ode_params.W)
     learned_W = to_numpy(get_model_W(model).squeeze())

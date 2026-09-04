@@ -112,7 +112,7 @@ DT         = 0.02    # integration timestep [s]
 MODEL_TYPE = "flyvis_current"  # graded-potential model: ReLU activation, no tanh
 
 from connectome_gnn.generators.flyvis_ode  import FlyVisODE
-from connectome_gnn.generators.ode_params  import FlyVisODEParams
+from connectome_gnn.generators.ode_params  import FlyVisCurrentODEParams
 from connectome_gnn.neuron_state           import NeuronState
 
 
@@ -129,7 +129,7 @@ def load_ground_truth():
         tau        (N,)    — membrane time constants
         V_rest     (N,)    — resting potentials
 
-    The raw `state` dict is kept so we can rebuild FlyVisODEParams later
+    The raw `state` dict is kept so we can rebuild FlyVisCurrentODEParams later
     while substituting a different W.
 
     Returns:
@@ -379,7 +379,7 @@ def _make_ode_and_state(W_np, state, neuron_types, v0, device):
     """Build FlyVisODE + NeuronState for a given weight matrix W_np."""
     s = {k: (v.clone() if isinstance(v, torch.Tensor) else v) for k, v in state.items()}
     s["W"] = torch.tensor(W_np, dtype=torch.float32)
-    params = FlyVisODEParams(**s).to(device)
+    params = FlyVisCurrentODEParams(**s).to(device)
 
     n_neurons = params.tau_i.shape[0]
     n_types   = int(neuron_types.max().item()) + 1
