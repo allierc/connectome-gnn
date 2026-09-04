@@ -353,8 +353,29 @@ class SurfaceView:
     """
 
     def __init__(self, geo, angles, cmd, act, dt, size=(620, 620), az=25.0,
-                 hud=True):
+                 hud=True, mirror_x=False):
+        """`mirror_x` reflects the rest geometry about its own centre in x,
+        turning eye G -- a LEFT eye -- into a right one.
+
+        The geometry is in the MPM box frame (centred near 0.5, 0.5, 0.47), not
+        head coordinates, so there is no midline to mirror about and no second
+        socket to place a globe in. Two eyes are therefore two SCENES sharing
+        one camera, composited side by side, rather than one scene holding both
+        -- which also means the camera is untouched and a two-eye frame is
+        directly comparable to a one-eye frame.
+
+        Feed a mirrored view the eye's OWN-FRAME angles, not world ones: the
+        reflection is what carries it back into the world, and applying the
+        model's `mirror` twice is the identity.
+        """
         import render_surface_vtk as RS
+        geo = dict(geo)
+        if mirror_x:
+            cx = float(geo["centre"][0])
+            for k in ("shell", "mus"):
+                v = np.asarray(geo[k], float).copy()
+                v[..., 0] = 2.0 * cx - v[..., 0]
+                geo[k] = v
         c, T = geo["centre"], len(angles)
         pad = np.zeros((T, 6))
         pad[:, :act.shape[1]] = act[:, :6]
@@ -506,13 +527,18 @@ def build_figure(reach, hidden, n_act, act_names, img0, title,
     (285 is not a square, and neighbouring cells in it are not neighbours).
     `conn_blocks` is [(name, first_row), ...] for the cell-type boundaries.
     """
-    fig = plt.figure(figsize=(18.5, 7.8) if conn is not None else (16.0, 5.6),
-                     facecolor=BG)
+    # A two-eye run composites two globes side by side into the right panel,
+    # so that column needs roughly twice the width or the pair letterboxes.
+    _2eye = conn is not None and int(conn.get("n_eye", 1)) > 1
+    fig = plt.figure(figsize=((20.8, 7.8) if _2eye else (18.5, 7.8))
+                     if conn is not None else (16.0, 5.6), facecolor=BG)
     # The middle panel is wider when it carries the connectome: it has a
     # 285x285 matrix plus three neuron-group vectors to fit, where the free
     # ctRNN's version is one small square.
     if conn is not None:
-        gs = fig.add_gridspec(2, 3, width_ratios=[0.92, 1.45, 0.92],
+        gs = fig.add_gridspec(2, 3,
+                              width_ratios=[0.86, 1.35, 1.62] if _2eye
+                              else [0.92, 1.45, 0.92],
                               height_ratios=[1.0, 0.62], wspace=0.11,
                               hspace=0.11, left=0.05, right=0.985,
                               top=0.975, bottom=0.075)
