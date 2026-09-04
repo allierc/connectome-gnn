@@ -98,7 +98,7 @@ SEED = 42
 # ODE rollout settings (must match dataset generation).
 N_ROLLOUT  = 1_000   # timesteps to simulate
 DT         = 0.02    # integration timestep [s]
-MODEL_TYPE = "flyvis_A"  # graded-potential model: ReLU activation, no tanh
+MODEL_TYPE = "flyvis_current"  # graded-potential model: ReLU activation, no tanh
 
 from connectome_gnn.generators.flyvis_ode  import FlyVisODE
 from connectome_gnn.generators.ode_params  import FlyVisODEParams

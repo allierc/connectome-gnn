@@ -15,6 +15,10 @@ from connectome_gnn.neuron_state import NeuronState
 
 
 @register_model(
+    # `flyvis_current` is the name; `flyvis_A` is kept as an ALIAS so the 133
+    # archived run config.yaml files under log/fly -- which record what was
+    # actually trained and are not in git -- keep loading. Do not remove it.
+    "flyvis_current",
     "flyvis_A",
     "flyvis_A_tanh",
     "flyvis_A_multiple_ReLU",

@@ -7,7 +7,7 @@ Four things the twin has that a GNN does not, and that nothing else plots:
      force (E - V_i) only carries the connectome's sign while E brackets every
      voltage V_i visits. A learned reversal that drifts inside the range flips
      excitation to inhibition for those neurons, silently, and the run still
-     trains. `cond_reversal_mode: margin` makes that impossible by construction;
+     trains. `conductance_reversal_mode: margin` makes that impossible by construction;
      'learned' does not, so this is the panel that says whether it happened.
   b  the conductance W^2 against the teacher's |W|. Not a recovery plot -- the
      teacher is current-based and has no conductance -- but the closed-form init

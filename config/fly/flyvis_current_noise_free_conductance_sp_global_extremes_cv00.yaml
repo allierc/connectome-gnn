@@ -23,7 +23,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_cond_known_ode
+  signal_model_name: flyvis_conductance_known_ode
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -76,12 +76,12 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 100
-  cond_reversal_mode: margin
-  cond_reversal_dim: global
-  cond_span_mode: extremes
-  cond_neuron_params: per_type
-  cond_learn_edges: true
-  cond_init: teacher_closed_form
+  conductance_reversal_mode: margin
+  conductance_reversal_dim: global
+  conductance_span_mode: extremes
+  conductance_neuron_params: per_type
+  conductance_learn_edges: true
+  conductance_init: teacher_closed_form
   train_on_teacher: true
   teacher_rollout_frames: 1000
 config_file: fly/flyvis_current_noise_free_conductance_sp_global_extremes_cv00

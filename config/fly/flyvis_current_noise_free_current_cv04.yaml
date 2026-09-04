@@ -24,7 +24,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_A
+  signal_model_name: flyvis_current
   prediction: first_derivative
   input_size: 3
   n_layers: 3
