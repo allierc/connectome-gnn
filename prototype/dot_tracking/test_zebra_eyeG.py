@@ -188,6 +188,10 @@ def main():
     p.add_argument("--saccade", action="store_true",
                    help="six L/R saccade rates instead of the horizontal regimes")
     p.add_argument("--render", default="surface", choices=TE.EyeView.MODES)
+    p.add_argument("--head-az", type=float, default=60.0,
+                   help="camera azimuth for the two-eye head scene; see "
+                        "TE.HeadView. 25 overlaps the globes, 60 separates "
+                        "them while keeping the far eye oblique, 90 is frontal.")
     p.add_argument("--preview", type=float, default=None, metavar="FRAC",
                    help="render ONE frame at this fraction of the run (0..1) "
                         "to <results>/<name>_preview.png and stop. The movie "
@@ -292,25 +296,31 @@ def main():
 
     # --- render: test_eyeG's own figure and views, unchanged ---------------
     geo = TE.load_geometry(a.eye_dir)
-    if a.render == "surface":
-        # One scene per eye, same camera, composited side by side. The right
-        # eye is eye G mirrored in x and driven by its OWN-FRAME angles -- the
-        # reflection is what puts it back in the world, so `mirror` is applied
-        # a second time to undo the one the model already did.
-        views = []
-        for e, which in enumerate(eyes):
-            mir = model.mirror[e].numpy()
-            views.append(TE.SurfaceView(
-                geo, x_all[:, e] * mir, cmd_all[:, e] * mir, m_all[:, e],
-                a.dt, hud=False, mirror_x=(which == "right")))
-        view = views[0]
+    if a.render == "surface" and len(eyes) > 1:
+        # BOTH EYES, ONE SCENE, at the blend's own interocular distance -- see
+        # TE.HeadView. Composited side-by-side renders showed the same eye
+        # twice from the same angle, which is not a head.
+        #
+        # The azimuth is NOT the single-eye default. At az 25 the camera looks
+        # within 24 deg of the interocular axis, so the two globes project to
+        # 41% of their true separation and overlap into one mass; 60 opens
+        # them to 76% while still showing the far eye obliquely from behind;
+        # 90 gives 98% but is a frontal view with no back visible at all.
+        # Measured rather than judged by eye -- the *_head_azimuth.png montage
+        # in each run's results/ is that measurement.
+        mir = model.mirror.numpy()
+        ang = np.stack([x_all[:, e] * mir[e] for e in range(len(eyes))], 0)
+        act = np.stack([m_all[:, e] for e in range(len(eyes))], 0)
+        view = TE.HeadView(geo, ang, act, a.dt, size=(900, 620), az=a.head_az)
+        eye_img = view.frame
+        img0 = eye_img(0)
+    elif a.render == "surface":
+        view = TE.SurfaceView(geo, x, cmd, m, a.dt, hud=False)
 
         def eye_img(k):
-            return (np.concatenate([v.frame(k) for v in views], axis=1)
-                    if len(views) > 1 else views[0].frame(k))
+            return view.frame(k)
         img0 = eye_img(0)
     else:
-        views = None
         view = TE.EyeView(geo, mode=a.render)
         img0 = view.frame(x[0], m[0])
 

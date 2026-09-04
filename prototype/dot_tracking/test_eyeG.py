@@ -996,3 +996,177 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class HeadView:
+    """BOTH eyes, anatomically placed, in ONE scene under ONE camera.
+
+    SurfaceView renders a single globe; two of them composited side by side
+    show the same eye twice from the same angle, which is not a head. This
+    puts the two globes where the blend puts them and lets the camera see the
+    near one from the front and the far one from behind, as asked.
+
+    THE GEOMETRY PROBLEM IT SOLVES. `BlendFrame` maps every side onto the SAME
+    sim point (`EA.GLOBE_CENTER`) -- it subtracts each eye's own `c_blend` --
+    so building an L frame and an R frame independently stacks both globes in
+    one place. And the two frames are mirror-related (det -1 for L, +1 for R),
+    so the meshes come out in different handedness. Both are fixed by mapping
+    the whole head through ONE rigid frame instead of one frame per eye:
+
+        head(X) = GLOBE_CENTER + scale * ((X - mid_blend) @ R_R.T)
+
+    with `mid_blend` the midpoint of the two globe centres. The R eye then
+    lands at +0.1445 and the L eye at -0.1445 sim units, their real separation
+    (interocular 1.724 blend units, scale 0.1677), each in its own correct
+    orientation, and a single camera on the midline sees a head.
+
+    THE PARTICLES. There is one MPM particle cloud -- eye G, a LEFT eye -- in
+    the single-eye sim frame. To place it under the head map it is first sent
+    back to blend coordinates through the L frame it came from, mirrored in
+    blend x (the midline is x = 0 exactly) for the right eye, and then mapped
+    forward. The gaze rotation is applied in the eye's own frame first, so
+    each eye rotates about its own centre by its own angles.
+
+    Reuses render_surface_vtk's own pieces -- Skin, _poly, PALETTE, MUS_RGB,
+    gaze_marker -- so the globes and straps are the reference renderer's, not
+    a lookalike. Only the placement is new.
+    """
+
+    def __init__(self, geo, angles, act, dt, size=(900, 620), az=25.0,
+                 globe_alpha=0.20):
+        """`angles` and `act` are (n_eye, T, 3) and (n_eye, T, 6), in each
+        eye's OWN frame -- the head map supplies the mirror."""
+        import pyvista as pv
+        import render_surface_vtk as RS
+        import blend_mpm_ops as BM
+        import eye_anatomy as EA
+
+        d, man = BM.load_cut(BM.DEFAULT_BLEND, BM.DEFAULT_PARTS)
+        fr = {s: BM.BlendFrame(man, d, s, EA.A_EQ, EA.GLOBE_CENTER, 1.0)
+              for s in ("L", "R")}
+        GC = np.asarray(EA.GLOBE_CENTER, float)
+        mid = 0.5 * (fr["L"].c_blend + fr["R"].c_blend)
+        sc, Rh = fr["R"].scale, fr["R"].R
+
+        def head(X):                       # blend -> sim, one rigid map
+            return GC[None, :] + sc * ((np.asarray(X, float) - mid) @ Rh.T)
+
+        def to_blend(P):                   # single-eye sim -> blend, via the L frame
+            return fr["L"].c_blend[None, :] + \
+                ((np.asarray(P, float) - GC[None, :]) / fr["L"].scale) @ fr["L"].R
+
+        MIR = np.array([-1.0, 1.0, 1.0])   # blend midline is x = 0
+        self.sides = ["L", "R"][:len(angles)] if len(angles) > 1 else ["L"]
+        self.dt, self.az = dt, az
+        self.angles, self.act = np.asarray(angles), np.asarray(act)
+        self.tissue = np.asarray(geo["tissue"])
+        self.centre_sim = np.asarray(geo["centre"], float)
+        self.shell0 = np.asarray(geo["shell"], float)
+        self.mus0 = np.asarray(geo["mus"], float)
+        self.mus_parent = np.asarray(geo["parent"], int)
+        self.mus_s = np.asarray(geo["s"], float)[:, None]
+        from render_orbit_vtk import gaze_marker as _gm
+        self.gaze_sel = _gm(self.tissue)
+
+        self._place = {}
+        for s in self.sides:
+            m = MIR if s == "R" else np.ones(3)   # the cloud IS the left eye
+            self._place[s] = lambda P, m=m: head(to_blend(P) * m[None, :])
+
+        pv.OFF_SCREEN = True
+        self.p = pv.Plotter(off_screen=True, window_size=size, border=False)
+        self.p.set_background("black")
+        self.p.enable_depth_peeling(10)
+
+        self.globe, self.muscles = [], []
+        for s in self.sides:
+            shell_rest = self._place[s](self.shell0)
+            mus_rest = self._place[s](self.mus0)
+            for part, alpha, spec in (("retina", globe_alpha, 0.30),
+                                      ("cornea", 0.26, 0.65), ("lens", 0.85, 0.85)):
+                key = f"{s}_{part}"
+                if f"{key}__v" not in d:
+                    continue
+                V = head(d[f"{key}__v"])
+                mesh = RS._poly(V, d[f"{key}__f"])
+                skin = RS.Skin(V, shell_rest)
+                mesh["rgb"] = np.clip(RS.PALETTE[skin.nearest(self.tissue)],
+                                      0, 1).astype(np.float32)
+                self.p.add_mesh(mesh, scalars="rgb", rgb=True, opacity=alpha,
+                                smooth_shading=True, specular=spec,
+                                specular_power=24, show_scalar_bar=False)
+                self.globe.append((s, mesh, skin))
+            for mi, key in enumerate(EA.MUSCLE_KEYS):
+                nm = f"{s}_{key}"
+                if f"{nm}__v" not in d:
+                    continue
+                own = self.mus_parent == mi
+                if own.sum() < RS.K_BIND:
+                    continue
+                V = head(d[f"{nm}__v"])
+                mesh = RS._poly(V, d[f"{nm}__f"])
+                self.p.add_mesh(mesh, color=EA.MUSCLES[mi]["color"],
+                                smooth_shading=True, specular=0.35,
+                                specular_power=22, show_scalar_bar=False,
+                                name=f"{s}mus{mi}")
+                self.muscles.append((s, mi, mesh, RS.Skin(V, mus_rest[own]), own))
+
+        allp = np.concatenate([self._place[s](self.shell0) for s in self.sides])
+        self.centre0 = allp.mean(0)
+        self.span = float(1.12 * np.abs(allp - self.centre0[None, :]).max())
+        self.arrow_len = 1.1 * float(
+            np.abs(self.shell0 - self.centre_sim[None, :]).max()) * sc / fr["L"].scale
+
+    def _posed(self, s, k):
+        """The particle cloud for side `s` at frame `k`: rotated in its own
+        frame by its own angles, then placed under the head map."""
+        e = self.sides.index(s)
+        Rk = rot(*self.angles[e, k])
+        c = self.centre_sim
+        base_s = self.shell0 - c
+        base_m = self.mus0 - c
+        shell = base_s @ Rk.T + c
+        # exactly _RotSeq's frac blend: a strap follows the globe in proportion
+        # to its arc length, anchored at the orbit and carried at the insertion
+        mus = base_m + self.mus_s * (base_m @ Rk.T - base_m) + c
+        return self._place[s](shell), self._place[s](mus)
+
+    def frame(self, k):
+        import pyvista as pv
+        import eye_anatomy as EA
+        import render_surface_vtk as RS
+        for s in self.sides:
+            X, Y = self._posed(s, k)
+            for ss, mesh, skin in self.globe:
+                if ss == s:
+                    mesh.points = skin(X)
+            e = self.sides.index(s)
+            a = np.asarray(self.act[e, k], float)
+            for ss, mi, mesh, skin, own in self.muscles:
+                if ss != s:
+                    continue
+                mesh.points = skin(Y[own])
+                lit = np.clip(RS.MUS_RGB[mi] * (0.78 + 0.42 * float(np.clip(a[mi], 0, 1))),
+                              0, 1)
+                self.p.renderer.actors[f"{s}mus{mi}"].prop.color = \
+                    tuple(float(c) for c in lit)
+            if self.gaze_sel is not None:
+                tip = X[self.gaze_sel].mean(axis=0)
+                cen = self._place[s](self.centre_sim[None, :])[0]
+                v = tip - cen
+                n = np.linalg.norm(v)
+                if n > 1e-9:
+                    self.p.add_mesh(pv.Arrow(start=tip, direction=v / n,
+                                             tip_length=0.26, tip_radius=0.075,
+                                             shaft_radius=0.024, scale=self.arrow_len),
+                                    color="#ffe066", name=f"{s}gaze")
+        a_, e_ = np.radians(self.az), np.radians(18.0)
+        dvec = np.array([np.sin(a_) * np.cos(e_), np.sin(e_), np.cos(a_) * np.cos(e_)])
+        self.p.camera_position = (tuple(self.centre0 + dvec * 10.0),
+                                  tuple(self.centre0), (0.0, 1.0, 0.0))
+        self.p.camera.parallel_projection = True
+        self.p.camera.parallel_scale = self.span
+        return np.asarray(self.p.screenshot(return_img=True))
+
+    def close(self):
+        self.p.close()
