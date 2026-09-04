@@ -264,6 +264,7 @@ def main():
             cmd = eye.equilibrium(m)
     x = x[0].numpy(); m = m[0].numpy(); R = R[0].numpy(); cmd = cmd[0].numpy()
     eyes = list(model.eyes)
+    cmd_all = cmd if cmd.ndim == 3 else cmd[:, None]
     if x.ndim == 3:                       # (T, n_eye, 3) -> the LEFT eye is
         e_show = eyes.index("left")       # what the world and eye panels draw
         m_all, x_all = m, x               # kept for the per-eye drive vectors
@@ -292,11 +293,29 @@ def main():
     # --- render: test_eyeG's own figure and views, unchanged ---------------
     geo = TE.load_geometry(a.eye_dir)
     if a.render == "surface":
-        view = TE.SurfaceView(geo, x, cmd, m, a.dt, hud=False)
-        img0 = view.frame(0)
+        # One scene per eye, same camera, composited side by side. The right
+        # eye is eye G mirrored in x and driven by its OWN-FRAME angles -- the
+        # reflection is what puts it back in the world, so `mirror` is applied
+        # a second time to undo the one the model already did.
+        views = []
+        for e, which in enumerate(eyes):
+            mir = model.mirror[e].numpy()
+            views.append(TE.SurfaceView(
+                geo, x_all[:, e] * mir, cmd_all[:, e] * mir, m_all[:, e],
+                a.dt, hud=False, mirror_x=(which == "right")))
+        view = views[0]
+
+        def eye_img(k):
+            return (np.concatenate([v.frame(k) for v in views], axis=1)
+                    if len(views) > 1 else views[0].frame(k))
+        img0 = eye_img(0)
     else:
+        views = None
         view = TE.EyeView(geo, mode=a.render)
         img0 = view.frame(x[0], m[0])
+
+        def eye_img(k):
+            return view.frame(x[k], m[k])
     # THE MESSAGE PASSING, not the wiring. Figure 1c of the note shows this
     # matrix with its intensity set by the static synapse weight; here the
     # intensity is |W_ij r_j| -- what actually crosses that synapse this frame
@@ -441,8 +460,7 @@ def main():
         else:
             art["im_rec"].set_data(np.concatenate([R[k], pad]).reshape(side, side))
         art["im_out"].set_data(np.clip(m_all[k].T, 0, 1))   # (6, n_eye)
-        art["im_eye"].set_data(view.frame(k) if a.render == "surface"
-                               else view.frame(x[k], m[k]))
+        art["im_eye"].set_data(eye_img(k))
         # SurfaceView paints its own angle overlay; setting txt_ang too would
         # print the numbers twice. Same rule as test_eyeG's writer loop.
         # SurfaceScene's VTK HUD is suppressed (hud=False), so the same
