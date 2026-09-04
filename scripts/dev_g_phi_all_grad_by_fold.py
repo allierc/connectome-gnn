@@ -77,7 +77,7 @@ def main():
          f'{"dvi/dvj":>10}{"dai/dvj":>10}{"daj/dvj":>10}')
     rows = []
     for cv in ['00', '01', '02', '03', '04']:
-        cfg = f'flyvis_current_noise_005_conductance_nominal_cv{cv}'
+        cfg = f'flyvis_current_noise_005_conductance_cv{cv}'
         log_dir = f'/groups/saalfeld/home/allierc/GraphData/log/fly/{cfg}'
         config, model, edges, x_ts = load_run(log_dir, cfg, device)
 

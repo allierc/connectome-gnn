@@ -1,4 +1,4 @@
-description: "ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_noise_005_nominal_cv00 on flyvis_A noise-005, conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)  48 it/s "
+description: "ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_current_noise_005_current_cv00 on flyvis_A noise-005, conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)  48 it/s "
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
