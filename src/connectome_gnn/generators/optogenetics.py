@@ -426,11 +426,11 @@ def _build_flyvis_ode(state_dict: dict, neuron_types: torch.Tensor,
     with bit-for-bit the same forward as the source's data_generate_voltage.
     """
     from connectome_gnn.generators.flyvis_ode import FlyVisODE
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
 
     s = {k: (v.clone() if isinstance(v, torch.Tensor) else v)
          for k, v in state_dict.items()}
-    params = FlyVisODEParams(**s).to(device)
+    params = FlyVisCurrentODEParams(**s).to(device)
     n_types = int(neuron_types.max().item()) + 1
     ode = FlyVisODE(
         ode_params=params,

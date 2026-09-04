@@ -2971,13 +2971,13 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     tau_r2   = dyn_r2['tau_r2']
 
     # Load ground-truth ODE params (use correct class for connconstr models)
-    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
     from connectome_gnn.utils import graphs_data_path
     signal_model = config.graph_model.signal_model_name
     try:
         OdeParamsCls = get_ode_params_class(signal_model)
     except KeyError:
-        OdeParamsCls = FlyVisODEParams
+        OdeParamsCls = FlyVisCurrentODEParams
     ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
 
     # Plot 1: Raw W scatter
