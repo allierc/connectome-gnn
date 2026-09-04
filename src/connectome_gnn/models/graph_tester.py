@@ -302,7 +302,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     #
     # The rollout is one continuous free run over ~7200 frames -- x.voltage is
     # never reset from ground truth -- and it is the reported result. Measured on
-    # flyvis_noise_005_nominal_cv00, the SAME fp32-trained checkpoint scored under
+    # flyvis_current_noise_005_current_nominal_cv00, the SAME fp32-trained checkpoint scored under
     # bf16 instead of fp32:
     #
     #     fp32   RMSE 0.0165   r 0.999 +/- 0.003   Fisher-z 3.7991
