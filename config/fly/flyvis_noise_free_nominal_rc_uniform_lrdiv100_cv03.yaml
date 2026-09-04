@@ -1,4 +1,4 @@
-description: 'Rollout at a REDUCED learning rate, 100x below peak, on flyvis_A noise-free, fold 3. Identical to flyvis_noise_free_nominal_rc_uniform_cv03 except the LR schedule. Motivation: every rc arm reaches the same W by the end of the K=1 epoch (0.869-0.885, matching the one-step baseline) and then LOSES ground once K>1 -- uniform -0.003, shoot1 -0.016, last -0.019, shoot2 -0.023, discount -0.024, sum -0.026, pushforward -0.231. All of them run the curriculum at full constant LR; GraphCast runs its rollout tail at 3e-4 of peak. decay_frac 0.438 = 320,000/730,666 puts the cosine floor exactly at the K=2 boundary, so the rollout phase runs at the floor. NOTE the K=1 phase now decays too rather than sitting at peak, so this changes two things -- but they separate post-hoc: metrics.log records the K=1 peak, and if it still lands at ~0.870 then any final-vs-peak improvement is the rollout LR alone.'
+description: 'Rollout at a REDUCED learning rate, 100x below peak, on flyvis_A noise-free, fold 3. Identical to flyvis_noise_free_nominal_rc_uniform_cv03 except the LR schedule. Motivation: every rc arm reaches the same W by the end of the K=1 epoch (0.869-0.885, matching the one-step baseline) and then LOSES ground once K>1 -- uniform -0.003, shoot1 -0.016, last -0.019, shoot2 -0.023, discount -0.024, sum -0.026, pushforward -0.231. All of them run the curriculum at full constant LR; the reference schedule this is taken from runs its rollout tail at 3e-4 of peak. decay_frac 0.438 = 320,000/730,666 puts the cosine floor exactly at the K=2 boundary, so the rollout phase runs at the floor. NOTE the K=1 phase now decays too rather than sitting at peak, so this changes two things -- but they separate post-hoc: metrics.log records the K=1 peak, and if it still lands at ~0.870 then any final-vs-peak improvement is the rollout LR alone.'
 dataset: flyvis_noise_free_blank50_cv03
 simulation:
   connectivity_file: to be specified
@@ -80,7 +80,7 @@ training:
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
   frame_target_offset: 1
-  lr_scheduler: graphcast
+  lr_scheduler: warmup_cosine_tail
   lr_scheduler_warmup_iters: 1000
   lr_scheduler_decay_frac: 0.438
   lr_scheduler_tail_ratio: 0.01

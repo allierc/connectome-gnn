@@ -1,12 +1,12 @@
-"""GraphCast-style LR schedule, global clipping and short rollout tail.
+"""Warmup/cosine/tail LR schedule, global clipping and short rollout tail.
 
-Three knobs added after reading GraphCast's curriculum (supplement sec 4.3-4.5):
+Three knobs added after reading the reference curriculum (supplement sec 4.3-4.5):
 its 311,000 updates are 96.5% one-step under a monotone decay, with rollout only
 as a 3.5% tail fine-tune at an LR ~3300x below peak. Our Task 1 rollout arms
 instead ramped K across the whole run at constant LR, which is a precise
 explanation for "reached 0.983 fast, then declined to 0.961".
 
-  training.lr_scheduler = 'graphcast'      warmup -> ONE half-cosine -> flat tail
+  training.lr_scheduler = 'warmup_cosine_tail'      warmup -> ONE half-cosine -> flat tail
   training.grad_clip_norm                  global clip over ALL parameters
   training.rollout_tail_iters_per_epoch    cap on K>1 epochs, so the tail is short
 """
@@ -25,29 +25,29 @@ pytestmark = pytest.mark.tier2
 # test that reads them passes on one checkout and fails on another. This module
 # previously depended on flyvis_noise_005_gc_*.yaml and broke the moment those
 # were deleted.
-CFG = "graphcast"
+CFG = "warmup_cosine_tail"
 CFG_CTL = "control"
 
 
 def _cfg(kind):
-    """A minimal config exercising the graphcast knobs. Numbers mirror the arms:
+    """A minimal config exercising the warmup_cosine_tail knobs. Numbers mirror the arms:
     1 epoch of 320,000 updates at K=1 x5, plus a capped K>1 tail."""
     sim = SimulationConfig(params=[[1.0, 1.0, 1.0, 1.0]], n_frames=64000, delta_t=0.02,
                            n_neurons=16, n_edges=32, n_input_neurons=2, n_neuron_types=2)
     common = dict(n_epochs=5, batch_size=4, data_augmentation_loop=100)
-    if kind == "graphcast":
+    if kind == "warmup_cosine_tail":
         t = TrainingConfig(**{**common, "n_epochs": 9},
                            rollout_horizon_schedule=[1, 1, 1, 1, 1, 2, 3, 4, 5],
                            rollout_tail_iters_per_epoch=14500,
                            recurrent_training=True, time_step=1,
-                           lr_scheduler="graphcast", lr_scheduler_warmup_iters=1000,
+                           lr_scheduler="warmup_cosine_tail", lr_scheduler_warmup_iters=1000,
                            lr_scheduler_decay_frac=0.965, lr_scheduler_tail_ratio=3e-4,
                            grad_clip_norm=32.0)
     elif kind == "anneal":
-        t = TrainingConfig(**common, lr_scheduler="graphcast",
+        t = TrainingConfig(**common, lr_scheduler="warmup_cosine_tail",
                            lr_scheduler_warmup_iters=1000, grad_clip_norm=0.0)
     elif kind == "annealclip":
-        t = TrainingConfig(**common, lr_scheduler="graphcast",
+        t = TrainingConfig(**common, lr_scheduler="warmup_cosine_tail",
                            lr_scheduler_warmup_iters=1000, grad_clip_norm=32.0)
     else:
         t = TrainingConfig(**common, lr_scheduler="none", grad_clip_norm=0.0)
@@ -71,7 +71,7 @@ def _lrs(cfg, n):
     return out
 
 
-class TestGraphcastSchedule:
+class TestWarmupCosineTailSchedule:
     def test_warmup_then_monotone_decay_then_flat_tail(self):
         cfg = _cfg(CFG)
         t = cfg.training
@@ -124,7 +124,7 @@ class TestRolloutTail:
         n_one_step = sum(1 for k in t.rollout_horizon_schedule if k == 1) * niter
         tail = total - n_one_step
         assert 0 < tail / total < 0.05, f"tail is {tail/total:.1%} of updates, want <5%"
-        # GraphCast's own split is 3.5%
+        # the reference schedule's own split is 3.5%
         assert tail / total == pytest.approx(0.035, abs=0.005)
 
     def test_lr_decay_ends_where_the_tail_begins(self):
