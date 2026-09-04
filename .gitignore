@@ -173,3 +173,10 @@ prototype/**/*.pt
 # Claude code settings
 # ignore local settings json that each user can set independently
 .claude/settings.local.json
+# Analysis output written into the repo root by scripts/ (pseudoinverse recovery,
+# the global-SVD sweep) and mdpdf's converter log. Regenerated on every run, so
+# they are outputs and not sources; *.png is ignored globally but these predate
+# that rule and were tracked.
+/mdpdf.log
+/pseudoinverse_plots/
+/svg_global_svd_plots/
