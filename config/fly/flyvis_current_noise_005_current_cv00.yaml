@@ -1,4 +1,4 @@
-description: "blank50, LLM parameters, model_noise bug fixed, fold 00"
+description: "blank50, LLM parameters, model_noise bug fixed, fold 00 conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)] 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false )"
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -23,7 +23,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_A
+  signal_model_name: flyvis_current
   prediction: first_derivative
   input_size: 3
   n_layers: 3

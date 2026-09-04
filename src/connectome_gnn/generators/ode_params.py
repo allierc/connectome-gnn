@@ -5,11 +5,11 @@ Each ODE_params_class knows how to construct itself from a source,
 save/load to disk, and expose its fields by name.
 
 Usage:
-    @register_ode_params("flyvis_A", "flyvis_conductance")
+    @register_ode_params("flyvis_current", "flyvis_conductance")
     class FlyVisODEParams(ODEParamsBase):
         ...
 
-    ODE_params_class = get_ode_params_class("flyvis_A")
+    ODE_params_class = get_ode_params_class("flyvis_current")
     p = ODE_params_class.from_flyvis_network(net, device=device)
     p.save(folder)
     p = ODE_params_class.load(folder)
@@ -292,6 +292,9 @@ class ODEParamsBase:
 
 
 @register_ode_params(
+    # `flyvis_A` stays as an alias beside `flyvis_current`: archived run
+    # configs under log/ still name it, and they are not in git.
+    "flyvis_current",
     "flyvis_A",
     "flyvis_conductance",
     "flyvis_C",

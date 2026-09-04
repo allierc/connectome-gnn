@@ -1,7 +1,7 @@
 """Rollout evaluation during training, for teacher-student distillation.
 
 WHY THIS EXISTS. When training.train_on_teacher is set, the run is fitting a
-STUDENT (e.g. flyvis_cond_known_ode) to a teacher's recorded activity. R2_W is
+STUDENT (e.g. flyvis_conductance_known_ode) to a teacher's recorded activity. R2_W is
 meaningless there -- the teacher is current-based and carries no conductance
 ground truth to recover -- so the number that decides whether the student is
 usable is the ROLLOUT: does it run free and stay on the teacher's trajectory.
