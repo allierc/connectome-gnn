@@ -69,7 +69,17 @@ DEFAULT_CORPUS = os.path.join(
 _SPEC_TO_ARG = {                       # spec training: key -> argparse dest
     "epochs": "epochs", "batch": "batch", "lr": "lr", "tau0": "tau0",
     "lam_psi": "lam_psi", "track_phi": "track_phi", "dt": "dt", "seed": "seed",
+    "gaze_mode": "gaze_mode",
 }
+
+# How the two eyes are asked to relate. CONJUGATE is optokinetic tracking:
+# both eyes go to the same place in the world, so theta_L_world = +theta_R_world
+# and, because the right eye's plant is mirrored, theta_L_own = -theta_R_own.
+# VERGENCE asks the opposite of the world angles: theta_L_world =
+# -theta_R_world, the eyes converging and diverging about the midline rather
+# than sweeping together. Only theta is flipped -- phi and the torsion penalty
+# are untouched, because vergence is a horizontal relationship.
+GAZE_SIGN = {"conjugate": (1.0, 1.0), "vergence": (1.0, -1.0)}
 
 
 def load_run_spec(path, a, parser):
@@ -279,6 +289,11 @@ def main():
     p.add_argument("--tag", default="zebraEyeG", help="checkpoint name")
     p.add_argument("--tau0", type=float, default=0.1, help="initial time constant, s")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--gaze-mode", default="conjugate", choices=sorted(GAZE_SIGN),
+                   help="how the two eyes relate. conjugate: both track the "
+                        "same world point (optokinetic). vergence: "
+                        "theta_L_world = -theta_R_world, converging and "
+                        "diverging about the midline. One eye only ignores it.")
     p.add_argument("--epochs", type=int, default=150)
     p.add_argument("--batch", type=int, default=32,
                    help="what matters empirically is lr/batch (the step per "
@@ -400,6 +415,10 @@ def main():
     model.eye = eye
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_out_cells = sum(idx.size for idx in circuit["output_idx"].values())
+    if len(model.eyes) > 1:
+        print(f"[task] gaze mode: {a.gaze_mode}  "
+              f"(theta signs per eye: "
+              f"{', '.join(f'{w} {g:+.0f}' for w, g in zip(model.eyes, GAZE_SIGN[a.gaze_mode]))})")
     print(f"[circuit] eyes driven: {', '.join(model.eyes)}  "
           f"({len(model.eyes)} readout"
           f"{'s' if len(model.eyes) > 1 else ''}, "
@@ -422,14 +441,24 @@ def main():
                     for f in (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0)})
     n_stage = len(sched)
 
-    def tgt(u, S):
-        """The target, broadcast over the eye axis when there is one.
+    gaze_sign = torch.tensor(GAZE_SIGN[a.gaze_mode][:len(model.eyes)],
+                             dtype=torch.float32, device=dev)
 
-        Both eyes track the SAME point: conjugate gaze is the whole content of
-        the horizontal task, and the mirror in the plant already puts the two
-        gazes in one world frame, so a single target serves both and the loss
-        is their mean rather than two objectives to weigh against each other."""
-        return S[:, :, None, :] if u.dim() == 4 else S
+    def tgt(u, S):
+        """The target, broadcast over the eye axis and signed per eye.
+
+        The mirror in the plant already puts both gazes in one world frame, so
+        one target serves both and the loss is their mean rather than two
+        objectives to trade off. `gaze_mode` decides the sign each eye gets:
+        conjugate gives both +1 (they track the same world point), vergence
+        gives the right eye -1 (they converge and diverge about the midline).
+        Only THETA is signed -- phi and torsion are a property of the plant,
+        not of how the two eyes relate."""
+        if u.dim() != 4:
+            return S
+        T = S[:, :, None, :].expand(-1, -1, len(model.eyes), -1).clone()
+        T[..., 0] = T[..., 0] * gaze_sign[None, None, :]
+        return T
 
     def evaluate(Pdot, Star):
         model.eval()
@@ -497,13 +526,16 @@ def main():
                 "eye": {k: (v.tolist() if isinstance(v, np.ndarray) else v)
                         for k, v in spec.items()},
                 "circuit_config": a.config, "circuit_pkl": a.pkl,
-                "eye_side": eye_side, "eyes": list(model.eyes), "eyes": list(model.eyes),
+                "eye_side": eye_side, "eyes": list(model.eyes),
+               "gaze_mode": a.gaze_mode,
+                "gaze_mode": a.gaze_mode, "eyes": list(model.eyes),
                 "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                 "dt": a.dt, "scale": scale.tolist(), "tau0": a.tau0}, ck)
     rep = os.path.join(out_dir, "results", "report.json") if out_dir \
         else os.path.join(MODELS, f"{tag}.json")
     json.dump({"tag": tag, "n_cells": len(circuit["names"]),
                "eye_side": eye_side, "eyes": list(model.eyes),
+               "gaze_mode": a.gaze_mode,
                "corpus": corpus["name"], "corpus_axis": corpus["axis"],
                "readout_cells": {nm: int(len(i))
                                  for nm, i in sorted(circuit["output_idx"].items())},
