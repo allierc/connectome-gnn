@@ -2458,9 +2458,25 @@ def data_generate_voltage(
         stimulus_dataset = AugmentedSintel(**sintel_config)
         print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
 
-    # Extract ground-truth parameters from flyvis connectome.
-    print("[DBG] extracting ODE params from flyvis network ...", flush=True)
-    ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
+    # Extract ground-truth parameters. WHICH synapse model generates the data is
+    # sim.ground_truth_model, NOT the model that will be trained on it -- see
+    # SimulationConfig.ground_truth_model for why those are separate axes.
+    print(f"[DBG] extracting ODE params ({sim.ground_truth_model}) ...", flush=True)
+    if sim.ground_truth_model == "conductance":
+        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
+
+        # The connectome supplies the graph; the trained student supplies the
+        # parameters. edge_index is a property of the connectome, not of the
+        # fit, so it comes from the flyvis network either way.
+        _edges = FlyVisCurrentODEParams.from_flyvis_network(net, device=device).edge_index
+        ode_params = FlyVisConductanceODEParams.from_twin_checkpoint(
+            sim.conductance_checkpoint, _edges, device=device)
+        logger.info(
+            f"conductance ground truth from {sim.conductance_checkpoint}: "
+            f"E_inh={float(ode_params.E_inh[0]):+.3f} E_exc={float(ode_params.E_exc[0]):+.3f}, "
+            f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
+    else:
+        ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index.to(device)
     print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
