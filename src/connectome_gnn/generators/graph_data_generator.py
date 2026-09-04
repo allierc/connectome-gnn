@@ -2624,7 +2624,7 @@ def data_generate_voltage(
         group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
         neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
         calcium=_init_calcium,
-        fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
+        fluorescence=torch.zeros(n_neurons, dtype=torch.float32, device=device),
         noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
     )
 
@@ -2722,7 +2722,13 @@ def data_generate_voltage(
         path=graphs_data_path(config.dataset, "x_list_train"),
         n_neurons=n_neurons,
         time_chunks=2000,
-        save_calcium=sim.save_calcium,
+        # ce0d1d9 ("finish calcium strip") removed sim.save_calcium along with
+        # the 9 other calcium fields but left these call sites, so flyvis
+        # voltage generation has raised AttributeError since 2026-08-03.
+        # Defaulting False keeps the writer plumbing intact: making calcium
+        # generation actually WORK needs calcium_tau/alpha/beta back too, which
+        # is separate work and not needed for the conductance-vs-current survey.
+        save_calcium=getattr(sim, "save_calcium", False),
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_train"),
@@ -2772,7 +2778,7 @@ def data_generate_voltage(
 
     # --- Tile unique block ×factor across all dynamic train fields ---
     if repeat_factor > 1:
-        _tile_train_zarrs(config, repeat_factor, save_calcium=sim.save_calcium)
+        _tile_train_zarrs(config, repeat_factor, save_calcium=getattr(sim, "save_calcium", False))
         # Reflect the post-tile length in the generation log so _have_data
         # validates the on-disk zarr without flagging it as incomplete.
         n_frames_train = n_frames_train * repeat_factor
@@ -2789,7 +2795,7 @@ def data_generate_voltage(
     x.voltage[:] = initial_state
     _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
     x.calcium = _init_calcium
-    x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
+    x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
     # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
     MAX_TEST_FRAMES = 8000
@@ -2802,7 +2808,7 @@ def data_generate_voltage(
         path=graphs_data_path(config.dataset, "x_list_test"),
         n_neurons=n_neurons,
         time_chunks=2000,
-        save_calcium=sim.save_calcium,
+        save_calcium=getattr(sim, "save_calcium", False),
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_test"),
@@ -2912,6 +2918,44 @@ def data_generate_voltage(
     x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
     y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
+
+    # ---- conductance bracket check -------------------------------------------
+    # Every edge must keep the SIGN of its own driving force (E_ij - v_i) for the
+    # whole run: excitatory edges need v_i < E_exc, inhibitory ones v_i > E_inh,
+    # i.e. E_inh < v_i < E_exc. It is NOT a positivity test -- the driving force
+    # is negative on inhibitory edges by design, and that is what makes them
+    # inhibit.
+    #
+    # A crossing does not break the generator: (E - v) simply changes sign, which
+    # is what a reversal potential physically means. It matters for two narrower
+    # reasons, and they are why this reports rather than merely asserts:
+    #   1. the student was distilled on the teacher's voltage band and its
+    #      reversals are unconstrained by data outside it, so past a crossing the
+    #      generator is extrapolating a fit;
+    #   2. a downstream GNN with g_phi_positive squares g_phi and so forces ONE
+    #      sign per edge -- it cannot fit data containing crossings, which would
+    #      silently handicap the models this dataset exists to train.
+    _bracket = None
+    if getattr(sim, "ground_truth_model", "current") == "conductance":
+        _n_exc, _n_inh, _worst = ode_params.bracket_violation(x_ts.voltage)
+        _bracket = dict(n_exc=_n_exc, n_inh=_n_inh, worst_margin=_worst,
+                        E_exc=float(ode_params.E_exc.min()),
+                        E_inh=float(ode_params.E_inh.max()),
+                        v_min=float(x_ts.voltage.min()), v_max=float(x_ts.voltage.max()))
+        _tot = _n_exc + _n_inh
+        _msg = (f"conductance bracket: {_n_exc} above E_exc, {_n_inh} below E_inh, "
+                f"worst margin {_worst:+.4f} "
+                f"(v {_bracket['v_min']:+.3f}..{_bracket['v_max']:+.3f} vs "
+                f"[{_bracket['E_inh']:+.3f}, {_bracket['E_exc']:+.3f}])")
+        if _tot:
+            logger.error(_msg)
+            raise ValueError(
+                _msg + " -- the generated voltages leave the bracket, so some "
+                "edges reverse their driving force mid-run. The dataset is not "
+                "written. Widen the reversals (conductance_delta_inh/exc) or use "
+                "a student fitted over a wider voltage range.")
+        logger.info(_msg)
+    # --------------------------------------------------------------------------
 
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
@@ -3119,6 +3163,15 @@ def data_generate_voltage(
             log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
         log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
         log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
+        log_f.write(f'ground_truth_model: {getattr(sim, "ground_truth_model", "current")}\n')
+        if _bracket is not None:
+            log_f.write(f'conductance_checkpoint: {sim.conductance_checkpoint}\n')
+            log_f.write(f'E_inh: {_bracket["E_inh"]:.6f}\n')
+            log_f.write(f'E_exc: {_bracket["E_exc"]:.6f}\n')
+            log_f.write(f'voltage_range: {_bracket["v_min"]:.6f} .. {_bracket["v_max"]:.6f}\n')
+            log_f.write(f'bracket_crossings_above_E_exc: {_bracket["n_exc"]}\n')
+            log_f.write(f'bracket_crossings_below_E_inh: {_bracket["n_inh"]}\n')
+            log_f.write(f'bracket_worst_margin: {_bracket["worst_margin"]:.6f}\n')
         log_f.write(f'model_id: {sim.model_id}\n')
         log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
         log_f.write('\n')
@@ -3627,9 +3680,6 @@ def _run_ode_generation(
                         # Test 1: overwrite target with the OBSERVED one-step finite
                         # difference at delta_t (curvature-biased vs the analytic drift).
                         y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
-                    if has_gates:
-                        pde.step_gates(x, sim.delta_t)
-
 
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
@@ -3641,8 +3691,12 @@ def _run_ode_generation(
                         elif sim.calcium_activation == "identity":
                             s = x.voltage.clone()
 
-                        x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
-                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+                        raise NotImplementedError(
+                            "calcium_type 'leaky' needs sim.calcium_tau / calcium_alpha / "
+                            "calcium_beta, which commit ce0d1d9 ('finish calcium strip') "
+                            "removed from SimulationConfig while leaving this branch. "
+                            "Restore those fields before using it -- it has been dead "
+                            "since 2026-08-03 and no tracked config selects it.")
                         y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
