@@ -388,6 +388,21 @@ class SimulationConfig(BaseModel):
     adex_I_bias: float = 0.0          # pA — constant bias current injected into all neurons
 
 
+    # WHICH SYNAPSE MODEL GENERATED THE DATA. Independent of
+    # graph_model.signal_model_name, which is the model that will be TRAINED on
+    # it -- a conductance-style GNN routinely trains on current-generated data,
+    # so the two axes must not be inferred from one another. Until this field
+    # existed the generator read the consuming model's name to decide which
+    # dynamics to integrate.
+    #   'current'     msg = W * relu(v_j),           W signed
+    #   'conductance' msg = W * relu(v_j) * (E_i - v_i), W a non-negative
+    #                 conductance and the sign carried by the driving force
+    ground_truth_model: Literal["current", "conductance"] = "current"
+    # Checkpoint of the trained flyvis_conductance_known_ode student whose
+    # parameters generate the data. Required when ground_truth_model is
+    # 'conductance'; ignored otherwise.
+    conductance_checkpoint: str = ""
+
     # Connconstr model parameters (Beiran & Litwin-Kumar 2023, Fig 5)
     connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
     connconstr_model: str = ""         # which model: drosophila_cx, larva, zebrafish
@@ -499,6 +514,20 @@ class SimulationConfig(BaseModel):
                     )
         return self
 
+
+    @model_validator(mode="after")
+    def _conductance_needs_a_checkpoint(self):
+        """'conductance' without a checkpoint is a 40-minute failure otherwise.
+
+        The generator only discovers the missing path when it goes to build the
+        parameters, which is after the connectome load and the stimulus
+        generation. Fail at config load instead."""
+        if self.ground_truth_model == "conductance" and not self.conductance_checkpoint:
+            raise ValueError(
+                "simulation.ground_truth_model is 'conductance' but "
+                "simulation.conductance_checkpoint is empty -- it must point at a "
+                "trained flyvis_conductance_known_ode checkpoint (models/best_model_*.pt)")
+        return self
 
 class ClaudeConfig(BaseModel):
     """Configuration for Claude-driven exploration experiments."""
