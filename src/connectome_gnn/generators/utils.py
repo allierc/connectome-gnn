@@ -683,15 +683,6 @@ def is_adex_model(signal_model_name: str) -> bool:
         return False
 
 
-def is_hodgkin_huxley_model(signal_model_name: str) -> bool:
-    """Check if signal_model_name maps to the Hodgkin-Huxley ODE params class."""
-    from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, get_ode_params_class
-
-    try:
-        cls = get_ode_params_class(signal_model_name)
-        return cls is FlyVisHodgkinHuxleyODEParams
-    except KeyError:
-        return False
 
 
 def is_connconstr_model(signal_model_name: str) -> bool:

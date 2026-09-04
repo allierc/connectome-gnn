@@ -387,11 +387,6 @@ class SimulationConfig(BaseModel):
     adex_stim_scale: float = 1.0      # pA per unit stimulus — converts visual input to current
     adex_I_bias: float = 0.0          # pA — constant bias current injected into all neurons
 
-    # Hodgkin-Huxley model parameters
-    hh_substeps: int = 50             # number of Euler substeps per stimulus frame
-    hh_stim_scale: float = 50.0       # uA/cm^2 per unit stimulus
-    hh_I_bias: float = 3.0            # uA/cm^2 — tonic drive (subthreshold)
-    hh_w_scale: float = 2.0           # global W multiplier (connectome weights calibrated for graded model)
 
     # Connconstr model parameters (Beiran & Litwin-Kumar 2023, Fig 5)
     connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
