@@ -9,7 +9,7 @@ from sklearn.cluster import DBSCAN, KMeans
 from sklearn.metrics import accuracy_score, adjusted_rand_score, normalized_mutual_info_score, silhouette_score
 from sklearn.preprocessing import StandardScaler
 
-from connectome_gnn.models.utils import pad_g_phi_input
+from connectome_gnn.models.utils import pad_g_phi_input, is_conductance_gnn
 from connectome_gnn.utils import fig_init, to_numpy
 
 
@@ -752,7 +752,7 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
                 emb_flat = emb.unsqueeze(1).expand(-1, n_pts, -1).reshape(-1, emb.shape[1])
 
                 # g_phi
-                if 'flyvis_conductance' in model_name:
+                if is_conductance_gnn(model_name):
                     edge_in = torch.cat([rr_flat * 0, rr_flat, emb_flat, emb_flat], dim=1)
                 else:
                     edge_in = torch.cat([rr_flat, emb_flat], dim=1)
@@ -834,7 +834,7 @@ def umap_cluster_reassign(model, config, x_ts, edges, n_neurons, type_list, devi
                 emb_flat = emb.unsqueeze(1).expand(-1, n_pts, -1).reshape(-1, emb.shape[1])
 
                 # g_phi forward
-                if 'flyvis_conductance' in model_name:
+                if is_conductance_gnn(model_name):
                     edge_in = torch.cat([rr_flat * 0, rr_flat, emb_flat, emb_flat], dim=1)
                 else:
                     edge_in = torch.cat([rr_flat, emb_flat], dim=1)

@@ -16,7 +16,7 @@ import torch
 from scipy.optimize import curve_fit
 
 from connectome_gnn.fitting_models import linear_model
-from connectome_gnn.models.utils import pad_g_phi_input
+from connectome_gnn.models.utils import pad_g_phi_input, is_conductance_gnn
 from connectome_gnn.utils import graphs_data_path, to_numpy
 
 # ------------------------------------------------------------------ #
@@ -599,7 +599,7 @@ def _build_g_phi_features(rr_flat, emb_flat, signal_model_name, emb_i_flat=None)
         g_phi(vi=0, vj, ai, aj) depends on both endpoints. Should be a real
         partner embedding (see `_avg_postsynaptic_embedding`), not aj again.
     """
-    if 'flyvis_conductance' in signal_model_name:
+    if is_conductance_gnn(signal_model_name):
         if emb_i_flat is None:
             raise ValueError(
                 "_build_g_phi_features: flyvis_conductance requires emb_i_flat (postsynaptic embedding)"
@@ -702,7 +702,7 @@ def eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=None):
     post_fn = (lambda x: x ** 2) if g_phi_positive else None
     model_a = model.a[:n_neurons]
 
-    if 'flyvis_conductance' in signal_model_name:
+    if is_conductance_gnn(signal_model_name):
         if edges is None:
             raise ValueError(
                 "eval_g_phi_over_domain: flyvis_conductance requires `edges` to build the postsynaptic embedding ai"
@@ -825,7 +825,7 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
         outs = []
         for _lo in range(0, vj_flat.shape[0], G_PHI_EVAL_CHUNK):
             _hi = _lo + G_PHI_EVAL_CHUNK
-            if 'flyvis_conductance' in signal_model_name:
+            if is_conductance_gnn(signal_model_name):
                 _in = torch.cat([vj_flat[_lo:_hi], aj_flat[_lo:_hi],
                                  vi_flat[_lo:_hi], ai_flat[_lo:_hi]], dim=1)
             else:
@@ -894,7 +894,7 @@ def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
         vj_k = voltage[k, src].clone().detach().requires_grad_(True)   # (E,)
         vi_k = voltage[k, dst].clone().detach()
 
-        if 'flyvis_conductance' in signal_model_name:
+        if is_conductance_gnn(signal_model_name):
             in_features = torch.cat([vj_k.unsqueeze(1), aj, vi_k.unsqueeze(1), ai], dim=1)
         else:
             in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
@@ -1717,7 +1717,7 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
 
     # 2. g_phi correction factor per presynaptic neuron j
-    if 'flyvis_conductance' in config.graph_model.signal_model_name:
+    if is_conductance_gnn(config.graph_model.signal_model_name):
         # g_phi depends on both endpoints here (vi, vj, ai, aj) — a
         # synthetic vi=0 domain sweep isn't representative, so this uses
         # real (edge, frame) local slopes instead. See

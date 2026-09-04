@@ -1654,7 +1654,7 @@ def init_training_model(
     if training.fix_embedding:
         model.a.requires_grad_(False)
 
-    # flyvis_cond_known_ode needs three things the config cannot carry: the per-edge
+    # flyvis_conductance_known_ode needs three things the config cannot carry: the per-edge
     # polarity, the cell-type map, and (when frozen) the teacher's own neuron
     # constants. All three are GT STRUCTURE rather than fitted quantities -- only the
     # SIGN of ode_params.W is read, never its magnitude. Dale's law does NOT hold in
@@ -1667,7 +1667,7 @@ def init_training_model(
         w = _get("W") if op is not None else None
         if w is None:
             raise RuntimeError(
-                "flyvis_cond_known_ode needs ode_params.W for the per-edge polarity; "
+                "flyvis_conductance_known_ode needs ode_params.W for the per-edge polarity; "
                 "this dataset carries none")
         model.set_presynaptic_sign(w)
         tl = getattr(data, "type_list", None)
@@ -1682,15 +1682,15 @@ def init_training_model(
             v = getattr(xt, "voltage", None) if xt is not None else None
             if v is None:
                 raise RuntimeError(
-                    "cond_reversal_mode 'margin' needs the teacher's voltage range and "
+                    "conductance_reversal_mode 'margin' needs the teacher's voltage range and "
                     "this dataset carries no x_ts.voltage")
             # Per-neuron extremes for the BRACKET, and per-neuron percentiles for
-            # delta's UNIT when cond_span_mode asks for them. The model reduces both
-            # to whatever granularity cond_reversal_dim wants. Frames are subsampled
+            # delta's UNIT when conductance_span_mode asks for them. The model reduces both
+            # to whatever granularity conductance_reversal_dim wants. Frames are subsampled
             # for the quantile: (64000, 13741) exact quantiles cost more than the
             # answer is worth and the tails are what we are deliberately trimming.
             _vmin, _vmax = v.float().amin(dim=0), v.float().amax(dim=0)
-            _sm = getattr(training, "cond_span_mode", "extremes")
+            _sm = getattr(training, "conductance_span_mode", "extremes")
             if _sm == "extremes":
                 _lo = _hi = None
             else:
@@ -1702,7 +1702,7 @@ def init_training_model(
                 _nf = min(4000, v.shape[0])
                 _idx = torch.linspace(0, v.shape[0] - 1, _nf, device=v.device).long()
                 _sub = v[_idx].float()
-                if getattr(training, "cond_reversal_dim", "global") == "global":
+                if getattr(training, "conductance_reversal_dim", "global") == "global":
                     # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
                     # per-neuron quantiles and then the widest across neurons is a
                     # different and much larger statistic (span 9.2 against 3.9 here),
@@ -1722,7 +1722,7 @@ def init_training_model(
                         _hi[_c0:_c0 + _chunk] = torch.quantile(_c, 1.0 - _q, dim=0)
                 del _sub
             model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
-        if getattr(training, "cond_init", "teacher_closed_form") == "teacher_closed_form":
+        if getattr(training, "conductance_init", "teacher_closed_form") == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
             # about the type's mean postsynaptic voltage, and the teacher's own
             # tau/V_rest are type-constant too. Falls back to a per-neuron mean when
@@ -1732,17 +1732,17 @@ def init_training_model(
             ei = _get("edge_index")
             if v is None or ei is None:
                 raise RuntimeError(
-                    "cond_init 'teacher_closed_form' needs x_ts.voltage and "
+                    "conductance_init 'teacher_closed_form' needs x_ts.voltage and "
                     "ode_params.edge_index")
             # RAW PER-NEURON mean. The model reduces it onto E's own rows, and it
-            # must: reducing here by cell type while cond_reversal_dim is per_neuron
+            # must: reducing here by cell type while conductance_reversal_dim is per_neuron
             # left 512 of 434,112 edges with a Vbar outside the range their own
             # reversal was built to bracket, hence a negative conductance.
             model.init_from_teacher(w, ei, v.float().mean(dim=0))
-        if getattr(training, "cond_neuron_params", "per_type") == "frozen":
+        if getattr(training, "conductance_neuron_params", "per_type") == "frozen":
             tau, vr = _get("tau_i"), _get("V_i_rest")
             if tau is None or vr is None:
-                raise RuntimeError("cond_neuron_params 'frozen' needs ode_params tau_i/V_i_rest")
+                raise RuntimeError("conductance_neuron_params 'frozen' needs ode_params tau_i/V_i_rest")
             model.set_teacher_neuron_params(tau, vr)
 
     model.train()
