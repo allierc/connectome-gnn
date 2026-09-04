@@ -22,7 +22,6 @@ from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
     plot_activity_traces,
     plot_connconstr_diagnostics,
-    plot_hh_debug,
     plot_sequence_preview,
     plot_kinograph,
     plot_selected_neuron_traces,
@@ -80,7 +79,6 @@ from connectome_gnn.generators.utils import (
     is_adex_model,
     is_connconstr_model,
     is_flyvis_hybrid_model,
-    is_hodgkin_huxley_model,
     mseq_bits,
 )
 from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
@@ -196,18 +194,6 @@ def data_generate(
             )
         elif is_adex_model(config.graph_model.signal_model_name):
             data_generate_spiking(
-                config,
-                visualize=visualize,
-                run_vizualized=run_vizualized,
-                style=style,
-                erase=erase,
-                step=step,
-                device=device,
-                save=save,
-                compute_ranks=compute_ranks,
-            )
-        elif is_hodgkin_huxley_model(config.graph_model.signal_model_name):
-            data_generate_voltage(
                 config,
                 visualize=visualize,
                 run_vizualized=run_vizualized,
@@ -2317,10 +2303,9 @@ def data_generate_voltage(
         get_photoreceptor_positions_from_net,
         group_by_direction_and_function,
     )
-    from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisODEParams, get_ode_params_class
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
     from connectome_gnn.utils import setup_flyvis_model_path
 
-    is_hh = is_hodgkin_huxley_model(model_config.signal_model_name)
 
     logging.getLogger().setLevel(logging.WARNING)
     setup_flyvis_model_path()
@@ -2473,21 +2458,25 @@ def data_generate_voltage(
         stimulus_dataset = AugmentedSintel(**sintel_config)
         print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
 
-    # Extract ground-truth parameters from flyvis connectome.
-    print(f"[DBG] extracting ODE params from flyvis network (is_hh={is_hh}) ...", flush=True)
-    if is_hh:
-        hh_overrides = {}
-        if getattr(sim, "hh_stim_scale", None) is not None:
-            hh_overrides["stim_scale"] = sim.hh_stim_scale
-        if getattr(sim, "hh_I_bias", None) is not None:
-            hh_overrides["I_bias"] = sim.hh_I_bias
-        if getattr(sim, "hh_w_scale", None) is not None:
-            hh_overrides["w_scale"] = sim.hh_w_scale
-        ode_params = FlyVisHodgkinHuxleyODEParams.from_flyvis_network(
-            net, device=device, overrides=hh_overrides or None
-        )
+    # Extract ground-truth parameters. WHICH synapse model generates the data is
+    # sim.ground_truth_model, NOT the model that will be trained on it -- see
+    # SimulationConfig.ground_truth_model for why those are separate axes.
+    print(f"[DBG] extracting ODE params ({sim.ground_truth_model}) ...", flush=True)
+    if sim.ground_truth_model == "conductance":
+        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
+
+        # The connectome supplies the graph; the trained student supplies the
+        # parameters. edge_index is a property of the connectome, not of the
+        # fit, so it comes from the flyvis network either way.
+        _edges = FlyVisCurrentODEParams.from_flyvis_network(net, device=device).edge_index
+        ode_params = FlyVisConductanceODEParams.from_twin_checkpoint(
+            sim.conductance_checkpoint, _edges, device=device)
+        logger.info(
+            f"conductance ground truth from {sim.conductance_checkpoint}: "
+            f"E_inh={float(ode_params.E_inh[0]):+.3f} E_exc={float(ode_params.E_exc[0]):+.3f}, "
+            f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
     else:
-        ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
+        ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index.to(device)
     print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
@@ -2566,32 +2555,14 @@ def data_generate_voltage(
         ode_params.W[~ablation_mask] = 0.0
         logger.info(f"ablated {n_ablate}/{n_edges} edges ({sim.ablation_ratio * 100:.0f}%)")
 
-    if is_hh:
-        from connectome_gnn.generators.flyvis_hodgkin_huxley_ode import FlyVisHodgkinHuxleyODE
-
-        pde = FlyVisHodgkinHuxleyODE(ode_params=ode_params, device=device)
-        p = ode_params
-        logger.info(
-            f"[HH] params: g_L={p.g_L[0]:.2f} E_L={p.E_L[0]:.1f} g_Na={p.g_Na[0]:.0f} E_Na={p.E_Na[0]:.0f} "
-            f"g_K={p.g_K[0]:.0f} E_K={p.E_K[0]:.0f} C={p.C[0]:.1f} (mS/cm2, mV, uF/cm2)"
-        )
-        logger.info(
-            f"[HH] drive: I_bias={p.I_bias[0]:.1f} uA/cm2, stim_scale={p.stim_scale[0]:.1f}, "
-            f"syn_v_half={p.syn_v_half[0]:.1f} mV, syn_slope={p.syn_slope[0]:.1f} mV"
-        )
-        logger.info(
-            f"[HH] connectome: W range=[{p.W.min():.3f}, {p.W.max():.3f}] mean={p.W.mean():.4f} "
-            f"nonzero={int((p.W != 0).sum())}/{len(p.W)} edges"
-        )
-    else:
-        pde = FlyVisODE(
-            ode_params=ode_params,
-            g_phi=torch.nn.functional.relu,
-            params=sim.params,
-            model_type=model_config.signal_model_name,
-            n_neuron_types=sim.n_neuron_types,
-            device=device,
-        )
+    pde = FlyVisODE(
+        ode_params=ode_params,
+        g_phi=torch.nn.functional.relu,
+        params=sim.params,
+        model_type=model_config.signal_model_name,
+        n_neuron_types=sim.n_neuron_types,
+        device=device,
+    )
 
     _G = '\033[92m'  # green
     _R = '\033[91m'  # red
@@ -2645,35 +2616,17 @@ def data_generate_voltage(
 
     _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
 
-    if is_hh:
-        # HH: initialize at resting potential with steady-state gates
-        hh_state = pde.init_state(n_neurons)
-        x = NeuronState(
-            index=torch.arange(n_neurons, dtype=torch.long, device=device),
-            pos=X1,
-            voltage=hh_state.voltage,
-            stimulus=net.stimulus().squeeze(),
-            group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
-            neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
-            calcium=_init_calcium,
-            fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
-            noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
-            hh_m=hh_state.hh_m,
-            hh_h=hh_state.hh_h,
-            hh_n=hh_state.hh_n,
-        )
-    else:
-        x = NeuronState(
-            index=torch.arange(n_neurons, dtype=torch.long, device=device),
-            pos=X1,
-            voltage=initial_state.to(device),
-            stimulus=net.stimulus().squeeze().to(device),
-            group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
-            neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
-            calcium=_init_calcium,
-            fluorescence=sim.calcium_alpha * _init_calcium + sim.calcium_beta,
-            noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
-        )
+    x = NeuronState(
+        index=torch.arange(n_neurons, dtype=torch.long, device=device),
+        pos=X1,
+        voltage=initial_state.to(device),
+        stimulus=net.stimulus().squeeze().to(device),
+        group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
+        neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
+        calcium=_init_calcium,
+        fluorescence=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+        noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
+    )
 
     # --- Subdirectory-level train/test split ---
     # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
@@ -2769,7 +2722,13 @@ def data_generate_voltage(
         path=graphs_data_path(config.dataset, "x_list_train"),
         n_neurons=n_neurons,
         time_chunks=2000,
-        save_calcium=sim.save_calcium,
+        # ce0d1d9 ("finish calcium strip") removed sim.save_calcium along with
+        # the 9 other calcium fields but left these call sites, so flyvis
+        # voltage generation has raised AttributeError since 2026-08-03.
+        # Defaulting False keeps the writer plumbing intact: making calcium
+        # generation actually WORK needs calcium_tau/alpha/beta back too, which
+        # is separate work and not needed for the conductance-vs-current survey.
+        save_calcium=getattr(sim, "save_calcium", False),
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_train"),
@@ -2819,7 +2778,7 @@ def data_generate_voltage(
 
     # --- Tile unique block ×factor across all dynamic train fields ---
     if repeat_factor > 1:
-        _tile_train_zarrs(config, repeat_factor, save_calcium=sim.save_calcium)
+        _tile_train_zarrs(config, repeat_factor, save_calcium=getattr(sim, "save_calcium", False))
         # Reflect the post-tile length in the generation log so _have_data
         # validates the on-disk zarr without flagging it as incomplete.
         n_frames_train = n_frames_train * repeat_factor
@@ -2833,17 +2792,10 @@ def data_generate_voltage(
     test_noise_meas = sim.measurement_noise_level if sim.noisy_test_data else 0.0
 
     # Reset neural state to avoid train→test leakage
-    if is_hh:
-        hh_state = pde.init_state(n_neurons)
-        x.voltage = hh_state.voltage
-        x.hh_m = hh_state.hh_m
-        x.hh_h = hh_state.hh_h
-        x.hh_n = hh_state.hh_n
-    else:
-        x.voltage[:] = initial_state
+    x.voltage[:] = initial_state
     _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
     x.calcium = _init_calcium
-    x.fluorescence = sim.calcium_alpha * _init_calcium + sim.calcium_beta
+    x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
     # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
     MAX_TEST_FRAMES = 8000
@@ -2856,7 +2808,7 @@ def data_generate_voltage(
         path=graphs_data_path(config.dataset, "x_list_test"),
         n_neurons=n_neurons,
         time_chunks=2000,
-        save_calcium=sim.save_calcium,
+        save_calcium=getattr(sim, "save_calcium", False),
     )
     y_writer = ZarrArrayWriter(
         path=graphs_data_path(config.dataset, "y_list_test"),
@@ -2967,6 +2919,57 @@ def data_generate_voltage(
     y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
+    # ---- conductance bracket check -------------------------------------------
+    # Every edge must keep the SIGN of its own driving force (E_ij - v_i) for the
+    # whole run: excitatory edges need v_i < E_exc, inhibitory ones v_i > E_inh,
+    # i.e. E_inh < v_i < E_exc. It is NOT a positivity test -- the driving force
+    # is negative on inhibitory edges by design, and that is what makes them
+    # inhibit.
+    #
+    # A crossing does not break the generator: (E - v) simply changes sign, which
+    # is what a reversal potential physically means. It matters for two narrower
+    # reasons, and they are why this reports rather than merely asserts:
+    #   1. the student was distilled on the teacher's voltage band and its
+    #      reversals are unconstrained by data outside it, so past a crossing the
+    #      generator is extrapolating a fit;
+    #   2. a downstream GNN with g_phi_positive squares g_phi and so forces ONE
+    #      sign per edge -- it cannot fit data containing crossings, which would
+    #      silently handicap the models this dataset exists to train.
+    _bracket = None
+    if getattr(sim, "ground_truth_model", "current") == "conductance":
+        _n_exc, _n_inh, _worst = ode_params.bracket_violation(x_ts.voltage)
+        _bracket = dict(n_exc=_n_exc, n_inh=_n_inh, worst_margin=_worst,
+                        E_exc=float(ode_params.E_exc.min()),
+                        E_inh=float(ode_params.E_inh.max()),
+                        v_min=float(x_ts.voltage.min()), v_max=float(x_ts.voltage.max()))
+        _tot = _n_exc + _n_inh
+        _msg = (f"conductance bracket: {_n_exc} above E_exc, {_n_inh} below E_inh, "
+                f"worst margin {_worst:+.4f} "
+                f"(v {_bracket['v_min']:+.3f}..{_bracket['v_max']:+.3f} vs "
+                f"[{_bracket['E_inh']:+.3f}, {_bracket['E_exc']:+.3f}])")
+        if _tot:
+            logger.error(_msg)
+            # The zarr writers have already flushed by this point, so x_list_*
+            # and y_list_* ARE on disk. What is withheld is generation_log.txt
+            # and .generate_done, without which _have_data refuses the dataset.
+            # Record the numbers next to the half-written data so the failure is
+            # inspectable later rather than only in whatever captured stderr.
+            with open(graphs_data_path(config.dataset, "BRACKET_VIOLATION.txt"), "w") as _bf:
+                _bf.write(_msg + "\n")
+                for _k, _v in _bracket.items():
+                    _bf.write(f"{_k}: {_v}\n")
+            raise ValueError(
+                _msg + " -- the generated voltages leave the bracket, so some "
+                "edges reverse their driving force mid-run. Below E_inh this is "
+                "self-amplifying: the inhibitory driving force turns positive, so "
+                "inhibitory synapses start exciting. The partial x_list_*/y_list_* "
+                "are left on disk but no generation_log.txt is written, so the "
+                "dataset will not validate. Lower noise_model_level, widen the "
+                "reversals (conductance_delta_inh/exc), or use a student fitted "
+                "over a wider voltage range.")
+        logger.info(_msg)
+    # --------------------------------------------------------------------------
+
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
         logger.info("computing effective rank ...")
@@ -3072,35 +3075,6 @@ def data_generate_voltage(
         )
 
     # HH-specific spiking plots (detect spikes from voltage threshold crossings)
-    if visualize and is_hh:
-        logger.info("plotting HH spiking traces ...")
-        # Use warmup-skipped data: (T, N) -> (N, T)
-        voltage_NT = activity_plot.T
-        stimulus_NT = stim_plot.T
-        # Detect spikes: voltage crosses 0mV from below
-        spike_raster = np.zeros_like(voltage_NT, dtype=bool)
-        spike_raster[:, 1:] = (voltage_NT[:, 1:] > 0) & (voltage_NT[:, :-1] <= 0)
-        # Infer E/I from connectome weights
-        W_np = to_numpy(ode_params.W)
-        src_np = to_numpy(ode_params.edge_index[0])
-        sum_w = np.zeros(voltage_NT.shape[0])
-        np.add.at(sum_w, src_np.astype(int), W_np)
-        is_exc_np = sum_w >= 0
-
-        plot_spiking_traces(
-            voltage=voltage_NT,
-            spike_raster=spike_raster,
-            stimulus=stimulus_NT,
-            is_excitatory=is_exc_np,
-            type_list=node_types_int,
-            output_path=graphs_data_path(config.dataset),
-            n_input_neurons=sim.n_input_neurons,
-            max_frames=20000,
-            dt_ms=sim.delta_t,
-            style=fig_style,
-        )
-        logger.info(f"saved HH spiking plots to {graphs_data_path(config.dataset)}")
-
     # Plot noisy activity traces using the same neurons + compute SNR
     snr_stats = None
     if sim.measurement_noise_level > 0:
@@ -3202,6 +3176,15 @@ def data_generate_voltage(
             log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
         log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
         log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
+        log_f.write(f'ground_truth_model: {getattr(sim, "ground_truth_model", "current")}\n')
+        if _bracket is not None:
+            log_f.write(f'conductance_checkpoint: {sim.conductance_checkpoint}\n')
+            log_f.write(f'E_inh: {_bracket["E_inh"]:.6f}\n')
+            log_f.write(f'E_exc: {_bracket["E_exc"]:.6f}\n')
+            log_f.write(f'voltage_range: {_bracket["v_min"]:.6f} .. {_bracket["v_max"]:.6f}\n')
+            log_f.write(f'bracket_crossings_above_E_exc: {_bracket["n_exc"]}\n')
+            log_f.write(f'bracket_crossings_below_E_inh: {_bracket["n_inh"]}\n')
+            log_f.write(f'bracket_worst_margin: {_bracket["worst_margin"]:.6f}\n')
         log_f.write(f'model_id: {sim.model_id}\n')
         log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
         log_f.write('\n')
@@ -3411,11 +3394,6 @@ def _run_ode_generation(
         sintel_frame_idx = 0
         davis_frame_idx = 0
 
-    # Collect HH traces for diagnostic plot (hh_debug_seq0.png)
-    _hh_debug_buffers = None
-    _hh_debug_n_seqs = 30  # capture enough sequences for 400ms window
-    if hasattr(pde, "step_gates"):
-        _hh_debug_buffers = {"volt": [], "stim": [], "m": [], "h": [], "n": []}
 
     # Track per-sequence lengths so we can report a post-hoc summary.
     # Critical for blank_prefix diagnostics: blank_prefix_frames = int(seq_len *
@@ -3645,40 +3623,16 @@ def _run_ode_generation(
 
                     prev_calcium = x.calcium.clone() if x.calcium is not None else None
 
-                    # HH models use substeps for numerical stability
-                    hh_substeps = getattr(sim, "hh_substeps", 1)
-                    has_gates = hasattr(pde, "step_gates")
-
-                    if has_gates and hh_substeps > 1:
-                        # Multiple substeps per stimulus frame (HH)
-                        sub_dt = sim.delta_t / hh_substeps
-                        for _sub in range(hh_substeps):
-                            y = pde(x, edge_index, has_field=False)
-                            dv = y.squeeze()
-                            if noise_model_level > 0:
-                                x.voltage = (
-                                    x.voltage
-                                    + sub_dt * dv
-                                    + torch.randn(n_neurons, dtype=torch.float32, device=device)
-                                    * noise_model_level
-                                    / (hh_substeps**0.5)
-                                )
-                            else:
-                                x.voltage = x.voltage + sub_dt * dv
-                            pde.step_gates(x, sub_dt)
-                        # y for recording is the last substep's derivative
-                        y = pde(x, edge_index, has_field=False)
-                    else:
-                        y = pde(x, edge_index, has_field=False)
-                        dv_step = y.squeeze()
-                        if _adapt_g > 0.0:
-                            # Subtract latent adaptation current -g_a*c_i/tau_i so the
-                            # stored analytic target y is the TRUE (adaptation-including)
-                            # dv/dt of the observed voltage. c_i is never observed.
-                            if adapt_c is None:
-                                adapt_c = x.voltage.clone()
-                            dv_step = dv_step - _adapt_g * adapt_c / pde.ode_params.tau_i
-                            y = dv_step.unsqueeze(-1)
+                    y = pde(x, edge_index, has_field=False)
+                    dv_step = y.squeeze()
+                    if _adapt_g > 0.0:
+                        # Subtract latent adaptation current -g_a*c_i/tau_i so the
+                        # stored analytic target y is the TRUE (adaptation-including)
+                        # dv/dt of the observed voltage. c_i is never observed.
+                        if adapt_c is None:
+                            adapt_c = x.voltage.clone()
+                        dv_step = dv_step - _adapt_g * adapt_c / pde.ode_params.tau_i
+                        y = dv_step.unsqueeze(-1)
 
                     # Generate measurement noise for this timestep.
                     # AR(1) recursion when noise_ar1_rho > 0; falls back to i.i.d. otherwise.
@@ -3700,56 +3654,45 @@ def _run_ode_generation(
                     # Save x[t] BEFORE updating voltage to x[t+1]
                     x_writer.append_state(x)
 
-                    if not (has_gates and hh_substeps > 1):
-                        _v_before = x.voltage.clone() if _fd_target else None
-                        if _need_substep_loop:
-                            # Integrate the graded ODE with M Euler substeps of h=delta_t/M
-                            # (Test 1: finer than the delta_t inference step) and/or step the
-                            # latent adaptation state c_i (Test 3). Process noise is scaled by
-                            # 1/sqrt(M) so the per-observed-frame noise variance matches base.
-                            # Stimulus is held constant across substeps (observed cadence=delta_t).
-                            _h = sim.delta_t / _n_sub
-                            for _sub in range(_n_sub):
-                                if _sub == 0:
-                                    _dv = dv_step  # reuse the derivative already computed above
-                                else:
-                                    _dv = pde(x, edge_index, has_field=False).squeeze()
-                                    if _adapt_g > 0.0:
-                                        _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
-                                if noise_model_level > 0:
-                                    x.voltage = (
-                                        x.voltage
-                                        + _h * _dv
-                                        + torch.randn(n_neurons, dtype=torch.float32, device=device)
-                                        * noise_model_level / (_n_sub ** 0.5)
-                                    )
-                                else:
-                                    x.voltage = x.voltage + _h * _dv
+                    _v_before = x.voltage.clone() if _fd_target else None
+                    if _need_substep_loop:
+                        # Integrate the graded ODE with M Euler substeps of h=delta_t/M
+                        # (Test 1: finer than the delta_t inference step) and/or step the
+                        # latent adaptation state c_i (Test 3). Process noise is scaled by
+                        # 1/sqrt(M) so the per-observed-frame noise variance matches base.
+                        # Stimulus is held constant across substeps (observed cadence=delta_t).
+                        _h = sim.delta_t / _n_sub
+                        for _sub in range(_n_sub):
+                            if _sub == 0:
+                                _dv = dv_step  # reuse the derivative already computed above
+                            else:
+                                _dv = pde(x, edge_index, has_field=False).squeeze()
                                 if _adapt_g > 0.0:
-                                    adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
-                        else:
+                                    _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
                             if noise_model_level > 0:
                                 x.voltage = (
                                     x.voltage
-                                    + sim.delta_t * dv_step
-                                    + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
+                                    + _h * _dv
+                                    + torch.randn(n_neurons, dtype=torch.float32, device=device)
+                                    * noise_model_level / (_n_sub ** 0.5)
                                 )
                             else:
-                                x.voltage = x.voltage + sim.delta_t * dv_step
-                        if _fd_target:
-                            # Test 1: overwrite target with the OBSERVED one-step finite
-                            # difference at delta_t (curvature-biased vs the analytic drift).
-                            y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
-                        if has_gates:
-                            pde.step_gates(x, sim.delta_t)
-
-                    # Collect traces for first N sequences (for hh_debug plot)
-                    if _hh_debug_buffers is not None and data_idx < _hh_debug_n_seqs and pass_num == 0:
-                        _hh_debug_buffers["volt"].append(x.voltage.cpu().numpy().copy())
-                        _hh_debug_buffers["stim"].append(x.stimulus.cpu().numpy().copy())
-                        _hh_debug_buffers["m"].append(x.hh_m.cpu().numpy().copy())
-                        _hh_debug_buffers["h"].append(x.hh_h.cpu().numpy().copy())
-                        _hh_debug_buffers["n"].append(x.hh_n.cpu().numpy().copy())
+                                x.voltage = x.voltage + _h * _dv
+                            if _adapt_g > 0.0:
+                                adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
+                    else:
+                        if noise_model_level > 0:
+                            x.voltage = (
+                                x.voltage
+                                + sim.delta_t * dv_step
+                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
+                            )
+                        else:
+                            x.voltage = x.voltage + sim.delta_t * dv_step
+                    if _fd_target:
+                        # Test 1: overwrite target with the OBSERVED one-step finite
+                        # difference at delta_t (curvature-biased vs the analytic drift).
+                        y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
 
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
@@ -3761,8 +3704,12 @@ def _run_ode_generation(
                         elif sim.calcium_activation == "identity":
                             s = x.voltage.clone()
 
-                        x.calcium = x.calcium + (sim.delta_t / sim.calcium_tau) * (-x.calcium + s)
-                        x.fluorescence = sim.calcium_alpha * x.calcium + sim.calcium_beta
+                        raise NotImplementedError(
+                            "calcium_type 'leaky' needs sim.calcium_tau / calcium_alpha / "
+                            "calcium_beta, which commit ce0d1d9 ('finish calcium strip') "
+                            "removed from SimulationConfig while leaving this branch. "
+                            "Restore those fields before using it -- it has been dead "
+                            "since 2026-08-03 and no tracked config selects it.")
                         y = ((x.calcium - prev_calcium) / sim.delta_t).unsqueeze(-1)
 
                     y_writer.append(to_numpy_fn(y.clone().detach()))
@@ -3807,41 +3754,6 @@ def _run_ode_generation(
                     ) >= target_frames
                     if target_reached:
                         break
-                # Save HH diagnostic plot after collecting enough sequences
-                if (
-                    _hh_debug_buffers is not None
-                    and data_idx == _hh_debug_n_seqs - 1
-                    and pass_num == 0
-                    and _hh_debug_buffers["volt"]
-                ):
-                    logger.info(f"saving hh_debug_seq0.png ({len(_hh_debug_buffers['volt'])} frames)")
-                    # Build HH params dict for current decomposition plot
-                    _hh_plot_params = None
-                    if hasattr(pde, "ode_params"):
-                        _pp = pde.ode_params
-                        _hh_plot_params = {
-                            k: getattr(_pp, k).cpu().numpy()
-                            for k in ("g_L", "E_L", "g_Na", "E_Na", "g_K", "E_K", "C", "I_bias", "stim_scale")
-                            if hasattr(_pp, k) and getattr(_pp, k) is not None
-                        }
-                    _warmup_f = int(100.0 / sim.delta_t)  # 100ms warmup
-                    _window_f = int(800.0 / sim.delta_t)  # 800ms window
-                    plot_hh_debug(
-                        voltage_history=np.stack(_hh_debug_buffers["volt"]),
-                        stimulus_history=np.stack(_hh_debug_buffers["stim"]),
-                        gate_m_history=np.stack(_hh_debug_buffers["m"]),
-                        gate_h_history=np.stack(_hh_debug_buffers["h"]),
-                        gate_n_history=np.stack(_hh_debug_buffers["n"]),
-                        type_list=to_numpy_fn(x.neuron_type).astype(int),
-                        output_path=graphs_data_path(config.dataset, "hh_debug_seq0.png"),
-                        dt_ms=sim.delta_t,
-                        hh_substeps=getattr(sim, "hh_substeps", 1),
-                        hh_params=_hh_plot_params,
-                        style=fig_style,
-                        warmup_frames=_warmup_f,
-                        max_frames=_window_f,
-                    )
-                    _hh_debug_buffers = None  # free memory
 
                 if target_reached:
                     break
@@ -4150,19 +4062,19 @@ def _generate_voltage_from_cortex_task_model(
     print(f"\033[93m[voltage_from_task] writing to {folder}\033[0m", flush=True)
 
     # --- Save ground-truth ODE params for the downstream GNN ---
-    # Map TaskRNN's W_rec / b / tau into the FlyVisODEParams schema so the
+    # Map TaskRNN's W_rec / b / tau into the FlyVisCurrentODEParams schema so the
     # standard data_train_gnn loader picks them up unchanged. W_rec layout
     # is (rows=presynaptic j, cols=postsynaptic i) — np.nonzero returns
     # (row=src=pre, col=dst=post) which is exactly the edge_index
     # convention the GNN expects.
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
     W_rec_full = model.W_rec.detach().cpu().numpy().astype(np.float32)
     src, dst = np.nonzero(W_rec_full)
     edge_index_gt = np.stack([src, dst], axis=0).astype(np.int64)
     W_gt = W_rec_full[src, dst].astype(np.float32)
     tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
     V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
-    ode_params = FlyVisODEParams(
+    ode_params = FlyVisCurrentODEParams(
         tau_i=torch.from_numpy(tau_i_gt),
         V_i_rest=torch.from_numpy(V_i_rest_gt),
         edge_index=torch.from_numpy(edge_index_gt),
@@ -4454,7 +4366,7 @@ def _generate_voltage_from_cx_task_model(
     from connectome_gnn.generators.connectome_loaders import (
         load_drosophila_cx_connectome,
     )
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
     from connectome_gnn.models.registry import create_model
 
     sim = config.simulation

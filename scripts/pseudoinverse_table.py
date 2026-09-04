@@ -46,7 +46,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 from connectome_gnn.generators.flyvis_ode  import FlyVisODE
-from connectome_gnn.generators.ode_params  import FlyVisODEParams
+from connectome_gnn.generators.ode_params  import FlyVisCurrentODEParams
 from connectome_gnn.neuron_state           import NeuronState
 
 # ---------------------------------------------------------------------------
@@ -422,7 +422,7 @@ def run_gt_rollout(ode_params, stim_all, neuron_types, v0, device):
     The trajectory v_gt[t] is stored on CPU to save GPU memory.
 
     Args:
-        ode_params:   FlyVisODEParams with ground-truth W.
+        ode_params:   FlyVisCurrentODEParams with ground-truth W.
         stim_all:     (T, N) stimulus tensor.
         neuron_types: (N,) cell-type ids.
         v0:           (N,) initial voltage.
@@ -458,7 +458,7 @@ def run_variant_rollout(ode_params, stim_all, neuron_types, v0, v_gt, device):
     returned.
 
     Args:
-        ode_params:   FlyVisODEParams with recovered W.
+        ode_params:   FlyVisCurrentODEParams with recovered W.
         stim_all:     (T, N) stimulus (same as GT rollout).
         neuron_types: (N,) cell-type ids.
         v0:           (N,) initial voltage (same as GT rollout).
@@ -504,18 +504,18 @@ def run_variant_rollout(ode_params, stim_all, neuron_types, v0, v_gt, device):
 # ===========================================================================
 
 def params_with_w(state, w_rec, device):
-    """Return a FlyVisODEParams with all fields from state but W replaced.
+    """Return a FlyVisCurrentODEParams with all fields from state but W replaced.
 
     Args:
         state: dict loaded from ode_params.pt (contains W, tau_i, edge_index, …).
         w_rec: (E,) numpy array of recovered edge weights.
         device: torch device.
     Returns:
-        FlyVisODEParams instance on device.
+        FlyVisCurrentODEParams instance on device.
     """
     s = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in state.items()}
     s["W"] = torch.tensor(w_rec, dtype=torch.float32)
-    return FlyVisODEParams(**s).to(device)
+    return FlyVisCurrentODEParams(**s).to(device)
 
 
 # ===========================================================================
@@ -640,7 +640,7 @@ def main():
         v0       = load_v0(data_dir)
         ntypes   = load_neuron_types(data_dir)
 
-        gt_params = FlyVisODEParams(**state).to(device)
+        gt_params = FlyVisCurrentODEParams(**state).to(device)
         v_gt_traj = run_gt_rollout(gt_params, stim_ro, ntypes, v0, device)
 
         # ---- rollout + metrics per method ----
