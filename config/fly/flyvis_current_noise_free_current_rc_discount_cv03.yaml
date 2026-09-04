@@ -1,4 +1,4 @@
-description: 'ROLLOUT discount arm, K=1..5 curriculum, flyvis_A noise-free, fold 3. Paired against flyvis_noise_free_nominal_cv03 exactly as the uniform arm is: 5 epochs x 100 loops vs the baseline s 1 x 500 (same 500 iterations), frame_target_offset 1 so both draw start frames from 63995. Differs from flyvis_noise_free_nominal_rc_uniform_cv03 in one knob only. w_s = gamma^s, the model-based-RL convention: down-weights the far, drifted steps whose targets the model can only reach through its own accumulated error.'
+description: 'ROLLOUT discount arm, K=1..5 curriculum, flyvis_A noise-free, fold 3. Paired against flyvis_current_noise_free_current_cv03 exactly as the uniform arm is: 5 epochs x 100 loops vs the baseline s 1 x 500 (same 500 iterations), frame_target_offset 1 so both draw start frames from 63995. Differs from flyvis_current_noise_free_current_rc_uniform_cv03 in one knob only. w_s = gamma^s, the model-based-RL convention: down-weights the far, drifted steps whose targets the model can only reach through its own accumulated error.'
 dataset: flyvis_noise_free_blank50_cv03
 simulation:
   connectivity_file: to be specified

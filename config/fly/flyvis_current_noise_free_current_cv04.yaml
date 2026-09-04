@@ -1,6 +1,6 @@
-description: 'Nominal noise-free t+1 baseline, fold=3 (blank50).
-  sim_seed=45 train_seed=1045. HPs: flyvis_unified_blank50_fd_winner.yaml. Renamed from flyvis_noise_free_blank50_unified_fd_cv03, which it reproduces verbatim.'
-dataset: flyvis_noise_free_blank50_cv03
+description: 'Nominal noise-free t+1 baseline, fold=4 (blank50).
+  sim_seed=46 train_seed=1046. HPs: flyvis_unified_blank50_fd_winner.yaml. Renamed from flyvis_noise_free_blank50_unified_fd_cv04, which it reproduces verbatim.'
+dataset: flyvis_noise_free_blank50_cv04
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,7 +18,7 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.0
-  seed: 45
+  seed: 46
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
@@ -74,7 +74,7 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1045
+  seed: 1046
   n_epochs: 1
   data_augmentation_loop: 500
-config_file: fly/flyvis_current_noise_free_current_nominal_cv03
+config_file: fly/flyvis_current_noise_free_current_cv04
