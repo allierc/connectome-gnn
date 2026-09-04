@@ -135,6 +135,19 @@ class FlyVisODE(nn.Module):
         self.model_type = model_type
         self.device = device
 
+        # WHICH SYNAPSE MODEL THIS INTEGRATES is decided by the parameters it
+        # was handed, not by `model_type` -- model_type names the model that
+        # will be TRAINED on the output, which says nothing about how the data
+        # is generated. FlyVisConductanceODEParams carries the reversals; the
+        # current-based class has no such fields.
+        self.is_conductance = getattr(ode_params, "E_exc", None) is not None
+        if self.is_conductance:
+            # (E,) precomputed once: which reversal each edge drives toward.
+            # `edge_is_inh` is the PRESYNAPTIC cell's Dale sign while E is
+            # indexed by the POSTSYNAPTIC cell, so this is not a per-edge
+            # property of either endpoint alone.
+            self._reversal_per_edge = ode_params.reversal_per_edge().to(device)
+
         if self.ode_params is not None:
             self.ode_params.to(device)
 
@@ -164,7 +177,20 @@ class FlyVisODE(nn.Module):
         v_src = v[src]
         particle_type_src = particle_type[src]
 
-        if 'multiple_ReLU' in self.model_type:
+        if self.is_conductance:
+            # CONDUCTANCE: the message depends on the POSTSYNAPTIC voltage too.
+            #
+            #     msg_ij = W_ij * relu(v_j) * (E_ij - v_i)
+            #
+            # W is already a non-negative conductance here (the student stores
+            # its square root and FlyVisConductanceODEParams.from_twin_checkpoint
+            # squares it), so the synapse's sign lives entirely in the driving
+            # force (E_ij - v_i). E is indexed by the POSTSYNAPTIC cell -- that
+            # is what `v[dst]` is for, and it is the reason this branch could
+            # not be expressed in the current-based form at all.
+            edge_msg = (self._reversal_per_edge[:, None] - v[dst]) * \
+                self.ode_params.W[:, None] * self.g_phi(v_src)
+        elif 'multiple_ReLU' in self.model_type:
             edge_msg = self.ode_params.W[:, None] * self.g_phi(v_src) * self.params[particle_type_src.squeeze()]
         elif 'NULL' in self.model_type:
             edge_msg = 0 * self.g_phi(v_src)
