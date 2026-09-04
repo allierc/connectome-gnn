@@ -1,0 +1,87 @@
+description: 'Conductance twin, margin reversals, dim=global, span unit p99. E brackets from the teacher min/max in every rig -- the sign guarantee and the convex-hull bound do not depend on this axis -- and only the UNIT of delta changes. cond_span_mode extremes is PR #46 exactly: span = v_max - v_min, which on this teacher is set by outliers (98%% of the voltage lies in a band of width 3.86 against a global range of 16.27), so the nominal margin (0.4, 1.0) acts ~3.4x larger than intended and (E_exc - V_i) varies by only 16%% across the bulk -- the delta -> infinity limit, i.e. the twin degenerating to the current-based teacher. The percentile spans restore state dependence: at dim=global, 32.8%% (p99), 38.0%% (p95), 41.5%% (p90). At dim=per_neuron every reversal sits just outside its own neuron band and the driving force varies by more than 100%%, the opposite extreme. This grid measures whether more state dependence helps the held-out rollout or costs stability.'
+dataset: flyvis_noise_free_blank50_cv00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.0
+  seed: 42
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_cond_known_ode
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  torch_compile: true
+  mlp_precision: bf16
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  time_step: 1
+  batch_size: 4
+  regul_batch_scaling: sqrt
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 375
+  coeff_g_phi_norm: 0.45
+  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  use_gt_edges: true
+  seed: 1042
+  n_epochs: 1
+  data_augmentation_loop: 100
+  cond_reversal_mode: margin
+  cond_reversal_dim: global
+  cond_span_mode: p99
+  cond_neuron_params: per_type
+  cond_learn_edges: true
+  cond_init: teacher_closed_form
+  train_on_teacher: true
+  teacher_rollout_frames: 1000
+config_file: fly/flyvis_current_noise_free_conductance_sp_global_p99_cv00

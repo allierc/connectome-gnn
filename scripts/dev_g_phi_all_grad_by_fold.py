@@ -11,8 +11,12 @@ import sys
 import numpy as np
 import torch
 
-_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+# Lives in scripts/ but the package and its sibling dev_ scripts are at the
+# repo root, so both go on the path: `src` for connectome_gnn, the root itself
+# for `dev_g_phi_vi_vj`, which is still there.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO_ROOT, 'src'))
+sys.path.insert(0, _REPO_ROOT)
 
 from connectome_gnn.utils import set_data_root, to_numpy
 from dev_g_phi_vi_vj import load_run
@@ -73,7 +77,7 @@ def main():
          f'{"dvi/dvj":>10}{"dai/dvj":>10}{"daj/dvj":>10}')
     rows = []
     for cv in ['00', '01', '02', '03', '04']:
-        cfg = f'flyvis_noise_005_conductance_cv{cv}'
+        cfg = f'flyvis_current_noise_005_conductance_nominal_cv{cv}'
         log_dir = f'/groups/saalfeld/home/allierc/GraphData/log/fly/{cfg}'
         config, model, edges, x_ts = load_run(log_dir, cfg, device)
 
