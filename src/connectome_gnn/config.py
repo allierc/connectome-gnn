@@ -1311,7 +1311,7 @@ class TrainingConfig(BaseModel):
     # distribution instead.
     mlp_precision: Literal["fp32", "tf32", "bf16"] = "fp32"
 
-    # Per-neuron reweighting of the fit residual, after GraphCast's s_j (supplement
+    # Per-neuron reweighting of the fit residual, after the inverse-variance s_j (supplement
     # sec 4.2), the "per-variable-level inverse variance of time differences".
     #   'none'                every neuron weighted equally -- the historical behaviour.
     #   'inv_increment_std'   weight_j = 1 / std_t(dv_j/dt), renormalised to mean 1.
@@ -1321,7 +1321,7 @@ class TrainingConfig(BaseModel):
     # the slow neurons are almost invisible to the objective.
     #
     # Applied to the RESIDUAL, not the target, so the model keeps predicting physical
-    # dv/dt. Weighting the target instead -- which is GraphCast's literal form -- would
+    # dv/dt. Weighting the target instead -- which is the reference's literal form -- would
     # change the output units and silently break all 12 sites that integrate
     # `voltage + delta_t * pred`, and would need the weights reloaded at inference.
     # This way nothing downstream changes and no artifact has to be read back.
@@ -1440,7 +1440,7 @@ class TrainingConfig(BaseModel):
     cond_delta_inh: float = 0.4
     cond_delta_exc: float = 1.0
 
-    # Adam's second-moment decay. GraphCast (supplement sec 4.4) uses 0.95 rather
+    # Adam's second-moment decay. The reference (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary
     # gradient scale faster, which is what a curriculum that changes the objective
     # partway through produces. Default keeps torch's value.
@@ -1473,7 +1473,7 @@ class TrainingConfig(BaseModel):
     ode_state_clamp: float = 10.0
     ode_stab_lambda: float = 0.0
     grad_clip_W: float = 0.0
-    # Global gradient-norm clip over ALL parameters, as GraphCast does at 32
+    # Global gradient-norm clip over ALL parameters, as the reference does at 32
     # (supplement sec 4.4). grad_clip_W above clips only model.W and defaults
     # off, so today nothing bounds f_theta / g_phi / a gradients at all -- a
     # plausible cause of the one-checkpoint R^2_W collapses that force the
@@ -1492,16 +1492,17 @@ class TrainingConfig(BaseModel):
     alternate_lr_ratio: float = 0.1  # LR multiplier for W/g_phi during V_rest focus phase
 
     # Learning rate scheduler
-    # 'graphcast': linear warmup -> a SINGLE half-cosine decay -> a constant tail
-    # floor. Note 'linear_warmup_cosine' does NOT decay to zero: it chains warmup
-    # with CosineAnnealingWarmRestarts (T_mult=2), so the LR sawtooths back up and
-    # bottoms out at eta_min_ratio * lr. Use 'graphcast' for a monotone decay.
-    lr_scheduler: str = "none"  # 'none'|'cosine_warm_restarts'|'linear_warmup_cosine'|'graphcast'
+    # 'warmup_cosine_tail': linear warmup -> a SINGLE half-cosine decay -> a
+    # constant tail floor. Note 'linear_warmup_cosine' does NOT decay to zero: it
+    # chains warmup with CosineAnnealingWarmRestarts (T_mult=2), so the LR
+    # sawtooths back up and bottoms out at eta_min_ratio * lr. Use
+    # 'warmup_cosine_tail' for a monotone decay.
+    lr_scheduler: str = "none"  # 'none'|'cosine_warm_restarts'|'linear_warmup_cosine'|'warmup_cosine_tail'
     # Fraction of the planned total updates over which the half-cosine runs. The
     # remainder is the constant tail, which is where the rollout phase lives.
-    # GraphCast: 300000/311000 = 0.965.
+    # 300000/311000 = 0.965 in the source this was taken from.
     lr_scheduler_decay_frac: float = 0.965
-    # Tail LR as a fraction of peak. GraphCast: 3e-7 / 1e-3 = 3e-4.
+    # Tail LR as a fraction of peak: 3e-7 / 1e-3 = 3e-4 in the source.
     lr_scheduler_tail_ratio: float = 3e-4
     lr_scheduler_T0: int = 1000  # restart period in iterations
     lr_scheduler_T_mult: int = 2  # period multiplier after each restart
@@ -1521,7 +1522,7 @@ class TrainingConfig(BaseModel):
     # Requires time_step == 1 (enforced in data_train_gnn) so intermediate frames exist.
     rollout_horizon_schedule: List[int] = Field(default_factory=list)
     # Cap on iterations for epochs with K > 1, so the rollout phase can be a SHORT
-    # tail fine-tune rather than the bulk of training. GraphCast spends 96.5% of its
+    # tail fine-tune rather than the bulk of training. The reference spends 96.5% of its
     # updates at K=1 and only 3.5% ramping K upward, at an LR ~3300x below peak;
     # without this knob a K>1 epoch costs Niter//K updates, which is far too many.
     # 0 = no cap (the pre-existing behaviour).

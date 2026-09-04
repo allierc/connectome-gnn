@@ -81,10 +81,10 @@ TASKS = {
         runs=[f"noiseseed_{o}_s{s}" for s in range(1041, 1046) for o in ("on", "off")],
     ),
     7: dict(
-        title="GraphCast options: anneal / clip / rollout-as-tail (noise_005 + noise_free)",
+        title="LR-schedule options: anneal / clip / rollout-as-tail (noise_005 + noise_free)",
         runs=[f"flyvis_{nz}_gc_{a}_cv0{c}"
               for nz in ("noise_005", "noise_free")
-              for a in ("control", "anneal", "annealclip", "graphcast")
+              for a in ("control", "anneal", "annealclip", "tail")
               for c in range(5)],
     ),
     6: dict(
@@ -170,7 +170,7 @@ def _read_csv(path, n_cols):
 
 def _full(name):
     """Config stem for a run name. The weekend grid is all flyvis_noise_005_*, so
-    those names are given bare; the GraphCast grid spans two noise levels, so those
+    those names are given bare; the the reference schedule grid spans two noise levels, so those
     carry their own prefix."""
     return name if name.startswith("flyvis_") else f"{PREFIX}{name}"
 
@@ -546,7 +546,7 @@ def _baseline(runs, window):
         print(f"\n  mean {statistics.mean(vals):.4f}  sd {statistics.stdev(vals):.4f}  (n={len(vals)})")
 
 
-GC_ARMS = ("control", "anneal", "annealclip", "graphcast")
+GC_ARMS = ("control", "anneal", "annealclip", "tail")
 
 
 def task7(runs, window, thresh):

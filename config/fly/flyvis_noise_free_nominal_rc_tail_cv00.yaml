@@ -1,4 +1,4 @@
-description: 'GraphCast curriculum on flyvis_A noise-free, fold 0. Four refinements from the supplement, together, against flyvis_noise_free_nominal_cv00: (1) rollout as a 3.5%% TAIL fine-tune rather than a training scheme -- 1,600,000 one-step updates first, then 5,333 per horizon; (2) AR steps ramped 2->12 rather than stopping at 5; (3) linear warmup then ONE half-cosine decay to a 3e-4 floor, so the last checkpoint is the usable one; (4) global grad-norm clip 32 and Adam beta2 0.95 instead of 0.999. frame_target_offset 1 holds the start-frame range at the baseline s 63995. Costs ~26%% more network calls than the baseline (2.01M vs 1.60M), which is the price of the tail.'
+description: 'ROLLOUT-AS-TAIL curriculum on flyvis_A noise-free, fold 0. Four refinements bundled together, against flyvis_noise_free_nominal_cv00: (1) rollout as a 3.5%% TAIL fine-tune rather than a training scheme -- 1,600,000 one-step updates first, then 5,333 per horizon; (2) AR steps ramped 2->12 rather than stopping at 5; (3) linear warmup then ONE half-cosine decay to a 3e-4 floor, so the last checkpoint is the usable one; (4) global grad-norm clip 32 and Adam beta2 0.95 instead of 0.999. frame_target_offset 1 holds the start-frame range at the baseline s 63995. Costs ~26%% more network calls than the baseline (2.01M vs 1.60M), which is the price of the tail.'
 dataset: flyvis_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -80,11 +80,11 @@ training:
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
   rollout_tail_iters_per_epoch: 5333
-  lr_scheduler: graphcast
+  lr_scheduler: warmup_cosine_tail
   lr_scheduler_warmup_iters: 5333
   lr_scheduler_decay_frac: 0.965
   lr_scheduler_tail_ratio: 0.0003
   grad_clip_norm: 32
   adam_beta2: 0.95
   frame_target_offset: 1
-config_file: fly/flyvis_noise_free_nominal_rc_graphcast_cv00
+config_file: fly/flyvis_noise_free_nominal_rc_tail_cv00

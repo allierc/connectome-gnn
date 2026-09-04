@@ -194,7 +194,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     gt_weights = data.gt_weights
 
     # training.target_weighting: per-neuron 1/std(dv/dt) on the RESIDUAL, after
-    # GraphCast's s_j. None when the knob is off, so the default path is untouched.
+    # the inverse-variance s_j. None when the knob is off, so the default path is untouched.
     # Saved for auditability only -- the model keeps predicting physical dv/dt, so
     # nothing at inference has to read it back.
     from connectome_gnn.models.utils import compute_target_weights
@@ -370,7 +370,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             )
 
         # Short rollout tail: cap the K>1 epochs so the curriculum is a fine-tune
-        # on top of a long K=1 phase, the way GraphCast runs it.
+        # on top of a long K=1 phase, the way the reference runs it.
         _tail = getattr(training, 'rollout_tail_iters_per_epoch', 0)
         if _tail and _tail > 0 and rollout_horizon is not None and rollout_horizon > 1:
             if Niter > _tail:
@@ -622,7 +622,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             ):
                 torch.nn.utils.clip_grad_norm_([model.W], max_norm=training.grad_clip_W)
 
-            # Global clip over EVERY parameter (GraphCast clips at 32). Applied
+            # Global clip over EVERY parameter (the reference clips at 32). Applied
             # after the W-only clip so both can be on: the W-only one shapes the
             # connectome update specifically, this one bounds the whole step.
             _gcn = getattr(training, 'grad_clip_norm', 0.0)

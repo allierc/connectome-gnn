@@ -924,9 +924,9 @@ def build_lr_scheduler(optimizer, config):
             optimizer, T_0=T_0, T_mult=T_mult, eta_min=eta_min)
         return torch.optim.lr_scheduler.ChainedScheduler([warmup, cosine])
 
-    elif scheduler_type == 'graphcast':
-        # GraphCast's schedule (supplement sec 4.3-4.5): linear warmup, then ONE
-        # half-cosine decay, then a constant floor for the rollout tail. Deliberately
+    elif scheduler_type == 'warmup_cosine_tail':
+        # Linear warmup, then ONE half-cosine decay, then a constant floor for
+        # the rollout tail. Deliberately
         # a single LambdaLR rather than a ChainedScheduler of warm RESTARTS -- the
         # point is that the LR is monotone non-increasing after warmup and ends near
         # zero, which is what makes the final checkpoint usable instead of forcing a

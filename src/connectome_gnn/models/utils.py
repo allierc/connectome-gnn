@@ -236,7 +236,7 @@ def fit_residual_loss(residual, reduction="norm2", target=None, huber_delta=1.0,
         )
     if weight is not None:
         # Per-element reweighting, applied to the RESIDUAL rather than the target.
-        # GraphCast's s_j is an inverse variance multiplying the squared error, so
+        # s_j is an inverse variance multiplying the squared error, so
         # 1/sigma on the residual is the same objective -- but weighting here keeps
         # the model's output in physical units, which weighting the target would
         # not. See training.target_weighting.
@@ -260,7 +260,7 @@ def fit_residual_loss(residual, reduction="norm2", target=None, huber_delta=1.0,
 def compute_target_weights(y_ts_gpu, training, batch_size, device, n_sample_frames=20000):
     """Per-neuron residual weights for training.target_weighting, or None.
 
-    GraphCast's s_j (supplement sec 4.2) is the per-variable-level inverse variance
+    the inverse-variance s_j (supplement sec 4.2 of the reference) is the per-variable-level inverse variance
     of TIME DIFFERENCES. Our per-variable analogue is per-neuron, and the spread is
     large enough to matter: on flyvis_noise_free_blank50_cv00 the per-neuron std of
     dv/dt runs 5.9e-3 to 25.2 -- 4250x -- with only 49% of neurons within 2x of the
