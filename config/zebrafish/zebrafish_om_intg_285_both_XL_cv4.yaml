@@ -1,0 +1,15 @@
+name: zebrafish_om_intg_285_both_XL_cv4
+circuit_config: zebrafish_om_intg_285_v1_botheyes.yaml
+corpus: dot_corpus_1d_xl.yaml
+eye:
+  dir: /workspace/Plexus/prototype/eye/archive/eye_G
+  fit_cache: eye_fit_XL.json
+training:
+  epochs: 150
+  batch: 32
+  lr: 0.01
+  tau0: 0.1
+  lam_psi: 0.05
+  track_phi: false
+  dt: 0.016666666666666666
+  seed: 4
