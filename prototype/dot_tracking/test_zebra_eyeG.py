@@ -415,11 +415,13 @@ def main():
     kino_full[_dead, :] = np.nan
     # AMN and AIN banded separately -- one drives LR from the left hemisphere,
     # the other MR from the right.
+    _hemi = np.array([str(h)[:1].upper() for h in circuit["hemi"]])
     kino_blocks = [("AF5", 0), ("INTG", int(idx_in.size))]
     for nm in ("AMN", "AIN"):
-        rows = np.where(names_arr == nm)[0]
-        if rows.size:
-            kino_blocks.append((nm, int(rows.min())))
+        for h in ("L", "R"):
+            rows = np.where((names_arr == nm) & (_hemi == h))[0]
+            if rows.size:
+                kino_blocks.append((f"{nm}-{h}", int(rows.min())))
     kino_blocks.sort(key=lambda t: t[1])
     conn_meta = dict(n=int(model.N), n_in=int(idx_in.size),
                      n_intg=int(idx_intg.size), kino_w=kino_w,
@@ -432,11 +434,19 @@ def main():
         buf = np.full((model.N, kino_w), np.nan, np.float32)
         buf[:, :k + 1] = kino_full[:, :k + 1]     # filling, left-aligned
         return buf
+    # Row labels: the OUTPUT types are split by hemisphere, because that is
+    # the split the readout is built on -- AMN-L and AIN-R drive the left eye,
+    # AMN-R and AIN-L the right. Merged into one AMN band they look like one
+    # population when they are two, feeding different eyes. The pool is
+    # already sorted L before R within a type, so each half is contiguous.
+    row_label = np.array([
+        f"{nm}_{_hemi[r]}" if roles[r] == "output" else str(nm)
+        for r, nm in enumerate(names_arr)])
     blocks, seen = [], None
-    for r, nm in enumerate(names_arr):
-        if nm != seen:
-            blocks.append((str(nm), r))
-            seen = nm
+    for r, lb in enumerate(row_label):
+        if lb != seen:
+            blocks.append((str(lb), r))
+            seen = lb
     title = (f"{name} — 285-cell oculomotor circuit ({ck.get('eye_side')} eye), "
              f"eye G — horizontal regimes — mean |err| {err.mean():.3f}°"
              + (f"   [φ drawn as 0; true mean |φ| {phi_true:.2f}°]"
