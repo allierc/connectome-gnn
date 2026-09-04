@@ -86,7 +86,21 @@ from zebrafish_circuit import load_oculomotor_circuit        # noqa: E402
 # half vertical and this pool has no vertical output.
 PHASES_H = [("continue", "slow"), ("continue", "middle"), ("continue", "fast"),
             ("stop_and_go", "middle"), ("stop_and_go", "fast"),
-            ("saccade", "1.15")]
+            ("saccade", "1.15"), ("probe", "1.0")]
+
+# The integrator probe, appended as a seventh phase: a constant velocity step
+# for PROBE_DRIVE_S, then NOTHING for the rest of the phase. It is the one
+# regime that separates the two solutions this circuit is found in -- after
+# the input is cut, a line attractor HOLDS the position it integrated to,
+# while an unstable circuit holds it with a limit cycle riding on top. The
+# rest of the corpus cannot show that, because the target never stops.
+PROBE_DRIVE_S = 2.0
+# Sized so the integrated hold lands INSIDE the plant's reach. At 1.0 the step
+# carried the gaze to +33 deg on an eye that reaches +-20, off the world
+# panel's axis and into the region where g(m)'s quadratic is extrapolating
+# rather than fitted -- the drives came out at LR 1.49, past the unit the
+# characterisation covers.
+PROBE_AMP = 0.30
 
 
 def sequence_h(duration, dt, scale, seed=0, bound=0.95, tries=200):
@@ -124,6 +138,16 @@ def sequence_h(duration, dt, scale, seed=0, bound=0.95, tries=200):
             segs.append(seg)
             pos = pos + seg[:, 0].sum() * dt
             continue
+        if mo == "probe":
+            n = int(round(duration / dt))
+            nd = int(round(PROBE_DRIVE_S / dt))
+            seg = np.zeros((n, 2))
+            # Drive AWAY from wherever the previous phase left the target, so
+            # the step does not run the eye off the end of its reach.
+            seg[:nd, 0] = -np.sign(pos or 1.0) * PROBE_AMP * float(sp)
+            segs.append(seg)
+            pos = pos + seg[:, 0].sum() * dt
+            continue
         best, best_r = None, np.inf
         for s in rng_seeds:
             q = generate(shape="curve", motion=mo, speed=sp, angle="low",
@@ -147,6 +171,52 @@ def sequence_h(duration, dt, scale, seed=0, bound=0.95, tries=200):
     xy = np.cumsum(v, 0) * dt
     return v, xy.astype(np.float32), [n0 * (i + 1)
                                       for i in range(len(PHASES_H) - 1)]
+
+
+def rollout_substep(model, eye, pdot, sub=10):
+    """`model.forward`, with the CIRCUIT integrated at dt/sub.
+
+    Training runs forward Euler at dt = 1/60 s, but ~55 of the 285 fitted time
+    constants come out below that, where `alpha = clamp(dt/tau, 1e-4, 1)`
+    saturates at 1 and the integration is at its stability limit. That is not
+    a small error: measured on the five XL folds, one of them (cv3) shows a
+    15 Hz oscillation at dt = 1/60 that VANISHES at dt/10 -- 99.5% of its rate
+    power above 5 Hz falls to 0.6%. Its circuit does not oscillate; the
+    integrator did. The other four keep 97-99% and are genuinely unstable.
+
+    So the movie integrates the circuit finely and samples it back at the
+    render cadence, and what the kinograph shows is the model's dynamics
+    rather than the solver's. The EYE is left at dt: it is a second-order
+    plant with a ~1 Hz corner and 1/60 s resolves it with room to spare.
+
+    Returns (u, m, R) exactly as `forward(..., want_states=True)` does.
+    """
+    dt = model.dt
+    ds = dt / int(sub)
+    alpha = (ds / model.log_tau.exp()).clamp(1e-4, 1.0)
+    B, T, _ = pdot.shape
+    Win_eff = model.Win * model.afferent_mask[:, None]
+    I = pdot @ Win_eff.T                                   # (B, T, N)
+    What = model.W_hat()
+    v = torch.zeros(B, model.N, device=pdot.device, dtype=pdot.dtype)
+    rates = []
+    for t in range(T):
+        for _ in range(int(sub)):                          # zero-order hold
+            r = torch.tanh(v)
+            v = v + alpha * (-v + r @ What.T + I[:, t])
+        rates.append(torch.tanh(v))
+    R = torch.stack(rates, 1)
+    Wout_eff = model.Wout * model.out_mask
+    drive = torch.nn.functional.softplus(
+        torch.einsum("btn,ekn->btek", R, Wout_eff))
+    n_eye = len(model.eyes)
+    m = torch.zeros(B, T, n_eye, 6, device=pdot.device, dtype=pdot.dtype)
+    for row, muscle_idx in model.muscle_row.items():
+        m[..., muscle_idx] = drive[..., row]
+    u = torch.stack([eye(m[:, :, e]) * model.mirror[e] for e in range(n_eye)], 2)
+    if n_eye == 1:
+        u, m = u[:, :, 0], m[:, :, 0]
+    return u, m, R
 
 
 def resolve_run(a):
@@ -188,6 +258,10 @@ def main():
     p.add_argument("--saccade", action="store_true",
                    help="six L/R saccade rates instead of the horizontal regimes")
     p.add_argument("--render", default="surface", choices=TE.EyeView.MODES)
+    p.add_argument("--substeps", type=int, default=10,
+                   help="integrate the circuit at dt/substeps. 1 reproduces "
+                        "training exactly, including its Euler error; 10 puts "
+                        "every fitted tau above the step. See rollout_substep.")
     p.add_argument("--head-az", type=float, default=60.0,
                    help="camera azimuth for the two-eye head scene; see "
                         "TE.HeadView. 25 overlaps the globes, 60 separates "
@@ -254,11 +328,13 @@ def main():
     else:
         v, xy, cuts = sequence_h(a.duration, a.dt, scale, seed=a.seed)
         labels = [(f"saccades  {sp} Hz" if mo == "saccade"
+                   else "integrator probe:  step, then no input"
+                   if mo == "probe"
                    else f"{mo.replace('_', '-')}  {sp}") for mo, sp in PHASES_H]
     bounds = [0] + list(cuts) + [len(v)]
     tgt = xy * scale
     with torch.no_grad():
-        x, m, R = model(torch.tensor(v[None]), want_states=True)
+        x, m, R = rollout_substep(model, eye, torch.tensor(v[None]), a.substeps)
         # equilibrium is per eye, and the right eye's is read through the same
         # mirror its gaze is, so the red command dot stays in world coordinates
         if x.dim() == 4:
