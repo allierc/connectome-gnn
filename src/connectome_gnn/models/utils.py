@@ -1419,6 +1419,25 @@ def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
 # Lazy re-export for backward compatibility — existing imports like
 # `from connectome_gnn.models.utils import LossRegularizer` continue to work.
 # Uses __getattr__ to avoid circular import (regularizer.py imports from utils.py).
+def is_conductance_gnn(signal_model_name: str) -> bool:
+    """True for the conductance GNN family, False for the conductance known-ODE.
+
+    Seven sites branch on the conductance layout to build 6-column
+    [v_i, v_j, a_i, a_j] g_phi features. `flyvis_conductance_known_ode` has no
+    g_phi at all -- it is a known ODE with two reversal potentials -- so those
+    branches must not fire for it: the result is silent wrong features rather
+    than a crash, and only some of the sites guard on hasattr(model, 'g_phi').
+
+    Until the rename this was avoided by calling the known-ODE
+    `flyvis_cond_known_ode`, i.e. by keeping the substring out of its name. The
+    name is now honest and the dispatch carries the distinction instead, which
+    is where it belonged. Every site that used
+    `'flyvis_conductance' in signal_model_name` must use this.
+    """
+    return ("flyvis_conductance" in signal_model_name
+            and "known_ode" not in signal_model_name)
+
+
 def __getattr__(name):
     if name == "LossRegularizer":
         from connectome_gnn.models.regularizer import LossRegularizer

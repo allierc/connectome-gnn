@@ -2739,7 +2739,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # metrics.py:1699 are only the first two -- so it is gated once, here, rather
     # than guarded site by site.
     #
-    # This is NOT specific to flyvis_cond_known_ode: model_family() reports "gnn"
+    # This is NOT specific to flyvis_conductance_known_ode: model_family() reports "gnn"
     # for every KnownODEBase subclass, so flyvis_known_ode, drosophila_cx_known_ode,
     # larva_known_ode and zebrafish_known_ode all enter this function and would all
     # die the same way at their first checkpoint. No known_ode run exists in the log

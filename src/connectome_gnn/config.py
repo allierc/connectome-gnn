@@ -979,6 +979,23 @@ class PlottingConfig(BaseModel):
 
 class TrainingConfig(BaseModel):
     # allow: LLM_code agents introduce new coeff_<name> keys per block; they
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy_cond_keys(cls, v):
+        """`cond_*` -> `conductance_*`.
+
+        The 9 conductance knobs were named `cond_*` until this rename. The 18
+        twin specs' archived config.yaml under log/fly still use the old keys
+        and are NOT in git, so with extra="forbid" they would stop loading --
+        which would make every finished twin run unreadable. Mapped here rather
+        than aliased per field so the whole legacy set is handled in one place
+        and the new name is the only one the class declares.
+        """
+        if isinstance(v, dict):
+            for k in [k for k in v if isinstance(k, str) and k.startswith("cond_")]:
+                v.setdefault("conductance_" + k[len("cond_"):], v.pop(k))
+        return v
     # must survive the YAML→pydantic round-trip so getattr(tc, coeff_name)
     # works from the staged production hook.
     model_config = ConfigDict(extra="allow")
@@ -1350,21 +1367,21 @@ class TrainingConfig(BaseModel):
     # (neuron, frame) pairs, the same statistic results_rollout.log quotes.
     teacher_rollout_frames: int = 1000
 
-    # ---- flyvis_cond_known_ode: which parameter groups are learnable -------------
+    # ---- flyvis_conductance_known_ode: which parameter groups are learnable -------------
     # The student has three groups and they differ by orders of magnitude in size,
     # so which are free is the experiment rather than a detail:
     #   reversals      2            E_exc, E_inh
     #   edges          434,112      W, entering squared so the conductance is >= 0
     #   neuron params  see below    tau, V_rest
-    cond_learn_reversal: bool = True
-    cond_learn_edges: bool = True
+    conductance_learn_reversal: bool = True
+    conductance_learn_edges: bool = True
     # tau and V_rest. The teacher's own values have exactly 65 DISTINCT entries over
     # 13,741 neurons -- one per cell type -- so per-neuron spends 27,482 parameters
     # to represent 130, and 'per_type' is both smaller and the structure the data
     # actually has. 'frozen' pins them at the teacher's values, which turns the fit
     # into "can a conductance synapse reproduce this activity given the right
     # neurons" rather than "can it reproduce it at all".
-    cond_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
+    conductance_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
     # HOW THE REVERSAL POTENTIALS ARE SET. Not a regulariser -- a reparametrisation,
     # which is why it can GUARANTEE what a penalty could only encourage.
     #   'learned'  E_exc, E_inh are free parameters. Nothing stops them crossing the
@@ -1379,7 +1396,7 @@ class TrainingConfig(BaseModel):
     # teacher. Small delta is strongly conductance-like; large delta degenerates to
     # the teacher, continuously. The asymmetric default mirrors the inhibitory
     # driving force being roughly half the excitatory one in real neurons.
-    cond_reversal_mode: Literal["learned", "margin"] = "margin"
+    conductance_reversal_mode: Literal["learned", "margin"] = "margin"
     # GRANULARITY of E. The driving force is (E - V_i), so E belongs to the
     # POSTSYNAPTIC cell -- these are per postsynaptic neuron/type, not per edge.
     #   'global'      two scalars, E_exc and E_inh.
@@ -1388,9 +1405,9 @@ class TrainingConfig(BaseModel):
     #   'per_neuron'  two per neuron: the overparameterised control. Physically a
     #                 reversal is a property of the receptor, shared by synapse type,
     #                 so a per-neuron gain is capacity absorbing model mismatch.
-    # Crosses with cond_reversal_mode: 'learned' fits them, 'margin' sets them from
+    # Crosses with conductance_reversal_mode: 'learned' fits them, 'margin' sets them from
     # the teacher's voltage range measured AT THE SAME GRANULARITY.
-    cond_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
+    conductance_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
     # WHAT delta IS MEASURED IN. The reversals bracket from the teacher's min/max in
     # every case -- that is what guarantees the sign and the convex-hull bound -- but
     # delta needs a UNIT, and PR #46 uses (v_max - v_min), the raw extremes.
@@ -1409,7 +1426,7 @@ class TrainingConfig(BaseModel):
     #     p95       span  2.255  E_exc 10.595                        38.0%
     #     p90       span  1.405  E_exc  9.745                        41.4%
     # Default 'extremes' reproduces PR #46 exactly.
-    cond_span_mode: Literal["extremes", "p99", "p95", "p90"] = "extremes"
+    conductance_span_mode: Literal["extremes", "p99", "p95", "p90"] = "extremes"
     # STAGE-1 CLOSED-FORM INITIALISATION, from the conductance-twin methods.
     # The two models differ only in what multiplies the synaptic activation
     # N f(V_j): a constant s_ij alpha_curr for the teacher, a state-dependent
@@ -1420,7 +1437,7 @@ class TrainingConfig(BaseModel):
     #
     # positive by construction, because E - Vbar carries the same sign s_ij that
     # alpha_curr does -- E_exc lies above and E_inh below every voltage the teacher
-    # visits, which is exactly what cond_reversal_mode 'margin' guarantees. Exact
+    # visits, which is exactly what conductance_reversal_mode 'margin' guarantees. Exact
     # wherever the postsynaptic cell sits at its mean, and exact everywhere as
     # delta -> infinity. One number per (presynaptic type, postsynaptic type) group.
     #
@@ -1432,13 +1449,13 @@ class TrainingConfig(BaseModel):
     # weights, so its answer could only ever be a prior, and that is what stage 1
     # already provides more cheaply. It would also need the teacher's synaptic
     # current I_i(t) as a target, which the generator does not store.
-    cond_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
+    conductance_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
     # (0.4, 1.0) is PR #46's own default -- derive_conductance_twin's
     # `reversal_margin: Union[float, Tuple[float, float]] = (0.4, 1.0)`, ordered
     # (inh, exc) -- reused deliberately so the twin derived there and the student
     # fitted here sit at the same operating point and their results are comparable.
-    cond_delta_inh: float = 0.4
-    cond_delta_exc: float = 1.0
+    conductance_delta_inh: float = 0.4
+    conductance_delta_exc: float = 1.0
 
     # Adam's second-moment decay. The reference (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary

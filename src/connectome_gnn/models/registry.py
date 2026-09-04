@@ -1,14 +1,14 @@
 """Model registry for connectome-gnn.
 
-Maps config signal_model_name strings (e.g. 'flyvis_A', 'drosophila_cx')
+Maps config signal_model_name strings (e.g. 'flyvis_current', 'drosophila_cx')
 to model classes. Replaces scattered if/elif dispatch chains with a single lookup.
 
 Usage:
-    @register_model("flyvis_A", "drosophila_cx")
+    @register_model("flyvis_current", "drosophila_cx")
     class NeuralGNN(nn.Module):
         ...
 
-    model = create_model("flyvis_A", config=config, device=device)
+    model = create_model("flyvis_current", config=config, device=device)
 """
 
 _REGISTRY: dict[str, type] = {}
