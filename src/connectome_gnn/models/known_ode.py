@@ -302,7 +302,7 @@ class ZebrafishKnownODE(KnownODEBase):
 # reason.
 #
 # TWO REVERSAL POTENTIALS, one per presynaptic polarity, selected by the sign the
-# connectome already carries: FlyVisODEParams.W is syn_strength * syn_count * sign,
+# connectome already carries: FlyVisCurrentODEParams.W is syn_strength * syn_count * sign,
 # so sign(W_e) < 0 marks an inhibitory synapse. Under Dale's law that is a property
 # of the presynaptic neuron, so the partition is anatomy rather than something to
 # fit. Supplied by set_presynaptic_sign(); absent, every edge is treated as

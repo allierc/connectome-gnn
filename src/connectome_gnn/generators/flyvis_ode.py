@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from connectome_gnn.generators.ode_params import FlyVisODEParams
+from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
 from connectome_gnn.neuron_state import NeuronState
 
 
@@ -129,7 +129,7 @@ class FlyVisODE(nn.Module):
 
         # Accept dict (legacy) or ODE_params_class instance
         if isinstance(ode_params, dict):
-            ode_params = FlyVisODEParams(**ode_params)
+            ode_params = FlyVisCurrentODEParams(**ode_params)
         self.ode_params = ode_params
         self.g_phi = g_phi
         self.model_type = model_type

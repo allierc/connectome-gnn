@@ -2317,7 +2317,7 @@ def data_generate_voltage(
         get_photoreceptor_positions_from_net,
         group_by_direction_and_function,
     )
-    from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisODEParams, get_ode_params_class
+    from connectome_gnn.generators.ode_params import FlyVisHodgkinHuxleyODEParams, FlyVisCurrentODEParams, get_ode_params_class
     from connectome_gnn.utils import setup_flyvis_model_path
 
     is_hh = is_hodgkin_huxley_model(model_config.signal_model_name)
@@ -2487,7 +2487,7 @@ def data_generate_voltage(
             net, device=device, overrides=hh_overrides or None
         )
     else:
-        ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
+        ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index.to(device)
     print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
@@ -4150,19 +4150,19 @@ def _generate_voltage_from_cortex_task_model(
     print(f"\033[93m[voltage_from_task] writing to {folder}\033[0m", flush=True)
 
     # --- Save ground-truth ODE params for the downstream GNN ---
-    # Map TaskRNN's W_rec / b / tau into the FlyVisODEParams schema so the
+    # Map TaskRNN's W_rec / b / tau into the FlyVisCurrentODEParams schema so the
     # standard data_train_gnn loader picks them up unchanged. W_rec layout
     # is (rows=presynaptic j, cols=postsynaptic i) — np.nonzero returns
     # (row=src=pre, col=dst=post) which is exactly the edge_index
     # convention the GNN expects.
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
     W_rec_full = model.W_rec.detach().cpu().numpy().astype(np.float32)
     src, dst = np.nonzero(W_rec_full)
     edge_index_gt = np.stack([src, dst], axis=0).astype(np.int64)
     W_gt = W_rec_full[src, dst].astype(np.float32)
     tau_i_gt = np.full(N, float(model.tau), dtype=np.float32)
     V_i_rest_gt = model.b.detach().cpu().numpy().astype(np.float32)
-    ode_params = FlyVisODEParams(
+    ode_params = FlyVisCurrentODEParams(
         tau_i=torch.from_numpy(tau_i_gt),
         V_i_rest=torch.from_numpy(V_i_rest_gt),
         edge_index=torch.from_numpy(edge_index_gt),
@@ -4454,7 +4454,7 @@ def _generate_voltage_from_cx_task_model(
     from connectome_gnn.generators.connectome_loaders import (
         load_drosophila_cx_connectome,
     )
-    from connectome_gnn.generators.ode_params import FlyVisODEParams
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
     from connectome_gnn.models.registry import create_model
 
     sim = config.simulation

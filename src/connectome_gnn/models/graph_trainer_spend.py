@@ -269,11 +269,11 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
         analyze_data_svd(x_ts, log_dir, config=config, logger=logger, is_flyvis=True)
 
     # --- Load edges + GT weights (mirrors graph_trainer) ---
-    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
     try:
         OdeParamsCls = get_ode_params_class(model_config.signal_model_name)
     except KeyError:
-        OdeParamsCls = FlyVisODEParams
+        OdeParamsCls = FlyVisCurrentODEParams
     ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
     gt_weights = ode_params.W
     edges = ode_params.edge_index

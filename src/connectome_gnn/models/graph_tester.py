@@ -25,7 +25,7 @@ from connectome_gnn.generators.graph_data_generator import (
     greedy_blue_mask,
     mseq_bits,
 )
-from connectome_gnn.generators.ode_params import FlyVisODEParams, load_edge_index
+from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, load_edge_index
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
 from connectome_gnn.models.utils import (
@@ -376,7 +376,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         try:
             _SignOdeCls = get_ode_params_class(model_config.signal_model_name)
         except KeyError:
-            _SignOdeCls = FlyVisODEParams
+            _SignOdeCls = FlyVisCurrentODEParams
         try:
             _sign_odep = _SignOdeCls.load(graphs_data_path(config.dataset), device=device)
             if restore_edge_sign_lock(model, getattr(_sign_odep, 'W', None)):
@@ -802,18 +802,18 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     # KeyError/TypeError fallbacks remain only as defence for unregistered or
     # schema-mismatched checkpoints; every shipped model (incl.
     # drosophila_cx_voltage) is now registered, so they normally don't fire.
-    from connectome_gnn.generators.ode_params import FlyVisODEParams, get_ode_params_class
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
     try:
         try:
             _OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
         except KeyError:
-            _OdeCls = FlyVisODEParams
+            _OdeCls = FlyVisCurrentODEParams
         try:
             _ode_p = _OdeCls.load(graphs_data_path(config.dataset), device='cpu')
         except TypeError:
             # On-disk schema mismatch (e.g. registered class expects fields
-            # we didn't save). Retry with the simpler FlyVisODEParams.
-            _ode_p = FlyVisODEParams.load(graphs_data_path(config.dataset), device='cpu')
+            # we didn't save). Retry with the simpler FlyVisCurrentODEParams.
+            _ode_p = FlyVisCurrentODEParams.load(graphs_data_path(config.dataset), device='cpu')
         if hasattr(_ode_p, 'type_names') and _ode_p.type_names:
             index_to_name = {i: name for i, name in enumerate(_ode_p.type_names)}
         else:
@@ -1107,7 +1107,7 @@ def data_test_gnn_special(
     net.load_state_dict(trained_net.state_dict())
     torch.set_grad_enabled(False)
 
-    ode_params = FlyVisODEParams.from_flyvis_network(net, device=device)
+    ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
     edge_index = ode_params.edge_index
 
     if sim.n_extra_null_edges > 0:

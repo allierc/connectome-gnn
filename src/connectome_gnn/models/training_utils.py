@@ -1149,7 +1149,7 @@ def init_training_data(
     )
 
     from connectome_gnn.generators.ode_params import (
-        FlyVisODEParams,
+        FlyVisCurrentODEParams,
         get_ode_params_class,
     )
 
@@ -1370,7 +1370,7 @@ def init_training_data(
             signal_model
         )
     except KeyError:
-        OdeParamsCls = FlyVisODEParams
+        OdeParamsCls = FlyVisCurrentODEParams
 
     try:
         ode_params = OdeParamsCls.load(
@@ -1382,10 +1382,10 @@ def init_training_data(
         logger.info(
             f'ode_params schema mismatch for '
             f'{OdeParamsCls.__name__}; '
-            f'falling back to FlyVisODEParams'
+            f'falling back to FlyVisCurrentODEParams'
         )
 
-        ode_params = FlyVisODEParams.load(
+        ode_params = FlyVisCurrentODEParams.load(
             graphs_data_path(config.dataset),
             device=device,
         )

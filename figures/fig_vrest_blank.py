@@ -59,7 +59,7 @@ sys.path.insert(0, os.path.join(REPO, 'src'))
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import recovery_param_metrics, get_model_W
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisCurrentODEParams
 from connectome_gnn.utils import (
     to_numpy, migrate_state_dict, set_data_root, graphs_data_path, log_path, add_pre_folder,
     sort_key,
@@ -216,7 +216,7 @@ def load_vrest(config_name: str, output_root: str):
     try:
         OdeCls = get_ode_params_class(config.graph_model.signal_model_name)
     except (KeyError, AttributeError):
-        OdeCls = FlyVisODEParams
+        OdeCls = FlyVisCurrentODEParams
     gdata_dir = graphs_data_path(config.dataset)
     ode_params = OdeCls.load(gdata_dir, device=device)
     gt_vrest = ode_params.gt_vrest(n_neurons)
