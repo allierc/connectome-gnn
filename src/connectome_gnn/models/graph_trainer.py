@@ -30,6 +30,7 @@ from connectome_gnn.models.registry import create_model
 from connectome_gnn.plot import (
     plot_jacobian_w_scatter,
     plot_metrics,
+    plot_reversal_scatter,
     plot_signal_loss,
     plot_training_gnn,
     plot_training_linear,
@@ -53,6 +54,7 @@ from connectome_gnn.models.utils import (
     _NGP_QUICK_FREQ,
     model_family,
     r2_color,
+    rmse_color,
     set_trainable_parameters,
 )
 
@@ -731,6 +733,48 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # A failed diagnostic must not take the training run with it.
                     logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")
 
+            # -------------------------------------------------------------
+            # E_ij RECOVERY, conductance-generated datasets only.
+            #
+            # Gated on the DATA and the MODEL both carrying reversals, not on
+            # model_family: the conductance known-ODE reports family "gnn"
+            # (KnownODEBase sets no MODEL_FAMILY) while the conductance GNN will
+            # report "gnn" too, so the family says nothing useful here.
+            # compute_reversal_metrics returns None whenever either side lacks
+            # E_exc/E_inh, which covers every current-generated dataset and every
+            # model without reversals -- no panel, no bar entry, rather than a
+            # zero that would read like a measurement.
+            # -------------------------------------------------------------
+            if is_regular_r2 or is_early_r2:
+                from connectome_gnn.metrics import compute_reversal_metrics
+                try:
+                    _rev = compute_reversal_metrics(model, ode_params)
+                except Exception as _e:
+                    logger.warning(f"E_ij recovery eval failed: {type(_e).__name__}: {_e}")
+                    _rev = None
+                if _rev is not None:
+                    epoch_state.metrics.reversal_rmse = _rev["rmse"]
+                    epoch_state.metrics.reversal_r2 = _rev["r2"]
+                    epoch_state.metrics.reversal_scale = float(
+                        _rev["true"].max() - _rev["true"].min())
+                    plot_reversal_scatter(_rev, log_dir, epoch, N)
+                    # Its own file, for the same reason rollout_r.log has one:
+                    # plot.py reads metrics.log by POSITIONAL index (`_f(parts,
+                    # idx)`), so adding a column there shifts every reader after
+                    # it. The progress bar shows only the latest value; this is
+                    # the trajectory.
+                    _rev_log = os.path.join(log_dir, "tmp_training", "reversal_rmse.log")
+                    if not os.path.exists(_rev_log):
+                        with open(_rev_log, "w") as f:
+                            f.write("iteration,rmse,r2,slope,n_edges\n")
+                    with open(_rev_log, "a") as f:
+                        f.write(f"{regularizer.iter_count},{_rev['rmse']:.6f},"
+                                f"{_rev['r2']:.6f},{_rev['slope']:.6f},{_rev['n_edges']}\n")
+                    logger.info(
+                        f"iter {regularizer.iter_count}: E_ij rmse={_rev['rmse']:.4f} "
+                        f"R2={_rev['r2']:.4f} slope={_rev['slope']:.3f} "
+                        f"over {_rev['n_edges']} edges")
+
             if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
                 from connectome_gnn.metrics import compute_jacobian_connectivity_r2
 
@@ -959,7 +1003,9 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # Progress bar
             # -------------------------------------------------------------
 
-            if epoch_state.metrics.connectivity_r2 is not None or epoch_state.metrics.hidden_r2 is not None:
+            if (epoch_state.metrics.connectivity_r2 is not None
+                    or epoch_state.metrics.hidden_r2 is not None
+                    or epoch_state.metrics.reversal_rmse is not None):
                 bar_parts = []
 
                 if epoch_state.metrics.connectivity_r2 is not None:
@@ -1006,6 +1052,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             f"({tau_pct:.0f}%)"
                             f"{ANSI_RESET}"
                         )
+
+                # E_ij RMSE, two decimals, coloured as a fraction of the true
+                # E_ij spread max-min (about 39.2 voltage units on the
+                # margin/global conductance datasets) -- an RMSE has units and no
+                # ceiling, so a fixed absolute threshold would mean nothing.
+                if epoch_state.metrics.reversal_rmse is not None:
+                    bar_parts.append(
+                        f"{rmse_color(epoch_state.metrics.reversal_rmse, epoch_state.metrics.reversal_scale)}"
+                        f"E={epoch_state.metrics.reversal_rmse:.2f}"
+                        f"{ANSI_RESET}"
+                    )
 
                 if epoch_state.metrics.hidden_r2 is not None or epoch_state.metrics.anchor_r2 is not None:
                     if not injection_active:
