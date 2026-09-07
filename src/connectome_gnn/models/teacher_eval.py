@@ -106,6 +106,13 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
 
     Traces are baseline-subtracted and offset so that a shared y-scale does not let
     the loudest neuron flatten every other row.
+
+    `pred` and `r` may be None. That is the DATA-ONLY case: the same figure drawn
+    straight off a generated dataset, where there is no student to roll out and so
+    no rollout trace and no rollout-vs-truth correlation to annotate. Only the
+    green ground truth and the red stimulus are drawn then. graph_data_generator
+    calls it that way for <dataset>/activity.png so the generated data and the
+    training-time rollouts are read on the same axes.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -115,14 +122,16 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
     idx = np.linspace(0, N - 1, min(n_traces, N)).astype(int)
     t_ms = np.arange(T) * delta_t * 1e3
 
-    tr, pr = true[:, idx].T, pred[:, idx].T
+    tr = true[:, idx].T
+    pr = pred[:, idx].T if pred is not None else None
     bl = tr.mean(axis=1, keepdims=True)
     step = float(np.nanpercentile(np.abs(tr - bl), 99)) * 2.5 or 1.0
 
     fig, ax = plt.subplots(figsize=(7.0, 4.4), dpi=150)
     for i in range(len(idx)):
         ax.plot(t_ms, (tr[i] - bl[i, 0]) + i * step, color=COLOR_TRUE, lw=0.7)
-        ax.plot(t_ms, (pr[i] - bl[i, 0]) + i * step, color=COLOR_PRED, lw=0.6)
+        if pr is not None:
+            ax.plot(t_ms, (pr[i] - bl[i, 0]) + i * step, color=COLOR_PRED, lw=0.6)
     if stim is not None and np.isfinite(stim).any():
         s = stim - np.nanmean(stim)
         sc = step / (np.nanmax(np.abs(s)) or 1.0)
@@ -143,8 +152,9 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
     ax.set_ylabel("neurons", fontsize=9)
     ax.tick_params(labelsize=8)
     ax.spines[["top", "right"]].set_visible(False)
-    ax.text(0.01, 0.99, f"r = {r:.4f}", transform=ax.transAxes, va="top",
-            fontsize=9)
+    if r is not None and np.isfinite(r):
+        ax.text(0.01, 0.99, f"r = {r:.4f}", transform=ax.transAxes, va="top",
+                fontsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path, bbox_inches="tight", pad_inches=0.04)

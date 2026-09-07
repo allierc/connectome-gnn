@@ -24,7 +24,6 @@ from connectome_gnn.plot import (
     plot_connconstr_diagnostics,
     plot_sequence_preview,
     plot_kinograph,
-    plot_selected_neuron_traces,
     plot_spatial_activity_grid,
     plot_spiking_traces,
     plot_task_pi_traces,
@@ -33,6 +32,13 @@ from connectome_gnn.plot import (
 # plot_task_cortex_* are imported lazily inside _generate_cortex_task so plot.py
 # can be edited without affecting non-task code paths.
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
+
+# Length of the window shown in <dataset>/activity.png, in simulation FRAMES.
+# 1,000 frames is 20 s of simulated time at the flyvis delta_t of 20 ms, and it
+# is the same window the trainer's rollout figures use (teacher_eval's
+# n_frames default), so a dataset's activity.png and that run's
+# tmp_training/traces/rollout_*.png can be laid side by side.
+ACTIVITY_TRACE_FRAMES = 1000
 
 
 def _rmtree(path):
@@ -3146,16 +3152,23 @@ def data_generate_voltage(
             logger.info(f"  derivative noise std (empirical mean): {snr_stats['derivative_noise_std_empirical']:.2f}")
             logger.info("--------------------------------------")
 
-    # SVD analysis (4-panel plot)
+    # SVD analysis (4-panel plot) -- DISABLED 2026-09-07 at the user's request.
+    # analyze_data_svd computed a full singular-value decomposition of the
+    # (n_frames x n_neurons) activity and of the visual stimulus and wrote
+    # <dataset>/svd_analysis.png; the existing svd_analysis.png files were
+    # deleted at the same time. The effective ranks that the kinograph and
+    # generation_log.txt actually use are still computed above, in the
+    # `compute_ranks` block, so nothing downstream loses a number. Leaving
+    # svd_results empty makes the two `svd_results.get(...)` writes below no-ops.
     svd_results = {}
-    if visualize:
-        logger.info("svd analysis ...")
-        from connectome_gnn.models.utils import analyze_data_svd
-
-        folder = graphs_data_path(config.dataset)
-        svd_results = analyze_data_svd(
-            x_ts, folder, config=config, is_flyvis=True, save_in_subfolder=False, logger=logger
-        )
+    # if visualize:
+    #     logger.info("svd analysis ...")
+    #     from connectome_gnn.models.utils import analyze_data_svd
+    #
+    #     folder = graphs_data_path(config.dataset)
+    #     svd_results = analyze_data_svd(
+    #         x_ts, folder, config=config, is_flyvis=True, save_in_subfolder=False, logger=logger
+    #     )
 
     # Save ranks to log file
     gen_log_path = graphs_data_path(config.dataset, 'generation_log.txt')
@@ -3295,13 +3308,32 @@ def data_generate_voltage(
     )
 
     logger.info("plot figure activity ...")
-    plot_selected_neuron_traces(
-        activity=to_numpy(activity),
+    # activity.png used to be plot_selected_neuron_traces over the WHOLE run
+    # (start_frame=0, end_frame=n_frames): 64,000 frames squeezed into one axis,
+    # which draws every trace as a solid band and shows nothing. It is now the
+    # same nominal trace figure the trainer writes into
+    # tmp_training/traces/rollout_*.png -- save_trace_figure from
+    # models/teacher_eval.py -- over a 1,000-frame window, i.e. 20 s of
+    # simulated time at delta_t = 20 ms. No prediction and no rollout
+    # correlation exist at generation time, so pred and r are passed as None and
+    # only the green ground truth plus the red stimulus are drawn.
+    from connectome_gnn.models.teacher_eval import save_trace_figure
+
+    activity_np = to_numpy(activity).T  # (n_frames, n_neurons), as save_trace_figure expects
+    n_trace_frames = int(min(ACTIVITY_TRACE_FRAMES, activity_np.shape[0]))
+    # Neuron 0's drive, one value per frame -- the same scalar the trainer's
+    # rollout figure puts on its "stim" row.
+    stim_np = (to_numpy(x_ts.stimulus[:n_trace_frames, 0])
+               if x_ts.stimulus is not None else None)
+    save_trace_figure(
+        graphs_data_path(config.dataset, 'activity.png'),
+        activity_np[:n_trace_frames],
+        None,
+        stim_np,
+        sim.delta_t,
+        None,
+        type_names=index_to_name,
         type_list=to_numpy(type_list.squeeze()),
-        output_path=graphs_data_path(config.dataset, 'activity.png'),
-        start_frame=0,
-        end_frame=activity.shape[1],
-        style=fig_style,
     )
 
     if visualize & (run == run_vizualized):
