@@ -1416,6 +1416,27 @@ def r2_color(val, thresholds=(0.9, 0.7, 0.3)):
     return ANSI_GREEN if val > t0 else ANSI_YELLOW if val > t1 else ANSI_ORANGE if val > t2 else ANSI_RED
 
 
+def rmse_color(rmse, scale, thresholds=(0.02, 0.05, 0.20)):
+    """ANSI color for an RMSE, judged as a FRACTION OF `scale`.
+
+    An RMSE has units and no ceiling, so unlike :func:`r2_color` it cannot be
+    coloured against fixed absolute cut-offs -- 0.5 is excellent against a
+    quantity spanning 40 and hopeless against one spanning 1. `scale` is the
+    spread of the ground-truth quantity being recovered (for the reversal
+    potentials, max(E_ij) - min(E_ij) over edges, about 39.2 voltage units on
+    the margin/global datasets).
+
+    Default bands, as a fraction of that spread: green under 2%, yellow under
+    5%, orange under 20%, red above. Red for a NaN or a non-positive scale,
+    since neither is a value anyone should read as fine.
+    """
+    if rmse is None or scale is None or scale <= 0 or rmse != rmse:
+        return ANSI_RED
+    frac = rmse / scale
+    t0, t1, t2 = thresholds
+    return ANSI_GREEN if frac < t0 else ANSI_YELLOW if frac < t1 else ANSI_ORANGE if frac < t2 else ANSI_RED
+
+
 # Lazy re-export for backward compatibility — existing imports like
 # `from connectome_gnn.models.utils import LossRegularizer` continue to work.
 # Uses __getattr__ to avoid circular import (regularizer.py imports from utils.py).

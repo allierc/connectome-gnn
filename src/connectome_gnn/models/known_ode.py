@@ -384,14 +384,25 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         self._sign_set = False
 
     def set_presynaptic_sign(self, w_signed):
-        """Partition edges by presynaptic polarity from the connectome's own sign.
+        """Partition edges by presynaptic polarity.
 
-        w_signed: (E,) or (E,1) the ground-truth signed weights (ode_params.W).
-        Only the SIGN is read -- no magnitude information reaches the model.
+        w_signed: (E,) or (E,1), either
+          - the ground-truth SIGNED weights (ode_params.W on a current-generated
+            dataset), from which only the SIGN is read -- no magnitude
+            information reaches the model; or
+          - a BOOL mask, already the polarity (ode_params.edge_is_inh on a
+            conductance-generated dataset).
+
+        The bool branch is not a convenience. On conductance-generated data
+        ode_params.W is the CONDUCTANCE, which is non-negative by construction,
+        so `W < 0` would mark every one of the 434,112 edges excitatory, E_inh
+        would never receive a gradient, and the run would look healthy while
+        fitting a purely excitatory network. The polarity there lives in
+        edge_is_inh, which is a separate field precisely because the sign left W.
         """
         s = torch.as_tensor(w_signed).reshape(-1).to(self.edge_is_inh.device)
         n = min(s.numel(), self.edge_is_inh.numel())
-        self.edge_is_inh[:n] = s[:n] < 0
+        self.edge_is_inh[:n] = s[:n] if s.dtype == torch.bool else (s[:n] < 0)
         self._sign_set_b.fill_(True); self._sign_set = True
 
     def _node_index(self, particle_id):
@@ -535,6 +546,47 @@ class FlyvisConductanceKnownODE(KnownODEBase):
     def get_learned_conductance(self):
         """The non-negative conductance actually used, W^2, not the raw parameter."""
         return (self.W.detach() ** 2).squeeze(-1)
+
+    def get_learned_reversals(self):
+        """(E_exc, E_inh), both MATERIALISED to (n_neurons,) whatever the granularity.
+
+        The parameters are stored at whichever granularity
+        `training.conductance_reversal_dim` asked for -- 1 row (global), one per
+        cell type (per_type) or one per neuron (per_neuron) -- and `forward` never
+        expands them: `_rev_index` maps a postsynaptic neuron id straight to its
+        parameter row and indexes lazily.
+
+        Comparison against ground truth needs the opposite: one value per neuron
+        regardless of how few free parameters produced it, so that a global fit and
+        a per-neuron fit are read on the same axis. `_rev_index(arange(N))` is
+        exactly that expansion, and it is the same rule the generator applies on
+        the ground-truth side (`FlyVisConductanceODEParams._per_neuron`, which
+        broadcasts a scalar or indexes a 65-row array through `type_index`).
+        """
+        ids = torch.arange(self.n_neurons, device=self.E_exc.device)
+        r = self._rev_index(ids)
+        return self.E_exc[r].detach(), self.E_inh[r].detach()
+
+    def get_learned_reversal_per_edge(self, edge_index=None):
+        """(n_edges,) the reversal E_ij each edge drives toward, learned side.
+
+        Same construction as the ground truth's
+        `FlyVisConductanceODEParams.reversal_per_edge`: `edge_is_inh` is the
+        PREsynaptic cell's Dale sign while E is indexed by the POSTsynaptic cell,
+        so the destination row picks which of that neuron's two reversals applies.
+
+        `edge_index` may be omitted only if the model was given one; pass the
+        dataset's (2, n_edges) tensor. Only the first `n_edges + n_extra_null_edges`
+        columns are used, so a batched edge_index (the graph replicated B times
+        with a neuron-id offset) is handled by taking its first replica.
+        """
+        if edge_index is None:
+            raise ValueError("get_learned_reversal_per_edge needs the dataset edge_index")
+        n_w = self.n_edges + self.n_extra_null_edges
+        dst = edge_index[1][:n_w]
+        E_exc, E_inh = self.get_learned_reversals()
+        return torch.where(self.edge_is_inh[:dst.numel()],
+                           E_inh[dst % self.n_neurons], E_exc[dst % self.n_neurons])
 
     def _activation(self, v):
         return F.relu(v)

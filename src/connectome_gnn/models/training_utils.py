@@ -50,6 +50,14 @@ class TrainingMetrics:
     field_r2: float | None = None
     field_slope: float | None = None
 
+    # Per-edge reversal potential recovery, conductance-generated datasets only.
+    # None on current-generated data, where there is no true E_ij to compare to.
+    # reversal_scale is the ground-truth spread max(E_ij) - min(E_ij) over edges,
+    # which is what the progress bar colours reversal_rmse against.
+    reversal_rmse: float | None = None
+    reversal_r2: float | None = None
+    reversal_scale: float | None = None
+
 
 @dataclass
 class HiddenInjectionSchedule:
@@ -1151,6 +1159,7 @@ def init_training_data(
     from connectome_gnn.generators.ode_params import (
         FlyVisCurrentODEParams,
         get_ode_params_class,
+        load_flyvis_ode_params,
     )
 
     simulation = config.simulation
@@ -1372,23 +1381,43 @@ def init_training_data(
     except KeyError:
         OdeParamsCls = FlyVisCurrentODEParams
 
-    try:
-        ode_params = OdeParamsCls.load(
+    # THE REGISTRY IS KEYED ON THE MODEL, THE DATASET IS A PROPERTY OF THE FILE,
+    # and on the flyvis family those two disagree. `get_ode_params_class` maps
+    # every flyvis model name -- flyvis_current, flyvis_conductance,
+    # flyvis_conductance_known_ode -- to FlyVisCurrentODEParams, because the
+    # registry answers "what will be trained", and no one trains the conductance
+    # generator. But a conductance-generated dataset's ode_params.pt carries
+    # E_exc / E_inh / edge_is_inh, which that class has no fields for: loading it
+    # as the current class raises TypeError, and the old fallback retried the
+    # SAME class and raised again.
+    #
+    # load_flyvis_ode_params asks the FILE instead, via the ground_truth_model
+    # key that ODEParamsBase.save writes, and returns FlyVisConductanceODEParams
+    # with the reversals intact. Restricted to the flyvis family so the CX,
+    # larva and zebrafish paths keep their own registered classes.
+    if issubclass(OdeParamsCls, FlyVisCurrentODEParams):
+        ode_params = load_flyvis_ode_params(
             graphs_data_path(config.dataset),
             device=device,
         )
-    except TypeError:
+    else:
+        try:
+            ode_params = OdeParamsCls.load(
+                graphs_data_path(config.dataset),
+                device=device,
+            )
+        except TypeError:
 
-        logger.info(
-            f'ode_params schema mismatch for '
-            f'{OdeParamsCls.__name__}; '
-            f'falling back to FlyVisCurrentODEParams'
-        )
+            logger.info(
+                f'ode_params schema mismatch for '
+                f'{OdeParamsCls.__name__}; '
+                f'falling back to FlyVisCurrentODEParams'
+            )
 
-        ode_params = FlyVisCurrentODEParams.load(
-            graphs_data_path(config.dataset),
-            device=device,
-        )
+            ode_params = FlyVisCurrentODEParams.load(
+                graphs_data_path(config.dataset),
+                device=device,
+            )
 
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index
@@ -1669,7 +1698,14 @@ def init_training_model(
             raise RuntimeError(
                 "flyvis_conductance_known_ode needs ode_params.W for the per-edge polarity; "
                 "this dataset carries none")
-        model.set_presynaptic_sign(w)
+        # A CONDUCTANCE-GENERATED DATASET CARRIES THE POLARITY SEPARATELY and must
+        # be read from there. Its ode_params.W is the conductance, non-negative by
+        # construction, so sign(W) would mark all 434,112 edges excitatory and
+        # E_inh would never see a gradient -- a run that trains happily on a
+        # network it has silently made purely excitatory. edge_is_inh exists
+        # exactly because the sign moved out of W into the driving force.
+        _polarity = _get("edge_is_inh")
+        model.set_presynaptic_sign(w if _polarity is None else _polarity)
         tl = getattr(data, "type_list", None)
         if tl is not None:
             model.set_neuron_types(tl)

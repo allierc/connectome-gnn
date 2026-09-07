@@ -2880,6 +2880,47 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     return conn_r2, tau_r2, vrest_r2, dyn_r2
 
 
+def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
+    """True vs learned per-edge reversal potential E_ij -> tmp_training/Eij/.
+
+    The E_ij counterpart of the W_ij scatter in :func:`plot_training_linear`, in
+    its own folder rather than tmp_training/matrix/ so the two series stay
+    separable when flipping through a run: matrix/ is the conductance W_ij and
+    Eij/ is the driving-force reversal each edge aims at.
+
+    `rev_metrics` is the dict from
+    :func:`connectome_gnn.metrics.compute_reversal_metrics`, or None on a
+    current-generated dataset, in which case nothing is written -- there is no
+    true E_ij on data whose generator had no (E - v_i) term.
+
+    A GLOBAL FIT COLLAPSES TO TWO POINTS and that is correct, not a bug: with
+    conductance_reversal_dim 'global' every excitatory edge shares one E and
+    every inhibitory edge the other, so the scatter is two clusters. Per-type
+    gives up to 130 (65 cell types x 2 polarities), per-neuron up to 27,482.
+    """
+    if rev_metrics is None:
+        return
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plot_weight_scatter(
+        ax,
+        gt_weights=rev_metrics["true"],
+        learned_weights=rev_metrics["learned"],
+        corrected=False,
+        scatter_size=1.5,
+    )
+    ax.set_xlabel(r'true $E_{ij}$', fontsize=32)
+    ax.set_ylabel(r'learned $E_{ij}$', fontsize=32)
+    # RMSE is what the progress bar reports, so put the same number on the figure
+    # -- reading a scatter and a bar that disagree costs more than one text call.
+    ax.text(0.05, 0.72, f'RMSE: {rev_metrics["rmse"]:.2f}',
+            transform=ax.transAxes, verticalalignment='top', fontsize=24)
+    plt.tight_layout()
+    os.makedirs(f"{log_dir}/tmp_training/Eij", exist_ok=True)
+    plt.savefig(f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png",
+                dpi=87, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+
 def plot_weight_comparison(w_true, w_modified, output_path, xlabel='true $W$', ylabel='modified $W$', color='white'):
     w_true_np = w_true.detach().cpu().numpy().flatten()
     w_modified_np = w_modified.detach().cpu().numpy().flatten()

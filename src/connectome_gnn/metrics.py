@@ -1600,6 +1600,71 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
 
 
 # ------------------------------------------------------------------ #
+#  Reversal potential recovery (conductance datasets only)
+# ------------------------------------------------------------------ #
+
+def compute_reversal_metrics(model, ode_params):
+    """Recovery of the per-edge reversal potential E_ij, true vs learned.
+
+    ONLY DEFINED ON CONDUCTANCE-GENERATED DATA. The current-based generator has
+    no (E - v_i) term at all, so there is no true E_ij to compare against and
+    this returns None -- which is the signal for the caller to draw no panel and
+    print no bar entry, rather than a zero that reads like a measurement.
+
+    Both sides are reduced to ONE VALUE PER EDGE before comparing, because that
+    is the only representation the two share. The ground truth stores E per
+    postsynaptic neuron (n_neurons,) after the generator expanded whatever
+    granularity the student was fitted at; the model stores it at its own
+    granularity (1, n_neuron_types or n_neurons rows) and expands on demand. The
+    per-edge form is `where(edge_is_inh, E_inh[dst], E_exc[dst])` on both sides,
+    so a global fit and a per-neuron fit land on the same axis.
+
+    Returns a dict with:
+      rmse    root-mean-square error of learned minus true E_ij, in the same
+              VOLTAGE UNITS as the dataset's voltages (flyvis voltages are O(1)
+              about 0, and the margin/global reversals sit near +24.8 / -14.5)
+      r2      coefficient of determination of learned E_ij against true E_ij
+      slope   slope of the least-squares fit of learned on true
+      n_edges how many edges entered the comparison
+      true, learned   the two (n_edges,) numpy arrays, for the scatter
+    Returns None when either side has no reversals.
+    """
+    import numpy as np
+
+    gt_rev = getattr(ode_params, "reversal_per_edge", None)
+    if gt_rev is None or getattr(ode_params, "E_exc", None) is None:
+        return None
+    if not hasattr(model, "get_learned_reversal_per_edge"):
+        return None
+    # Under torch.compile the parameters live on the wrapped module.
+    core = getattr(model, "_orig_mod", model)
+    if not hasattr(core, "get_learned_reversal_per_edge"):
+        return None
+
+    with torch.no_grad():
+        true = to_numpy(gt_rev()).ravel()
+        learned = to_numpy(
+            core.get_learned_reversal_per_edge(ode_params.edge_index)).ravel()
+
+    n = int(min(true.size, learned.size))
+    true, learned = true[:n], learned[:n]
+    ok = np.isfinite(true) & np.isfinite(learned)
+    if ok.sum() < 2:
+        return None
+    true, learned = true[ok], learned[ok]
+
+    m = recovery_param_metrics(true, learned)
+    return {
+        "rmse": float(np.sqrt(np.mean((learned - true) ** 2))),
+        "r2": float(m["r2"]),
+        "slope": float(m["slope"]),
+        "n_edges": int(true.size),
+        "true": true,
+        "learned": learned,
+    }
+
+
+# ------------------------------------------------------------------ #
 #  Gradient of f_theta w.r.t. msg
 # ------------------------------------------------------------------ #
 
