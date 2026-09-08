@@ -84,4 +84,4 @@ training:
   conductance_init: default
   train_on_teacher: true
   teacher_rollout_frames: 1000
-config_file: fly/flyvis_conductance_noise_005_knownode_cv00
+config_file: fly/flyvis_conductance_noise_005_conductance_knownode_cv00
