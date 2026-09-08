@@ -211,6 +211,19 @@ class NeuralGNN(nn.Module):
         self.n_edges = simulation_config.n_edges
         self.n_extra_null_edges = simulation_config.n_extra_null_edges
         self.g_phi_positive = model_config.g_phi_positive
+        # W enters the message as W**2 -- a conductance, non-negative by
+        # construction. See GraphModelConfig.w_squared for why it cannot be
+        # combined with g_phi_positive: both squarings together leave nothing
+        # able to be negative, so the model could not represent an inhibitory
+        # synapse and would fit every dataset with one hand tied.
+        self.w_squared = getattr(model_config, "w_squared", False)
+        if self.w_squared and self.g_phi_positive:
+            raise ValueError(
+                "w_squared and g_phi_positive are both True: W**2 and g_phi**2 are "
+                "each non-negative, so every message would be non-negative and no "
+                "inhibitory synapse could be represented. Set g_phi_positive false "
+                "and let g_phi carry the sign, or leave w_squared false and let W."
+            )
         self.n_g_phi_noise_inputs = getattr(model_config, "n_g_phi_noise_inputs", 0)
 
         self.batch_size = config.training.batch_size
@@ -671,8 +684,14 @@ class NeuralGNN(nn.Module):
         if self.g_phi_positive:
             g_phi_out = g_phi_out**2
 
-        # weight by per-edge W
-        edge_msg = self.W[edge_W_idx] * g_phi_out  # (E, 1)
+        # weight by per-edge W. Squared when w_squared, which makes the learned
+        # weight a non-negative conductance and leaves g_phi to carry the
+        # synapse's sign -- the same parameterisation the conductance known-ODE
+        # student uses, where the sign comes from its explicit (E - v_i) factor.
+        W_edge = self.W[edge_W_idx]
+        if self.w_squared:
+            W_edge = W_edge ** 2
+        edge_msg = W_edge * g_phi_out  # (E, 1)
 
         # aggregate: scatter_add messages to destination nodes
         msg = torch.zeros(v.shape[0], edge_msg.shape[1], device=self.device, dtype=v.dtype)

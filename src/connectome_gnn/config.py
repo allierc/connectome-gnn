@@ -607,6 +607,24 @@ class GraphModelConfig(BaseModel):
     n_g_phi_noise_inputs: int = 0
     g_phi_positive: bool = False
 
+    # W ENTERS THE MESSAGE AS W**2, so the learned edge weight is a conductance:
+    # non-negative by construction, the sign of the synapse living entirely in
+    # g_phi. This is the parameterisation FlyvisConductanceKnownODE already
+    # hardcodes, made available to the GNN.
+    #
+    # ONLY MEANINGFUL WITH g_phi_positive FALSE. g_phi_positive squares g_phi's
+    # output, so squaring W as well makes every message non-negative and no
+    # inhibitory synapse can exist at all. The two flags cover the two places the
+    # sign can live -- in W, or in g_phi -- and exactly one of them must be free
+    # to be negative. NeuralGNN asserts this rather than training a model that
+    # cannot represent inhibition.
+    #
+    # Applies to every NeuralGNN family, current and conductance alike: on
+    # current-generated data the true weight is signed, so w_squared there asks
+    # g_phi to carry the polarity instead, which is a real alternative
+    # parameterisation rather than a mis-specification.
+    w_squared: bool = False
+
     update_type: UpdateType = UpdateType.NONE
 
     # TaskRNN: shape of W_in / W_out (Hulse path-integration model).

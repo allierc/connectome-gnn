@@ -300,6 +300,14 @@ validate_registry()
 
 def get_model_W(model) -> torch.Tensor:
     """The model's weights IN THE SAME UNITS AS ode_params.W, for comparison."""
+    # w_squared FIRST, because it is a statement about how W enters the ODE and
+    # therefore about what W MEANS, which overrides any convention about its
+    # sign. Under it the message uses W**2, so W**2 is the learned conductance
+    # and the raw parameter is its square root; scattering the root against
+    # ode_params.W would report the mismatch as a recovery failure. The sign-lock
+    # below is moot here anyway -- a square has no sign to lock.
+    if getattr(model, 'w_squared', False):
+        return model.W.detach() ** 2
     # Prefer the effective weight (|W|·sign_GT under the hard sign-lock); when
     # the lock is off this equals the raw W, so existing models are unaffected.
     if hasattr(model, 'effective_W'):
