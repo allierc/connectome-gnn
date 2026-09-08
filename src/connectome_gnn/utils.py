@@ -648,6 +648,7 @@ def create_log_dir(config=[], erase=True, erase_results=False):
         'tmp_training/Eij',
         'tmp_training/tau',
         'tmp_training/vrest',
+        'tmp_training/msgi',
         'tmp_training/function',
         'tmp_training/function/f_theta',
         'tmp_training/function/g_phi',
