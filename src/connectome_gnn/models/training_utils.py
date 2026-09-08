@@ -131,6 +131,12 @@ class EpochState:
     plot_frequency: int
     connectivity_plot_frequency: int
     early_r2_frequency: int
+    # HOW OFTEN THE 2x2 RECOVERY FIGURES ARE WRITTEN, as opposed to how often the
+    # numbers behind them are computed. The metrics are cheap and are what gets
+    # trended, so they stay on connectivity_plot_frequency; the figures are ~130 KB
+    # each across six folders and pile up to hundreds of files over a 5-epoch run,
+    # so they go at a fifth of that -- 5 per epoch.
+    panel_plot_frequency: int
     plot_iterations: set[int]
 
     # Data sampling
@@ -183,6 +189,12 @@ def init_epoch_state(
     early_r2_frequency = max(
         1,
         connectivity_plot_frequency // 5,
+    )
+
+    # Five figure snapshots per epoch, against the twenty metric evaluations.
+    panel_plot_frequency = max(
+        1,
+        n_iter // 5,
     )
 
     # Visual-field / heavy plot locations.
@@ -309,6 +321,7 @@ def init_epoch_state(
         plot_frequency=plot_frequency,
         connectivity_plot_frequency=connectivity_plot_frequency,
         early_r2_frequency=early_r2_frequency,
+        panel_plot_frequency=panel_plot_frequency,
         plot_iterations=plot_iterations,
 
         frame_indices=frame_indices,

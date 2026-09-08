@@ -1825,6 +1825,91 @@ def _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts):
     }
 
 
+# How many frames the msg_i panel is evaluated on. THE SAME FRAMES EVERY TIME --
+# evenly spaced over the recording by linspace, not sampled -- because the point
+# of the panel is to be flipped through: two consecutive checkpoints must differ
+# because the MODEL moved, not because the frames did.
+MSG_N_FRAMES = 10
+
+
+def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
+                           n_frames=MSG_N_FRAMES):
+    """The aggregated per-neuron message msg_i, true vs learned.
+
+    WHY THE AGGREGATED MESSAGE AND NOT THE EDGE ONE. msg_i is what f_theta
+    consumes and the only channel through which connectivity reaches dv/dt, so it
+    is the quantity whose recovery the trajectory actually depends on. It is also
+    the one place the conductance/driving-force degeneracy stops mattering: the
+    message is g_ij * act(v_j) * (E_i - v_i), g and the driving force trade off
+    inside it, and msg_i is the product that survives that trade -- a model can
+    have W_ij wrong by 3x and E_ij wrong by 1/3 and still land msg_i on the
+    identity line, which is exactly what a trajectory correlation of 0.95 beside
+    an R2 of -10 on W_ij means.
+
+    THE TRUE SIDE IS REBUILT FROM ode_params, not read from the dataset, so it is
+    the generator's own message rather than anything the trainer derived:
+
+        edge_msg = W_ij * gt_g_phi_func(v_j)          the activation the
+                                                      generator used, ReLU on
+                                                      flyvis, whatever
+                                                      `activation` says on cx
+        edge_msg *= (E_ij - v_i)                      conductance datasets only;
+                                                      a current generator has no
+                                                      such term
+        msg_i     = sum of edge_msg over incoming edges
+
+    THE LEARNED SIDE IS THE MODEL'S OWN msg, via forward(..., return_all=True),
+    which every family implements -- NeuralGNN and KnownODEBase alike. Nothing is
+    re-derived, so the panel shows the message the model is really passing rather
+    than a reconstruction that could differ from it.
+
+    Returns (true, learned, groups) flattened over frames, each
+    (n_frames * n_neurons,), with `groups` the postsynaptic cell type tiled to
+    match -- or None when there is no ground-truth W to build the true side from.
+    """
+    if getattr(ode_params, 'W', None) is None:
+        return None
+
+    T = int(x_ts.n_frames)
+    frame_idx = np.linspace(0, T - 1, n_frames).astype(int)
+
+    ei = edges.to(device)
+    src, dst = ei[0], ei[1]
+    W = torch.as_tensor(to_numpy(ode_params.W).ravel(), dtype=torch.float32,
+                        device=device)
+    E_edge = None
+    if getattr(ode_params, 'E_exc', None) is not None:
+        E_edge = ode_params.reversal_per_edge().to(device).float().ravel()
+
+    n_neurons = int(x_ts.voltage.shape[1])
+    data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
+
+    was_training = model.training
+    model.eval()
+    true_all, learned_all = [], []
+    with torch.no_grad():
+        for k in frame_idx:
+            state = x_ts.frame(int(k)).to(device)
+            v = state.voltage.float().ravel()
+
+            act = torch.as_tensor(
+                np.asarray(ode_params.gt_g_phi_func(to_numpy(v[src]))),
+                dtype=torch.float32, device=device).ravel()
+            edge_msg = W[:act.numel()] * act
+            if E_edge is not None:
+                edge_msg = edge_msg * (E_edge[:act.numel()] - v[dst][:act.numel()])
+            msg_true = torch.zeros(n_neurons, device=device)
+            msg_true.scatter_add_(0, dst[:edge_msg.numel()], edge_msg)
+
+            _, _, msg_learned = model(state, ei, data_id=data_id, return_all=True)
+            true_all.append(to_numpy(msg_true).ravel())
+            learned_all.append(to_numpy(msg_learned).ravel()[:n_neurons])
+    if was_training:
+        model.train()
+
+    return np.concatenate(true_all), np.concatenate(learned_all)
+
+
 def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=None):
     """Recovery of the per-edge reversal potential E_ij, true vs learned.
 

@@ -33,6 +33,7 @@ from connectome_gnn.plot import (
     plot_reversal_scatter,
     plot_signal_loss,
     plot_dynamics_recovery,
+    plot_msg_recovery,
     plot_training_gnn,
     plot_training_linear,
     plot_training_summary_panels,
@@ -726,6 +727,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # =============================================================
 
             is_regular_r2 = N > 0 and N % epoch_state.connectivity_plot_frequency == 0
+            # Figures a fifth as often as the metrics behind them: the numbers are
+            # cheap and are what gets trended, the pictures are ~130 KB each across
+            # six folders and otherwise pile up to hundreds of files per run.
+            save_panels = N > 0 and N % epoch_state.panel_plot_frequency == 0
 
             is_early_r2 = N < epoch_state.connectivity_plot_frequency and N % epoch_state.early_r2_frequency == 0
 
@@ -787,7 +792,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     epoch_state.metrics.reversal_r2 = _rev["r2"]
                     epoch_state.metrics.reversal_scale = float(
                         _rev["true"].max() - _rev["true"].min())
-                    plot_reversal_scatter(_rev, log_dir, epoch, N)
+                    if save_panels:
+                        plot_reversal_scatter(_rev, log_dir, epoch, N)
+                        # msg_i, the ONE recovery panel the conductance
+                        # degeneracy does not touch: W_ij and E_ij trade off
+                        # inside the message, so msg_i scores what the trajectory
+                        # actually depends on. Drawn beside E_ij because it needs
+                        # the same conductance ground truth, and only on a
+                        # panel iteration -- it costs ten forward passes.
+                        plot_msg_recovery(model, ode_params, x_ts, edges, device,
+                                          log_dir, epoch, N, type_list=type_list)
                     # Its own file, for the same reason rollout_r.log has one:
                     # plot.py reads metrics.log by POSITIONAL index (`_f(parts,
                     # idx)`), so adding a column there shifts every reader after
@@ -860,7 +874,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     epoch_state.metrics.vrest_r2,
                     dynamics,
                 ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights,
-                                         n_neurons=n_neurons, type_list=type_list)
+                                         n_neurons=n_neurons, type_list=type_list,
+                                         save_panels=save_panels)
 
                 epoch_state.metrics.n_out_conn = dynamics.get("n_out_conn", 0)
 
@@ -920,6 +935,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     hidden_ids=hn.hidden_ids,
                     anchor_ids=hn.anchor_ids,
                     out_counts=_w_counts,
+                    save_panels=save_panels,
                 )
                 epoch_state.metrics.n_out_conn = _w_counts.get("n_out_conn", 0)
                 epoch_state.metrics.n_total_conn = _w_counts.get("n_total_conn", 0)
@@ -958,7 +974,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # GNN run while the numbers piled up in metrics.log. Fed the
                 # arrays compute_dynamics_r2 just used, so figure and log agree.
                 plot_dynamics_recovery(dynamics, log_dir, epoch, N,
-                                       type_list=type_list)
+                                       type_list=type_list,
+                                       save_panels=save_panels)
 
                 with open(metrics_log_path, "a") as f:
                     f.write(

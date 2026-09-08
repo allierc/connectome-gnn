@@ -41,6 +41,7 @@ from connectome_gnn.metrics import (  # noqa: F401
     extract_f_theta_slopes,
     extract_g_phi_slopes,
     get_model_W,
+    compute_msg_i_recovery,
     recovery_param_metrics,
     TAU_OUTLIER_THRESH,
     VREST_OUTLIER_THRESH,
@@ -2605,7 +2606,7 @@ def plot_loss_from_file(log_dir):
 def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
                       gt_weights, edges, n_neurons=None, n_neuron_types=None,
                       ode_params=None, hidden_ids=None, anchor_ids=None,
-                      out_counts=None):
+                      out_counts=None, save_panels=True):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -2704,6 +2705,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         outlier_threshold=W_OUTLIER_THRESH,
         violin_log_y=True,
         extra_paths=(f"{log_dir}/results/weights_comparison_raw.png",),
+        draw=save_panels,
     )
 
     # Compute corrected weights. Forward ode_params so each model uses its own
@@ -2735,6 +2737,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         outlier_threshold=W_OUTLIER_THRESH,
         violin_log_y=True,
         extra_paths=(f"{log_dir}/results/weights_comparison_corrected.png",),
+        draw=save_panels,
     )
 
     # HOW MANY EDGES THE R2 JUST RETURNED LEAVES OUT, from the same comparison it
@@ -2857,7 +2860,8 @@ plot_training_flyvis = plot_training_gnn
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
-                         gt_weights, n_neurons=None, type_list=None):
+                         gt_weights, n_neurons=None, type_list=None,
+                         save_panels=True):
     """Training diagnostics for LinearODE — raw W scatter + tau/Vrest vs GT.
 
     Uses compute_dynamics_r2_linear from metrics for R² computation,
@@ -2907,6 +2911,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
         group_names=INDEX_TO_NAME,
         outlier_threshold=W_OUTLIER_THRESH,
         violin_log_y=True,
+        draw=save_panels,
     )
 
     # Plot 2: tau recovery (only for models with tau_i)
@@ -2919,6 +2924,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
             groups=None if tl is None else tl[:n_neurons],
             group_names=INDEX_TO_NAME,
             outlier_threshold=TAU_OUTLIER_THRESH,
+            draw=save_panels,
         )
 
     # Plot 3: V_rest recovery (only for models with V_i_rest)
@@ -2931,6 +2937,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
             groups=None if tl is None else tl[:n_neurons],
             group_names=INDEX_TO_NAME,
             outlier_threshold=VREST_OUTLIER_THRESH,
+            draw=save_panels,
         )
 
     return conn_r2, tau_r2, vrest_r2, dyn_r2
@@ -3152,7 +3159,8 @@ def _error_violin_by_group(ax, error, groups, true, group_names=None, symbol='',
 
 def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
                          group_names=None, outlier_threshold=None,
-                         violin_log_y=False, corrected=False, extra_paths=()):
+                         violin_log_y=False, corrected=False, extra_paths=(),
+                         draw=True):
     """The 2x2 recovery figure used for EVERY parameter the trainer recovers.
 
     One template for W_ij, E_ij, tau and V_rest, so the four are read the same
@@ -3197,6 +3205,15 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
     copy the GNN plotter keeps alongside the per-checkpoint one in tmp_training.
     `corrected` only picks the W* label on the scatter's y axis.
 
+    `draw=False` computes and returns the same (r2, slope) WITHOUT writing a
+    figure. The metrics behind these panels are cheap and are what gets trended;
+    the figures are ~130 KB each across six folders and pile up to hundreds of
+    files over a 5-epoch run. So the trainer evaluates on
+    connectivity_plot_frequency and draws on panel_plot_frequency, a fifth as
+    often, and the two must not be allowed to diverge -- which is why this is one
+    function with a switch rather than a separate metrics path that could drift
+    from what the picture shows.
+
     Returns (r2, slope) from the top-left scatter, the same pair
     :func:`plot_weight_scatter` returns, or (nan, nan) when there was nothing to
     draw -- callers record it in metrics.log.
@@ -3214,6 +3231,9 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
         return float('nan'), float('nan')
 
     err = learned - true
+    if not draw:
+        m = recovery_param_metrics(true, learned, outlier_threshold)
+        return m['r2_clean'], m['slope_clean']
     rel, _ = _relative_error(true, learned)
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 12))
@@ -3251,7 +3271,8 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
 
 
 
-def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None):
+def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None,
+                           save_panels=True):
     """tau and V_rest recovery panels for a GNN, from the arrays metrics.log used.
 
     THESE EXIST FOR A GNN, which is the thing that is easy to get wrong. The
@@ -3276,6 +3297,8 @@ def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None):
     neuron, unlike W_ij which belongs to its sender. Silently draws nothing for a
     quantity the dataset or the model does not have.
     """
+    if not save_panels:
+        return          # the R2s are already in `dynamics`; nothing to compute
     tl = None
     if type_list is not None:
         tl = np.asarray(to_numpy(type_list)).ravel().astype(int)
@@ -3296,7 +3319,47 @@ def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None):
             groups=None if tl is None else tl[:n],
             group_names=INDEX_TO_NAME,
             outlier_threshold=thresh,
+            draw=save_panels,
         )
+
+
+def plot_msg_recovery(model, ode_params, x_ts, edges, device, log_dir, epoch, N,
+                      type_list=None):
+    """The aggregated per-neuron message msg_i -> tmp_training/msgi/.
+
+    THE ONE PANEL THAT IS NOT DEGENERATE. W_ij and E_ij enter the message as a
+    product, g_ij * act(v_j) * (E_i - v_i), so a model can be 3x wrong on the
+    conductance and 1/3 wrong on the driving force and still pass every message
+    through correctly -- which is what an R2 of -10 on the Wij panel beside a
+    trajectory correlation of 0.95 actually means. msg_i is that product summed
+    over incoming edges, so it scores what the trajectory depends on rather than
+    a factorisation the data cannot resolve.
+
+    Evaluated on MSG_N_FRAMES fixed frames, evenly spaced over the recording and
+    identical at every checkpoint, so flipping through the folder shows the model
+    moving and not the frames. Grouped by the neuron's own cell type, since msg_i
+    belongs to the receiving neuron.
+
+    No outlier threshold: unlike W_ij, tau and V_rest there is no published
+    tolerance band on a message, and inventing one would decide by fiat which
+    neurons count.
+    """
+    out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
+    if out is None:
+        return
+    true, learned = out
+    groups = None
+    if type_list is not None:
+        tl = np.asarray(to_numpy(type_list)).ravel().astype(int)
+        n_rep = int(np.ceil(true.size / max(tl.size, 1)))
+        groups = np.tile(tl, n_rep)[:true.size]
+    plot_recovery_panels(
+        true, learned,
+        f"{log_dir}/tmp_training/msgi/msgi_{epoch}_{N}.png",
+        symbol=r'\mathrm{msg}_i',
+        groups=groups,
+        group_names=INDEX_TO_NAME,
+    )
 
 
 def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
