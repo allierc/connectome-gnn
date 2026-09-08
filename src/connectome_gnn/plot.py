@@ -42,6 +42,8 @@ from connectome_gnn.metrics import (  # noqa: F401
     extract_g_phi_slopes,
     get_model_W,
     recovery_param_metrics,
+    TAU_OUTLIER_THRESH,
+    VREST_OUTLIER_THRESH,
     W_OUTLIER_THRESH,
 )
 from connectome_gnn.utils import to_numpy, qualitative_colors
@@ -2916,6 +2918,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
             symbol=r'\tau',
             groups=None if tl is None else tl[:n_neurons],
             group_names=INDEX_TO_NAME,
+            outlier_threshold=TAU_OUTLIER_THRESH,
         )
 
     # Plot 3: V_rest recovery (only for models with V_i_rest)
@@ -2927,6 +2930,7 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
             symbol='V_{rest}',
             groups=None if tl is None else tl[:n_neurons],
             group_names=INDEX_TO_NAME,
+            outlier_threshold=VREST_OUTLIER_THRESH,
         )
 
     return conn_r2, tau_r2, vrest_r2, dyn_r2
@@ -3245,6 +3249,54 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
     return r2, slope
 
 
+
+
+def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None):
+    """tau and V_rest recovery panels for a GNN, from the arrays metrics.log used.
+
+    THESE EXIST FOR A GNN, which is the thing that is easy to get wrong. The
+    known-ODE student parameterises tau and V_rest directly; a GNN buries them
+    inside f_theta, but they are still recoverable -- `extract_f_theta_slopes`
+    fits the local slope and offset of f_theta per neuron and
+    `ode_params.derive_tau` / `derive_vrest` turn those into the two constants --
+    and `compute_dynamics_r2` has been computing exactly that all along, which is
+    where the `Vr=` and `tau=` numbers in the progress bar come from. Only the
+    figure was missing, so tmp_training/tau and tmp_training/vrest sat empty on
+    every GNN run while their R2 accumulated in metrics.log.
+
+    Takes the arrays straight off the `compute_dynamics_r2` dict rather than
+    re-deriving them: an extract_f_theta_slopes pass over 13,741 neurons is not
+    free, and recomputing invites the panel and the log to disagree.
+
+    THE SAME OUTLIER THRESHOLDS THE METRICS USE, so the R2 in the top-left panel
+    is the `tau_r2_clean` / `vrest_r2_clean` the bar prints and not a second,
+    unfiltered number that happens to sit next to it.
+
+    Grouped by the neuron's OWN cell type -- tau and V_rest are properties of the
+    neuron, unlike W_ij which belongs to its sender. Silently draws nothing for a
+    quantity the dataset or the model does not have.
+    """
+    tl = None
+    if type_list is not None:
+        tl = np.asarray(to_numpy(type_list)).ravel().astype(int)
+
+    for key, symbol, fname, thresh in (
+        ('tau', r'\tau', 'tau', TAU_OUTLIER_THRESH),
+        ('vrest', 'V_{rest}', 'vrest', VREST_OUTLIER_THRESH),
+    ):
+        true = dynamics.get(f'{key}_true')
+        learned = dynamics.get(f'{key}_learned')
+        if true is None or learned is None:
+            continue
+        n = int(min(len(true), len(learned)))
+        plot_recovery_panels(
+            true[:n], learned[:n],
+            f"{log_dir}/tmp_training/{fname}/{fname}_{epoch}_{N}.png",
+            symbol=symbol,
+            groups=None if tl is None else tl[:n],
+            group_names=INDEX_TO_NAME,
+            outlier_threshold=thresh,
+        )
 
 
 def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):

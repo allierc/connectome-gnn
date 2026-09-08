@@ -32,6 +32,7 @@ from connectome_gnn.plot import (
     plot_metrics,
     plot_reversal_scatter,
     plot_signal_loss,
+    plot_dynamics_recovery,
     plot_training_gnn,
     plot_training_linear,
     plot_training_summary_panels,
@@ -950,6 +951,14 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
 
                 epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
+
+                # tau and V_rest panels, which only the linear plotter drew until
+                # now -- a GNN recovers both out of f_theta and reports their R2
+                # in the bar, so tmp_training/tau and /vrest were empty on every
+                # GNN run while the numbers piled up in metrics.log. Fed the
+                # arrays compute_dynamics_r2 just used, so figure and log agree.
+                plot_dynamics_recovery(dynamics, log_dir, epoch, N,
+                                       type_list=type_list)
 
                 with open(metrics_log_path, "a") as f:
                     f.write(

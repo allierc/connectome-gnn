@@ -1577,6 +1577,13 @@ _DYNAMICS_R2_EMPTY = {
     'n_out_vrest': 0, 'n_total_vrest': 0,
     'tau_r2':   0.0, 'tau_r2_clean':   float('nan'),
     'n_out_tau':   0, 'n_total_tau':   0,
+    # THE ARRAYS THE R2s ABOVE WERE COMPUTED FROM. A caller that wants the
+    # recovery panel would otherwise have to re-derive tau and V_rest out of
+    # f_theta -- a whole extract_f_theta_slopes pass over every neuron -- and,
+    # worse, could then draw a panel describing different numbers from the ones
+    # in metrics.log. None when the model or the dataset has no such parameter.
+    'tau_true': None, 'tau_learned': None,
+    'vrest_true': None, 'vrest_learned': None,
 }
 
 
@@ -1631,6 +1638,8 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             out['tau_r2_clean']  = tm['r2_clean']
             out['n_out_tau']     = tm['n_outliers']
             out['n_total_tau']   = tm['n_total']
+            out['tau_true']      = to_numpy(gt_tau).ravel()
+            out['tau_learned']   = to_numpy(learned_tau).ravel()
 
     if ode_params.has_vrest():
         gt_vrest = ode_params.gt_vrest(n_neurons)
@@ -1642,6 +1651,8 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             out['vrest_r2_clean']  = vm['r2_clean']
             out['n_out_vrest']     = vm['n_outliers']
             out['n_total_vrest']   = vm['n_total']
+            out['vrest_true']      = to_numpy(gt_vrest).ravel()
+            out['vrest_learned']   = to_numpy(learned_vrest).ravel()
 
     return out
 
