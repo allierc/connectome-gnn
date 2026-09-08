@@ -74,7 +74,17 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1042
-  n_epochs: 5
+  n_epochs: 10
   data_augmentation_loop: 100
   rollout_frames: 1000
 config_file: fly/flyvis_conductance_noise_005_conductance_knownode_cv00
+claude:
+  n_parallel: 4
+  n_iter_block: 12
+  n_epochs: 10
+  data_augmentation_loop: 100
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 45
+  hard_runtime_limit_min: 1440
+  claude_call_timeout_min: 20
