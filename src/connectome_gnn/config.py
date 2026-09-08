@@ -1403,7 +1403,14 @@ class TrainingConfig(BaseModel):
     # watching on a recovery run too, and coupling it to the distillation switch
     # meant a recovery spec had to claim to be a distillation to get its own
     # diagnostic. One key, one job: this int alone decides.
-    rollout_frames: int = 0
+    #
+    # ON BY DEFAULT since 2026-09-08. A free run that leaves the trajectory is the
+    # failure this catches earliest, and a second per checkpoint is cheap enough
+    # that opting in was costing more in forgotten specs than it saved in time.
+    # Models whose forward is not the plain (state, edges) call -- rnn, eed, mlp,
+    # stimulus -- skip it with one log line rather than raising per checkpoint; see
+    # graph_trainer's _rollout_ok. Set 0 to turn it off.
+    rollout_frames: int = 1000
 
     # ---- flyvis_conductance_known_ode, TEACHER-STUDENT ONLY ---------------------
     # Every `student_*` knob below is read only when train_on_teacher is True.
