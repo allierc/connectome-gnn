@@ -52,6 +52,7 @@ from connectome_gnn.models.utils import (
     ANSI_RESET,
     ANSI_YELLOW,
     _NGP_QUICK_FREQ,
+    forward_kind,
     model_family,
     r2_color,
     rmse_color,
@@ -332,6 +333,24 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     else:
         horizon_schedule = None
         horizon_max = None
+
+    # WHETHER THE IN-TRAINING ROLLOUT CAN RUN AT ALL, decided once rather than per
+    # checkpoint. teacher_eval.teacher_rollout hardcodes one calling convention --
+    # `model(x, edges, data_id=...)` followed by an Euler step -- which is
+    # forward_kind 'gnn', i.e. NeuralGNN and every KnownODEBase subclass. An RNN
+    # threads a hidden state, an EED rolls in latent space and an MLP takes no
+    # edges, so those raise inside and, now that rollout_frames defaults to 1000,
+    # would do so at EVERY checkpoint of every such run and be swallowed by the
+    # try/except below as a warning apiece. Skipping once, loudly, is the honest
+    # behaviour; graph_tester.py:605 holds the per-kind dispatch that a general
+    # version would have to share.
+    _rollout_frames = int(getattr(training, "rollout_frames", 0))
+    _rollout_ok = _rollout_frames > 0 and forward_kind(model) == "gnn"
+    if _rollout_frames > 0 and not _rollout_ok:
+        logger.info(
+            f"in-training rollout disabled: forward_kind '{forward_kind(model)}' needs "
+            f"its own rollout step (only 'gnn' is implemented here). Set "
+            f"rollout_frames: 0 to silence this; `-o test` still rolls this model out.")
 
     # =====================================================================
     # EPOCH LOOP
@@ -717,16 +736,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # would clobber this run's results_rollout.log. Writes its own
             # tmp_training/rollout_r.log rather than a metrics.log column, because
             # plot.py reads metrics.log by positional index.
-            # Gated on rollout_frames alone, not on train_on_teacher. A recovery run
-            # wants this diagnostic too, and coupling it to the distillation switch
-            # meant a recovery spec had to claim to be a distillation to get it.
-            if int(getattr(training, "rollout_frames", 0)) > 0 and (is_regular_r2 or is_early_r2):
+            # Gated on rollout_frames and forward_kind, not on train_on_teacher. A
+            # recovery run wants this diagnostic too, and coupling it to the
+            # distillation switch meant a recovery spec had to claim to be a
+            # distillation to get it. _rollout_ok was resolved before the epoch loop.
+            if _rollout_ok and (is_regular_r2 or is_early_r2):
                 from connectome_gnn.models.teacher_eval import evaluate_teacher_rollout
                 try:
                     _r, _rmse = evaluate_teacher_rollout(
                         model, x_ts, edges, sim, device, log_dir,
                         regularizer.iter_count,
-                        n_frames=int(getattr(training, "rollout_frames", 1000)),
+                        n_frames=_rollout_frames,
                         has_visual_field=train.has_visual_field, hn=hn,
                         type_names=getattr(ode_params, "type_names", None)
                         if not isinstance(ode_params, dict) else ode_params.get("type_names"),
