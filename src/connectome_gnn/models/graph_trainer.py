@@ -771,7 +771,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             if is_regular_r2 or is_early_r2:
                 from connectome_gnn.metrics import compute_reversal_metrics
                 try:
-                    _rev = compute_reversal_metrics(model, ode_params)
+                    # config/edges/x_ts are only used by the GNN branch, which has
+                    # no E parameter to read and has to recover it from the learned
+                    # message on real (edge, frame) samples. The known-ODE student
+                    # ignores them.
+                    _rev = compute_reversal_metrics(model, ode_params,
+                                                    config=config, edges=edges,
+                                                    x_ts=x_ts)
                 except Exception as _e:
                     logger.warning(f"E_ij recovery eval failed: {type(_e).__name__}: {_e}")
                     _rev = None
@@ -797,6 +803,26 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"iter {regularizer.iter_count}: E_ij rmse={_rev['rmse']:.4f} "
                         f"R2={_rev['r2']:.4f} slope={_rev['slope']:.3f} "
                         f"over {_rev['n_edges']} edges")
+                    # Only the GNN branch produces these: the straight-line fit
+                    # quality that licenses the E above, and W recovered up to the
+                    # one gain the GNN cannot pin down. Their own file, for the
+                    # same positional-index reason reversal_rmse.log has one.
+                    if "fit_r2_median" in _rev:
+                        _ext_log = os.path.join(log_dir, "tmp_training",
+                                                "gnn_conductance_fit.log")
+                        if not os.path.exists(_ext_log):
+                            with open(_ext_log, "w") as f:
+                                f.write("iteration,fit_r2_median,w_r2_scaled,w_scale\n")
+                        with open(_ext_log, "a") as f:
+                            f.write(f"{regularizer.iter_count},"
+                                    f"{_rev['fit_r2_median']:.6f},"
+                                    f"{_rev['w_r2_scaled']:.6f},"
+                                    f"{_rev['w_scale']:.6e}\n")
+                        logger.info(
+                            f"iter {regularizer.iter_count}: message affine in v_i "
+                            f"with median R2={_rev['fit_r2_median']:.4f}; "
+                            f"W R2={_rev['w_r2_scaled']:.4f} after dividing out "
+                            f"gain {_rev['w_scale']:.3e}")
 
             if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
                 from connectome_gnn.metrics import compute_jacobian_connectivity_r2
@@ -3032,7 +3058,7 @@ def _data_train_cortex_task(config, erase, best_model, device, log_file=None):
     # Wipe tmp_training so snapshots, metrics, etc. don't mix across runs.
     shutil.rmtree(os.path.join(log_dir, 'tmp_training'), ignore_errors=True)
     snapshot_dir = os.path.join(log_dir, 'tmp_training', 'cortex_snapshot')
-    matrix_dir = os.path.join(log_dir, 'tmp_training', 'matrix')
+    matrix_dir = os.path.join(log_dir, 'tmp_training', 'Wij')
     os.makedirs(snapshot_dir, exist_ok=True)
     os.makedirs(matrix_dir, exist_ok=True)
 
