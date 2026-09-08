@@ -987,11 +987,11 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
         anc_nnr_pear  = _p('anchor_nnr_pearson')
 
         # Compact format matching graph_trainer's pbar:
-        #   conn=X(Y) Vr=Z τ=W nnr=H(A)
+        #   Wij=X(Y) Vr=Z τ=W nnr=H(A)
         # where (Y) is the visible-edge R² and (A) is the anchor-NNR pearson.
         parts = []
         if conn_r2:
-            conn_str = f"conn={_color_metric(conn_r2, 0.9, 0.5)}"
+            conn_str = f"Wij={_color_metric(conn_r2, 0.9, 0.5)}"
             if conn_r2_vis:
                 conn_str += f"({_color_metric(conn_r2_vis, 0.9, 0.5)})"
             parts.append(conn_str)

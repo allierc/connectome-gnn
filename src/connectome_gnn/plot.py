@@ -2602,7 +2602,8 @@ def plot_loss_from_file(log_dir):
 
 def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
                       gt_weights, edges, n_neurons=None, n_neuron_types=None,
-                      ode_params=None, hidden_ids=None, anchor_ids=None):
+                      ode_params=None, hidden_ids=None, anchor_ids=None,
+                      out_counts=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -2733,6 +2734,17 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         violin_log_y=True,
         extra_paths=(f"{log_dir}/results/weights_comparison_corrected.png",),
     )
+
+    # HOW MANY EDGES THE R2 JUST RETURNED LEAVES OUT, from the same comparison it
+    # was computed on -- the CORRECTED W, since that is what this function returns
+    # as connectivity_r2. Written into a caller-supplied dict rather than added to
+    # the return tuple, which graph_trainer_spend.py unpacks positionally.
+    # recovery_param_metrics is the single R2 entry point and costs two passes
+    # over 434k floats, so recomputing it here cannot disagree with the panel.
+    if out_counts is not None:
+        _cm = recovery_param_metrics(_gt_w_full, _corr_w_full, W_OUTLIER_THRESH)
+        out_counts['n_out_conn'] = _cm['n_outliers']
+        out_counts['n_total_conn'] = _cm['n_total']
 
     # Visible-only R² — parallel diagnostic, computed without plotting.
     # R² over edges that don't touch any hidden neuron; same as r_squared when

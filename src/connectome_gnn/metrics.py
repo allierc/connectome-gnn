@@ -1572,6 +1572,7 @@ W_OUTLIER_THRESH = 1.0
 
 
 _DYNAMICS_R2_EMPTY = {
+    'n_out_conn': 0, 'n_total_conn': 0,
     'vrest_r2': 0.0, 'vrest_r2_clean': float('nan'),
     'n_out_vrest': 0, 'n_total_vrest': 0,
     'tau_r2':   0.0, 'tau_r2_clean':   float('nan'),
@@ -1693,7 +1694,9 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
         # the GNN training-time connectivity_r2 convention). Previously this
         # was the full-sample R² of the raw weights, which silently disagreed
         # with what the accompanying plot showed.
-        conn_r2 = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)['r2_clean']
+        _cm = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)
+        conn_r2 = _cm['r2_clean']
+        out['n_out_conn'], out['n_total_conn'] = _cm['n_outliers'], _cm['n_total']
     except Exception:
         pass
 
