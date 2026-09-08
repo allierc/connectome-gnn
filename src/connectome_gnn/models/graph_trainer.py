@@ -717,13 +717,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # would clobber this run's results_rollout.log. Writes its own
             # tmp_training/rollout_r.log rather than a metrics.log column, because
             # plot.py reads metrics.log by positional index.
-            if getattr(training, "train_on_teacher", False) and (is_regular_r2 or is_early_r2):
+            # Gated on rollout_frames alone, not on train_on_teacher. A recovery run
+            # wants this diagnostic too, and coupling it to the distillation switch
+            # meant a recovery spec had to claim to be a distillation to get it.
+            if int(getattr(training, "rollout_frames", 0)) > 0 and (is_regular_r2 or is_early_r2):
                 from connectome_gnn.models.teacher_eval import evaluate_teacher_rollout
                 try:
                     _r, _rmse = evaluate_teacher_rollout(
                         model, x_ts, edges, sim, device, log_dir,
                         regularizer.iter_count,
-                        n_frames=int(getattr(training, "teacher_rollout_frames", 1000)),
+                        n_frames=int(getattr(training, "rollout_frames", 1000)),
                         has_visual_field=train.has_visual_field, hn=hn,
                         type_names=getattr(ode_params, "type_names", None)
                         if not isinstance(ode_params, dict) else ode_params.get("type_names"),

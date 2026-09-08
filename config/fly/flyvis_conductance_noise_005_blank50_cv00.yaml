@@ -78,11 +78,4 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 100
-  conductance_reversal_mode: margin
-  conductance_reversal_dim: global
-  conductance_neuron_params: per_type
-  conductance_learn_edges: true
-  conductance_init: teacher_closed_form
-  train_on_teacher: true
-  teacher_rollout_frames: 1000
 config_file: fly/flyvis_conductance_noise_005_blank50_cv00

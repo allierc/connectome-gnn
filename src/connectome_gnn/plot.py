@@ -2894,7 +2894,7 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     true E_ij on data whose generator had no (E - v_i) term.
 
     A GLOBAL FIT COLLAPSES TO TWO POINTS and that is correct, not a bug: with
-    conductance_reversal_dim 'global' every excitatory edge shares one E and
+    student_reversal_dim 'global' every excitatory edge shares one E and
     every inhibitory edge the other, so the scatter is two clusters. Per-type
     gives up to 130 (65 cell types x 2 polarities), per-neuron up to 27,482.
     """
