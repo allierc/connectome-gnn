@@ -756,7 +756,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         has_visual_field=train.has_visual_field, hn=hn,
                         type_names=getattr(ode_params, "type_names", None)
                         if not isinstance(ode_params, dict) else ode_params.get("type_names"),
-                        type_list=type_list)
+                        type_list=type_list,
+                        # SCORE EVERY CHECKPOINT, DRAW ON PANEL ITERATIONS ONLY.
+                        # The rollout is run either way -- r and rmse are the
+                        # trajectory metric and belong in rollout_r.log at full
+                        # density -- but the stacked-trace figure was being
+                        # written 24 times an epoch against the recovery panels'
+                        # 5, which is why tmp_training/traces held 38 files where
+                        # tau/ held 6.
+                        make_figure=save_panels)
                     logger.info(f"iter {regularizer.iter_count}: rollout r={_r:.4f} rmse={_rmse:.4f} (TRAIN split -- the held-out number is `-o test`)")
                 except Exception as _e:
                     # A failed diagnostic must not take the training run with it.
