@@ -1650,6 +1650,11 @@ def compute_reversal_metrics(model, ode_params):
         # violin that silently drops them would misreport how much of the
         # parameterisation the data actually constrains.
         _dst = to_numpy(ode_params.edge_index[1]).ravel()
+        # Per-EDGE cell type for the violin panel: the POSTSYNAPTIC cell, since
+        # E belongs to the neuron the driving force (E - v_i) acts on.
+        if per_neuron["type_index"] is not None:
+            _ti = per_neuron["type_index"]
+            per_neuron["edge_type"] = _ti[_dst % _ti.size]
         _targeted = np.zeros(per_neuron["true_exc"].size, dtype=bool)
         _targeted[np.unique(_dst) % _targeted.size] = True
         per_neuron["targeted"] = _targeted

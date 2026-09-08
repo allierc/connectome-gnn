@@ -2808,7 +2808,7 @@ plot_training_flyvis = plot_training_gnn
 
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
-                         gt_weights, n_neurons=None):
+                         gt_weights, n_neurons=None, type_list=None):
     """Training diagnostics for LinearODE — raw W scatter + tau/Vrest vs GT.
 
     Uses compute_dynamics_r2_linear from metrics for R² computation,
@@ -2835,48 +2835,51 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     from connectome_gnn.generators.ode_params import load_ode_params_for_run
     ode_params = load_ode_params_for_run(config, device=device)
 
-    # Plot 1: Raw W scatter
-    fig, ax = plt.subplots(figsize=(8, 8))
-    plot_weight_scatter(
-        ax,
-        gt_weights=to_numpy(gt_weights),
-        learned_weights=to_numpy(get_model_W(model).squeeze()),
-        corrected=False,
+    # THE CELL TYPE EACH QUANTITY BELONGS TO, for the per-type violin panel.
+    # W_ij is grouped by its PRESYNAPTIC cell: in the flyvis connectome
+    # W = syn_strength * syn_count * sign, and the sign is the sender's polarity,
+    # so the sender is what a systematic error in W would track. tau and V_rest
+    # are properties of the neuron itself. None when no type map was passed, in
+    # which case plot_recovery_panels leaves that panel empty rather than guessing.
+    import numpy as np
+    tl = None if type_list is None else np.asarray(to_numpy(type_list)).ravel().astype(int)
+    ei = getattr(ode_params, 'edge_index', None)
+    w_groups = None
+    if tl is not None and ei is not None:
+        w_groups = tl[to_numpy(ei[0]).ravel() % tl.size]
+
+    # Plot 1: W recovery
+    plot_recovery_panels(
+        to_numpy(gt_weights),
+        to_numpy(get_model_W(model).squeeze()),
+        f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
+        symbol='W_{ij}',
+        groups=w_groups,
+        group_names=INDEX_TO_NAME,
         outlier_threshold=W_OUTLIER_THRESH,
     )
-    plt.tight_layout()
-    os.makedirs(f"{log_dir}/tmp_training/matrix", exist_ok=True)
-    plt.savefig(f"{log_dir}/tmp_training/matrix/raw_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0)
-    plt.close()
 
-    # Plot 2: tau scatter (only for models with tau_i)
+    # Plot 2: tau recovery (only for models with tau_i)
     if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
-        learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-        gt_tau_np = to_numpy(ode_params.tau_i[:n_neurons])
-        fig, ax = plt.subplots(figsize=(8, 8))
-        plot_weight_scatter(ax, gt_weights=gt_tau_np, learned_weights=learned_tau, corrected=False)
-        ax.set_xlabel(r'true $\tau$', fontsize=24)
-        ax.set_ylabel(r'learned $\tau$', fontsize=24)
-        plt.tight_layout()
-        os.makedirs(f"{log_dir}/tmp_training/dynamics", exist_ok=True)
-        plt.savefig(f"{log_dir}/tmp_training/dynamics/tau_{epoch}_{N}.png",
-                    dpi=87, bbox_inches='tight', pad_inches=0)
-        plt.close()
+        plot_recovery_panels(
+            to_numpy(ode_params.tau_i[:n_neurons]),
+            to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach()),
+            f"{log_dir}/tmp_training/dynamics/tau_{epoch}_{N}.png",
+            symbol=r'\tau',
+            groups=None if tl is None else tl[:n_neurons],
+            group_names=INDEX_TO_NAME,
+        )
 
-    # Plot 3: V_rest scatter (only for models with V_i_rest)
+    # Plot 3: V_rest recovery (only for models with V_i_rest)
     if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
-        learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
-        gt_vrest_np = to_numpy(ode_params.V_i_rest[:n_neurons])
-        fig, ax = plt.subplots(figsize=(8, 8))
-        plot_weight_scatter(ax, gt_weights=gt_vrest_np, learned_weights=learned_vrest, corrected=False)
-        ax.set_xlabel(r'true $V_{rest}$', fontsize=24)
-        ax.set_ylabel(r'learned $V_{rest}$', fontsize=24)
-        plt.tight_layout()
-        os.makedirs(f"{log_dir}/tmp_training/dynamics", exist_ok=True)
-        plt.savefig(f"{log_dir}/tmp_training/dynamics/vrest_{epoch}_{N}.png",
-                    dpi=87, bbox_inches='tight', pad_inches=0)
-        plt.close()
+        plot_recovery_panels(
+            to_numpy(ode_params.V_i_rest[:n_neurons]),
+            to_numpy(model.V_rest[:n_neurons].detach()),
+            f"{log_dir}/tmp_training/dynamics/vrest_{epoch}_{N}.png",
+            symbol='V_{rest}',
+            groups=None if tl is None else tl[:n_neurons],
+            group_names=INDEX_TO_NAME,
+        )
 
     return conn_r2, tau_r2, vrest_r2, dyn_r2
 
@@ -2884,177 +2887,213 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
 # Green = ground truth, black = learned, the repo's GT-vs-predicted convention.
 _E_TRUE, _E_LEARNED = 'tab:green', 'black'
 
+# How many groups the per-type violin panel will draw before it stops being
+# readable. flyvis has 65 cell types; beyond a few hundred the violins are
+# thinner than their own outlines, so the panel says so instead of drawing them.
+_MAX_VIOLIN_GROUPS = 200
 
-def _gt_reversal_granularity(rev_metrics):
-    """'global' | 'per_type' | 'per_neuron' -- how many distinct TRUE reversals.
 
-    The figure form follows the GROUND TRUTH, not the model. The known-ODE always
-    learns one E_exc and one E_inh per neuron under recovery, so the learned side
-    is 27,482 numbers whatever made the data; what changes is how many true values
-    they are aimed at, and that decides whether a scatter says anything. Against a
-    global truth every point shares one of two x-values and a scatter degenerates
-    to two vertical stripes -- a violin of the learned spread about each true value
-    is the same information, readable.
+def _relative_error(true, learned):
+    """(learned - true) / true wherever that is defined, plus the count dropped.
+
+    ONLY true == 0 is dropped -- the points where the ratio does not exist. 16,985
+    of the 434,112 conductances are exactly zero, edges the connectome lists but
+    carries no weight on, so this is a real population rather than an edge case,
+    and the caller prints how many were removed.
+
+    A QUANTILE FLOOR WAS THE OBVIOUS ALTERNATIVE AND IT IS WRONG HERE. Dropping
+    everything below the 1st percentile of |true| silently deleted all 151,155
+    inhibitory edges from the E_ij panel: with a global ground truth |E_ij| takes
+    exactly two values, 14.4716 and 24.7749, the percentile landed on the smaller
+    one, and a strict `>` test removed the entire mass sitting on it. Any
+    threshold expressed as a quantile has that failure mode whenever the data are
+    discrete, which recovered parameters often are. Readability is handled where
+    it belongs instead, by the display clipping in :func:`_error_hist`, which
+    hides no data -- it only bounds the axis and says how many points fell
+    outside.
     """
     import numpy as np
-    n_exc = len(np.unique(rev_metrics["true_exc"]))
-    n_inh = len(np.unique(rev_metrics["true_inh"]))
-    n = max(n_exc, n_inh)
-    ti = rev_metrics.get("type_index")
-    n_types = len(np.unique(ti)) if ti is not None else 0
-    if n <= 1:
-        return "global"
-    if n_types and n <= n_types:
-        return "per_type"
-    return "per_neuron"
+    keep = true != 0
+    rel = (learned[keep] - true[keep]) / true[keep]
+    return rel, int((~keep).sum())
 
 
-def _violin_by_true(ax, true_vals, learned_vals, keys, order):
-    """Violins of the LEARNED per-neuron reversals, one per group in `order`.
+def _error_hist(ax, values, xlabel, color='black', clip_quantile=0.005):
+    """Histogram of an error, x-limited to its bulk with the tails counted.
 
-    `order` is supplied rather than derived so the excitatory and inhibitory rows
-    share ONE x axis. Sorting each row by its own true value would put a different
-    cell type at position 1 in each -- the axis label would then be a lie, and a
-    reader comparing a type's two reversals would be comparing two types.
-
-    Green markers are the true values; a perfect fit puts every violin's mass on
-    its own marker.
+    Limits come from the [clip_quantile, 1 - clip_quantile] range rather than the
+    extremes, because one outlier otherwise sets the axis and flattens the
+    distribution the panel exists to show. The points outside are still in the
+    histogram, they are just off-axis, and their count is printed.
     """
     import numpy as np
-    data, truths = [], []
-    for k in order:
-        m = keys == k
-        v = learned_vals[m]
-        # violinplot needs a spread; a single-member group would raise on the KDE.
+    if values.size == 0:
+        ax.text(0.5, 0.5, 'no data', ha='center', va='center',
+                transform=ax.transAxes, fontsize=14, color='gray')
+        return
+    lo, hi = np.quantile(values, [clip_quantile, 1 - clip_quantile])
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(values.min()), float(values.max()) or 1.0
+    ax.hist(values, bins=80, range=(lo, hi), color=color, alpha=0.8)
+    ax.axvline(0.0, color=_E_TRUE, lw=2, zorder=3)
+    n_out = int(((values < lo) | (values > hi)).sum())
+    med, iqr = float(np.median(values)), float(np.subtract(*np.quantile(values, [0.75, 0.25])))
+    txt = f'median {med:+.3g}\nIQR {iqr:.3g}'
+    if n_out:
+        txt += f'\n{n_out:,} outside axis'
+    ax.text(0.98, 0.96, txt, transform=ax.transAxes, ha='right', va='top', fontsize=11)
+    ax.set_xlabel(xlabel, fontsize=13)
+    ax.set_ylabel('count', fontsize=13)
+    ax.tick_params(labelsize=11)
+
+
+def _error_violin_by_group(ax, error, groups, true, group_names=None):
+    """Violins of the error, one per group, SORTED BY THE GROUP'S MEAN TRUE VALUE.
+
+    Sorting by mean(ground truth) rather than by group id makes the x axis an
+    ordered axis rather than an arbitrary permutation: a systematic
+    under-recovery of the large-magnitude types then reads as a trend across the
+    panel instead of scattered bars. Ticks stay DISCRETE -- one per type, labelled
+    with the type name -- because the spacing is rank, not value.
+    """
+    import numpy as np
+    uniq = np.unique(groups)
+    if uniq.size == 0 or uniq.size > _MAX_VIOLIN_GROUPS:
+        ax.text(0.5, 0.5, f'{uniq.size} groups -- too many to draw',
+                ha='center', va='center', transform=ax.transAxes,
+                fontsize=13, color='gray')
+        return
+    order = sorted(uniq, key=lambda g: float(np.mean(true[groups == g])))
+    data, labels = [], []
+    for g in order:
+        m = groups == g
+        v = error[m]
         data.append(v if v.size > 1 else np.repeat(v, 2))
-        truths.append(float(np.mean(true_vals[m])))
+        labels.append(group_names.get(int(g), str(int(g))) if group_names else str(int(g)))
     pos = np.arange(len(data)) + 1
     parts = ax.violinplot(data, positions=pos, showextrema=False, widths=0.85)
     for b in parts['bodies']:
         b.set_facecolor(_E_LEARNED); b.set_edgecolor(_E_LEARNED); b.set_alpha(0.55)
-    ax.plot(pos, truths, 'o', color=_E_TRUE, ms=4, zorder=3)
-    return pos
+    ax.axhline(0.0, color=_E_TRUE, lw=2, zorder=3)
+    ax.set_xticks(pos)
+    ax.set_xticklabels(labels, rotation=90, fontsize=5)
+    ax.set_xlim(0.3, len(data) + 0.7)
+    ax.set_ylabel('error (learned - true)', fontsize=13)
+    ax.set_xlabel('cell type, sorted by mean true value', fontsize=13)
+    ax.tick_params(axis='y', labelsize=11)
+
+
+def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
+                         group_names=None, outlier_threshold=None):
+    """The 2x2 recovery figure used for EVERY parameter the trainer recovers.
+
+    One template for W_ij, E_ij, tau and V_rest, so the four are read the same
+    way and a change to any panel lands on all of them at once.
+
+        top left      true vs learned scatter, with R2, slope and N
+        top right     histogram of the ERROR, learned - true, in the quantity's
+                      own units
+        bottom left   histogram of the RELATIVE error, (learned - true) / true,
+                      which is the one that makes a small parameter's 10% miss
+                      comparable to a large one's
+        bottom right  violins of the error per CELL TYPE, sorted by the type's
+                      mean true value
+
+    WHY BOTH HISTOGRAMS. An absolute error says how far the fit is in volts or in
+    conductance units, which is what a rollout cares about; a relative error says
+    whether the miss is proportionally large, which is what parameter recovery
+    cares about. They disagree exactly where the truth spans orders of magnitude,
+    and W_ij does.
+
+    `groups` is one group id per element -- the cell type of whichever neuron the
+    quantity BELONGS TO. That is the presynaptic cell for W_ij (its sign and
+    strength are properties of the sender), the postsynaptic cell for E_ij (the
+    driving force is E - v_i), and the neuron itself for tau and V_rest. Passing
+    None skips the bottom-right panel rather than guessing.
+    """
+    import numpy as np
+    true = np.asarray(true).ravel().astype(np.float64)
+    learned = np.asarray(learned).ravel().astype(np.float64)
+    n = int(min(true.size, learned.size))
+    true, learned = true[:n], learned[:n]
+    ok = np.isfinite(true) & np.isfinite(learned)
+    true, learned = true[ok], learned[ok]
+    if groups is not None:
+        groups = np.asarray(groups).ravel()[:n][ok]
+    if true.size < 2:
+        return
+
+    err = learned - true
+    rel, n_dropped = _relative_error(true, learned)
+
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    (ax_sc, ax_err), (ax_rel, ax_vio) = axes
+
+    plot_weight_scatter(ax_sc, gt_weights=true, learned_weights=learned,
+                        corrected=False, scatter_size=1.5,
+                        outlier_threshold=outlier_threshold)
+    ax_sc.set_xlabel(f'true ${symbol}$', fontsize=20)
+    ax_sc.set_ylabel(f'learned ${symbol}$', fontsize=20)
+    ax_sc.tick_params(labelsize=12)
+    rmse = float(np.sqrt(np.mean(err ** 2)))
+    ax_sc.text(0.05, 0.68, f'RMSE: {rmse:.4g}', transform=ax_sc.transAxes,
+               va='top', fontsize=16)
+
+    _error_hist(ax_err, err, f'error  ${symbol}$  (learned - true)')
+    _error_hist(ax_rel, rel, f'relative error  (learned - true) / true')
+    if n_dropped:
+        ax_rel.text(0.02, 0.96,
+                    f'{n_dropped:,} of {true.size:,} excluded (true = 0)',
+                    transform=ax_rel.transAxes, va='top', fontsize=10, color='gray')
+
+    if groups is not None and groups.size == err.size:
+        _error_violin_by_group(ax_vio, err, groups, true, group_names=group_names)
+    else:
+        ax_vio.text(0.5, 0.5, 'no cell-type map', ha='center', va='center',
+                    transform=ax_vio.transAxes, fontsize=13, color='gray')
+
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    plt.savefig(out_path, dpi=87, bbox_inches='tight', pad_inches=0.05)
+    plt.close()
+
+
 
 
 def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
-    """Reversal-potential recovery -> tmp_training/Eij/.
+    """Reversal-potential recovery -> tmp_training/Eij/, the same 2x2 as W and tau.
 
-    Two panels, written as one file per checkpoint.
+    E_ij is a per-EDGE quantity -- `where(edge_is_inh, E_inh[dst], E_exc[dst])` --
+    and that is the form the RMSE in the progress bar is defined on, so it is what
+    the four panels show. Its own folder rather than tmp_training/matrix/ so the
+    two series stay separable when flipping through a run: matrix/ is the
+    conductance W_ij, Eij/ is the reversal each edge drives toward.
 
-    LEFT is always the per-edge scatter, true vs learned E_ij over all 434,112
-    edges, because that is the quantity the RMSE in the progress bar is defined
-    on: E_ij is an edge property, `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
-    Its own folder rather than tmp_training/matrix/ so the two series stay
-    separable when flipping through a run -- matrix/ is the conductance W_ij,
-    Eij/ is the reversal each edge drives toward.
+    Grouped by the POSTSYNAPTIC cell type, because the driving force is (E - v_i)
+    and E belongs to the receiving cell -- the opposite choice from W_ij, which is
+    grouped by its sender. That asymmetry is the physics, not an inconsistency.
 
-    RIGHT is per NEURON, and its FORM FOLLOWS THE GROUND TRUTH's granularity,
-    because one shape cannot serve all three:
-
-      global      two violins, E_inh and E_exc, each the spread of the 13,741
-                  learned values about the single true one. A scatter here would
-                  be two vertical stripes -- correct but unreadable, and it hides
-                  how the mass is distributed, which is the whole question when
-                  27,482 free parameters chase 2 true numbers.
-      per_type    one violin per cell type, SORTED BY THE TRUE VALUE so the panel
-                  reads as an ordered recovery curve instead of an arbitrary
-                  permutation of type ids.
-      per_neuron  a plain scatter, 13,741 points, since true and learned then
-                  vary together and a scatter is the honest form.
-
-    The per-edge panel weights each neuron by its in-degree and cannot show
-    neurons no edge targets; the per-neuron panel shows every parameter,
-    including the ones the data never constrains. Both are needed.
+    A GLOBAL GROUND TRUTH MAKES THE SCATTER TWO VERTICAL STRIPES, correctly: every
+    excitatory edge then shares one true E and every inhibitory edge the other, so
+    all 434,112 points sit on two x-values. The error histograms and the per-type
+    violins are what carry the information in that case, which is the reason the
+    2x2 replaced the bare scatter.
 
     `rev_metrics` is the dict from
     :func:`connectome_gnn.metrics.compute_reversal_metrics`, or None on a
     current-generated dataset, in which case nothing is written -- there is no
     true E_ij on data whose generator had no (E - v_i) term.
     """
-    import numpy as np
     if rev_metrics is None:
         return
-
-    gran = _gt_reversal_granularity(rev_metrics)
-    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(16, 7))
-
-    # ---- LEFT: per-edge scatter, the quantity the RMSE is defined on ----------
-    plot_weight_scatter(
-        ax0,
-        gt_weights=rev_metrics["true"],
-        learned_weights=rev_metrics["learned"],
-        corrected=False,
-        scatter_size=1.5,
+    plot_recovery_panels(
+        rev_metrics["true"],
+        rev_metrics["learned"],
+        f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png",
+        symbol='E_{ij}',
+        groups=rev_metrics.get("edge_type"),
+        group_names=INDEX_TO_NAME,
     )
-    ax0.set_xlabel(r'true $E_{ij}$', fontsize=22)
-    ax0.set_ylabel(r'learned $E_{ij}$', fontsize=22)
-    # RMSE is what the progress bar reports, so put the same number on the figure
-    # -- reading a scatter and a bar that disagree costs more than one text call.
-    ax0.text(0.05, 0.70, f'RMSE: {rev_metrics["rmse"]:.2f}',
-             transform=ax0.transAxes, verticalalignment='top', fontsize=18)
-    ax0.tick_params(labelsize=14)
-
-    # ---- RIGHT: per-neuron, form chosen by the ground truth -------------------
-    t_exc, t_inh = rev_metrics["true_exc"], rev_metrics["true_inh"]
-    l_exc, l_inh = rev_metrics["learned_exc"], rev_metrics["learned_inh"]
-    n_neurons = t_exc.size
-    n_untargeted = int((~rev_metrics["targeted"]).sum()) if "targeted" in rev_metrics else 0
-
-    if gran == "global":
-        parts = ax1.violinplot([l_inh, l_exc], positions=[1, 2],
-                               showextrema=False, widths=0.7)
-        for b in parts['bodies']:
-            b.set_facecolor(_E_LEARNED); b.set_edgecolor(_E_LEARNED); b.set_alpha(0.55)
-        for pos, tv in ((1, float(t_inh[0])), (2, float(t_exc[0]))):
-            ax1.hlines(tv, pos - 0.42, pos + 0.42, color=_E_TRUE, lw=3, zorder=3)
-            ax1.text(pos + 0.45, tv, f'{tv:+.3f}', color=_E_TRUE,
-                     va='center', fontsize=13)
-        ax1.set_xticks([1, 2])
-        ax1.set_xticklabels([r'$E_{inh}$', r'$E_{exc}$'], fontsize=20)
-        ax1.set_title(f'learned per neuron ({n_neurons:,}) vs global truth',
-                      fontsize=15)
-    elif gran == "per_type":
-        ti = rev_metrics["type_index"]
-        # ONE ordering for both rows, by the type's true EXCITATORY reversal, so a
-        # given x position is the same cell type top and bottom.
-        uniq = np.unique(ti)
-        order = sorted(uniq, key=lambda k: float(np.mean(t_exc[ti == k])))
-        pos = _violin_by_true(ax1, t_exc, l_exc, ti, order)
-        _violin_by_true(ax1, t_inh, l_inh, ti, order)
-        ax1.set_xlabel(r'cell type, sorted by true $E_{exc}$', fontsize=17)
-        ax1.set_title(f'learned per neuron ({n_neurons:,}), '
-                      f'{len(pos)} types x 2 polarities', fontsize=15)
-    else:
-        # RED AND BLUE, not green and black. Green marks the ground truth in the
-        # other two forms of this panel, and excitatory vs inhibitory here are two
-        # distinct sources rather than a truth/prediction pair -- reusing green for
-        # one polarity would make the same colour mean two things across the
-        # figures a reader flips through.
-        ax1.scatter(t_exc, l_exc, s=3, c='tab:red', alpha=0.25,
-                    label=r'$E_{exc}$')
-        ax1.scatter(t_inh, l_inh, s=3, c='tab:blue', alpha=0.25,
-                    label=r'$E_{inh}$')
-        lo = float(min(t_exc.min(), t_inh.min(), l_exc.min(), l_inh.min()))
-        hi = float(max(t_exc.max(), t_inh.max(), l_exc.max(), l_inh.max()))
-        ax1.plot([lo, hi], [lo, hi], ls='--', lw=1, color='gray', zorder=0)
-        ax1.set_xlabel('true reversal', fontsize=17)
-        ax1.legend(fontsize=13, markerscale=4)
-        ax1.set_title(f'learned per neuron ({n_neurons:,})', fontsize=15)
-
-    ax1.set_ylabel('learned reversal', fontsize=17)
-    ax1.tick_params(labelsize=13)
-    if n_untargeted:
-        # Their reversals never receive a gradient, so they sit at the
-        # initialisation and widen the violins for a reason that is not a fit.
-        ax1.text(0.02, 0.02,
-                 f'{n_untargeted} neurons receive no edge (unconstrained)',
-                 transform=ax1.transAxes, fontsize=11, color='gray')
-
-    plt.tight_layout()
-    os.makedirs(f"{log_dir}/tmp_training/Eij", exist_ok=True)
-    plt.savefig(f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0.05)
-    plt.close()
 
 
 def plot_weight_comparison(w_true, w_modified, output_path, xlabel='true $W$', ylabel='modified $W$', color='white'):
