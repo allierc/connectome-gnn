@@ -1,5 +1,5 @@
-description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained margin/global/extremes student (held-out rollout r 0.9980, the best of the 18-cell grid and PR #46s own parametrisation). noise_model_level 0.0. The dataset name follows the data model, so this is the first flyvis_conductance_* dataset rather than flyvis_current_*.'
-dataset: flyvis_conductance_noise_free_blank50_cv00
+description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained margin/global/extremes student (held-out rollout r 0.9980, the best of the 18-cell grid and PR #46s own parametrisation). noise_model_level 0.05. The dataset name follows the data model, so this is the first flyvis_conductance_* dataset rather than flyvis_current_*.'
+dataset: flyvis_conductance_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -16,7 +16,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.0
+  noise_model_level: 0.05
   seed: 42
   ground_truth_model: conductance
   conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_margin_global_cv00/models/best_model_with_0_graphs_0.pt
@@ -85,4 +85,4 @@ training:
   conductance_init: teacher_closed_form
   train_on_teacher: true
   teacher_rollout_frames: 1000
-config_file: fly/flyvis_conductance_noise_free_cv00
+config_file: fly/flyvis_conductance_noise_005_blank50_cv00
