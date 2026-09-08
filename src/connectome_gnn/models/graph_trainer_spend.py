@@ -608,7 +608,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
             # losses shown as EMAs (raw per-batch values fluctuate ~+/-100%).
             if last_connectivity_r2 is not None:
                 bar = [
-                    f'{_r2c(last_connectivity_r2)}conn={last_connectivity_r2:.3f}{ANSI_RESET}',
+                    f'{_r2c(last_connectivity_r2)}Wij={last_connectivity_r2:.3f}{ANSI_RESET}',
                     f'{_r2c(last_vrest_r2)}Vr={last_vrest_r2:.3f}{ANSI_RESET}',
                     f'{_r2c(last_tau_r2)}tau={last_tau_r2:.3f}{ANSI_RESET}',
                 ]

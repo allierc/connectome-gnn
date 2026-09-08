@@ -861,6 +861,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights,
                                          n_neurons=n_neurons, type_list=type_list)
 
+                epoch_state.metrics.n_out_conn = dynamics.get("n_out_conn", 0)
+
+                epoch_state.metrics.n_total_conn = dynamics.get("n_total_conn", 0)
+
                 epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
 
                 epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
@@ -892,6 +896,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 metrics_changed = True
 
             elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "gnn":
+                _w_counts = {}
                 (
                     epoch_state.metrics.connectivity_r2,
                     epoch_state.metrics.connectivity_r2_visible,
@@ -913,7 +918,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     ode_params=ode_params,
                     hidden_ids=hn.hidden_ids,
                     anchor_ids=hn.anchor_ids,
+                    out_counts=_w_counts,
                 )
+                epoch_state.metrics.n_out_conn = _w_counts.get("n_out_conn", 0)
+                epoch_state.metrics.n_total_conn = _w_counts.get("n_total_conn", 0)
 
                 if hidden_r2 is not None:
                     epoch_state.metrics.hidden_r2 = hidden_r2
@@ -1061,15 +1069,31 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if epoch_state.metrics.connectivity_r2 is not None:
                     conn_color = r2_color(epoch_state.metrics.connectivity_r2)
 
+                    # SAME SHAPE AS Vr AND tau: the outlier-free R2 with the
+                    # percentage of points it leaves out in parentheses.
+                    # connectivity_r2 was already the outlier-free number in both
+                    # the linear and the GNN path -- only how big the removed set
+                    # is was missing, and without it a 0.99 over 60% of the edges
+                    # reads like a 0.99 over all of them. The visible-edge R2 keeps
+                    # its own label rather than a second bare parenthesis.
+                    conn_pct = (
+                        100.0 * epoch_state.metrics.n_out_conn / epoch_state.metrics.n_total_conn
+                        if epoch_state.metrics.n_total_conn > 0
+                        else 0.0
+                    )
+                    # Two decimals, unlike Vr and tau's whole percent: W_ij's
+                    # outlier fraction is a few hundredths of a percent (32 of
+                    # 434,112 on a converged current-data GNN), so rounding to a
+                    # whole number would print "0%" every time and carry nothing.
+                    # This is the same figure the Wij panel's own block prints.
+                    conn_string = (f"Wij={epoch_state.metrics.connectivity_r2:.3f}"
+                                   f"({conn_pct:.2f}%)")
                     if (
                         epoch_state.metrics.connectivity_r2_visible is not None
                         and abs(epoch_state.metrics.connectivity_r2_visible - epoch_state.metrics.connectivity_r2)
                         > 1e-4
                     ):
-                        conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}({epoch_state.metrics.connectivity_r2_visible:.3f})"
-
-                    else:
-                        conn_string = f"conn={epoch_state.metrics.connectivity_r2:.3f}"
+                        conn_string += f" vis={epoch_state.metrics.connectivity_r2_visible:.3f}"
 
                     bar_parts.append(f"{conn_color}{conn_string}{ANSI_RESET}")
 

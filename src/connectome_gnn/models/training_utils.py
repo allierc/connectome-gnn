@@ -38,6 +38,12 @@ class TrainingMetrics:
     vrest_r2_clean: float = float("nan")
     tau_r2_clean: float = float("nan")
 
+    # Edges beyond W_OUTLIER_THRESH in the SAME comparison connectivity_r2 is
+    # computed on, so the progress bar can print W_ij the way it prints V_rest
+    # and tau: the outlier-free R2 with the size of the removed set beside it.
+    n_out_conn: int = 0
+    n_total_conn: int = 0
+
     n_out_vrest: int = 0
     n_total_vrest: int = 0
 
