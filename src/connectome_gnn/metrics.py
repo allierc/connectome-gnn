@@ -299,11 +299,18 @@ validate_registry()
 # ------------------------------------------------------------------ #
 
 def get_model_W(model) -> torch.Tensor:
-    """Get the weight matrix from a model, handling low-rank factorization."""
+    """The model's weights IN THE SAME UNITS AS ode_params.W, for comparison."""
     # Prefer the effective weight (|W|·sign_GT under the hard sign-lock); when
     # the lock is off this equals the raw W, so existing models are unaffected.
     if hasattr(model, 'effective_W'):
         return model.effective_W
+    # THE CONDUCTANCE STUDENT STORES THE SQUARE ROOT. Its `W` parameter enters the
+    # ODE as W**2, so the conductance is non-negative by construction, and
+    # ode_params.W on a conductance-generated dataset holds that SQUARE. Returning
+    # the raw parameter here would scatter sqrt(g) against g and report the
+    # mismatch as a recovery failure.
+    if hasattr(model, 'get_learned_conductance'):
+        return model.get_learned_conductance()
     if hasattr(model, 'W'):
         return model.W
     elif hasattr(model, 'WL') and hasattr(model, 'WR'):
@@ -1434,28 +1441,11 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             n_out_tau      : number of tau outliers
             n_total_tau    : total neurons evaluated for tau
     """
-    from connectome_gnn.generators.ode_params import (
-        FlyVisCurrentODEParams, get_ode_params_class,
-    )
-    signal_model = config.graph_model.signal_model_name
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
     try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-    try:
-        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-    except FileNotFoundError:
+        ode_params = load_ode_params_for_run(config, device=device)
+    except (FileNotFoundError, TypeError):
         return dict(_DYNAMICS_R2_EMPTY)
-    except TypeError:
-        # On-disk schema mismatch (e.g. signal_model=drosophila_cx maps to
-        # DrosophilaCxODEParams but the file holds FlyVisCurrentODEParams from the
-        # voltage-recovery generator). Fall back to FlyVisCurrentODEParams.
-        try:
-            ode_params = FlyVisCurrentODEParams.load(
-                graphs_data_path(config.dataset), device=device
-            )
-        except (FileNotFoundError, TypeError):
-            return dict(_DYNAMICS_R2_EMPTY)
 
     mu, sigma = compute_activity_stats(x_ts, device)
 
@@ -1511,13 +1501,8 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisCurrentODEParams
-    signal_model = config.graph_model.signal_model_name
-    try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
+    ode_params = load_ode_params_for_run(config, device=device)
     gt_weights = to_numpy(ode_params.W)
     learned_W = to_numpy(get_model_W(model).squeeze())
 

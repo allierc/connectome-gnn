@@ -2605,6 +2605,13 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # models do not have.
     if not hasattr(model, "a") or not hasattr(model, "g_phi"):
         from connectome_gnn.metrics import compute_jacobian_connectivity_r2
+        # THE JACOBIAN FALLBACK NEEDS A METHOD MOST MODELS DO NOT HAVE. Only
+        # MLPBaseline defines compute_jacobian_batched, so for a known-ODE this
+        # raised AttributeError, and the bare `except Exception` below turned a
+        # missing capability into a NaN indistinguishable from a measurement that
+        # came out undefined. Ask first, and say which it is.
+        if not hasattr(model, "compute_jacobian_batched"):
+            return float("nan"), float("nan"), float("nan"), float("nan")
         try:
             r2 = compute_jacobian_connectivity_r2(
                 model, x_ts, ode_params, n_neurons=n_neurons, device=device)
@@ -2824,15 +2831,9 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     vrest_r2 = dyn_r2['vrest_r2']
     tau_r2   = dyn_r2['tau_r2']
 
-    # Load ground-truth ODE params (use correct class for connconstr models)
-    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
-    from connectome_gnn.utils import graphs_data_path
-    signal_model = config.graph_model.signal_model_name
-    try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    # Ground-truth ODE params: class from the model, refinement from the file.
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
+    ode_params = load_ode_params_for_run(config, device=device)
 
     # Plot 1: Raw W scatter
     fig, ax = plt.subplots(figsize=(8, 8))
