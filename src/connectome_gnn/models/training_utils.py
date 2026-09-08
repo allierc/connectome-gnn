@@ -1158,8 +1158,7 @@ def init_training_data(
 
     from connectome_gnn.generators.ode_params import (
         FlyVisCurrentODEParams,
-        get_ode_params_class,
-        load_flyvis_ode_params,
+        load_ode_params_for_run,
     )
 
     simulation = config.simulation
@@ -1374,50 +1373,9 @@ def init_training_data(
         config.graph_model.signal_model_name
     )
 
-    try:
-        OdeParamsCls = get_ode_params_class(
-            signal_model
-        )
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-
-    # THE REGISTRY IS KEYED ON THE MODEL, THE DATASET IS A PROPERTY OF THE FILE,
-    # and on the flyvis family those two disagree. `get_ode_params_class` maps
-    # every flyvis model name -- flyvis_current, flyvis_conductance,
-    # flyvis_conductance_known_ode -- to FlyVisCurrentODEParams, because the
-    # registry answers "what will be trained", and no one trains the conductance
-    # generator. But a conductance-generated dataset's ode_params.pt carries
-    # E_exc / E_inh / edge_is_inh, which that class has no fields for: loading it
-    # as the current class raises TypeError, and the old fallback retried the
-    # SAME class and raised again.
-    #
-    # load_flyvis_ode_params asks the FILE instead, via the ground_truth_model
-    # key that ODEParamsBase.save writes, and returns FlyVisConductanceODEParams
-    # with the reversals intact. Restricted to the flyvis family so the CX,
-    # larva and zebrafish paths keep their own registered classes.
-    if issubclass(OdeParamsCls, FlyVisCurrentODEParams):
-        ode_params = load_flyvis_ode_params(
-            graphs_data_path(config.dataset),
-            device=device,
-        )
-    else:
-        try:
-            ode_params = OdeParamsCls.load(
-                graphs_data_path(config.dataset),
-                device=device,
-            )
-        except TypeError:
-
-            logger.info(
-                f'ode_params schema mismatch for '
-                f'{OdeParamsCls.__name__}; '
-                f'falling back to FlyVisCurrentODEParams'
-            )
-
-            ode_params = FlyVisCurrentODEParams.load(
-                graphs_data_path(config.dataset),
-                device=device,
-            )
+    # Class from the MODEL, refinement from the FILE -- see
+    # ode_params.load_ode_params_for_run for why those are different questions.
+    ode_params = load_ode_params_for_run(config, device=device)
 
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index

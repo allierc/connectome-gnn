@@ -432,6 +432,23 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         self.register_buffer("_range_set_b", torch.zeros(1, dtype=torch.bool, device=device))
         self._range_set = False
         self.W.requires_grad_(bool(k["student_learn_edges"]))
+        # WHICH RECOVERY PATH SCORES THIS RUN, and it differs by regime, which is
+        # why it is set per instance rather than as a class attribute.
+        #
+        # 'linear' means W, tau and V_rest are direct parameters that
+        # plot_training_linear can read off and scatter against ode_params. That is
+        # true of this model always -- but only MEANINGFUL under recovery, where the
+        # dataset was made by a conductance model and ode_params.W really is the
+        # conductance this one is learning.
+        #
+        # Under distillation the teacher is current-based: ode_params.W is a SIGNED
+        # current weight and this model learns a non-negative conductance, so an R2
+        # between them is a confident number about nothing. Leaving the default
+        # 'gnn' there routes to plot_training_gnn, which early-returns NaN for a
+        # model with no embedding and no g_phi -- the honest answer, and the one the
+        # config comment on train_on_teacher already promises ("R2_W is meaningless
+        # here ... the acceptance test is the ROLLOUT").
+        self.MODEL_FAMILY = "linear" if not getattr(tc, "train_on_teacher", False) else "gnn"
         n_w = self.n_edges + self.n_extra_null_edges
         self.register_buffer(
             "edge_is_inh", torch.zeros(n_w, dtype=torch.bool, device=device))

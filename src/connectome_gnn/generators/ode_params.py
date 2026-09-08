@@ -319,6 +319,20 @@ class ODEParamsBase:
     "flyvis_conductance_NULL",
     "flyvis_C_NULL",
     "flyvis_known_ode",
+    # THE CONDUCTANCE KNOWN-ODE MAPS HERE, TO THE *CURRENT* CLASS, and that is not
+    # a slip. This registry answers "which parameter FAMILY does this model's data
+    # belong to", not "which synapse model does the model implement" -- every flyvis
+    # name above resolves to the same class for the same reason. The conductance
+    # known-ODE is trained on BOTH kinds of data: the six distillation runs fit it
+    # to a current-generated teacher, the recovery runs to conductance-generated
+    # data, and the model name cannot distinguish them because it is the same model.
+    # load_flyvis_ode_params does the refinement, reading the ground_truth_model key
+    # the file itself carries; callers that skip it get FlyVisCurrentODEParams and
+    # will raise a TypeError on a conductance dataset rather than silently dropping
+    # the reversals. It was absent entirely before, which raised KeyError here and
+    # sent callers down an untyped fallback instead.
+    "flyvis_conductance_known_ode",
+    "flyvis_cond_known_ode",
     "e8_flywireRF",
     "e8_flywireRF_known_ode",
     "e8_flywireRF_mlp",
@@ -483,6 +497,38 @@ def load_flyvis_ode_params(folder: str, device: torch.device | str = "cpu"):
            "conductance": FlyVisConductanceODEParams}.get(kind)
     if cls is None:
         raise ValueError(f"{path} declares ground_truth_model={kind!r}, which is not a known generator")
+    return cls.load(folder, device)
+
+
+def load_ode_params_for_run(config, device: torch.device | str = "cpu"):
+    """The parameters for a run: class from the MODEL, refinement from the FILE.
+
+    THE ONE ENTRY POINT any training/plotting code should use. Four call sites had
+    grown the same eight-line dance -- get_ode_params_class, except KeyError ->
+    FlyVisCurrentODEParams, load, except TypeError -> retry the same class -- and
+    that retry could never succeed, because a TypeError from `load` means the file
+    holds fields the class has no slots for, which retrying the class cannot fix.
+    On a conductance dataset every one of them silently returned "no metrics".
+
+    The two questions are genuinely different. WHICH FAMILY is a property of the
+    model: a zebrafish run needs ZebrafishODEParams whatever is on disk. WHICH
+    MEMBER of the flyvis family is a property of the data: the same
+    flyvis_conductance_known_ode is trained on a current-generated teacher in the
+    distillation runs and on conductance-generated data in the recovery runs, so
+    its name cannot answer. Inside the flyvis family, load_flyvis_ode_params reads
+    the ground_truth_model key that ODEParamsBase.save writes.
+    """
+    # Imported here, not at module scope: connectome_gnn.utils imports from the
+    # generators package, so a top-level import closes a cycle.
+    from connectome_gnn.utils import graphs_data_path
+
+    try:
+        cls = get_ode_params_class(config.graph_model.signal_model_name)
+    except KeyError:
+        cls = FlyVisCurrentODEParams
+    folder = graphs_data_path(config.dataset)
+    if issubclass(cls, FlyVisCurrentODEParams):
+        return load_flyvis_ode_params(folder, device)
     return cls.load(folder, device)
 
 
