@@ -433,6 +433,8 @@ if __name__ == "__main__":
 
 
 
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 10:00 -Is "python GNN_Main.py -o train /groups/saalfeld/home/allierc/GraphData/config/fly/flyvis_noise_005_nominal_cv00"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
+# conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)] 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
 # python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
 # python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
