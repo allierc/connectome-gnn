@@ -2881,44 +2881,179 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     return conn_r2, tau_r2, vrest_r2, dyn_r2
 
 
-def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
-    """True vs learned per-edge reversal potential E_ij -> tmp_training/Eij/.
+# Green = ground truth, black = learned, the repo's GT-vs-predicted convention.
+_E_TRUE, _E_LEARNED = 'tab:green', 'black'
 
-    The E_ij counterpart of the W_ij scatter in :func:`plot_training_linear`, in
-    its own folder rather than tmp_training/matrix/ so the two series stay
-    separable when flipping through a run: matrix/ is the conductance W_ij and
-    Eij/ is the driving-force reversal each edge aims at.
+
+def _gt_reversal_granularity(rev_metrics):
+    """'global' | 'per_type' | 'per_neuron' -- how many distinct TRUE reversals.
+
+    The figure form follows the GROUND TRUTH, not the model. The known-ODE always
+    learns one E_exc and one E_inh per neuron under recovery, so the learned side
+    is 27,482 numbers whatever made the data; what changes is how many true values
+    they are aimed at, and that decides whether a scatter says anything. Against a
+    global truth every point shares one of two x-values and a scatter degenerates
+    to two vertical stripes -- a violin of the learned spread about each true value
+    is the same information, readable.
+    """
+    import numpy as np
+    n_exc = len(np.unique(rev_metrics["true_exc"]))
+    n_inh = len(np.unique(rev_metrics["true_inh"]))
+    n = max(n_exc, n_inh)
+    ti = rev_metrics.get("type_index")
+    n_types = len(np.unique(ti)) if ti is not None else 0
+    if n <= 1:
+        return "global"
+    if n_types and n <= n_types:
+        return "per_type"
+    return "per_neuron"
+
+
+def _violin_by_true(ax, true_vals, learned_vals, keys, order):
+    """Violins of the LEARNED per-neuron reversals, one per group in `order`.
+
+    `order` is supplied rather than derived so the excitatory and inhibitory rows
+    share ONE x axis. Sorting each row by its own true value would put a different
+    cell type at position 1 in each -- the axis label would then be a lie, and a
+    reader comparing a type's two reversals would be comparing two types.
+
+    Green markers are the true values; a perfect fit puts every violin's mass on
+    its own marker.
+    """
+    import numpy as np
+    data, truths = [], []
+    for k in order:
+        m = keys == k
+        v = learned_vals[m]
+        # violinplot needs a spread; a single-member group would raise on the KDE.
+        data.append(v if v.size > 1 else np.repeat(v, 2))
+        truths.append(float(np.mean(true_vals[m])))
+    pos = np.arange(len(data)) + 1
+    parts = ax.violinplot(data, positions=pos, showextrema=False, widths=0.85)
+    for b in parts['bodies']:
+        b.set_facecolor(_E_LEARNED); b.set_edgecolor(_E_LEARNED); b.set_alpha(0.55)
+    ax.plot(pos, truths, 'o', color=_E_TRUE, ms=4, zorder=3)
+    return pos
+
+
+def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
+    """Reversal-potential recovery -> tmp_training/Eij/.
+
+    Two panels, written as one file per checkpoint.
+
+    LEFT is always the per-edge scatter, true vs learned E_ij over all 434,112
+    edges, because that is the quantity the RMSE in the progress bar is defined
+    on: E_ij is an edge property, `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
+    Its own folder rather than tmp_training/matrix/ so the two series stay
+    separable when flipping through a run -- matrix/ is the conductance W_ij,
+    Eij/ is the reversal each edge drives toward.
+
+    RIGHT is per NEURON, and its FORM FOLLOWS THE GROUND TRUTH's granularity,
+    because one shape cannot serve all three:
+
+      global      two violins, E_inh and E_exc, each the spread of the 13,741
+                  learned values about the single true one. A scatter here would
+                  be two vertical stripes -- correct but unreadable, and it hides
+                  how the mass is distributed, which is the whole question when
+                  27,482 free parameters chase 2 true numbers.
+      per_type    one violin per cell type, SORTED BY THE TRUE VALUE so the panel
+                  reads as an ordered recovery curve instead of an arbitrary
+                  permutation of type ids.
+      per_neuron  a plain scatter, 13,741 points, since true and learned then
+                  vary together and a scatter is the honest form.
+
+    The per-edge panel weights each neuron by its in-degree and cannot show
+    neurons no edge targets; the per-neuron panel shows every parameter,
+    including the ones the data never constrains. Both are needed.
 
     `rev_metrics` is the dict from
     :func:`connectome_gnn.metrics.compute_reversal_metrics`, or None on a
     current-generated dataset, in which case nothing is written -- there is no
     true E_ij on data whose generator had no (E - v_i) term.
-
-    A GLOBAL FIT COLLAPSES TO TWO POINTS and that is correct, not a bug: with
-    student_reversal_dim 'global' every excitatory edge shares one E and
-    every inhibitory edge the other, so the scatter is two clusters. Per-type
-    gives up to 130 (65 cell types x 2 polarities), per-neuron up to 27,482.
     """
+    import numpy as np
     if rev_metrics is None:
         return
-    fig, ax = plt.subplots(figsize=(8, 8))
+
+    gran = _gt_reversal_granularity(rev_metrics)
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(16, 7))
+
+    # ---- LEFT: per-edge scatter, the quantity the RMSE is defined on ----------
     plot_weight_scatter(
-        ax,
+        ax0,
         gt_weights=rev_metrics["true"],
         learned_weights=rev_metrics["learned"],
         corrected=False,
         scatter_size=1.5,
     )
-    ax.set_xlabel(r'true $E_{ij}$', fontsize=32)
-    ax.set_ylabel(r'learned $E_{ij}$', fontsize=32)
+    ax0.set_xlabel(r'true $E_{ij}$', fontsize=22)
+    ax0.set_ylabel(r'learned $E_{ij}$', fontsize=22)
     # RMSE is what the progress bar reports, so put the same number on the figure
     # -- reading a scatter and a bar that disagree costs more than one text call.
-    ax.text(0.05, 0.72, f'RMSE: {rev_metrics["rmse"]:.2f}',
-            transform=ax.transAxes, verticalalignment='top', fontsize=24)
+    ax0.text(0.05, 0.70, f'RMSE: {rev_metrics["rmse"]:.2f}',
+             transform=ax0.transAxes, verticalalignment='top', fontsize=18)
+    ax0.tick_params(labelsize=14)
+
+    # ---- RIGHT: per-neuron, form chosen by the ground truth -------------------
+    t_exc, t_inh = rev_metrics["true_exc"], rev_metrics["true_inh"]
+    l_exc, l_inh = rev_metrics["learned_exc"], rev_metrics["learned_inh"]
+    n_neurons = t_exc.size
+    n_untargeted = int((~rev_metrics["targeted"]).sum()) if "targeted" in rev_metrics else 0
+
+    if gran == "global":
+        parts = ax1.violinplot([l_inh, l_exc], positions=[1, 2],
+                               showextrema=False, widths=0.7)
+        for b in parts['bodies']:
+            b.set_facecolor(_E_LEARNED); b.set_edgecolor(_E_LEARNED); b.set_alpha(0.55)
+        for pos, tv in ((1, float(t_inh[0])), (2, float(t_exc[0]))):
+            ax1.hlines(tv, pos - 0.42, pos + 0.42, color=_E_TRUE, lw=3, zorder=3)
+            ax1.text(pos + 0.45, tv, f'{tv:+.3f}', color=_E_TRUE,
+                     va='center', fontsize=13)
+        ax1.set_xticks([1, 2])
+        ax1.set_xticklabels([r'$E_{inh}$', r'$E_{exc}$'], fontsize=20)
+        ax1.set_title(f'learned per neuron ({n_neurons:,}) vs global truth',
+                      fontsize=15)
+    elif gran == "per_type":
+        ti = rev_metrics["type_index"]
+        # ONE ordering for both rows, by the type's true EXCITATORY reversal, so a
+        # given x position is the same cell type top and bottom.
+        uniq = np.unique(ti)
+        order = sorted(uniq, key=lambda k: float(np.mean(t_exc[ti == k])))
+        pos = _violin_by_true(ax1, t_exc, l_exc, ti, order)
+        _violin_by_true(ax1, t_inh, l_inh, ti, order)
+        ax1.set_xlabel(r'cell type, sorted by true $E_{exc}$', fontsize=17)
+        ax1.set_title(f'learned per neuron ({n_neurons:,}), '
+                      f'{len(pos)} types x 2 polarities', fontsize=15)
+    else:
+        # RED AND BLUE, not green and black. Green marks the ground truth in the
+        # other two forms of this panel, and excitatory vs inhibitory here are two
+        # distinct sources rather than a truth/prediction pair -- reusing green for
+        # one polarity would make the same colour mean two things across the
+        # figures a reader flips through.
+        ax1.scatter(t_exc, l_exc, s=3, c='tab:red', alpha=0.25,
+                    label=r'$E_{exc}$')
+        ax1.scatter(t_inh, l_inh, s=3, c='tab:blue', alpha=0.25,
+                    label=r'$E_{inh}$')
+        lo = float(min(t_exc.min(), t_inh.min(), l_exc.min(), l_inh.min()))
+        hi = float(max(t_exc.max(), t_inh.max(), l_exc.max(), l_inh.max()))
+        ax1.plot([lo, hi], [lo, hi], ls='--', lw=1, color='gray', zorder=0)
+        ax1.set_xlabel('true reversal', fontsize=17)
+        ax1.legend(fontsize=13, markerscale=4)
+        ax1.set_title(f'learned per neuron ({n_neurons:,})', fontsize=15)
+
+    ax1.set_ylabel('learned reversal', fontsize=17)
+    ax1.tick_params(labelsize=13)
+    if n_untargeted:
+        # Their reversals never receive a gradient, so they sit at the
+        # initialisation and widen the violins for a reason that is not a fit.
+        ax1.text(0.02, 0.02,
+                 f'{n_untargeted} neurons receive no edge (unconstrained)',
+                 transform=ax1.transAxes, fontsize=11, color='gray')
+
     plt.tight_layout()
     os.makedirs(f"{log_dir}/tmp_training/Eij", exist_ok=True)
     plt.savefig(f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png",
-                dpi=87, bbox_inches='tight', pad_inches=0)
+                dpi=87, bbox_inches='tight', pad_inches=0.05)
     plt.close()
 
 

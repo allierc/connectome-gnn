@@ -1630,6 +1630,29 @@ def compute_reversal_metrics(model, ode_params):
         true = to_numpy(gt_rev()).ravel()
         learned = to_numpy(
             core.get_learned_reversal_per_edge(ode_params.edge_index)).ravel()
+        # PER-NEURON arrays alongside the per-edge ones. The per-edge form is what
+        # the RMSE is defined on -- E_ij is an edge quantity -- but it weights each
+        # neuron by its in-degree and hides how many neurons sit behind a stripe.
+        # The per-neuron form is what the reversals actually ARE, one E_exc and one
+        # E_inh per postsynaptic cell, and it is what the granularity-adaptive
+        # panel in plot_reversal_scatter draws.
+        l_exc, l_inh = core.get_learned_reversals()
+        per_neuron = dict(
+            true_exc=to_numpy(ode_params.E_exc).ravel(),
+            true_inh=to_numpy(ode_params.E_inh).ravel(),
+            learned_exc=to_numpy(l_exc).ravel(),
+            learned_inh=to_numpy(l_inh).ravel(),
+            type_index=(to_numpy(core.type_index).ravel()
+                        if getattr(core, "type_index", None) is not None else None),
+        )
+        # Neurons no edge ever targets get no gradient on their reversals, so their
+        # learned value is still the initialisation. Recorded, not filtered: a
+        # violin that silently drops them would misreport how much of the
+        # parameterisation the data actually constrains.
+        _dst = to_numpy(ode_params.edge_index[1]).ravel()
+        _targeted = np.zeros(per_neuron["true_exc"].size, dtype=bool)
+        _targeted[np.unique(_dst) % _targeted.size] = True
+        per_neuron["targeted"] = _targeted
 
     n = int(min(true.size, learned.size))
     true, learned = true[:n], learned[:n]
@@ -1646,6 +1669,7 @@ def compute_reversal_metrics(model, ode_params):
         "n_edges": int(true.size),
         "true": true,
         "learned": learned,
+        **per_neuron,
     }
 
 
