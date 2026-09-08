@@ -180,3 +180,6 @@ prototype/**/*.pt
 /mdpdf.log
 /pseudoinverse_plots/
 /svg_global_svd_plots/
+
+# Local scratch scripts (render/smoke tests), not part of the pipeline
+.scratch/
