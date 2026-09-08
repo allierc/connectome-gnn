@@ -832,7 +832,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     epoch_state.metrics.tau_r2,
                     epoch_state.metrics.vrest_r2,
                     dynamics,
-                ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights, n_neurons=n_neurons)
+                ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights,
+                                         n_neurons=n_neurons, type_list=type_list)
 
                 epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
 
