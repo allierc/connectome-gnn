@@ -2971,7 +2971,7 @@ def data_generate_voltage(
                 "inhibitory synapses start exciting. The partial x_list_*/y_list_* "
                 "are left on disk but no generation_log.txt is written, so the "
                 "dataset will not validate. Lower noise_model_level, widen the "
-                "reversals (conductance_delta_inh/exc), or use a student fitted "
+                "reversals (student_delta_inh/exc), or use a student fitted "
                 "over a wider voltage range.")
         logger.info(_msg)
     # --------------------------------------------------------------------------
