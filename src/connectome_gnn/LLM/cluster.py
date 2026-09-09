@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 
@@ -41,6 +42,72 @@ CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
 _CPUS_PER_NODE = {'l4': 8, 'a100': 8, 'h100': 8}
 
 
+def _bsub_over_ssh(cluster_cmd, conda_env, node_name, n_cpus, device,
+                   hard_runtime_limit_min, stdout_path, stderr_path, job_name):
+    """Submit one bsub job over SSH, with the command INLINED. Returns (job_id, queue_label, result).
+
+    THE COMMAND IS INLINED, NOT WRITTEN TO A .sh. Each of the four submitters
+    here used to write a three-line `cluster_<kind>_<slot>.sh` into the log
+    directory and submit `bash -l <that script>`, purely to dodge the quoting:
+    the payload carries up to eight quoted path arguments and the old
+    submission path nested four shells deep (local `sh -c` from shell=True ->
+    ssh -> remote `bash -l -c '...'` -> bsub). The wrapper collapsed all of
+    that to one token.
+
+    The cost was that `bjobs` showed `bash -l /groups/.../cluster_train_00.sh`
+    truncated, so a queue of eight slots was unreadable -- you could not tell
+    which slot or which config any job was running.
+
+    Passing ssh an argv list removes the local shell entirely, so only the
+    remote login shell parses anything, and one `shlex.quote` around the
+    payload is then sufficient and correct. `-J job_name` puts the slot's
+    config name in the queue on top of that.
+
+    The `cd` happens on the SUBMIT node rather than inside the job, which is
+    equivalent: LSF records the submission CWD and re-establishes it at
+    execution (`bjobs -l` reports it as ExecutionCWD), which is why relative
+    paths in the payload resolve. Dropping the wrapper's explicit `bash -l`
+    is likewise safe -- bsub exports the submission environment, so conda is
+    on PATH exactly as it is for a hand-typed
+    `bsub "conda run -n connectome-gnn python GNN_Main.py ..."`.
+    """
+    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
+    if device == 'cpu':
+        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
+        queue_label = "cpu"
+    else:
+        bsub_resources = (f"bsub -n {n_cpus_eff} -gpu 'num=1' "
+                          f"-q gpu_{node_name} -W {hard_runtime_limit_min}")
+        queue_label = f"gpu_{node_name}"
+
+    payload = f"conda run -n {conda_env} {cluster_cmd}"
+    remote = (
+        f"cd {shlex.quote(CLUSTER_ROOT_DIR)} && {bsub_resources} "
+        f"-J {shlex.quote(job_name)} "
+        f"-o {shlex.quote(stdout_path)} -e {shlex.quote(stderr_path)} "
+        f"{shlex.quote(payload)}"
+    )
+    # argv form, no shell=True: ssh hands `remote` to the remote login shell
+    # verbatim, so there is exactly one level of quoting to get right.
+    #
+    # BatchMode=yes so a missing SSH agent FAILS instead of blocking on
+    # `allierc@login1's password:`. This loop runs unattended for days and
+    # submits eight jobs per batch; a password prompt there does not fail, it
+    # HANGS, and it hangs after the batch's configs have already been written,
+    # so the run neither progresses nor reports. Observed once, from a terminal
+    # whose SSH_AUTH_SOCK was not the forwarded VS Code agent socket.
+    result = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", CLUSTER_SSH, remote],
+        capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if 'Permission denied' in result.stderr or 'publickey' in result.stderr:
+        print("\033[91mSSH key auth to "
+              f"{CLUSTER_SSH} failed — no usable agent in this shell.\033[0m")
+        print("\033[93m  export SSH_AUTH_SOCK=$(ls -t /tmp/vscode-ssh-auth-*.sock | head -1)\033[0m")
+        print(f"\033[93m  then: ssh -o BatchMode=yes {CLUSTER_SSH} echo ok\033[0m")
+    match = re.search(r'Job <(\d+)>', result.stdout)
+    return (match.group(1) if match else None), queue_label, result
+
+
 def _resolve_n_cpus(node_name, n_cpus_default=2):
     """Return the bsub -n count for a given GPU node. Override per-node via
     _CPUS_PER_NODE; otherwise use the caller's default."""
@@ -76,7 +143,6 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
     Data generation and test/plot are handled locally in GNN_LLM.py.
     The cluster job runs training only.
     """
-    cluster_script_path = f"{log_dir}/cluster_train_{slot:02d}.sh"
     error_details_path = f"{log_dir}/training_error_{slot:02d}.log"
 
     # Resolve 'auto' → 'cuda' for cluster (PyTorch doesn't accept 'auto' as device string)
@@ -98,36 +164,17 @@ def submit_cluster_job(slot, config_path, analysis_log_path, config_file_field,
         cluster_train_cmd += f" --iteration {iteration}"
         cluster_train_cmd += f" --slot {slot}"
 
-    with open(cluster_script_path, 'w') as f:
-        f.write("#!/bin/bash -l\n")
-        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n {conda_env} {cluster_train_cmd}\n")
-    os.chmod(cluster_script_path, 0o755)
-
     cluster_stdout = f"{log_dir}/cluster_train_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_train_{slot:02d}.err"
 
-    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
-    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
-    if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
-        queue_label = "cpu"
-    else:
-        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
-        queue_label = f"gpu_{node_name}"
-    ssh_cmd = (
-        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
-        f"{bsub_resources} "
-        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash -l {cluster_script_path}'\""
-    )
+    job_id, queue_label, result = _bsub_over_ssh(
+        cluster_train_cmd, conda_env, node_name, n_cpus, device,
+        hard_runtime_limit_min, cluster_stdout, cluster_stderr,
+        job_name=f"train_{os.path.basename(config_file_field)}")
     print(f"\033[96m  slot {slot}: submitting to {queue_label} via SSH\033[0m", flush=True)
-    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
-    match = re.search(r'Job <(\d+)>', result.stdout)
-    if match:
-        job_id = match.group(1)
-        print(f"\033[92m  slot {slot}: job {job_id} submitted to gpu_{node_name}\033[0m")
+    if job_id:
+        print(f"\033[92m  slot {slot}: job {job_id} submitted to {queue_label}\033[0m")
         return job_id
     else:
         print(f"\033[91m  slot {slot}: submission FAILED\033[0m")
@@ -223,7 +270,6 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
     assert isinstance(test_config_file_fields, (list, tuple))
     assert len(test_config_file_fields) == len(test_config_paths)
 
-    cluster_script_path = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.sh"
     error_details_path = f"{log_dir}/cross_test_plot_error_{slot:02d}.log"
 
     if device == 'auto':
@@ -257,35 +303,15 @@ def submit_cluster_cross_test_plot_job(slot, config_path, test_config_paths,
         cluster_cmd += f" --iteration {iteration}"
         cluster_cmd += f" --slot {slot}"
 
-    with open(cluster_script_path, 'w') as f:
-        f.write("#!/bin/bash -l\n")
-        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n {conda_env} {cluster_cmd}\n")
-    os.chmod(cluster_script_path, 0o755)
-
     cluster_stdout = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_cross_test_plot_{slot:02d}.err"
 
-    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
-    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
-    if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
-        queue_label = "cpu"
-    else:
-        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
-        queue_label = f"gpu_{node_name}"
+    job_id, queue_label, result = _bsub_over_ssh(
+        cluster_cmd, conda_env, node_name, n_cpus, device,
+        hard_runtime_limit_min, cluster_stdout, cluster_stderr,
+        job_name=f"cross_{os.path.basename(config_file_field)}")
 
-    ssh_cmd = (
-        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
-        f"{bsub_resources} "
-        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash -l {cluster_script_path}'\""
-    )
-    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
-
-    match = re.search(r'Job <(\d+)>', result.stdout)
-    if match:
-        job_id = match.group(1)
+    if job_id:
         print(f"\033[92m  slot {slot}: cross test+plot job {job_id} submitted to {queue_label}\033[0m")
         return job_id
     else:
@@ -744,7 +770,6 @@ def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_fi
 
     Runs test_plot_subprocess.py on the cluster after training completes.
     """
-    cluster_script_path = f"{log_dir}/cluster_test_plot_{slot:02d}.sh"
     error_details_path = f"{log_dir}/test_plot_error_{slot:02d}.log"
 
     if device == 'auto':
@@ -762,36 +787,16 @@ def submit_cluster_test_plot_job(slot, config_path, analysis_log_path, config_fi
         cluster_cmd += f" --iteration {iteration}"
         cluster_cmd += f" --slot {slot}"
 
-    with open(cluster_script_path, 'w') as f:
-        f.write("#!/bin/bash -l\n")
-        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n {conda_env} {cluster_cmd}\n")
-    os.chmod(cluster_script_path, 0o755)
-
     cluster_stdout = f"{log_dir}/cluster_test_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_test_plot_{slot:02d}.err"
 
-    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
-    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
-    if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
-        queue_label = "cpu"
-    else:
-        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
-        queue_label = f"gpu_{node_name}"
-
-    ssh_cmd = (
-        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
-        f"{bsub_resources} "
-        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash -l {cluster_script_path}'\""
-    )
+    job_id, queue_label, result = _bsub_over_ssh(
+        cluster_cmd, conda_env, node_name, n_cpus, device,
+        hard_runtime_limit_min, cluster_stdout, cluster_stderr,
+        job_name=f"testplot_{os.path.basename(config_file_field)}")
     print(f"\033[96m  slot {slot}: submitting test+plot to {queue_label} via SSH\033[0m", flush=True)
-    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
-    match = re.search(r'Job <(\d+)>', result.stdout)
-    if match:
-        job_id = match.group(1)
+    if job_id:
         print(f"\033[92m  slot {slot}: test+plot job {job_id} submitted to {queue_label}\033[0m")
         return job_id
     else:
@@ -812,7 +817,6 @@ def submit_cluster_data_plot_job(slot, config_path, analysis_log_path, config_fi
     already-trained model and overwrites <log_dir>/results/metrics.txt.
     Used by aggregate_blank50_tables.py --data_plot.
     """
-    cluster_script_path = f"{log_dir}/cluster_data_plot_{slot:02d}.sh"
     error_details_path  = f"{log_dir}/data_plot_error_{slot:02d}.log"
 
     if device == 'auto':
@@ -830,36 +834,16 @@ def submit_cluster_data_plot_job(slot, config_path, analysis_log_path, config_fi
         cluster_cmd += f" --iteration {iteration}"
         cluster_cmd += f" --slot {slot}"
 
-    with open(cluster_script_path, 'w') as f:
-        f.write("#!/bin/bash -l\n")
-        f.write(f"cd {CLUSTER_ROOT_DIR}\n")
-        f.write(f"conda run -n {conda_env} {cluster_cmd}\n")
-    os.chmod(cluster_script_path, 0o755)
-
     cluster_stdout = f"{log_dir}/cluster_data_plot_{slot:02d}.out"
     cluster_stderr = f"{log_dir}/cluster_data_plot_{slot:02d}.err"
 
-    # Per-GPU-node CPU sizing (l4 needs more CPUs to keep up; see _resolve_n_cpus).
-    n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
-    if device == 'cpu':
-        bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
-        queue_label = "cpu"
-    else:
-        bsub_resources = f"bsub -n {n_cpus_eff} -gpu 'num=1' -q gpu_{node_name} -W {hard_runtime_limit_min}"
-        queue_label = f"gpu_{node_name}"
-
-    ssh_cmd = (
-        f"ssh {CLUSTER_SSH} \"bash -l -c 'cd {CLUSTER_ROOT_DIR} && "
-        f"{bsub_resources} "
-        f"-o {cluster_stdout!r} -e {cluster_stderr!r} "
-        f"bash -l {cluster_script_path}'\""
-    )
+    job_id, queue_label, result = _bsub_over_ssh(
+        cluster_cmd, conda_env, node_name, n_cpus, device,
+        hard_runtime_limit_min, cluster_stdout, cluster_stderr,
+        job_name=f"dataplot_{os.path.basename(config_file_field)}")
     print(f"\033[96m  slot {slot}: submitting data_plot to {queue_label} via SSH\033[0m", flush=True)
-    result = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
 
-    match = re.search(r'Job <(\d+)>', result.stdout)
-    if match:
-        job_id = match.group(1)
+    if job_id:
         print(f"\033[92m  slot {slot}: data_plot job {job_id} submitted to {queue_label}\033[0m")
         return job_id
     else:

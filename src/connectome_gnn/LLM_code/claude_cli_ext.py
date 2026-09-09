@@ -5,8 +5,15 @@ Same call shape as LLM/claude_cli.run_claude_cli, plus:
     process hasn't exited within TERM_GRACE seconds, SIGKILL.
   - returns a (output_text, timed_out) tuple so callers can mark the phase
     as "cap reached" without failing loudly.
+  - extra_args: raw flags spliced into the command line before --allowedTools
+    (which must stay last, being variadic). GNN_LLM+.py uses this to pass
+    --session-id / --resume so one conversation spans the whole exploration.
+  - session_sink: optional dict the wrapper fills in with what the stream
+    reported about the conversation — 'session_id' from the init event and
+    'compacted' True if the CLI compacted mid-call, which tells the caller
+    the agent may have lost the instruction file it read at batch 0.
 
-Kept tiny (~60 LOC) and self-contained so the HPO pipeline is not affected.
+Kept tiny and self-contained so the HPO pipeline is not affected.
 """
 
 from __future__ import annotations
@@ -69,6 +76,32 @@ def _format_stream_event(ev: dict) -> Optional[str]:
     return None
 
 
+def _record_session(ev: dict, sink: Optional[dict]) -> None:
+    """Note conversation-level facts from a stream event into `sink`.
+
+    Three facts matter to a caller that pins one conversation across many
+    calls: the id the CLI actually used (it should equal the one we asked
+    for); whether the CLI compacted this call, since a compaction drops the
+    oldest turns and the instruction file read at batch 0 is the oldest turn
+    there is; and how the run ended, because a --resume that names a deleted
+    conversation fails with result subtype 'error_during_execution' and an
+    empty assistant text rather than a raised exception.
+    """
+    if sink is None:
+        return
+    t = ev.get("type")
+    subtype = ev.get("subtype")
+    if t == "system":
+        if subtype == "init" and ev.get("session_id"):
+            sink["session_id"] = ev["session_id"]
+        elif subtype in ("compact_boundary", "compaction", "compacted"):
+            sink["compacted"] = True
+    elif t == "result":
+        sink["result_subtype"] = subtype or ""
+        if ev.get("is_error"):
+            sink["result_is_error"] = True
+
+
 def _assistant_text(ev: dict) -> str:
     """Return just the assistant text content of an event (for return value)."""
     if ev.get("type") != "assistant":
@@ -89,11 +122,16 @@ def run_claude_cli_with_timeout(
     timeout_sec: int,
     max_turns: int = 200,
     log_prefix: str = "",
+    extra_args: Iterable[str] = (),
+    session_sink: Optional[dict] = None,
 ) -> Tuple[str, bool]:
     """Run `claude -p <prompt>` with a hard timeout. Returns (stdout, timed_out).
 
     stdout is accumulated both for return and printed line-by-line with the
     given prefix for live monitoring.
+
+    extra_args go before --allowedTools, which is variadic and so must stay
+    last or it would swallow them as further tool names.
     """
     cmd = [
         "claude",
@@ -101,6 +139,7 @@ def run_claude_cli_with_timeout(
         "--output-format", "stream-json",
         "--verbose",
         "--max-turns", str(max_turns),
+        *list(extra_args),
         "--allowedTools",
         *list(allowed_tools),
     ]
@@ -152,8 +191,14 @@ def run_claude_cli_with_timeout(
         try:
             ev = json.loads(raw)
         except json.JSONDecodeError:
+            # Not a stream event — the CLI's own diagnostics come out here,
+            # including "No conversation found with session ID: ...". Keep the
+            # last few so a caller can tell a failed --resume from a terse turn.
+            if session_sink is not None:
+                session_sink.setdefault("plain_lines", []).append(raw)
             _emit(raw)
             continue
+        _record_session(ev, session_sink)
         rendered = _format_stream_event(ev)
         if rendered:
             for l in rendered.splitlines():
@@ -184,6 +229,7 @@ def run_claude_cli_with_timeout(
                 except json.JSONDecodeError:
                     _emit(raw)
                     continue
+                _record_session(ev, session_sink)
                 rendered = _format_stream_event(ev)
                 if rendered:
                     for l in rendered.splitlines():
