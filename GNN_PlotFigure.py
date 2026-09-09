@@ -363,6 +363,19 @@ def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices
     plt.close()
 
 
+def _finite_range(values, fallback):
+    """min/max over the finite entries, falling back when there are none.
+
+    An all-NaN array means the quantity was never measured; matplotlib rejects
+    NaN axis limits, so the fallback keeps the (empty) panel drawable instead of
+    raising in a plotting path.
+    """
+    finite = np.asarray(values)[np.isfinite(values)]
+    if finite.size == 0:
+        return float(fallback[0]), float(fallback[1])
+    return float(finite.min()), float(finite.max())
+
+
 def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
                                     device, log_dir, logger, log_file):
     """Score E_ij and msg_i and write them to the analysis log and metrics.txt.
@@ -570,8 +583,15 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     # longer be WRITTEN as though it had been measured.
     has_tau_learned = _tau_pair is not None
     has_vrest_learned = _vrest_pair is not None
-    learned_tau = _tau_pair[1] if has_tau_learned else np.zeros(n_neurons)
-    learned_V_rest = _vrest_pair[1] if has_vrest_learned else np.zeros(n_neurons)
+    # NaN, NOT zeros, when the extractor produced nothing. A zero-filled array is
+    # a lie that survives every downstream operation: it scatters on the axis, it
+    # scores a plausible R2, and it reaches the log looking like a measurement of
+    # exactly zero. NaN propagates as NaN through recovery_param_metrics, draws no
+    # points, and cannot be mistaken for data. The two axis-limit computations and
+    # the clustering feature stack below are the only places that need it handled
+    # explicitly; everything else is NaN-safe already.
+    learned_tau = _tau_pair[1] if has_tau_learned else np.full(n_neurons, np.nan)
+    learned_V_rest = _vrest_pair[1] if has_vrest_learned else np.full(n_neurons, np.nan)
 
     gt_gain_np = _gain_pair[0] if _gain_pair is not None else None
     gt_bias_np = _bias_pair[0] if _bias_pair is not None else None
@@ -631,7 +651,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _tau_xlim = (-0.025, 0.5)
     _tau_ticks = [0.0, 0.25, 0.5]
     _tau_tick_labels = ['0.0', '0.25', '0.5']
-    _tau_lo = float(np.min(learned_tau)); _tau_hi = float(np.max(learned_tau))
+    _tau_lo, _tau_hi = _finite_range(learned_tau, _tau_xlim)
     _tau_pad = 0.02 * (_tau_hi - _tau_lo) if _tau_hi > _tau_lo else 0.01
     _tau_ylim = (_tau_lo - _tau_pad, _tau_hi + _tau_pad)
 
@@ -763,7 +783,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _v_xlim = (-0.025, 1.0)
     _v_ticks = [0.0, 0.5, 1.0]
     _v_tick_labels = ['0.0', '0.5', '1.0']
-    _v_lo = float(np.min(learned_V_rest)); _v_hi = float(np.max(learned_V_rest))
+    _v_lo, _v_hi = _finite_range(learned_V_rest, _v_xlim)
     _v_pad = 0.02 * (_v_hi - _v_lo) if _v_hi > _v_lo else 0.01
     _v_ylim = (_v_lo - _v_pad, _v_hi + _v_pad)
 
@@ -1338,10 +1358,17 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     n_gmm = min(100, n_neurons - 1)
 
-    # Augmented clustering: (tau, V_rest, W_stats) since no embeddings
-    a_aug = np.column_stack([learned_tau, learned_V_rest,
-                             w_in_mean, w_in_std, w_out_mean, w_out_std,
-                             w_in_min, w_in_max, w_out_min, w_out_max])
+    # Augmented clustering: (tau, V_rest, W_stats) since no embeddings.
+    # A quantity the extractor did not produce is dropped from the feature stack
+    # rather than fed in as NaN, which the GMM cannot fit -- clustering on the
+    # features that exist is a smaller claim than clustering on invented ones.
+    _aug = []
+    if has_tau_learned:
+        _aug.append(learned_tau)
+    if has_vrest_learned:
+        _aug.append(learned_V_rest)
+    a_aug = np.column_stack(_aug + [w_in_mean, w_in_std, w_out_mean, w_out_std,
+                                    w_in_min, w_in_max, w_out_min, w_out_max])
     results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
     cluster_acc = results['accuracy']
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
