@@ -366,7 +366,7 @@ def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
     """Score E_ij and msg_i and write them to the analysis log and metrics.txt.
 
     These two were computed during training — the `Eij/` and `msgi/` panels and
-    `tmp_training/reversal_rmse.log` — but never reached the per-slot analysis
+    `tmp_training/Eij.log` — but never reached the per-slot analysis
     log the LLM exploration reads, so an agent could only get at them by
     opening figures or parsing a training log by exact path. They are written
     here beside connectivity_R2 / tau_R2 / V_rest_R2.
@@ -463,11 +463,16 @@ def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
         logger.warning(f"reversal metrics unavailable: {type(exc).__name__}: {exc}")
         rev = None
     if rev is not None:
+        # Named Eij_*, not reversal_*: "reversal" alone reads as an action and
+        # prompts "reversal of what?", where E_ij is the per-edge reversal
+        # POTENTIAL and is what the tmp_training/Eij/ panels, the `E=` token in
+        # the progress bar and both instruction files already call it. Sits
+        # beside Wij and msg_i as one symbol-first family.
         _emit([
-            ('reversal_R2', float(rev['r2'])),
-            ('reversal_slope', float(rev['slope'])),
-            ('reversal_rmse', float(rev['rmse'])),
-            ('reversal_n_edges', int(rev['n_edges'])),
+            ('Eij_R2', float(rev['r2'])),
+            ('Eij_slope', float(rev['slope'])),
+            ('Eij_rmse', float(rev['rmse'])),
+            ('Eij_n_edges', int(rev['n_edges'])),
         ])
         print(f"E_ij R²: {_r2_color(rev['r2'])}{rev['r2']:.3f}{_ANSI_RESET}  "
               f"slope: {rev['slope']:.2f}  rmse: {rev['rmse']:.3f}  "
