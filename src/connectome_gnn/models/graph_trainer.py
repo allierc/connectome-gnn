@@ -803,39 +803,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # msg_i, the ONE recovery number the conductance degeneracy
                     # does not touch: W_ij and E_ij trade off inside the message,
                     # so msg_i scores what the trajectory actually depends on.
-                    # Computed on every R2 checkpoint rather than only on panel
-                    # iterations, because it belongs in the progress bar beside
-                    # conn and E -- conn=-5.0 with msg=0.95 (dynamics right, split
-                    # wrong) and conn=-5.0 with msg=-0.04 (nothing learned) look
-                    # identical without it. Ten forward passes; the panel below
-                    # reuses this result rather than recomputing it.
-                    from connectome_gnn.metrics import (
-                        compute_msg_i_recovery, recovery_param_metrics)
-                    _msg = None
-                    try:
-                        _msg = compute_msg_i_recovery(model, ode_params, x_ts,
-                                                      edges, device)
-                    except Exception as _e:
-                        logger.warning(f"msg_i recovery eval failed: {type(_e).__name__}: {_e}")
-                    if _msg is not None:
-                        epoch_state.metrics.msgi_r2 = float(
-                            recovery_param_metrics(_msg[0], _msg[1])['r2'])
-                        # Its own file, for the same reason Eij.log has
-                        # one: plot.py reads metrics.log by POSITIONAL index, so
-                        # a new column there shifts every reader after it.
-                        _msg_log = os.path.join(log_dir, "tmp_training", "msgi_r2.log")
-                        if not os.path.exists(_msg_log):
-                            with open(_msg_log, "w") as f:
-                                f.write("iteration,r2,n\n")
-                        with open(_msg_log, "a") as f:
-                            f.write(f"{regularizer.iter_count},"
-                                    f"{epoch_state.metrics.msgi_r2:.6f},{_msg[0].size}\n")
-
                     if save_panels:
                         plot_reversal_scatter(_rev, log_dir, epoch, N)
-                        plot_msg_recovery(model, ode_params, x_ts, edges, device,
-                                          log_dir, epoch, N, type_list=type_list,
-                                          precomputed=_msg)
                     # Its own file, for the same reason rollout_r.log has one:
                     # plot.py reads metrics.log by POSITIONAL index (`_f(parts,
                     # idx)`), so adding a column there shifts every reader after
@@ -872,6 +841,58 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             f"with median R2={_rev['fit_r2_median']:.4f}; "
                             f"W R2={_rev['w_r2_scaled']:.4f} after dividing out "
                             f"gain {_rev['w_scale']:.3e}")
+
+            # msg_i, ON BOTH DATA FAMILIES. This used to sit inside the E_ij
+            # block, so it only ran when the generator had a reversal potential --
+            # but the true message is W_ij * act(v_j) * (E_i - v_i) with the last
+            # factor simply absent on current data, and compute_msg_i_recovery
+            # already handles that. A current run therefore showed no msg= in the
+            # bar at all, which is exactly the run where it is most useful: it is
+            # the only recovery number that needs no correction and no estimator
+            # choice, so conn and msg disagreeing localises the problem to the
+            # correction rather than to the model.
+            if (is_regular_r2 or is_early_r2) and ode_params is not None:
+                from connectome_gnn.metrics import (
+                    compute_msg_i_recovery, recovery_param_metrics)
+                _msg = None
+                try:
+                    _msg = compute_msg_i_recovery(model, ode_params, x_ts,
+                                                  edges, device)
+                except Exception as _e:
+                    logger.warning(f"msg_i recovery eval failed: {type(_e).__name__}: {_e}")
+                if _msg is not None:
+                    _mt, _ml = _msg
+                    _m_raw = float(recovery_param_metrics(_mt, _ml)['r2'])
+                    # SCALE-FREE IS WHAT THE BAR SHOWS, because a GNN's message
+                    # carries the learned g_phi gain and the raw R2 is then
+                    # dominated by it: measured on a current GNN, msg_i scored
+                    # -2.07 raw, but one global factor of 2.67 divided out leaves
+                    # +0.977 at Pearson r 0.989 -- the message was recovered, the
+                    # gain was not divided out. The bar's Wij= is ALREADY the
+                    # gain-corrected number, so showing raw msg beside it would be
+                    # comparing a corrected quantity with an uncorrected one. On a
+                    # known-ODE the scale is ~1 and the two agree anyway.
+                    _denom = float(_mt @ _mt)
+                    _m_scale = float(_mt @ _ml) / _denom if _denom > 0 else float('nan')
+                    _m_scaled = (float(recovery_param_metrics(_mt, _ml / _m_scale)['r2'])
+                                 if abs(_m_scale) > 1e-12 else float('nan'))
+                    epoch_state.metrics.msgi_r2 = _m_scaled
+                    # Its own file, for the same reason Eij.log has one: plot.py
+                    # reads metrics.log by POSITIONAL index, so a new column there
+                    # shifts every reader after it. Both numbers are recorded --
+                    # the raw one is the honest headline, the scaled one is what
+                    # is comparable across model families.
+                    _msg_log = os.path.join(log_dir, "tmp_training", "msgi_r2.log")
+                    if not os.path.exists(_msg_log):
+                        with open(_msg_log, "w") as f:
+                            f.write("iteration,r2,r2_scaled,scale,n\n")
+                    with open(_msg_log, "a") as f:
+                        f.write(f"{regularizer.iter_count},{_m_raw:.6f},"
+                                f"{_m_scaled:.6f},{_m_scale:.6e},{_mt.size}\n")
+                    if save_panels:
+                        plot_msg_recovery(model, ode_params, x_ts, edges, device,
+                                          log_dir, epoch, N, type_list=type_list,
+                                          precomputed=_msg)
 
             if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
                 from connectome_gnn.metrics import compute_jacobian_connectivity_r2
@@ -1216,10 +1237,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"{ANSI_RESET}"
                     )
 
-                # msg_i beside E_ij: same conductance ground truth, opposite
-                # meaning. E is the factorisation the data barely constrain,
-                # msg is the product they fully constrain, so reading them
-                # together is what separates "wrong split" from "not learning".
+                # msg_i, on every dataset. On conductance data it sits beside E:
+                # E is the factorisation the data barely constrain, msg is the
+                # product they fully constrain, so reading them together
+                # separates "wrong split" from "not learning". On current data
+                # there is no E, and msg is then the only recovery number that
+                # needs neither a correction nor an estimator choice -- so msg
+                # disagreeing with Wij localises the problem to the correction.
                 if epoch_state.metrics.msgi_r2 is not None:
                     bar_parts.append(
                         f"{r2_color(epoch_state.metrics.msgi_r2)}"

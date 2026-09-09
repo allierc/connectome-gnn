@@ -691,7 +691,10 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             # only the conductance/reversal split is wrong, while R²W=-5.00 with
             # msg=-0.04 says nothing is being learned. Absent on current-generated
             # data, which has no conductance ground truth to build msg_i from.
-            mg = _read_last_csv_value(log_dir, 'msgi_r2.log', col=1)
+            # col=2 is r2_scaled: a GNN's message carries the learned g_phi
+            # gain, so the raw R2 beside a gain-corrected R2W would compare an
+            # uncorrected quantity with a corrected one.
+            mg = _read_last_csv_value(log_dir, 'msgi_r2.log', col=2)
             if mg is not None:
                 parts.append(f"{_r2_color(mg)}R²msg={mg:.2f}{_ANSI_RESET}")
             if sr is not None:
