@@ -34,6 +34,11 @@ CONFIG_DIR = REPO / "config" / "fly"
 BASES = {
     "eed": "flyvis_noise_005_eed_unified2.yaml",
     "mlp": "flyvis_noise_005_mlp_unified2.yaml",
+    # The benchmarked GNN pair, already on this blank50 dataset family. The two
+    # are iteration-matched at 500 updates (1x500 vs 5x100) and differ only in
+    # the horizon curriculum, so they isolate rollout depth.
+    "gnn_k1": "flyvis_current_noise_free_current_cv00.yaml",
+    "gnn_rc5": "flyvis_current_noise_free_current_rc_uniform_cv00.yaml",
 }
 
 # (name token, base key, label, overrides). The token lands in the config name,
@@ -48,6 +53,8 @@ MODELS = [
     ("mlp", "mlp", "MLP", {}),
     ("mlp_rts1", "mlp", "MLP (rollout_train_steps=1)",
      {"training": {"rollout_train_steps": 1}}),
+    ("gnn_k1", "gnn_k1", "GNN (one-step, K=1)", {}),
+    ("gnn_rc5", "gnn_rc5", "GNN (rollout curriculum K=1..5, uniform)", {}),
 ]
 
 # (config token, dataset infix, sigma_meas). The dataset infix is empty for the
@@ -83,8 +90,25 @@ def build(model: str, base_key: str, label: str, overrides: dict,
     # The claude block drives the agentic hyperparameter loop, not a plain
     # training run, and its case_study_brief names a different dataset.
     base.pop("claude", None)
+    # A stale config_file would point the log dir at the base run. Loading by
+    # name overwrites it anyway (models/utils.py), and loading by path derives
+    # it from the filename when absent — so dropping it is the safe form.
+    base.pop("config_file", None)
 
     return name, base
+
+
+def _horizon(cfg: dict) -> str:
+    """Describe a config's rollout horizon, whichever knob expresses it.
+
+    The MLP/EED trainers unroll a fixed rollout_train_steps; the GNN instead
+    takes a per-epoch rollout_horizon_schedule (empty = one-step).
+    """
+    tr = cfg["training"]
+    if "rollout_train_steps" in tr:
+        return f"rollout_train_steps={tr['rollout_train_steps']}"
+    schedule = tr.get("rollout_horizon_schedule") or []
+    return f"horizon_schedule={schedule or '[] (K=1)'}"
 
 
 def main() -> None:
@@ -106,11 +130,10 @@ def main() -> None:
                                   token, infix, sigma, fold)
                 path = CONFIG_DIR / f"{name}.yaml"
                 path.write_text(yaml.safe_dump(cfg, sort_keys=False, default_flow_style=False))
-                written.append((name, cfg["dataset"], sigma,
-                                cfg["training"]["rollout_train_steps"]))
+                written.append((name, cfg["dataset"], sigma, _horizon(cfg)))
 
-    for name, dataset, sigma, rts in written:
-        print(f"{name:56s} -> {dataset:38s} sigma_meas={sigma}  rts={rts}")
+    for name, dataset, sigma, horizon in written:
+        print(f"{name:60s} -> {dataset:38s} sigma_meas={sigma}  {horizon}")
     print(f"\n{len(written)} configs written to {CONFIG_DIR}")
 
 
