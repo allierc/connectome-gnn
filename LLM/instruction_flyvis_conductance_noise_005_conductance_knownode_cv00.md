@@ -11,7 +11,7 @@ functional form. Nothing about the synapse is being learned as a free function �
 parameter recovery, and every quantity has a true value on disk in `ode_params.pt`.
 
 **This exploration optimises TWO objectives in order, not one. Stage 1 is the FIT:
-`msg_i_R2`. Stage 2 is the IDENTIFICATION: `connectivity_R2_scaled`, then `reversal_R2`,
+`msg_i_R2`. Stage 2 is the IDENTIFICATION: `connectivity_R2_scaled`, then `Eij_R2`,
 then the raw `connectivity_R2`.** Read "the two objectives" below before ranking anything —
 `connectivity_R2` on its own cannot steer this experiment, and the reason is measured, not
 assumed.
@@ -64,7 +64,7 @@ Two numbers do have a working point and a gradient, and both are in the analysis
 | --- | --- | --- | --- |
 | **1. FIT** | `msg_i_R2` | 0.835 / 0.947 | Does the model reproduce the generator's MESSAGE? |
 | **2. IDENTIFICATION** | `connectivity_R2_scaled` | 0.343 | Given the fit, is the SHAPE of W right once the unpinnable global gain is removed? |
-| | `reversal_R2`, `w_scale` | 0.497, 2.39 | How far along the degenerate valley does this run sit? |
+| | `Eij_R2`, `w_scale` | 0.497, 2.39 | How far along the degenerate valley does this run sit? |
 
 **They are not the same objective and improving one does not imply improving the other.**
 A model can pass every message perfectly and still sit anywhere along the valley: `msg_i`
@@ -79,7 +79,7 @@ connectome.
    `connectivity_R2` — a connectivity number computed from a model that no longer
    reproduces the message is measuring noise.
 2. **Among slots that hold the floor, rank on `connectivity_R2_scaled`**, then on
-   `reversal_R2`, then on `|w_scale - 1|` shrinking. These three move together when the
+   `Eij_R2`, then on `|w_scale - 1|` shrinking. These three move together when the
    scale is genuinely being pinned, and that agreement is itself the evidence.
 3. **Report raw `connectivity_R2` in every entry but never rank on it alone.** It is the
    number the paper quotes and it is the honest headline; it is also dominated by a scalar
@@ -153,10 +153,10 @@ spellings; nothing else exists:
 | `raw_W_R2` | same, before the g_phi correction | context only |
 | `tau_R2` | R2 of `softplus(raw_tau)` against `tau_i` | > 0.90 |
 | `V_rest_R2` | R2 of `V_rest` against `V_i_rest` | > 0.85 |
-| `reversal_R2` | R2 of the learned per-edge `E_ij` against the true one | > 0.60 — the hard one, see the degeneracy section |
-| `reversal_slope` | identity-line slope of the same scatter | 1.0 is perfect; ~0.4 is the degenerate valley |
-| `reversal_rmse` | RMSE of `E_ij` in the same units as `E` (magnitude 14.7-24.4) | < 3 |
-| `reversal_n_edges` | edges the reversal was scored on | context only, expect 434,112 |
+| `Eij_R2` | R2 of the learned per-edge `E_ij` against the true one | > 0.60 — the hard one, see the degeneracy section |
+| `Eij_slope` | identity-line slope of the same scatter | 1.0 is perfect; ~0.4 is the degenerate valley |
+| `Eij_rmse` | RMSE of `E_ij` in the same units as `E` (magnitude 14.7-24.4) | < 3 |
+| `Eij_n_edges` | edges E_ij was scored on | context only, expect 434,112 |
 | `msg_i_R2` | R2 of the aggregated per-neuron message | **STAGE-1 FLOOR.** Observed 0.835 / 0.947; must not fall > 0.02 below the block control |
 | `msg_i_slope` | identity-line slope of the message scatter | 1.0 |
 | `msg_i_rmse` | RMSE of `msg_i` | context only |
@@ -168,10 +168,10 @@ spellings; nothing else exists:
 **EVERY "observed" NUMBER IN THIS FILE WAS MEASURED ON A 10-EPOCH RUN.** From
 block 2 onward `claude.n_epochs` is 3, because an audit of the full trajectory
 showed epochs 8->10 cost 1.6 h and moved `connectivity_R2` by 0.078 and
-`reversal_R2` by 0.002 — resolvable against the seed noise, but changing no
+`Eij_R2` by 0.002 — resolvable against the seed noise, but changing no
 verdict, while a 3-epoch run captures 76% of the total improvement for 30% of
 the cost. At 3 epochs the baseline sits near `connectivity_R2` -6.1,
-`reversal_R2` 0.471, `reversal_slope` 0.427, and `w_scale` correspondingly
+`Eij_R2` 0.471, `Eij_slope` 0.427, and `w_scale` correspondingly
 further from 1.
 
 So expect the absolute values to JUMP at the start of block 2. That jump is the
@@ -180,12 +180,12 @@ applies to relative comparisons only**. Rank every slot against slot 0 of its
 own block, which runs the same number of epochs, and never against a number
 quoted from block 1 or from this file.
 
-`reversal_*` and `msg_i_*` are new. They used to exist only as figures and as
-`tmp_training/reversal_rmse.log`, so earlier runs of this exploration have them
+`Eij_*` and `msg_i_*` are new. They used to exist only as figures and as
+`tmp_training/Eij.log`, so earlier runs of this exploration have them
 missing from the analysis log — an entry from before this change that omits
 them is not a failed slot.
 
-`reversal_*` appears **only on conductance-generated data**. On a current
+`Eij_*` appears **only on conductance-generated data**. On a current
 generator there is no `(E - v_i)` term to recover, the keys are absent, and
 that absence is information rather than a fault. `msg_i_*` appears on both.
 
@@ -196,9 +196,9 @@ not Glob:
 
 | Path | What it carries |
 | --- | --- |
-| `../results/metrics.txt` | **A SECOND COPY OF EVERY HEADLINE METRIC**, one `key: value` per line — `msg_i_R2`, `connectivity_R2_scaled`, `w_scale`, `connectivity_pearson_r`, `reversal_R2`, `connectivity_R2`. The same code writes both this and the analysis log. It is inside the run directory, so it stays reachable when the shared analysis-log directory is not. **If the analysis log is unreadable, read this and report normally — never mark an objective PENDING while a readable copy exists.** |
+| `../results/metrics.txt` | **A SECOND COPY OF EVERY HEADLINE METRIC**, one `key: value` per line — `msg_i_R2`, `connectivity_R2_scaled`, `w_scale`, `connectivity_pearson_r`, `Eij_R2`, `connectivity_R2`. The same code writes both this and the analysis log. It is inside the run directory, so it stays reachable when the shared analysis-log directory is not. **If the analysis log is unreadable, read this and report normally — never mark an objective PENDING while a readable copy exists.** |
 | `metrics.log` | CSV: `iteration,connectivity_r2,vrest_r2_raw,tau_r2_raw,hidden_nnr_pearson,anchor_nnr_pearson,vrest_r2_clean,n_out_vrest,n_total_vrest,tau_r2_clean,n_out_tau,n_total_tau` |
-| `reversal_rmse.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY. Its final row should agree with `reversal_rmse` / `reversal_R2` in the analysis log; read the log for the value and this file for how it got there |
+| `Eij.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY. Its final row should agree with `Eij_rmse` / `Eij_R2` in the analysis log; read the log for the value and this file for how it got there |
 | `rollout_r.log` | CSV: `iteration,r,rmse,n_frames` |
 | `Wij/raw_*.png` | 2x2 recovery panel for `W**2` vs the true conductance |
 | `Eij/Eij_*.png` | 2x2 recovery panel for the per-edge reversal |
@@ -280,7 +280,7 @@ count here — read it from the prompt.
 
 | Block | Mode | Focus | Parameters to scan | Ranges |
 | --- | --- | --- | --- | --- |
-| 1 | Robustness | Baseline variance | none — all 8 slots identical | Establish the CV of **`msg_i_R2` and `connectivity_R2_scaled` first**, then `w_scale`, `reversal_R2`, `tau_R2`, `V_rest_R2`. Those two CVs are what every later verdict is measured against |
+| 1 | Robustness | Baseline variance | none — all 8 slots identical | Establish the CV of **`msg_i_R2` and `connectivity_R2_scaled` first**, then `w_scale`, `Eij_R2`, `tau_R2`, `V_rest_R2`. Those two CVs are what every later verdict is measured against |
 | 2 | Exploration | Learning rates | `lr_W`, `lr` | lr_W {3e-4, 6e-4, 2e-3}; lr {6e-4, 1.8e-3, 4e-3}. Also record the lr_W/lr ratio |
 | 3 | Exploration | W initialisation | `w_init_mode`, `w_init_scale` | init {randn_scaled, zeros, uniform_scaled}; scale {0.25, 0.5, 2.0} |
 | 4 | Exploration | tau scale prior | `coeff_tau_L2` then `coeff_tau_L1` | {0, 1e-5, 1e-4, 1e-3}. **This is the degeneracy block** |
@@ -304,11 +304,11 @@ Per-block notes:
 - **Block 4 is the point of the exploration.** The prediction is that an L2 on `raw_tau`
   introduces a preferred scale along the rescaling direction, so it should move `w_scale`
   toward 1.0 from its observed 2.39 and lift both `connectivity_R2_scaled` and
-  `reversal_R2`. **The success signature is stage-2 metrics rising while `msg_i_R2` does
+  `Eij_R2`. **The success signature is stage-2 metrics rising while `msg_i_R2` does
   not move** — that is the scale being pinned rather than the message being refitted, and
   it is exactly the two-objective split this file is built on. If `msg_i_R2` falls as the
   coefficient rises, the prior is not pinning the scale, it is fighting the fit: back off.
-  A flat `w_scale` and flat `reversal_R2` at every coefficient is the **null result**, and
+  A flat `w_scale` and flat `Eij_R2` at every coefficient is the **null result**, and
   it is a real finding — it would say the identifiability limit, not the optimiser, is the
   bottleneck. Document it as such rather than sweeping harder.
 - **Block 6**: `coeff_W_L1` acts on the square root of the conductance, so its effect on
@@ -365,7 +365,7 @@ Three extra rules specific to this experiment:
   the iteration of its peak and `(final - peak) / peak`. Treat any slot with
   `final / peak < 0.95` as disqualified even if the final number looks acceptable — a late
   collapse is a real failure mode here.
-- **Degeneracy check.** In every entry, record `connectivity_R2`, `reversal_R2` and
+- **Degeneracy check.** In every entry, record `connectivity_R2`, `Eij_R2` and
   `msg_i_R2` together. A configuration that improves one of the first two while
   destroying the other has not improved recovery; it has moved along the degenerate
   valley, and `msg_i_R2` holding steady across that move is the proof — the message is
@@ -378,11 +378,11 @@ Three extra rules specific to this experiment:
 For each slot, in this order:
 
 1. Read the analysis log for the slot and extract every metric named in the Metrics table.
-   `connectivity_R2`, `reversal_R2`/`reversal_slope`/`reversal_rmse` and
+   `connectivity_R2`, `Eij_R2`/`Eij_slope`/`Eij_rmse` and
    `msg_i_R2`/`msg_i_slope` are all in there — one read, no figure-scraping and no
    parsing of training logs by hand.
 2. Read `tmp_training/metrics.log` for the peak of `connectivity_r2` and how far the
-   final value fell from it, and `tmp_training/reversal_rmse.log` for the shape of the
+   final value fell from it, and `tmp_training/Eij.log` for the shape of the
    E_ij trajectory. Both are about the trajectory; the final values came from step 1.
 3. Compare `connectivity_R2` against `msg_i_R2` and say which way they disagree, if they
    do. `tmp_training/Wij/raw_*.png` and `tmp_training/msgi/msgi_*.png` show the same two
@@ -401,7 +401,7 @@ Entry template:
 - Changed: <parameter> <old> -> <new>   (slot 0: unchanged control)
 - STAGE 1 msg_i_R2: <value>  (control <value>, delta <value>)  -> <Fit-OK | Fit-Broken | Fit-Collapsed>
 - STAGE 2 connectivity_R2_scaled: <value>  w_scale: <value>  connectivity_pearson_r: <value>
-- reversal_R2: <value>   reversal_slope: <value>   reversal_rmse: <value>
+- Eij_R2: <value>   Eij_slope: <value>   Eij_rmse: <value>
 - connectivity_R2 (raw, quoted not ranked): <value>  (peak <value> at iter <value>, final/peak <value>)
 - tau_R2: <value>   V_rest_R2: <value>
 - onestep_pearson: <value>   rollout_pearson: <value>
@@ -439,7 +439,7 @@ At `>>> BLOCK END <<<`:
 ## Knowledge Base (accumulated across all blocks)
 
 ### Results Comparison Table
-| Iter | Config summary | msg_i_R2 (S1) | conn_R2_scaled (S2) | w_scale | CV% | reversal_R2 | reversal_rmse | conn_R2 raw | tau_R2 | V_rest_R2 | rollout_pearson | Verdict | Hypothesis tested |
+| Iter | Config summary | msg_i_R2 (S1) | conn_R2_scaled (S2) | w_scale | CV% | Eij_R2 | Eij_rmse | conn_R2 raw | tau_R2 | V_rest_R2 | rollout_pearson | Verdict | Hypothesis tested |
 | ---- | -------------- | ------------- | ------------------- | ------- | --- | ----------- | ------------- | ----------- | ------ | --------- | --------------- | ------- | ----------------- |
 
 ### Established Principles

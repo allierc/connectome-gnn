@@ -820,7 +820,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     if _msg is not None:
                         epoch_state.metrics.msgi_r2 = float(
                             recovery_param_metrics(_msg[0], _msg[1])['r2'])
-                        # Its own file, for the same reason reversal_rmse.log has
+                        # Its own file, for the same reason Eij.log has
                         # one: plot.py reads metrics.log by POSITIONAL index, so
                         # a new column there shifts every reader after it.
                         _msg_log = os.path.join(log_dir, "tmp_training", "msgi_r2.log")
@@ -841,7 +841,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # idx)`), so adding a column there shifts every reader after
                     # it. The progress bar shows only the latest value; this is
                     # the trajectory.
-                    _rev_log = os.path.join(log_dir, "tmp_training", "reversal_rmse.log")
+                    _rev_log = os.path.join(log_dir, "tmp_training", "Eij.log")
                     if not os.path.exists(_rev_log):
                         with open(_rev_log, "w") as f:
                             f.write("iteration,rmse,r2,slope,n_edges\n")
@@ -855,7 +855,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # Only the GNN branch produces these: the straight-line fit
                     # quality that licenses the E above, and W recovered up to the
                     # one gain the GNN cannot pin down. Their own file, for the
-                    # same positional-index reason reversal_rmse.log has one.
+                    # same positional-index reason Eij.log has one.
                     if "fit_r2_median" in _rev:
                         _ext_log = os.path.join(log_dir, "tmp_training",
                                                 "gnn_conductance_fit.log")

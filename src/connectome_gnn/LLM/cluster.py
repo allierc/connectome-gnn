@@ -484,7 +484,7 @@ def _read_last_csv_value(log_dir, filename, col=1):
     """Last row's `col`-th field from a tmp_training CSV, or None.
 
     For the one-value-per-checkpoint trajectory logs the trainer writes beside
-    metrics.log — msgi_r2.log, reversal_rmse.log, rollout_r.log — each of which
+    metrics.log — msgi_r2.log, Eij.log, rollout_r.log — each of which
     has its own file precisely so that metrics.log's positional column layout
     stays fixed for the readers that index into it.
     """
