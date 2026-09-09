@@ -825,19 +825,38 @@ def observed_derivative_target(x_ts, measurement_noise_level, delta_t):
     The last frame has no successor and repeats its predecessor.
 
     Args:
-        x_ts: NeuronTimeSeries on CPU, with .voltage (T, N) and optional
-            .noise (T, N) holding the stored measurement-noise realisation.
+        x_ts: NeuronTimeSeries on CPU, with .voltage (T, N) and, when
+            measurement_noise_level > 0, .noise (T, N) holding the stored
+            measurement-noise realisation.
         measurement_noise_level: SimulationConfig.measurement_noise_level; the
             noise field is only folded in when this is > 0, so noise-free
-            datasets keep bit-identical targets.
+            datasets keep bit-identical targets. When it is > 0, x_ts.noise is
+            required, not optional.
         delta_t: the observation interval, in the same time units as the ODE.
 
     Returns:
         numpy array (T, N, 1), matching the layout of the stored y_list.
+
+    Raises:
+        AssertionError: if measurement_noise_level > 0 but x_ts.noise is None.
     """
     voltage = x_ts.voltage.numpy()
 
-    if x_ts.noise is not None and measurement_noise_level > 0:
+    if measurement_noise_level > 0:
+        # Nothing upstream catches this: determine_load_fields only REQUESTS
+        # 'noise' when the level is > 0, and NeuronTimeSeries.from_zarr_v3
+        # leaves a field None when its zarr is absent rather than raising. So a
+        # dataset whose noise.zarr never got written -- generated before the
+        # field existed, or by an interrupted run -- would silently fall back to
+        # the clean voltage and reintroduce the exact oracle target this
+        # function exists to remove. Fail loudly instead.
+        assert x_ts.noise is not None, (
+            f"measurement_noise_level={measurement_noise_level} but the dataset "
+            f"has no noise field: x_list_<split>/noise.zarr is missing, so the "
+            f"measurement noise added to the model's input cannot be put into "
+            f"the derivative target. Regenerate the dataset, or set "
+            f"measurement_noise_level=0 to train on the clean voltage."
+        )
         voltage = voltage + x_ts.noise.numpy()
 
     y_ts = np.zeros_like(voltage)
