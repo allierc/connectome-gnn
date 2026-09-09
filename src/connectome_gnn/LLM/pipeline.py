@@ -987,11 +987,11 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
         anc_nnr_pear  = _p('anchor_nnr_pearson')
 
         # Compact format matching graph_trainer's pbar:
-        #   conn=X(Y) Vr=Z τ=W nnr=H(A)
+        #   Wij=X(Y) Vr=Z τ=W nnr=H(A)
         # where (Y) is the visible-edge R² and (A) is the anchor-NNR pearson.
         parts = []
         if conn_r2:
-            conn_str = f"conn={_color_metric(conn_r2, 0.9, 0.5)}"
+            conn_str = f"Wij={_color_metric(conn_r2, 0.9, 0.5)}"
             if conn_r2_vis:
                 conn_str += f"({_color_metric(conn_r2_vis, 0.9, 0.5)})"
             parts.append(conn_str)
@@ -1215,8 +1215,33 @@ def save_artifacts(state: ExplorationState, batch: BatchInfo):
         dst_config = f"{config_save_dir}/iter_{iteration:03d}_slot_{slot:02d}.yaml"
         shutil.copy2(state.config_paths[slot], dst_config)
 
-        # Check training time
+        # Snapshot the per-slot analysis log, for the same reason the config
+        # above is snapshotted: the live file does not survive the next batch.
+        #
+        # train_subprocess.py opens it with mode 'w', so the FIRST training job
+        # of batch N+1 truncates the log that batch N's metrics were written
+        # into, and `results/metrics.txt` is no better — plot_synaptic clears it
+        # at the start of every test_plot. Between them the objectives an
+        # iteration was judged on had no durable copy anywhere, so a batch whose
+        # analysis turn missed them could never back-fill: by the time anyone
+        # looked, the next batch had already overwritten both. Observed on
+        # block 1, whose msg_i_R2 / connectivity_R2_scaled had to be recovered
+        # by hand from the run directories minutes before batch 2 erased them.
+        metrics_save_dir = f"{state.exploration_dir}/metrics"
+        os.makedirs(metrics_save_dir, exist_ok=True)
         slot_log_path = state.analysis_log_paths[slot]
+        if os.path.exists(slot_log_path):
+            shutil.copy2(slot_log_path,
+                         f"{metrics_save_dir}/iter_{iteration:03d}_slot_{slot:02d}.log")
+        # The recovery metrics land here too and this copy is the one that
+        # carries them when the analysis log is empty for any reason.
+        slot_results = os.path.join(
+            log_path(state.pre_folder + state.slot_names[slot]), 'results', 'metrics.txt')
+        if os.path.exists(slot_results):
+            shutil.copy2(slot_results,
+                         f"{metrics_save_dir}/iter_{iteration:03d}_slot_{slot:02d}_metrics.txt")
+
+        # Check training time
         if os.path.exists(slot_log_path):
             with open(slot_log_path, 'r') as f:
                 log_content = f.read()

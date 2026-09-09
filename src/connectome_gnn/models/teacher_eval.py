@@ -164,7 +164,14 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
 def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration,
                              n_frames=1000, has_visual_field=False, hn=None,
                              type_names=None, type_list=None, make_figure=True):
-    """One checkpoint's worth: score the rollout, log it, draw the traces."""
+    """One checkpoint's worth: score the rollout, log it, draw the traces.
+
+    `make_figure` separates the two. The rollout itself always runs and always
+    appends to rollout_r.log, because r and rmse are the trajectory metric and
+    are what gets trended; the stacked-trace figure is ~1 MB and only useful to
+    flip through, so the trainer draws it on its panel cadence rather than on
+    every metric evaluation.
+    """
     was_training = model.training
     model.eval()
     try:

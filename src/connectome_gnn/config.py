@@ -607,6 +607,24 @@ class GraphModelConfig(BaseModel):
     n_g_phi_noise_inputs: int = 0
     g_phi_positive: bool = False
 
+    # W ENTERS THE MESSAGE AS W**2, so the learned edge weight is a conductance:
+    # non-negative by construction, the sign of the synapse living entirely in
+    # g_phi. This is the parameterisation FlyvisConductanceKnownODE already
+    # hardcodes, made available to the GNN.
+    #
+    # ONLY MEANINGFUL WITH g_phi_positive FALSE. g_phi_positive squares g_phi's
+    # output, so squaring W as well makes every message non-negative and no
+    # inhibitory synapse can exist at all. The two flags cover the two places the
+    # sign can live -- in W, or in g_phi -- and exactly one of them must be free
+    # to be negative. NeuralGNN asserts this rather than training a model that
+    # cannot represent inhibition.
+    #
+    # Applies to every NeuralGNN family, current and conductance alike: on
+    # current-generated data the true weight is signed, so w_squared there asks
+    # g_phi to carry the polarity instead, which is a real alternative
+    # parameterisation rather than a mis-specification.
+    w_squared: bool = False
+
     update_type: UpdateType = UpdateType.NONE
 
     # TaskRNN: shape of W_in / W_out (Hulse path-integration model).
@@ -1384,28 +1402,49 @@ class TrainingConfig(BaseModel):
     # on: R2_W is meaningless here -- the teacher is current-based and has no
     # conductance ground truth to recover -- so the acceptance test is the ROLLOUT,
     # whether the student runs free and stays on the teacher's trajectory.
+    #
+    # IT ALSO SCOPES EVERY `student_*` KNOB BELOW. Those knobs exist only because a
+    # current-based teacher has no reversal potentials, so E is unidentifiable and
+    # the student has to be TOLD how to parameterise and bracket it. Training the
+    # same model on conductance-generated data is the opposite situation -- E, W,
+    # tau and V_rest all have true values in ode_params.pt -- so there is nothing to
+    # choose and the knobs are read only when this is True. See
+    # FlyvisConductanceKnownODE.__init__ for what the False branch uses instead.
     train_on_teacher: bool = False
-    # Frames in the in-training rollout. The full test rollout is ~7,200 frames and
-    # takes ~40 s; 1,000 is a second and enough to see divergence, which is what a
-    # per-checkpoint diagnostic is for. The reported number is Pearson r over all
-    # (neuron, frame) pairs, the same statistic results_rollout.log quotes.
-    teacher_rollout_frames: int = 1000
+    # Frames in the in-training free-run rollout diagnostic; 0 turns it off. The full
+    # test rollout is ~7,200 frames and takes ~40 s; 1,000 is a second and enough to
+    # see divergence, which is what a per-checkpoint diagnostic is for. The reported
+    # number is Pearson r over all (neuron, frame) pairs, the same statistic
+    # results_rollout.log quotes.
+    #
+    # NOT gated on train_on_teacher, though it used to be. The rollout is worth
+    # watching on a recovery run too, and coupling it to the distillation switch
+    # meant a recovery spec had to claim to be a distillation to get its own
+    # diagnostic. One key, one job: this int alone decides.
+    #
+    # ON BY DEFAULT since 2026-09-08. A free run that leaves the trajectory is the
+    # failure this catches earliest, and a second per checkpoint is cheap enough
+    # that opting in was costing more in forgotten specs than it saved in time.
+    # Models whose forward is not the plain (state, edges) call -- rnn, eed, mlp,
+    # stimulus -- skip it with one log line rather than raising per checkpoint; see
+    # graph_trainer's _rollout_ok. Set 0 to turn it off.
+    rollout_frames: int = 1000
 
-    # ---- flyvis_conductance_known_ode: which parameter groups are learnable -------------
-    # The student has three groups and they differ by orders of magnitude in size,
-    # so which are free is the experiment rather than a detail:
-    #   reversals      2            E_exc, E_inh
+    # ---- flyvis_conductance_known_ode, TEACHER-STUDENT ONLY ---------------------
+    # Every `student_*` knob below is read only when train_on_teacher is True.
+    # Which parameter groups are learnable is the experiment there rather than a
+    # detail, because they differ by orders of magnitude in size:
+    #   reversals      2 to 27,482  E_exc, E_inh, per student_reversal_dim
     #   edges          434,112      W, entering squared so the conductance is >= 0
-    #   neuron params  see below    tau, V_rest
-    conductance_learn_reversal: bool = True
-    conductance_learn_edges: bool = True
+    #   neuron params  130 to 27,482  tau, V_rest, per student_neuron_params
+    student_learn_edges: bool = True
     # tau and V_rest. The teacher's own values have exactly 65 DISTINCT entries over
     # 13,741 neurons -- one per cell type -- so per-neuron spends 27,482 parameters
     # to represent 130, and 'per_type' is both smaller and the structure the data
     # actually has. 'frozen' pins them at the teacher's values, which turns the fit
     # into "can a conductance synapse reproduce this activity given the right
     # neurons" rather than "can it reproduce it at all".
-    conductance_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
+    student_neuron_params: Literal["per_neuron", "per_type", "frozen"] = "per_type"
     # HOW THE REVERSAL POTENTIALS ARE SET. Not a regulariser -- a reparametrisation,
     # which is why it can GUARANTEE what a penalty could only encourage.
     #   'learned'  E_exc, E_inh are free parameters. Nothing stops them crossing the
@@ -1420,7 +1459,7 @@ class TrainingConfig(BaseModel):
     # teacher. Small delta is strongly conductance-like; large delta degenerates to
     # the teacher, continuously. The asymmetric default mirrors the inhibitory
     # driving force being roughly half the excitatory one in real neurons.
-    conductance_reversal_mode: Literal["learned", "margin"] = "margin"
+    student_reversal_mode: Literal["learned", "margin"] = "margin"
     # GRANULARITY of E. The driving force is (E - V_i), so E belongs to the
     # POSTSYNAPTIC cell -- these are per postsynaptic neuron/type, not per edge.
     #   'global'      two scalars, E_exc and E_inh.
@@ -1429,9 +1468,9 @@ class TrainingConfig(BaseModel):
     #   'per_neuron'  two per neuron: the overparameterised control. Physically a
     #                 reversal is a property of the receptor, shared by synapse type,
     #                 so a per-neuron gain is capacity absorbing model mismatch.
-    # Crosses with conductance_reversal_mode: 'learned' fits them, 'margin' sets them from
+    # Crosses with student_reversal_mode: 'learned' fits them, 'margin' sets them from
     # the teacher's voltage range measured AT THE SAME GRANULARITY.
-    conductance_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
+    student_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
     # WHAT delta IS MEASURED IN. The reversals bracket from the teacher's min/max in
     # every case -- that is what guarantees the sign and the convex-hull bound -- but
     # delta needs a UNIT, and PR #46 uses (v_max - v_min), the raw extremes.
@@ -1450,7 +1489,7 @@ class TrainingConfig(BaseModel):
     #     p95       span  2.255  E_exc 10.595                        38.0%
     #     p90       span  1.405  E_exc  9.745                        41.4%
     # Default 'extremes' reproduces PR #46 exactly.
-    conductance_span_mode: Literal["extremes", "p99", "p95", "p90"] = "extremes"
+    student_span_mode: Literal["extremes", "p99", "p95", "p90"] = "extremes"
     # STAGE-1 CLOSED-FORM INITIALISATION, from the conductance-twin methods.
     # The two models differ only in what multiplies the synaptic activation
     # N f(V_j): a constant s_ij alpha_curr for the teacher, a state-dependent
@@ -1461,7 +1500,7 @@ class TrainingConfig(BaseModel):
     #
     # positive by construction, because E - Vbar carries the same sign s_ij that
     # alpha_curr does -- E_exc lies above and E_inh below every voltage the teacher
-    # visits, which is exactly what conductance_reversal_mode 'margin' guarantees. Exact
+    # visits, which is exactly what student_reversal_mode 'margin' guarantees. Exact
     # wherever the postsynaptic cell sits at its mean, and exact everywhere as
     # delta -> infinity. One number per (presynaptic type, postsynaptic type) group.
     #
@@ -1473,13 +1512,13 @@ class TrainingConfig(BaseModel):
     # weights, so its answer could only ever be a prior, and that is what stage 1
     # already provides more cheaply. It would also need the teacher's synaptic
     # current I_i(t) as a target, which the generator does not store.
-    conductance_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
+    student_init: Literal["default", "teacher_closed_form"] = "teacher_closed_form"
     # (0.4, 1.0) is PR #46's own default -- derive_conductance_twin's
     # `reversal_margin: Union[float, Tuple[float, float]] = (0.4, 1.0)`, ordered
     # (inh, exc) -- reused deliberately so the twin derived there and the student
     # fitted here sit at the same operating point and their results are comparable.
-    conductance_delta_inh: float = 0.4
-    conductance_delta_exc: float = 1.0
+    student_delta_inh: float = 0.4
+    student_delta_exc: float = 1.0
 
     # Adam's second-moment decay. The reference (supplement sec 4.4) uses 0.95 rather
     # than torch's 0.999: a shorter second-moment window tracks a non-stationary
