@@ -73,6 +73,7 @@ training:
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
+  w_init_scale: 88
   use_gt_edges: true
   seed: 1041
   deterministic: false
@@ -80,10 +81,10 @@ training:
   data_augmentation_loop: 500
 config_file: fly/flyvis_conductance_noise_005_conductance_gnn_cv00
 claude:
-  n_parallel: 4
+  n_parallel: 8
   n_iter_block: 12
   n_epochs: 3
-  data_augmentation_loop: 100
+  data_augmentation_loop: 21
   node_name: a100
   generate_data: false
   training_time_target_min: 150
