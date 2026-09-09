@@ -1,4 +1,4 @@
-description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained GLOBAL student -- both reversals a single scalar, E_exc and E_inh, set from the teacher''s voltage range at the raw extremes. E is then rank 1 over (i,j) pairs: a constant per polarity, with no dependence on the postsynaptic cell at all. noise_model_level 0.05. The dataset name carries the rig that made it: two twins of the same current teacher generate two ground truths, and a run has to say which one it trained on.'
+description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance and the sign carried entirely by the driving force -- using the parameters of the GLOBAL twin -- one cation reversal and one chloride reversal for the whole network, so E_ij depends on the edge type only and the receiving cell never enters. Its reversals are PHYSIOLOGICAL rather than bracketed: E_exc is pinned +2.5 voltage excursions above rest and E_Cl was learned within [-1.5, +0.5] excursions of rest, the range a real chloride equilibrium potential occupies (-90 to -50 mV against a rest of -60). E_Cl therefore lies INSIDE the operating range, so the inhibitory driving force reverses whenever a cell crosses it -- ordinary shunting and depolarising inhibition. conductance_bracket_strict false because those crossings are the intended behaviour here and not a generation failure; they are counted into BRACKET_CROSSINGS.txt instead. noise_model_level 0.05. The dataset name carries the rig that made it: two twins of the same current teacher give two ground truths, and a run has to say which one it trained on.'
 dataset: flyvis_conductance_global_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -19,6 +19,7 @@ simulation:
   noise_model_level: 0.05
   seed: 42
   ground_truth_model: conductance
+  conductance_bracket_strict: false
   conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_global_cv00/models/best_model_with_0_graphs_0.pt
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test

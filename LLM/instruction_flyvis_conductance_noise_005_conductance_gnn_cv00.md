@@ -216,7 +216,7 @@ are not. At rate 0 the distinction disappears, which is why it stays 0.
   and `iteration*1000 + slot + 500`. Log the values the prompt reports.
 - `training.n_epochs` — overwritten from `claude.n_epochs` every batch. Editing it is a
   silent no-op, so never dedicate a block to "training volume via n_epochs".
-- `dataset` — must stay `flyvis_conductance_noise_005_blank50_cv00` in every slot.
+- `dataset` — must stay `flyvis_conductance_ion_noise_005_blank50_cv00` in every slot.
 - `simulation.*` — `n_neurons`, `n_edges`, `n_frames`, `delta_t`, `noise_model_level`.
 - **`g_phi_positive` and `w_squared`** — this exploration is defined by
   `g_phi_positive: false`, `w_squared: true`. Flipping either changes what `W` means and
