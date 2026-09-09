@@ -74,7 +74,7 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1042
-  n_epochs: 5
+  n_epochs: 10
   data_augmentation_loop: 100
   rollout_frames: 1000
 config_file: fly/flyvis_conductance_noise_free_conductance_knownode_cv00

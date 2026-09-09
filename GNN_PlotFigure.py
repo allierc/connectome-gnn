@@ -70,6 +70,8 @@ from connectome_gnn.metrics import (
     extract_f_theta_slopes,
     derive_tau,
     derive_vrest,
+    compute_reversal_metrics,
+    compute_msg_i_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
     _batched_mlp_eval,
@@ -357,6 +359,142 @@ def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices
     plt.savefig(f'{log_dir}/results/activity_{config_indices}_tau_outliers.png',
                 dpi=300, bbox_inches='tight')
     plt.close()
+
+
+def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
+                                    device, log_dir, logger, log_file):
+    """Score E_ij and msg_i and write them to the analysis log and metrics.txt.
+
+    These two were computed during training — the `Eij/` and `msgi/` panels and
+    `tmp_training/reversal_rmse.log` — but never reached the per-slot analysis
+    log the LLM exploration reads, so an agent could only get at them by
+    opening figures or parsing a training log by exact path. They are written
+    here beside connectivity_R2 / tau_R2 / V_rest_R2.
+
+    WHY BOTH, AND WHY msg_i MATTERS MOST. The generator's message is
+    g_ij * act(v_j) * (E_i - v_i), so the conductance and the driving force
+    enter as a product: scaling g up by a constant c and shrinking (E - v_i) by
+    the same c leaves every message, and every trajectory, unchanged. On flyvis
+    the data break that tie only through the v_i-dependence of the driving
+    force, which is 3-4% of its magnitude, so W_ij can come out 3x too large
+    with E_ij 3x too small and the rollout still match at r = 0.95. msg_i is
+    the product that survives the trade, and is therefore the number to read
+    when connectivity_R2 and the trajectory disagree.
+
+    Called for both model families and both data families. E_ij keys appear
+    only when the generator had a reversal to recover — `compute_reversal_metrics`
+    returns None on current-generated data — so a current run gets msg_i alone,
+    and an absent key means "this quantity does not exist here", not a failure.
+
+    msg_i is scored on MSG_N_FRAMES frames evenly spaced over `x_ts`. Note that
+    `x_ts` here may have been strided or truncated for plotting, so these are
+    not bit-for-bit the frames the training-time msgi/ panel used — the number
+    is comparable across slots, which is what the exploration ranks on, but a
+    small difference against the last panel of a run is expected.
+
+    Every write is best-effort: a metric that cannot be computed must never take
+    down the analysis pass that produced the figures.
+    """
+    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
+
+    def _emit(pairs):
+        """Write key: value to the analysis log, metrics.txt and results.log."""
+        for key, val in pairs:
+            text = f"{val:.4f}" if isinstance(val, float) else f"{val}"
+            if log_file:
+                log_file.write(f"{key}: {text}\n")
+            with open(metrics_path, 'a') as mf:
+                mf.write(f"{key}: {text}\n")
+            logger.info(f"{key}: {text}")
+
+    # --- W after removing the one global gain the data cannot pin ---
+    #
+    # WHY A SECOND W NUMBER. `connectivity_R2` is scored on the identity line, so
+    # it charges the model for a global scale that no amount of training can fix:
+    # the conductance and the driving force enter the message as a product, and
+    # scaling one up by c while the other shrinks by c leaves every trajectory
+    # unchanged. Measured on the two known-ODE recovery runs, the learned W came
+    # out 2.39x and 1.28x too large with the reversals 0.442x and 0.740x too
+    # small -- products of 1.056 and 0.950, i.e. a reciprocal trade to within 6%.
+    # That single scalar is what drives connectivity_R2 to -4.95; dividing it out
+    # leaves +0.34, which is a number with a working point and a usable gradient.
+    #
+    # Both are reported, and neither replaces the other: the raw number is what
+    # the paper's tables use and is the one to quote, the scaled number is what
+    # an optimisation should be steered by while the raw one is deeply negative.
+    # `w_scale` is the gain itself -- read it as "how far along the degenerate
+    # valley this run sits", 1.0 being the truth.
+    #
+    # This mirrors `w_r2_scaled` / `w_scale`, which the conductance GNN already
+    # writes to tmp_training/gnn_conductance_fit.log, so the two model families
+    # become comparable on one key instead of two differently-named ones.
+    try:
+        w_learn = to_numpy(get_model_W(model)).ravel()
+        w_true = to_numpy(ode_params.W).ravel() if getattr(ode_params, 'W', None) is not None else None
+    except Exception as exc:
+        logger.warning(f"scaled W metrics unavailable: {type(exc).__name__}: {exc}")
+        w_true = None
+    if w_true is not None and w_learn.size and w_true.size:
+        nw = min(w_learn.size, w_true.size)
+        wl, wt = w_learn[:nw], w_true[:nw]
+        ok = np.isfinite(wl) & np.isfinite(wt)
+        denom = float(np.dot(wt[ok], wt[ok]))
+        if ok.sum() >= 2 and denom > 0:
+            # Least-squares gain through the origin: the c minimising
+            # ||c * w_true - w_learned||, which is the only free parameter the
+            # degeneracy leaves. Not a two-parameter fit -- an intercept would
+            # also absorb a real offset error and flatter the result.
+            w_scale = float(np.dot(wt[ok], wl[ok]) / denom)
+            if abs(w_scale) > 1e-12:
+                ms = recovery_param_metrics(wt[ok], wl[ok] / w_scale)
+                _emit([
+                    ('connectivity_R2_scaled', float(ms['r2'])),
+                    ('w_scale', w_scale),
+                    ('connectivity_pearson_r', float(np.corrcoef(wt[ok], wl[ok])[0, 1])),
+                ])
+                print(f"W (scale removed) R²: {_r2_color(ms['r2'])}{ms['r2']:.3f}{_ANSI_RESET}  "
+                      f"w_scale: {w_scale:.3f}  pearson r: {np.corrcoef(wt[ok], wl[ok])[0, 1]:.3f}")
+
+    # --- E_ij, per edge: where(edge_is_inh, E_inh[dst], E_exc[dst]) ---
+    try:
+        rev = compute_reversal_metrics(model, ode_params, config=config,
+                                       edges=edges, x_ts=x_ts)
+    except Exception as exc:
+        logger.warning(f"reversal metrics unavailable: {type(exc).__name__}: {exc}")
+        rev = None
+    if rev is not None:
+        _emit([
+            ('reversal_R2', float(rev['r2'])),
+            ('reversal_slope', float(rev['slope'])),
+            ('reversal_rmse', float(rev['rmse'])),
+            ('reversal_n_edges', int(rev['n_edges'])),
+        ])
+        print(f"E_ij R²: {_r2_color(rev['r2'])}{rev['r2']:.3f}{_ANSI_RESET}  "
+              f"slope: {rev['slope']:.2f}  rmse: {rev['rmse']:.3f}  "
+              f"n_edges: {rev['n_edges']}")
+
+    # --- msg_i, the aggregated per-neuron message on MSG_N_FRAMES fixed frames ---
+    try:
+        out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
+    except Exception as exc:
+        logger.warning(f"msg_i metrics unavailable: {type(exc).__name__}: {exc}")
+        out = None
+    if out is not None:
+        true, learned = out
+        # No outlier threshold, as in the msgi/ panel: there is no published
+        # tolerance band on a message, and inventing one would decide by fiat
+        # which neurons count.
+        m = recovery_param_metrics(true, learned)
+        rmse = float(np.sqrt(np.mean((np.asarray(learned).ravel()
+                                      - np.asarray(true).ravel()) ** 2)))
+        _emit([
+            ('msg_i_R2', float(m['r2'])),
+            ('msg_i_slope', float(m['slope'])),
+            ('msg_i_rmse', rmse),
+            ('msg_i_n', int(m['n_total'])),
+        ])
+        print(f"msg_i R²: {_r2_color(m['r2'])}{m['r2']:.3f}{_ANSI_RESET}  "
+              f"slope: {m['slope']:.2f}  rmse: {rmse:.3f}  n: {m['n_total']}")
 
 
 def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
@@ -1354,17 +1492,29 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     n_region_types = len(torch.unique(region_list))
     n_neurons = x_ts.n_neurons
 
-    # Load ODE params for model-specific analysis
-    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
+    # Load ODE params for model-specific analysis.
+    #
+    # Via load_ode_params_for_run, which takes the FAMILY from the model and the
+    # MEMBER from the file. This site used to call get_ode_params_class alone,
+    # and every flyvis model name — the conductance ones included — is
+    # registered to FlyVisCurrentODEParams, because a name cannot say which data
+    # a model was trained on. So a conductance dataset, whose ode_params.pt
+    # carries E_exc / E_inh / edge_is_inh, was loaded as the current class and
+    # raised `TypeError: got an unexpected keyword argument 'E_exc'`, taking
+    # down test_plot on every conductance run. The refinement reads the
+    # ground_truth_model key the file itself records.
+    from connectome_gnn.generators.ode_params import (
+        load_ode_params_for_run, get_ode_params_class, FlyVisODEParams,
+    )
     signal_model = model_config.signal_model_name
-    try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisODEParams
     _ode_params_path = graphs_data_path(config.dataset, 'ode_params.pt')
     if os.path.exists(_ode_params_path):
-        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device='cpu')
+        ode_params = load_ode_params_for_run(config, device='cpu')
     else:
+        try:
+            OdeParamsCls = get_ode_params_class(signal_model)
+        except KeyError:
+            OdeParamsCls = FlyVisODEParams
         ode_params = OdeParamsCls()  # empty, analysis methods return defaults
 
     gt_taus_np = ode_params.gt_tau(n_neurons)
@@ -1492,6 +1642,11 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     ode_params=ode_params,
                     activity_true=activity_true, n_frames_actual=n_frames_actual,
                     start_frame=start_frame, index_to_name=index_to_name)
+                # E_ij and msg_i, which _plot_synaptic_linear cannot compute:
+                # both need x_ts, which lives here and is not passed into it.
+                _write_message_recovery_metrics(
+                    model, ode_params, config, edges, x_ts, device,
+                    log_dir, logger, log_file)
                 continue
 
             # print learnable parameters table
@@ -2451,6 +2606,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                             r2_p = recovery_param_metrics(gt_v, lr_v)['r2']
                             log_file.write(f"g_phi_{pname}_R2: {r2_p:.4f}\n")
 
+            # E_ij and msg_i, the same two the linear branch writes. Outside the
+            # `if log_file` above because _write_message_recovery_metrics also
+            # feeds metrics.txt and results.log, which exist either way.
+            _write_message_recovery_metrics(
+                model, ode_params, config, edges, x_ts, device,
+                log_dir, logger, log_file)
 
             # Plot connectivity matrix comparison (only for small networks)
             if n_neurons < 1000:
