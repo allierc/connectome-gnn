@@ -53,18 +53,64 @@ from connectome_gnn.utils import to_numpy, qualitative_colors
 #  Helpers
 # ------------------------------------------------------------------ #
 
+def _snapshot_iteration(path):
+    """Parse the (epoch, iteration) a tmp_training snapshot PNG is named for.
+
+    Every snapshot ends in `_<epoch>_<iteration>.png` — `0_96000.png` for an
+    embedding, `comparison_0_64000.png` for a weight panel, `func_0_64000.png`
+    for a learned function — so the last two underscore-separated fields are
+    the pair regardless of the prefix. Returns (-1, -1) for a name that does
+    not parse, which sorts it below every real snapshot.
+    """
+    import os
+
+    stem = os.path.basename(path).rsplit('.', 1)[0]
+    parts = stem.split('_')
+    if len(parts) < 2:
+        return (-1, -1)
+    try:
+        return (int(parts[-2]), int(parts[-1]))
+    except ValueError:
+        return (-1, -1)
+
+
+def _latest_snapshot(pattern):
+    """Newest snapshot PNG matching `pattern`, by the iteration in its name.
+
+    Sorting on the name rather than on the file's ctime matters because the
+    figure folders are written by different code paths at different cadences,
+    so a folder's newest file on disk is not always its highest iteration.
+    Returns None when nothing matches.
+    """
+    import glob
+
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
+    return max(matches, key=_snapshot_iteration)
+
+
 def plot_training_summary_panels(fig, log_dir, Niter=None):
     """Add embedding, weight comparison, g_phi, and f_theta function panels to a summary figure.
 
-    Finds the last saved training snapshot and loads the PNG images into subplots 2-5
-    of a 2x3 grid figure.
+    Each panel is filled from the newest snapshot in ITS OWN folder, and a
+    panel whose folder is empty is labelled as such rather than skipped. The
+    four folders are written at different cadences — the embedding every 6,400
+    iterations against the Wij comparison's 64,000, for instance — so pinning
+    all four to one iteration would demand files that were never written. That
+    is exactly what used to happen: the panels took their iteration from the
+    newest embedding, and an unguarded `imageio.imread` of the resulting
+    `Wij/comparison_0_304000.png` raised FileNotFoundError inside the epoch
+    loop and killed the whole training run.
+
+    A panel showing an older iteration than its neighbours says so in its
+    title, so the figure is never read as one synchronised checkpoint.
 
     Args:
         fig: matplotlib Figure (expected 2x3 subplot layout, panel 1 already used for loss)
         log_dir: path to the training log directory
         Niter: iterations per epoch (for global iteration x-axis in R² panel)
     """
-    import glob
     import os
 
     import imageio
@@ -72,26 +118,39 @@ def plot_training_summary_panels(fig, log_dir, Niter=None):
     from connectome_gnn.figure_style import default_style
     style = default_style
 
-    embedding_files = glob.glob(f"{log_dir}/tmp_training/embedding/*.png")
-    if not embedding_files:
-        return
-
-    last_file = max(embedding_files, key=os.path.getctime)
-    filename = os.path.basename(last_file)
-    last_epoch, last_N = filename.replace('.png', '').split('_')
-
     panels = [
-        (2, f"{log_dir}/tmp_training/embedding/{last_epoch}_{last_N}.png", 'learned embedding'),
-        (3, f"{log_dir}/tmp_training/Wij/comparison_{last_epoch}_{last_N}.png", 'weight comparison'),
-        (4, f"{log_dir}/tmp_training/function/g_phi/func_{last_epoch}_{last_N}.png", r'$g_\phi$'),
-        (5, f"{log_dir}/tmp_training/function/f_theta/func_{last_epoch}_{last_N}.png", r'$f_\theta$'),
+        (2, f"{log_dir}/tmp_training/embedding/*.png", 'learned embedding'),
+        (3, f"{log_dir}/tmp_training/Wij/comparison_*.png", 'weight comparison'),
+        (4, f"{log_dir}/tmp_training/function/g_phi/func_*.png", r'$g_\phi$'),
+        (5, f"{log_dir}/tmp_training/function/f_theta/func_*.png", r'$f_\theta$'),
     ]
-    for pos, path, title in panels:
+
+    resolved = [(pos, _latest_snapshot(pattern), title) for pos, pattern, title in panels]
+    # The most advanced panel sets the reference; the others are annotated
+    # against it so a stale panel is visible as stale.
+    iterations = [_snapshot_iteration(p)[1] for _, p, _ in resolved if p]
+    newest_iter = max(iterations) if iterations else -1
+
+    for pos, path, title in resolved:
         fig.add_subplot(2, 3, pos)
-        img = imageio.imread(path)
-        plt.imshow(img)
         plt.axis('off')
-        plt.title(title, fontsize=style.label_font_size)
+        if path is None:
+            plt.title(f"{title}\n(not written yet)", fontsize=style.label_font_size)
+            continue
+        try:
+            img = imageio.imread(path)
+        except Exception as exc:
+            # A snapshot being written while we read it, or a truncated PNG
+            # from a killed job. Never worth losing the training run over.
+            plt.title(f"{title}\n({type(exc).__name__})", fontsize=style.label_font_size)
+            continue
+        plt.imshow(img)
+        panel_iter = _snapshot_iteration(path)[1]
+        if panel_iter >= 0 and panel_iter < newest_iter:
+            plt.title(f"{title}\n(iteration {panel_iter}, latest is {newest_iter})",
+                      fontsize=style.label_font_size)
+        else:
+            plt.title(title, fontsize=style.label_font_size)
 
     # Panel 6: R² metrics trajectory
     metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
@@ -3324,7 +3383,7 @@ def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None,
 
 
 def plot_msg_recovery(model, ode_params, x_ts, edges, device, log_dir, epoch, N,
-                      type_list=None):
+                      type_list=None, precomputed=None):
     """The aggregated per-neuron message msg_i -> tmp_training/msgi/.
 
     THE ONE PANEL THAT IS NOT DEGENERATE. W_ij and E_ij enter the message as a
@@ -3344,7 +3403,12 @@ def plot_msg_recovery(model, ode_params, x_ts, edges, device, log_dir, epoch, N,
     tolerance band on a message, and inventing one would decide by fiat which
     neurons count.
     """
-    out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
+    # `precomputed` is the (true, learned) pair the trainer already computed to
+    # log msg_i_R2 on this iteration. Reusing it keeps the panel free: the
+    # recovery costs ten forward passes over every neuron, and computing it
+    # twice on a panel iteration would double that for an identical result.
+    out = precomputed if precomputed is not None else compute_msg_i_recovery(
+        model, ode_params, x_ts, edges, device)
     if out is None:
         return
     true, learned = out

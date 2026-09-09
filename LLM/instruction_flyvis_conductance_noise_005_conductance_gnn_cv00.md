@@ -12,8 +12,10 @@ This is the first setting in which the GNN is asked to recover a driving force t
 fitting a current-based teacher.
 
 **Primary metric: `connectivity_R2`. Gating metric: `fit_r2_median` in
-`tmp_training/gnn_conductance_fit.log`.** Read "the gate" below before trusting any
-recovery number.
+`tmp_training/gnn_conductance_fit.log`. Ungated sanity metric: `msg_i_R2`, in the
+analysis log.** Read "the gate" below before trusting any recovery number — and read
+`msg_i_R2` first when a slot is gated out, because it is the one number that still means
+something there.
 
 ---
 
@@ -112,11 +114,30 @@ construction, so **the slope is not a result** — only the R2 and the reported 
 | `connectivity_R2` | R2 of the corrected `W` against the truth | > 0.85 |
 | `raw_W_R2` | same, before the g_phi correction | context only |
 | `tau_R2`, `V_rest_R2` | tau and V_rest recovered **out of f_theta**, by fitting its local slope and offset per neuron | tau > 0.90, V_rest > 0.70 |
+| `reversal_R2` | R2 of the per-edge `E_ij` extracted from the learned message | > 0.60 — **gated on `fit_r2_median`, see the gate** |
+| `reversal_slope` | identity-line slope of the same scatter | 1.0 is perfect; ~0.4 is the degenerate valley |
+| `reversal_rmse` | RMSE of `E_ij`, in the same units as `E` (magnitude 14.7-24.4) | < 3 |
+| `reversal_n_edges` | edges the reversal was scored on | context only, expect 434,112 |
+| `msg_i_R2` | R2 of the aggregated per-neuron message | > 0.80 — **the non-degenerate number, and NOT gated** |
+| `msg_i_slope` | identity-line slope of the message scatter | 1.0 |
+| `msg_i_rmse` | RMSE of `msg_i` | context only |
 | `g_phi_functional_R2`, `f_theta_functional_R2` | shape agreement of the learned functions | > 0.90 |
 | `onestep_pearson` | one-step-ahead correlation | > 0.99 |
 | `rollout_pearson` | free-run rollout correlation | > 0.95 |
 | `cluster_accuracy` | cell-type separability of the embedding | > 0.80 |
 | `training_time_min` | wall clock | see the DAL rule in your prompt |
+
+`reversal_*` and `msg_i_*` are new — they used to exist only as figures and as
+`tmp_training/reversal_rmse.log`, so an entry from before this change that omits them is
+not a failed slot. `reversal_*` appears only on conductance-generated data; `msg_i_*`
+appears on both, so it is the one recovery number that stays comparable when you look
+across to a current-generated run.
+
+**`msg_i_R2` is the exception to the gate.** `reversal_*` and the extracted `W` come out
+of the per-edge line fit and are meaningless while `fit_r2_median < 0.9`, but `msg_i_R2`
+compares the model's own message against the generator's directly — no line fit, nothing
+to be invalidated — so it is readable from the first checkpoint and is what tells you
+whether a gated-out slot is learning anything at all.
 
 There is **no** `rollout_pearson_r`, no `test_R2`, no `conn_R2`, and no
 `learning_rate_W_start`. A config key that does not exist is silently swallowed, so an
@@ -135,7 +156,7 @@ not Glob:
 | --- | --- |
 | `metrics.log` | CSV: `iteration,connectivity_r2,vrest_r2_raw,tau_r2_raw,hidden_nnr_pearson,anchor_nnr_pearson,vrest_r2_clean,n_out_vrest,n_total_vrest,tau_r2_clean,n_out_tau,n_total_tau` |
 | `gnn_conductance_fit.log` | CSV: `iteration,fit_r2_median,w_r2_scaled,w_scale` — **the gate** |
-| `reversal_rmse.log` | CSV: `iteration,rmse,r2,slope,n_edges` — E_ij, valid only once the gate is passed |
+| `reversal_rmse.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY, valid only once the gate is passed. Its final row should agree with `reversal_rmse` / `reversal_R2` in the analysis log |
 | `g_phi_discard.log` | CSV: `iteration,cosine_to_keep,ratio_vi,ratio_ai,ratio_noise` — see the lasso block |
 | `rollout_r.log` | CSV: `iteration,r,rmse,n_frames` |
 | `Wij/raw_*.png`, `Wij/comparison_*.png`, `Wij/connectivity_*.png` | raw `W**2`, the g_phi-corrected `W*`, and the connectivity heatmap |
@@ -144,10 +165,11 @@ not Glob:
 | `embedding/` | the learned per-neuron embedding |
 | `traces/rollout_*.png` | stacked free-run traces |
 
-`msgi/msgi_*.png` scores `msg_i`, the aggregated message on 10 fixed frames. It is the one
-panel the degeneracy does not touch, and it read R2 +0.78 on a checkpoint whose `Wij`
-panel read -10.5. **When those two disagree, the message panel describes what the
-trajectory depends on.** Record both every iteration.
+`msg_i_R2` scores the aggregated message on 10 fixed frames. It is the one number the
+degeneracy does not touch, and it read +0.78 on a checkpoint whose `connectivity_R2` read
+-10.5. **When those two disagree, `msg_i_R2` describes what the trajectory depends on and
+`connectivity_R2` describes a factorisation the data cannot resolve.** Record both every
+iteration; `msgi/msgi_*.png` is the same quantity as a scatter.
 
 An empty folder is information: it means the quantity is not recovered for this model, not
 that plotting failed.
@@ -271,9 +293,11 @@ Per-block notes:
 
 Three rules specific to this experiment:
 
-- **Gate first.** A slot whose final `fit_r2_median` is below 0.9 has no valid `E_ij` or
-  extracted `W`. Record `connectivity_R2` and the trajectory metrics for it, mark the
-  recovery numbers "gated out", and do not rank it on them.
+- **Gate first.** A slot whose final `fit_r2_median` is below 0.9 has no valid
+  `reversal_*` and no valid extracted `W`. Record `connectivity_R2`, `msg_i_R2` and the
+  trajectory metrics for it, mark the `reversal_*` numbers "gated out", and do not rank
+  it on them. `msg_i_R2` is never gated out — it is how you tell a slot that is still
+  learning from one that is stuck.
 - **Frozen-W check.** If `connectivity_R2` in `metrics.log` is identical to four decimals
   across three consecutive checkpoints, the initialisation is the problem, not the
   regularisation. Return to block 2 rather than continuing the current block.
@@ -286,12 +310,15 @@ Three rules specific to this experiment:
 
 For each slot, in this order:
 
-1. Read the analysis log for the slot and extract every metric named in the Metrics table.
-2. Read the last row of `gnn_conductance_fit.log` **first** — it decides whether the
-   recovery numbers mean anything. Then `metrics.log` (last row plus the peak of
-   `connectivity_r2`), `reversal_rmse.log`, and `g_phi_discard.log`.
-3. Look at `Wij/comparison_*.png` and `msgi/msgi_*.png` from the latest checkpoint, and
-   `function/g_phi/func_*.png` to see whether the learned edge function has the
+1. Read the last row of `gnn_conductance_fit.log` **first** — it decides whether the
+   `reversal_*` and extracted-`W` numbers mean anything.
+2. Read the analysis log for the slot and extract every metric named in the Metrics
+   table; `connectivity_R2`, `reversal_*` and `msg_i_*` are all in there. Then
+   `metrics.log` (last row plus the peak of `connectivity_r2`), `reversal_rmse.log` for
+   the shape of the E_ij trajectory, and `g_phi_discard.log`.
+3. Compare `connectivity_R2` against `msg_i_R2` and say which way they disagree, if they
+   do. `Wij/comparison_*.png` and `msgi/msgi_*.png` show the two as scatters, and
+   `function/g_phi/func_*.png` says whether the learned edge function has the
    sign-changing shape in `v_i` that `(E_i - v_i)` requires.
 4. Write one entry per slot to the analysis log **and** to memory. The heading must be
    exactly `## Iter N: <short title>` — the resume mechanism parses that pattern and a
@@ -308,11 +335,11 @@ Entry template:
 - GATE fit_r2_median: <value>  -> recovery numbers <valid | gated out>
 - connectivity_R2: <value>  (peak <value> at iter <value>, final/peak <value>)
 - w_r2_scaled: <value>  (w_scale <value>; slope is 1 by construction, not a result)
-- E_ij: rmse <value>  r2 <value>       [omit if gated out]
+- reversal_R2: <value>   reversal_slope: <value>   reversal_rmse: <value>   [gated out if fit_r2_median < 0.9]
+- msg_i_R2: <value>   msg_i_slope: <value>         [never gated]
 - tau_R2: <value>   V_rest_R2: <value>
 - onestep_pearson: <value>   rollout_pearson: <value>
 - g_phi_discard: cosine_to_keep <value>  ratio_vi <value>  ratio_ai <value>
-- msg_i panel R2: <value from msgi/*.png>
 - training_time_min: <value>
 - Verdict: <Stable-Robust | Stable | Unstable | Catastrophic | Gated-out | Frozen-W | Disqualified-late-collapse>
 - Reading: <two sentences: what moved, and whether the gate licensed the reading>
@@ -346,8 +373,8 @@ At `>>> BLOCK END <<<`:
 ## Knowledge Base (accumulated across all blocks)
 
 ### Results Comparison Table
-| Iter | Config summary | fit_r2_median | conn_R2 (mean±std) | CV% | w_r2_scaled | E_ij r2 | tau_R2 | V_rest_R2 | rollout_pearson | ratio_vi | Robust? | Hypothesis tested |
-| ---- | -------------- | ------------- | ------------------ | --- | ----------- | ------- | ------ | --------- | --------------- | -------- | ------- | ----------------- |
+| Iter | Config summary | fit_r2_median | conn_R2 (mean±std) | CV% | w_r2_scaled | reversal_R2 | msg_i_R2 | tau_R2 | V_rest_R2 | rollout_pearson | ratio_vi | Robust? | Hypothesis tested |
+| ---- | -------------- | ------------- | ------------------ | --- | ----------- | ----------- | -------- | ------ | --------- | --------------- | -------- | ------- | ----------------- |
 
 ### Established Principles
 ### Falsified Hypotheses
