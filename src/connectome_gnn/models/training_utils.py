@@ -64,6 +64,16 @@ class TrainingMetrics:
     reversal_r2: float | None = None
     reversal_scale: float | None = None
 
+    # R2 of the aggregated per-neuron message msg_i, true vs learned. The one
+    # recovery number the conductance degeneracy does not touch: W_ij and E_ij
+    # trade off INSIDE the message, so msg_i scores the product the trajectory
+    # actually depends on rather than a factorisation the data cannot resolve.
+    # Worth a slot in the bar beside conn and E for exactly that reason -- a run
+    # can show conn=-5.0 and msg=0.95, which says the dynamics are right and only
+    # the split is wrong, and that is a completely different situation from
+    # conn=-5.0 with msg=-0.04, which says nothing is being learned at all.
+    msgi_r2: float | None = None
+
 
 @dataclass
 class HiddenInjectionSchedule:
