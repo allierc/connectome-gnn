@@ -82,10 +82,10 @@ config_file: fly/flyvis_conductance_noise_005_conductance_gnn_cv00
 claude:
   n_parallel: 4
   n_iter_block: 12
-  n_epochs: 5
+  n_epochs: 3
   data_augmentation_loop: 100
   node_name: a100
   generate_data: false
-  training_time_target_min: 45
+  training_time_target_min: 150
   hard_runtime_limit_min: 1440
   claude_call_timeout_min: 20

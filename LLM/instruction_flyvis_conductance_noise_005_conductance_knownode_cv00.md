@@ -10,9 +10,11 @@ The model here is `flyvis_conductance_known_ode`, which assumes the generator's 
 functional form. Nothing about the synapse is being learned as a free function — this is
 parameter recovery, and every quantity has a true value on disk in `ode_params.pt`.
 
-**Primary metric: `connectivity_R2`. Secondary, and the one that actually gates progress:
-the E_ij RMSE in `tmp_training/reversal_rmse.log`.** Read the degeneracy section before
-believing either.
+**This exploration optimises TWO objectives in order, not one. Stage 1 is the FIT:
+`msg_i_R2`. Stage 2 is the IDENTIFICATION: `connectivity_R2_scaled`, then `reversal_R2`,
+then the raw `connectivity_R2`.** Read "the two objectives" below before ranking anything —
+`connectivity_R2` on its own cannot steer this experiment, and the reason is measured, not
+assumed.
 
 ---
 
@@ -48,6 +50,48 @@ five hundredths — the `noise_005` in the name is 0.05, not 0.005).
 
 ---
 
+## THE TWO OBJECTIVES — read this before ranking anything
+
+**Why `connectivity_R2` alone leaves you blind.** On the two runs that produced this file
+it read **-1.17** and **-4.94**. An acceptance ladder whose best grade needs >= 0.85 and
+whose reject grade is < 0.50 returns "reject" for every configuration you can reach, which
+means it returns the same verdict for an improvement and for a regression. A metric that
+cannot distinguish those is not a metric, and optimising against it is guessing.
+
+Two numbers do have a working point and a gradient, and both are in the analysis log:
+
+| Objective | Metric | Observed | Question it answers |
+| --- | --- | --- | --- |
+| **1. FIT** | `msg_i_R2` | 0.835 / 0.947 | Does the model reproduce the generator's MESSAGE? |
+| **2. IDENTIFICATION** | `connectivity_R2_scaled` | 0.343 | Given the fit, is the SHAPE of W right once the unpinnable global gain is removed? |
+| | `reversal_R2`, `w_scale` | 0.497, 2.39 | How far along the degenerate valley does this run sit? |
+
+**They are not the same objective and improving one does not imply improving the other.**
+A model can pass every message perfectly and still sit anywhere along the valley: `msg_i`
+is the product, and the product is invariant to the trade. So do NOT simply chase
+`msg_i_R2` — a run with `msg_i_R2` 0.99 and `w_scale` 3.0 has recovered nothing about the
+connectome.
+
+**THE RANKING RULE, and it is lexicographic:**
+
+1. **`msg_i_R2` is a floor, not a target.** A slot whose `msg_i_R2` falls more than 0.02
+   below the block's control has BROKEN THE FIT. Reject it whatever it did to
+   `connectivity_R2` — a connectivity number computed from a model that no longer
+   reproduces the message is measuring noise.
+2. **Among slots that hold the floor, rank on `connectivity_R2_scaled`**, then on
+   `reversal_R2`, then on `|w_scale - 1|` shrinking. These three move together when the
+   scale is genuinely being pinned, and that agreement is itself the evidence.
+3. **Report raw `connectivity_R2` in every entry but never rank on it alone.** It is the
+   number the paper quotes and it is the honest headline; it is also dominated by a scalar
+   the data provably do not determine.
+
+`msg_i_R2` earns its place as the floor because it is the one number that stays meaningful
+when everything else has collapsed: on the six conductance GNN runs it read **-0.04**,
+which said "this model passes no message at all" at a moment when `connectivity_R2` read a
+respectable-looking -0.13 and the rollout correlation read 0.89.
+
+---
+
 ## THE DEGENERACY — read this before optimising anything
 
 `g_ij` and the driving force `(E_i - v_i)` enter the message **as a product**. Scaling the
@@ -78,11 +122,13 @@ the truth at r = 0.95.
 
 1. A `connectivity_R2` far below zero with `slope` near 2.4 is the signature of this
    degeneracy, not of a failed fit. Do not respond to it by raising `lr_W`.
-2. `tmp_training/msgi/msgi_*.png` scores `msg_i`, the aggregated message, which is the
-   product that survives the trade. It read R2 +0.78 on the same checkpoint where
-   `connectivity_R2` read -10.5. **When those two disagree, the message panel is
-   describing what the trajectory depends on and `connectivity_R2` is describing a
-   factorisation the data cannot resolve.** Log both, every iteration.
+2. `msg_i_R2` scores the aggregated message, which is the product that survives
+   the trade. It read R2 +0.78 on the same checkpoint where `connectivity_R2`
+   read -10.5. **When those two disagree, `msg_i_R2` is describing what the
+   trajectory depends on and `connectivity_R2` is describing a factorisation
+   the data cannot resolve.** Both are keys in the analysis log now, so record
+   them side by side in every entry; `tmp_training/msgi/msgi_*.png` is the same
+   quantity as a picture if you want to see the shape of the disagreement.
 3. What breaks the tie is anything that pins the scale of E. `student_reversal_dim` would
    be the obvious lever — 2 free reversals instead of 27,482 — but you **cannot** set it:
    in recovery mode `_resolve_student_knobs` forces `RECOVERY_DEFAULTS` with
@@ -100,14 +146,48 @@ spellings; nothing else exists:
 
 | Key | Meaning | Target |
 | --- | --- | --- |
-| `connectivity_R2` | R2 of learned `W**2` against the true conductance | > 0.85, but see the degeneracy section |
+| `connectivity_R2` | R2 of learned `W**2` against the true conductance, on the identity line | report always, rank on it never — see the two objectives |
+| `connectivity_R2_scaled` | same, after dividing out the one global gain the data cannot pin | **> 0.60 — STAGE-2 OBJECTIVE.** Observed 0.343 |
+| `w_scale` | that gain: learned `W**2` ~= `w_scale` x true | **-> 1.0.** Observed 2.39, i.e. the conductance is 2.4x too large |
+| `connectivity_pearson_r` | correlation of learned and true conductance, scale-free by construction | > 0.90. Observed 0.769 |
 | `raw_W_R2` | same, before the g_phi correction | context only |
 | `tau_R2` | R2 of `softplus(raw_tau)` against `tau_i` | > 0.90 |
 | `V_rest_R2` | R2 of `V_rest` against `V_i_rest` | > 0.85 |
+| `reversal_R2` | R2 of the learned per-edge `E_ij` against the true one | > 0.60 — the hard one, see the degeneracy section |
+| `reversal_slope` | identity-line slope of the same scatter | 1.0 is perfect; ~0.4 is the degenerate valley |
+| `reversal_rmse` | RMSE of `E_ij` in the same units as `E` (magnitude 14.7-24.4) | < 3 |
+| `reversal_n_edges` | edges the reversal was scored on | context only, expect 434,112 |
+| `msg_i_R2` | R2 of the aggregated per-neuron message | **STAGE-1 FLOOR.** Observed 0.835 / 0.947; must not fall > 0.02 below the block control |
+| `msg_i_slope` | identity-line slope of the message scatter | 1.0 |
+| `msg_i_rmse` | RMSE of `msg_i` | context only |
 | `onestep_pearson` | one-step-ahead prediction correlation | > 0.99 |
 | `rollout_pearson` | free-run rollout correlation | > 0.95 |
 | `cluster_accuracy` | cell-type separability | context only |
 | `training_time_min` | wall clock | see the DAL rule in your prompt |
+
+**EVERY "observed" NUMBER IN THIS FILE WAS MEASURED ON A 10-EPOCH RUN.** From
+block 2 onward `claude.n_epochs` is 3, because an audit of the full trajectory
+showed epochs 8->10 cost 1.6 h and moved `connectivity_R2` by 0.078 and
+`reversal_R2` by 0.002 — resolvable against the seed noise, but changing no
+verdict, while a 3-epoch run captures 76% of the total improvement for 30% of
+the cost. At 3 epochs the baseline sits near `connectivity_R2` -6.1,
+`reversal_R2` 0.471, `reversal_slope` 0.427, and `w_scale` correspondingly
+further from 1.
+
+So expect the absolute values to JUMP at the start of block 2. That jump is the
+epoch change, not a regression, and it means **the block-1 variance reference
+applies to relative comparisons only**. Rank every slot against slot 0 of its
+own block, which runs the same number of epochs, and never against a number
+quoted from block 1 or from this file.
+
+`reversal_*` and `msg_i_*` are new. They used to exist only as figures and as
+`tmp_training/reversal_rmse.log`, so earlier runs of this exploration have them
+missing from the analysis log — an entry from before this change that omits
+them is not a failed slot.
+
+`reversal_*` appears **only on conductance-generated data**. On a current
+generator there is no `(E - v_i)` term to recover, the keys are absent, and
+that absence is information rather than a fault. `msg_i_*` appears on both.
 
 There is **no** `rollout_pearson_r`, no `test_R2`, no `conn_R2` key. Do not look for them.
 
@@ -116,8 +196,9 @@ not Glob:
 
 | Path | What it carries |
 | --- | --- |
+| `../results/metrics.txt` | **A SECOND COPY OF EVERY HEADLINE METRIC**, one `key: value` per line — `msg_i_R2`, `connectivity_R2_scaled`, `w_scale`, `connectivity_pearson_r`, `reversal_R2`, `connectivity_R2`. The same code writes both this and the analysis log. It is inside the run directory, so it stays reachable when the shared analysis-log directory is not. **If the analysis log is unreadable, read this and report normally — never mark an objective PENDING while a readable copy exists.** |
 | `metrics.log` | CSV: `iteration,connectivity_r2,vrest_r2_raw,tau_r2_raw,hidden_nnr_pearson,anchor_nnr_pearson,vrest_r2_clean,n_out_vrest,n_total_vrest,tau_r2_clean,n_out_tau,n_total_tau` |
-| `reversal_rmse.log` | CSV: `iteration,rmse,r2,slope,n_edges` — **the E_ij trajectory, the metric that gates this whole experiment** |
+| `reversal_rmse.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY. Its final row should agree with `reversal_rmse` / `reversal_R2` in the analysis log; read the log for the value and this file for how it got there |
 | `rollout_r.log` | CSV: `iteration,r,rmse,n_frames` |
 | `Wij/raw_*.png` | 2x2 recovery panel for `W**2` vs the true conductance |
 | `Eij/Eij_*.png` | 2x2 recovery panel for the per-edge reversal |
@@ -199,7 +280,7 @@ count here — read it from the prompt.
 
 | Block | Mode | Focus | Parameters to scan | Ranges |
 | --- | --- | --- | --- | --- |
-| 1 | Robustness | Baseline variance | none — all 4 slots identical | Establish the CV of `connectivity_R2`, `tau_R2`, `V_rest_R2` and the E_ij RMSE before optimising anything |
+| 1 | Robustness | Baseline variance | none — all 8 slots identical | Establish the CV of **`msg_i_R2` and `connectivity_R2_scaled` first**, then `w_scale`, `reversal_R2`, `tau_R2`, `V_rest_R2`. Those two CVs are what every later verdict is measured against |
 | 2 | Exploration | Learning rates | `lr_W`, `lr` | lr_W {3e-4, 6e-4, 2e-3}; lr {6e-4, 1.8e-3, 4e-3}. Also record the lr_W/lr ratio |
 | 3 | Exploration | W initialisation | `w_init_mode`, `w_init_scale` | init {randn_scaled, zeros, uniform_scaled}; scale {0.25, 0.5, 2.0} |
 | 4 | Exploration | tau scale prior | `coeff_tau_L2` then `coeff_tau_L1` | {0, 1e-5, 1e-4, 1e-3}. **This is the degeneracy block** |
@@ -207,7 +288,7 @@ count here — read it from the prompt.
 | 6 | Exploration | W regularisation | `coeff_W_L1`, `coeff_W_L2` | W_L1 {0, 1e-5, 3e-4}; W_L2 {0, 1e-5} |
 | 7 | Exploration | Batch and training volume | `batch_size`, `data_augmentation_loop` | bs {2, 4, 8}; DAL against the prompt's time target |
 | 8 | Exploration | Free — combine | any of the above | Consolidate the best of blocks 2-7 |
-| 9 | Robustness | Final validation | none — all 4 slots at the champion | Confirm CV and no catastrophic seed |
+| 9 | Robustness | Final validation | none — all 8 slots at the champion | Confirm CV and no catastrophic seed |
 
 **Slot 0 ratchets.** In blocks 2 onward, slot 0 is the best configuration found so far, not
 the original baseline. The control must move with the evidence or you will spend nine
@@ -215,16 +296,21 @@ blocks comparing against a config you already know is beaten.
 
 Per-block notes:
 
-- **Block 1** exists because every later comparison is against this variance. If the CV of
-  `connectivity_R2` here exceeds 10%, single-slot differences below that are noise and you
-  must say so in every subsequent entry.
+- **Block 1** exists because every later comparison is against this variance. Record the CV
+  of BOTH objectives. If the CV of `connectivity_R2_scaled` exceeds 10%, single-slot
+  differences below that are noise and you must say so in every subsequent entry. The CV of
+  `msg_i_R2` is what sets whether the 0.02 fit floor is meaningful — if the fit itself
+  varies by more than 0.02 between identical slots, widen the floor to that CV and say so.
 - **Block 4 is the point of the exploration.** The prediction is that an L2 on `raw_tau`
-  introduces a preferred scale along the rescaling direction and lifts the E_ij recovery
-  without regressing `connectivity_R2`. Watch `reversal_rmse.log`: its `r2` column rising
-  while `connectivity_R2` holds is the success signature. A flat E_ij R2 at every
-  coefficient is the **null result**, and it is a real finding — it would say the
-  identifiability limit, not the optimiser, is the bottleneck. Document it as such rather
-  than sweeping harder.
+  introduces a preferred scale along the rescaling direction, so it should move `w_scale`
+  toward 1.0 from its observed 2.39 and lift both `connectivity_R2_scaled` and
+  `reversal_R2`. **The success signature is stage-2 metrics rising while `msg_i_R2` does
+  not move** — that is the scale being pinned rather than the message being refitted, and
+  it is exactly the two-objective split this file is built on. If `msg_i_R2` falls as the
+  coefficient rises, the prior is not pinning the scale, it is fighting the fit: back off.
+  A flat `w_scale` and flat `reversal_R2` at every coefficient is the **null result**, and
+  it is a real finding — it would say the identifiability limit, not the optimiser, is the
+  bottleneck. Document it as such rather than sweeping harder.
 - **Block 6**: `coeff_W_L1` acts on the square root of the conductance, so its effect on
   the conductance is not the L1 you would expect. A value that drove W to zero would show
   as `connectivity_R2` collapsing toward 0 with the relative-error panel spiking at exactly
@@ -234,22 +320,56 @@ Per-block notes:
 
 ## Acceptance
 
+Applied in this order. Stage 1 is a gate: a slot that fails it is never ranked on stage 2,
+because a connectivity number read off a model that no longer reproduces the message is
+measuring noise.
+
+**Stage 1 — the fit gate, on `msg_i_R2`:**
+
 | Verdict | Rule |
 | --- | --- |
-| Stable-Robust | all 4 slots `connectivity_R2` >= 0.85 and CV < 3% |
-| Stable | mean `connectivity_R2` >= 0.80, CV < 10% |
-| Unstable | mean < 0.80 or CV >= 10% |
-| Catastrophic | any slot `connectivity_R2` < 0.50 — reject the config, do not pursue |
+| Fit-Broken | `msg_i_R2` more than 0.02 below the block's slot-0 control — REJECT, do not rank, do not carry forward |
+| Fit-Collapsed | `msg_i_R2` < 0.50 in absolute terms — the model has stopped passing the message; report it as a finding and return to the last configuration that held |
+| Fit-OK | otherwise — proceed to stage 2 |
 
-Two extra rules specific to this experiment:
+**Stage 2 — identification, on `connectivity_R2_scaled` (thresholds set against the 0.343
+and `w_scale` 2.39 this file was written from, NOT against 1.0):**
+
+| Verdict | Rule |
+| --- | --- |
+| Strong | all 8 slots `connectivity_R2_scaled` >= 0.60 AND `w_scale` within [0.7, 1.4], CV < 3% |
+| Improving | mean `connectivity_R2_scaled` >= 0.45 and above the block control by more than the block-1 CV |
+| Flat | within the block-1 CV of the control — a real result if it holds across a block, not a failure |
+| Regressed | mean `connectivity_R2_scaled` below the control by more than the block-1 CV |
+
+**There is no "Catastrophic" grade on `connectivity_R2` any more, and its removal is the
+point.** The old ladder rejected anything below 0.50, and every configuration reachable
+here sits between -1.2 and -4.9, so it graded improvements and regressions identically.
+Raw `connectivity_R2` is recorded in every entry and is the number to quote; it is not a
+ranking key.
+
+Three extra rules specific to this experiment:
+
+- **Both objectives, every entry.** State `msg_i_R2` and `connectivity_R2_scaled`
+  together, and say which of the two the slot moved. "Improved `connectivity_R2_scaled`
+  0.34 -> 0.41 at unchanged `msg_i_R2` 0.947" is a stage-2 win; "`msg_i_R2` 0.947 -> 0.83
+  with `connectivity_R2_scaled` 0.34 -> 0.52" is NOT a win, it is a broken fit whose
+  connectivity number should not be believed.
+- **`w_scale` is the direct read of progress.** It says how far along the degenerate valley
+  the run sits, 1.0 being the truth. Watching it move 2.39 -> 1.8 -> 1.3 across a block is
+  the clearest possible evidence that a prior is pinning the scale, and it is more
+  legible than any R2 because it has physical meaning: 2.39 means the learned conductance
+  is 2.39x the true one.
 
 - **Trajectory check.** Read the `connectivity_r2` column of `metrics.log` and record both
   the iteration of its peak and `(final - peak) / peak`. Treat any slot with
   `final / peak < 0.95` as disqualified even if the final number looks acceptable — a late
   collapse is a real failure mode here.
-- **Degeneracy check.** In every entry, record `connectivity_R2` beside the last `r2` in
-  `reversal_rmse.log`. A configuration that improves one while destroying the other has not
-  improved recovery; it has moved along the degenerate valley.
+- **Degeneracy check.** In every entry, record `connectivity_R2`, `reversal_R2` and
+  `msg_i_R2` together. A configuration that improves one of the first two while
+  destroying the other has not improved recovery; it has moved along the degenerate
+  valley, and `msg_i_R2` holding steady across that move is the proof — the message is
+  the product the data constrain, so it does not care how the factorisation shifted.
 
 ---
 
@@ -258,10 +378,15 @@ Two extra rules specific to this experiment:
 For each slot, in this order:
 
 1. Read the analysis log for the slot and extract every metric named in the Metrics table.
-2. Read `tmp_training/reversal_rmse.log` and `tmp_training/metrics.log`, taking the last
-   row of each plus the peak of `connectivity_r2`.
-3. Look at `tmp_training/Wij/raw_*.png` and `tmp_training/msgi/msgi_*.png` from the latest
-   checkpoint. Note whether the two agree; if they disagree, say which way and why.
+   `connectivity_R2`, `reversal_R2`/`reversal_slope`/`reversal_rmse` and
+   `msg_i_R2`/`msg_i_slope` are all in there — one read, no figure-scraping and no
+   parsing of training logs by hand.
+2. Read `tmp_training/metrics.log` for the peak of `connectivity_r2` and how far the
+   final value fell from it, and `tmp_training/reversal_rmse.log` for the shape of the
+   E_ij trajectory. Both are about the trajectory; the final values came from step 1.
+3. Compare `connectivity_R2` against `msg_i_R2` and say which way they disagree, if they
+   do. `tmp_training/Wij/raw_*.png` and `tmp_training/msgi/msgi_*.png` show the same two
+   quantities as scatters if a number alone does not explain what happened.
 4. Write one entry per slot to the analysis log **and** to the working memory. The heading
    must be exactly `## Iter N: <short title>` — the resume mechanism parses that pattern
    and a different heading will break `--resume`.
@@ -274,14 +399,15 @@ Entry template:
 ## Iter N: <one-line hypothesis>
 - Slot: S | seeds: sim=<value> train=<value>
 - Changed: <parameter> <old> -> <new>   (slot 0: unchanged control)
-- connectivity_R2: <value>  (peak <value> at iter <value>, final/peak <value>)
-- E_ij: rmse <value>  r2 <value>  slope <value>
+- STAGE 1 msg_i_R2: <value>  (control <value>, delta <value>)  -> <Fit-OK | Fit-Broken | Fit-Collapsed>
+- STAGE 2 connectivity_R2_scaled: <value>  w_scale: <value>  connectivity_pearson_r: <value>
+- reversal_R2: <value>   reversal_slope: <value>   reversal_rmse: <value>
+- connectivity_R2 (raw, quoted not ranked): <value>  (peak <value> at iter <value>, final/peak <value>)
 - tau_R2: <value>   V_rest_R2: <value>
 - onestep_pearson: <value>   rollout_pearson: <value>
-- msg_i panel R2: <value from msgi/*.png>
 - training_time_min: <value>
-- Verdict: <Stable-Robust | Stable | Unstable | Catastrophic | Disqualified-late-collapse>
-- Reading: <two sentences: what moved, and whether it moved along the degeneracy>
+- Verdict: <Strong | Improving | Flat | Regressed | Fit-Broken | Fit-Collapsed | Disqualified-late-collapse>
+- Reading: <two sentences: WHICH OF THE TWO OBJECTIVES moved, and whether w_scale moved toward 1.0>
 ```
 
 ---
@@ -313,8 +439,8 @@ At `>>> BLOCK END <<<`:
 ## Knowledge Base (accumulated across all blocks)
 
 ### Results Comparison Table
-| Iter | Config summary | conn_R2 (mean±std) | CV% | E_ij rmse | E_ij r2 | tau_R2 | V_rest_R2 | rollout_pearson | Robust? | Hypothesis tested |
-| ---- | -------------- | ------------------ | --- | --------- | ------- | ------ | --------- | --------------- | ------- | ----------------- |
+| Iter | Config summary | msg_i_R2 (S1) | conn_R2_scaled (S2) | w_scale | CV% | reversal_R2 | reversal_rmse | conn_R2 raw | tau_R2 | V_rest_R2 | rollout_pearson | Verdict | Hypothesis tested |
+| ---- | -------------- | ------------- | ------------------- | ------- | --- | ----------- | ------------- | ----------- | ------ | --------- | --------------- | ------- | ----------------- |
 
 ### Established Principles
 ### Falsified Hypotheses
@@ -351,10 +477,13 @@ against.
 Launch:
 
 ```bash
-python GNN_LLM.py -o generate_train_test_plot_Claude \
+python GNN_LLM+.py -o generate_train_test_plot_Claude \
     flyvis_conductance_noise_005_conductance_knownode_cv00 \
-    iterations=96 --cluster --resume
+    iterations=144 --cluster --node l4 --resume
 ```
+
+144 iterations is the 9 blocks of this file at the base config's
+`n_iter_block: 16`, run 8 slots at a time — 18 batches, two per block.
 
 The base config must carry a `claude:` block; `--cluster` needs `data_paths.json` at the
 repo root with `cluster_root_dir` pointing at the cluster checkout.
