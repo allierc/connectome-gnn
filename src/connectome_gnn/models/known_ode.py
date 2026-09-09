@@ -329,42 +329,126 @@ class ZebrafishKnownODE(KnownODEBase):
 )
 class FlyvisConductanceKnownODE(KnownODEBase):
 
+    # Knobs that describe HOW TO GUESS a parameterisation the teacher cannot pin
+    # down. They are meaningful only under distillation; on conductance-generated
+    # data every one of them has an answer on disk instead. Named here so a spec
+    # that sets one outside distillation is refused rather than ignored.
+    STUDENT_ONLY_KEYS = ("student_reversal_mode", "student_reversal_dim",
+                         "student_neuron_params", "student_init",
+                         "student_span_mode", "student_delta_inh",
+                         "student_delta_exc", "student_learn_edges")
+
+    # What the model uses when it is NOT distilling: the most general
+    # parameterisation, assuming no structure at all. See _resolve_student_knobs.
+    RECOVERY_DEFAULTS = dict(student_reversal_mode="learned",
+                             student_reversal_dim="per_neuron",
+                             student_neuron_params="per_neuron",
+                             student_init="default",
+                             student_span_mode="extremes",
+                             student_delta_inh=0.4,
+                             student_delta_exc=1.0,
+                             student_learn_edges=True)
+
+    @classmethod
+    def _resolve_student_knobs(cls, tc):
+        """Return the eight student_* settings this run should actually use.
+
+        TWO REGIMES, AND THE CONFIG ONLY SPEAKS FOR ONE OF THEM.
+
+        train_on_teacher True -- DISTILLATION. The teacher is current-based and has
+        no (E - v_i) term, so E is unidentifiable: nothing in the data says whether
+        the reversals are two numbers or 27,482, nor where they sit. The spec has to
+        choose, and the six margin/learned x global/per_type/per_neuron runs are
+        exactly that choice being swept. Read the knobs.
+
+        train_on_teacher False -- RECOVERY on conductance-generated data. E, W, tau
+        and V_rest all have true values in ode_params.pt, so there is nothing to
+        choose and a knob could only assert structure the data already fixes -- and
+        assert it WRONGLY the moment the generating student's granularity differs
+        from the spec's, which would show up as a fit failure rather than as the
+        misspecification it is. Use RECOVERY_DEFAULTS: the fully general
+        parameterisation, E and tau/V_rest per neuron, reversals free, no margin
+        pinning, no teacher closed-form init.
+
+        Per-neuron under recovery is deliberately the LOOSEST option, not the one
+        matching the truth. The generating student was margin/global, so the true E
+        is two numbers; fitting 27,482 and watching them collapse onto two is a
+        result the E_ij scatter shows directly, whereas telling the model 'global'
+        would hand it the answer.
+
+        A spec that sets a student_* key with train_on_teacher False raises: the
+        alternative is silently overriding it, which is how a run ends up not being
+        the experiment its config describes.
+        """
+        if getattr(tc, "train_on_teacher", False):
+            return {k: getattr(tc, k) for k in cls.STUDENT_ONLY_KEYS}
+        explicit = getattr(tc, "model_fields_set", set())
+        stray = sorted(set(cls.STUDENT_ONLY_KEYS) & set(explicit))
+        if stray:
+            raise ValueError(
+                f"{stray} set with train_on_teacher False. Those knobs choose a "
+                "parameterisation for reversals the teacher cannot identify; on "
+                "conductance-generated data the true values are in ode_params.pt "
+                "and the model uses the general per-neuron form instead. Drop them "
+                "from the spec, or set train_on_teacher True if this really is a "
+                "distillation run.")
+        return dict(cls.RECOVERY_DEFAULTS)
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__(aggr_type=aggr_type, config=config, device=device)
         tc = config.training
-        self.conductance_neuron_params = getattr(tc, "conductance_neuron_params", "per_type")
-        # PER TYPE BY DEFAULT, because the teacher's tau_i and V_i_rest hold exactly
-        # 65 distinct values over 13,741 neurons -- one per cell type. Per-neuron is
-        # 27,482 parameters describing 130. `type_index` is filled by
+        k = self._resolve_student_knobs(tc)
+        self.student_neuron_params = k["student_neuron_params"]
+        # PER TYPE UNDER DISTILLATION, because the teacher's tau_i and V_i_rest hold
+        # exactly 65 distinct values over 13,741 neurons -- one per cell type.
+        # Per-neuron is 27,482 parameters describing 130. `type_index` is filled by
         # set_neuron_types(); until then the model is per-neuron so it is never
         # silently wrong, just larger.
         n_p = self.n_neurons
         self.register_buffer("type_index",
                              torch.arange(self.n_neurons, device=device, dtype=torch.long))
-        if self.conductance_neuron_params == "per_type":
+        if self.student_neuron_params == "per_type":
             n_p = int(getattr(config.simulation, "n_neuron_types", 0) or self.n_neurons)
         self.raw_tau = nn.Parameter(
             torch.zeros(n_p, device=device, dtype=torch.float32),
-            requires_grad=self.conductance_neuron_params != "frozen")
+            requires_grad=self.student_neuron_params != "frozen")
         self.V_rest = nn.Parameter(
             torch.zeros(n_p, device=device, dtype=torch.float32),
-            requires_grad=self.conductance_neuron_params != "frozen")
+            requires_grad=self.student_neuron_params != "frozen")
         # Initialised straddling the voltage range so both driving forces start
         # with the right sign; flyvis voltages are O(1) about 0.
-        self.conductance_reversal_mode = getattr(tc, "conductance_reversal_mode", "margin")
-        self.delta_inh = float(getattr(tc, "conductance_delta_inh", 0.4))
-        self.delta_exc = float(getattr(tc, "conductance_delta_exc", 1.0))
-        _free = (getattr(tc, "conductance_learn_reversal", True)
-                 and self.conductance_reversal_mode == "learned")
-        self.conductance_reversal_dim = getattr(tc, "conductance_reversal_dim", "global")
+        self.student_reversal_mode = k["student_reversal_mode"]
+        self.student_span_mode = k["student_span_mode"]
+        self.student_init = k["student_init"]
+        self.delta_inh = float(k["student_delta_inh"])
+        self.delta_exc = float(k["student_delta_exc"])
+        _free = self.student_reversal_mode == "learned"
+        self.student_reversal_dim = k["student_reversal_dim"]
         n_rev = {"global": 1,
                  "per_type": int(getattr(config.simulation, "n_neuron_types", 0) or self.n_neurons),
-                 "per_neuron": self.n_neurons}[self.conductance_reversal_dim]
+                 "per_neuron": self.n_neurons}[self.student_reversal_dim]
         self.E_exc = nn.Parameter(torch.ones(n_rev, device=device), requires_grad=_free)
         self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
         self.register_buffer("_range_set_b", torch.zeros(1, dtype=torch.bool, device=device))
         self._range_set = False
-        self.W.requires_grad_(bool(getattr(tc, "conductance_learn_edges", True)))
+        self.W.requires_grad_(bool(k["student_learn_edges"]))
+        # WHICH RECOVERY PATH SCORES THIS RUN, and it differs by regime, which is
+        # why it is set per instance rather than as a class attribute.
+        #
+        # 'linear' means W, tau and V_rest are direct parameters that
+        # plot_training_linear can read off and scatter against ode_params. That is
+        # true of this model always -- but only MEANINGFUL under recovery, where the
+        # dataset was made by a conductance model and ode_params.W really is the
+        # conductance this one is learning.
+        #
+        # Under distillation the teacher is current-based: ode_params.W is a SIGNED
+        # current weight and this model learns a non-negative conductance, so an R2
+        # between them is a confident number about nothing. Leaving the default
+        # 'gnn' there routes to plot_training_gnn, which early-returns NaN for a
+        # model with no embedding and no g_phi -- the honest answer, and the one the
+        # config comment on train_on_teacher already promises ("R2_W is meaningless
+        # here ... the acceptance test is the ROLLOUT").
+        self.MODEL_FAMILY = "linear" if not getattr(tc, "train_on_teacher", False) else "gnn"
         n_w = self.n_edges + self.n_extra_null_edges
         self.register_buffer(
             "edge_is_inh", torch.zeros(n_w, dtype=torch.bool, device=device))
@@ -407,7 +491,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
 
     def _node_index(self, particle_id):
         """Neuron id -> parameter row. Identity per-neuron, cell type per-type."""
-        return self.type_index[particle_id] if self.conductance_neuron_params == "per_type" else particle_id
+        return self.type_index[particle_id] if self.student_neuron_params == "per_type" else particle_id
 
     def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
         """Restore the python guard flags from their persisted buffers."""
@@ -424,14 +508,14 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         a bare CUDA device-side assert with no line number.
         """
         ids = neuron_ids % self.n_neurons
-        if self.conductance_reversal_dim == "global":
+        if self.student_reversal_dim == "global":
             return torch.zeros_like(ids)
-        if self.conductance_reversal_dim == "per_type":
+        if self.student_reversal_dim == "per_type":
             return self.type_index[ids]
         return ids
 
     def set_teacher_voltage_range(self, v_min, v_max, v_lo=None, v_hi=None):
-        """Pin the reversals OUTSIDE the teacher's voltage range (conductance_reversal_mode margin).
+        """Pin the reversals OUTSIDE the teacher's voltage range (student_reversal_mode margin).
 
         E_exc = V_max + delta_exc * span, E_inh = V_min - delta_inh * span. Bracketing
         is then structural: V_i lies in [V_min, V_max] by definition, so (E_exc - V_i)
@@ -439,7 +523,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         delta > 0. Nothing to penalise and nothing to check at runtime.
         """
         # Accepts scalars or (N,) per-neuron extremes; reduced to whatever
-        # granularity conductance_reversal_dim asks for. 1e-3 span floor matching PR #46's
+        # granularity student_reversal_dim asks for. 1e-3 span floor matching PR #46's
         # derive_conductance_twin: at 1e-6 a degenerate recording puts the reversals
         # a millionth outside the range, which brackets in principle but leaves no
         # usable driving force.
@@ -447,7 +531,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         lo = torch.as_tensor(v_min, dtype=torch.float32, device=dev).reshape(-1)
         hi = torch.as_tensor(v_max, dtype=torch.float32, device=dev).reshape(-1)
         # BRACKET from lo/hi, MEASURE delta in v_lo..v_hi. Separating the two is the
-        # whole of conductance_span_mode: the bracket must come from the extremes or the
+        # whole of student_span_mode: the bracket must come from the extremes or the
         # sign guarantee fails, but delta's unit does not have to, and on a
         # heavy-tailed voltage the extremes make it ~3.4x too large.
         slo = lo if v_lo is None else torch.as_tensor(
@@ -480,7 +564,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         self._range_set_b.fill_(True); self._range_set = True
 
     def init_from_teacher(self, w_signed, edge_index, v_mean_per_neuron):
-        """Stage-1 closed form: W^2 <- alpha_curr / (E - Vbar_ti). See conductance_init.
+        """Stage-1 closed form: W^2 <- alpha_curr / (E - Vbar_ti). See student_init.
 
         Requires set_presynaptic_sign() and set_teacher_voltage_range()
         to have run, since it needs the per-edge polarity and the reversals. The
@@ -499,7 +583,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         # (E - Vbar). Measured: per-neuron reversals against a per-CELL-TYPE Vbar gave
         # 512 of 434,112 edges a negative conductance. Reducing Vbar onto the same
         # rows removes the mismatch by construction.
-        if self.conductance_reversal_dim != "per_neuron" and vbar.numel() == self.n_neurons:
+        if self.student_reversal_dim != "per_neuron" and vbar.numel() == self.n_neurons:
             ridx = self._rev_index(torch.arange(self.n_neurons, device=dev))
             nrow = self.E_exc.numel()
             sums = torch.zeros(nrow, device=dev).index_add_(0, ridx, vbar)
@@ -513,20 +597,20 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         neg = int((alpha < 0).sum())
         if neg:
             raise RuntimeError(
-                f"conductance_init teacher_closed_form: {neg} of {n} edges gave a NEGATIVE "
+                f"student_init teacher_closed_form: {neg} of {n} edges gave a NEGATIVE "
                 "conductance, which means E - Vbar does not carry the connectome sign "
                 "on them -- the reversals are not bracketing the teacher's range. "
-                "Check conductance_reversal_mode and the deltas.")
+                "Check student_reversal_mode and the deltas.")
         with torch.no_grad():
             self.W[:n, 0] = alpha.clamp_min(0.0).sqrt()
 
     def set_neuron_types(self, type_list):
-        """(N,) cell-type id per neuron, for conductance_neuron_params: per_type."""
+        """(N,) cell-type id per neuron, for student_neuron_params: per_type."""
         t = torch.as_tensor(type_list).reshape(-1).long().to(self.type_index.device)
         self.type_index[: t.numel()] = t
 
     def set_teacher_neuron_params(self, tau, v_rest):
-        """Pin tau/V_rest at the teacher's values (conductance_neuron_params: frozen)."""
+        """Pin tau/V_rest at the teacher's values (student_neuron_params: frozen)."""
         with torch.no_grad():
             idx = self._node_index(torch.arange(self.n_neurons, device=self.W.device))
             tau_t = torch.as_tensor(tau).reshape(-1).to(self.raw_tau.device)
@@ -551,7 +635,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         """(E_exc, E_inh), both MATERIALISED to (n_neurons,) whatever the granularity.
 
         The parameters are stored at whichever granularity
-        `training.conductance_reversal_dim` asked for -- 1 row (global), one per
+        `training.student_reversal_dim` asked for -- 1 row (global), one per
         cell type (per_type) or one per neuron (per_neuron) -- and `forward` never
         expands them: `_rev_index` maps a postsynaptic neuron id straight to its
         parameter row and indexes lazily.

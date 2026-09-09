@@ -38,6 +38,12 @@ class TrainingMetrics:
     vrest_r2_clean: float = float("nan")
     tau_r2_clean: float = float("nan")
 
+    # Edges beyond W_OUTLIER_THRESH in the SAME comparison connectivity_r2 is
+    # computed on, so the progress bar can print W_ij the way it prints V_rest
+    # and tau: the outlier-free R2 with the size of the removed set beside it.
+    n_out_conn: int = 0
+    n_total_conn: int = 0
+
     n_out_vrest: int = 0
     n_total_vrest: int = 0
 
@@ -57,6 +63,16 @@ class TrainingMetrics:
     reversal_rmse: float | None = None
     reversal_r2: float | None = None
     reversal_scale: float | None = None
+
+    # R2 of the aggregated per-neuron message msg_i, true vs learned. The one
+    # recovery number the conductance degeneracy does not touch: W_ij and E_ij
+    # trade off INSIDE the message, so msg_i scores the product the trajectory
+    # actually depends on rather than a factorisation the data cannot resolve.
+    # Worth a slot in the bar beside conn and E for exactly that reason -- a run
+    # can show conn=-5.0 and msg=0.95, which says the dynamics are right and only
+    # the split is wrong, and that is a completely different situation from
+    # conn=-5.0 with msg=-0.04, which says nothing is being learned at all.
+    msgi_r2: float | None = None
 
 
 @dataclass
@@ -125,6 +141,12 @@ class EpochState:
     plot_frequency: int
     connectivity_plot_frequency: int
     early_r2_frequency: int
+    # HOW OFTEN THE 2x2 RECOVERY FIGURES ARE WRITTEN, as opposed to how often the
+    # numbers behind them are computed. The metrics are cheap and are what gets
+    # trended, so they stay on connectivity_plot_frequency; the figures are ~130 KB
+    # each across six folders and pile up to hundreds of files over a 5-epoch run,
+    # so they go at a fifth of that -- 5 per epoch.
+    panel_plot_frequency: int
     plot_iterations: set[int]
 
     # Data sampling
@@ -177,6 +199,12 @@ def init_epoch_state(
     early_r2_frequency = max(
         1,
         connectivity_plot_frequency // 5,
+    )
+
+    # Five figure snapshots per epoch, against the twenty metric evaluations.
+    panel_plot_frequency = max(
+        1,
+        n_iter // 5,
     )
 
     # Visual-field / heavy plot locations.
@@ -303,6 +331,7 @@ def init_epoch_state(
         plot_frequency=plot_frequency,
         connectivity_plot_frequency=connectivity_plot_frequency,
         early_r2_frequency=early_r2_frequency,
+        panel_plot_frequency=panel_plot_frequency,
         plot_iterations=plot_iterations,
 
         frame_indices=frame_indices,
@@ -1158,8 +1187,7 @@ def init_training_data(
 
     from connectome_gnn.generators.ode_params import (
         FlyVisCurrentODEParams,
-        get_ode_params_class,
-        load_flyvis_ode_params,
+        load_ode_params_for_run,
     )
 
     simulation = config.simulation
@@ -1374,50 +1402,9 @@ def init_training_data(
         config.graph_model.signal_model_name
     )
 
-    try:
-        OdeParamsCls = get_ode_params_class(
-            signal_model
-        )
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-
-    # THE REGISTRY IS KEYED ON THE MODEL, THE DATASET IS A PROPERTY OF THE FILE,
-    # and on the flyvis family those two disagree. `get_ode_params_class` maps
-    # every flyvis model name -- flyvis_current, flyvis_conductance,
-    # flyvis_conductance_known_ode -- to FlyVisCurrentODEParams, because the
-    # registry answers "what will be trained", and no one trains the conductance
-    # generator. But a conductance-generated dataset's ode_params.pt carries
-    # E_exc / E_inh / edge_is_inh, which that class has no fields for: loading it
-    # as the current class raises TypeError, and the old fallback retried the
-    # SAME class and raised again.
-    #
-    # load_flyvis_ode_params asks the FILE instead, via the ground_truth_model
-    # key that ODEParamsBase.save writes, and returns FlyVisConductanceODEParams
-    # with the reversals intact. Restricted to the flyvis family so the CX,
-    # larva and zebrafish paths keep their own registered classes.
-    if issubclass(OdeParamsCls, FlyVisCurrentODEParams):
-        ode_params = load_flyvis_ode_params(
-            graphs_data_path(config.dataset),
-            device=device,
-        )
-    else:
-        try:
-            ode_params = OdeParamsCls.load(
-                graphs_data_path(config.dataset),
-                device=device,
-            )
-        except TypeError:
-
-            logger.info(
-                f'ode_params schema mismatch for '
-                f'{OdeParamsCls.__name__}; '
-                f'falling back to FlyVisCurrentODEParams'
-            )
-
-            ode_params = FlyVisCurrentODEParams.load(
-                graphs_data_path(config.dataset),
-                device=device,
-            )
+    # Class from the MODEL, refinement from the FILE -- see
+    # ode_params.load_ode_params_for_run for why those are different questions.
+    ode_params = load_ode_params_for_run(config, device=device)
 
     gt_weights = ode_params.W
     gt_edges = ode_params.edge_index
@@ -1718,15 +1705,20 @@ def init_training_model(
             v = getattr(xt, "voltage", None) if xt is not None else None
             if v is None:
                 raise RuntimeError(
-                    "conductance_reversal_mode 'margin' needs the teacher's voltage range and "
+                    "student_reversal_mode 'margin' needs the teacher's voltage range and "
                     "this dataset carries no x_ts.voltage")
             # Per-neuron extremes for the BRACKET, and per-neuron percentiles for
-            # delta's UNIT when conductance_span_mode asks for them. The model reduces both
-            # to whatever granularity conductance_reversal_dim wants. Frames are subsampled
+            # delta's UNIT when student_span_mode asks for them. The model reduces both
+            # to whatever granularity student_reversal_dim wants. Frames are subsampled
             # for the quantile: (64000, 13741) exact quantiles cost more than the
             # answer is worth and the tails are what we are deliberately trimming.
             _vmin, _vmax = v.float().amin(dim=0), v.float().amax(dim=0)
-            _sm = getattr(training, "conductance_span_mode", "extremes")
+            # FROM THE MODEL, NOT THE CONFIG. FlyvisConductanceKnownODE._resolve_student_knobs
+            # already decided whether the spec speaks here at all -- under recovery
+            # the config keys are absent and the model holds the general defaults.
+            # Re-reading `training` would bypass that and silently reintroduce the
+            # distillation defaults on a recovery run.
+            _sm = model.student_span_mode
             if _sm == "extremes":
                 _lo = _hi = None
             else:
@@ -1738,7 +1730,7 @@ def init_training_model(
                 _nf = min(4000, v.shape[0])
                 _idx = torch.linspace(0, v.shape[0] - 1, _nf, device=v.device).long()
                 _sub = v[_idx].float()
-                if getattr(training, "conductance_reversal_dim", "global") == "global":
+                if model.student_reversal_dim == "global":
                     # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
                     # per-neuron quantiles and then the widest across neurons is a
                     # different and much larger statistic (span 9.2 against 3.9 here),
@@ -1758,7 +1750,7 @@ def init_training_model(
                         _hi[_c0:_c0 + _chunk] = torch.quantile(_c, 1.0 - _q, dim=0)
                 del _sub
             model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
-        if getattr(training, "conductance_init", "teacher_closed_form") == "teacher_closed_form":
+        if model.student_init == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
             # about the type's mean postsynaptic voltage, and the teacher's own
             # tau/V_rest are type-constant too. Falls back to a per-neuron mean when
@@ -1768,17 +1760,17 @@ def init_training_model(
             ei = _get("edge_index")
             if v is None or ei is None:
                 raise RuntimeError(
-                    "conductance_init 'teacher_closed_form' needs x_ts.voltage and "
+                    "student_init 'teacher_closed_form' needs x_ts.voltage and "
                     "ode_params.edge_index")
             # RAW PER-NEURON mean. The model reduces it onto E's own rows, and it
-            # must: reducing here by cell type while conductance_reversal_dim is per_neuron
+            # must: reducing here by cell type while student_reversal_dim is per_neuron
             # left 512 of 434,112 edges with a Vbar outside the range their own
             # reversal was built to bracket, hence a negative conductance.
             model.init_from_teacher(w, ei, v.float().mean(dim=0))
-        if getattr(training, "conductance_neuron_params", "per_type") == "frozen":
+        if model.student_neuron_params == "frozen":
             tau, vr = _get("tau_i"), _get("V_i_rest")
             if tau is None or vr is None:
-                raise RuntimeError("conductance_neuron_params 'frozen' needs ode_params tau_i/V_i_rest")
+                raise RuntimeError("student_neuron_params 'frozen' needs ode_params tau_i/V_i_rest")
             model.set_teacher_neuron_params(tau, vr)
 
     model.train()

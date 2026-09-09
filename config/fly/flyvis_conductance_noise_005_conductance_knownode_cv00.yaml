@@ -1,13 +1,13 @@
-description: 'Conductance student distilled from the current-based flyvis teacher, noise-free, fold 0. E reversal rig learned/pertype: FREE parameters. Nothing stops them crossing the teacher''s range, and if V_i crosses E the driving force flips sign and excitation becomes inhibition. Granularity: two per cell type -- closest to PR #46, which carries one reversal per (pre-type -> post-type) group. Everything else held -- W learned per edge and entering squared, tau/V_rest learned per cell type, stage-1 closed-form init alpha = alpha_curr/(E - Vbar_ti), per-edge polarity from the connectome sign (Dale fails here, 4,573 of 13,279 presynaptic neurons have mixed-sign outgoing edges). NOT parameter recovery: the teacher has no (E - v_i) term, so the acceptance test is the ROLLOUT.'
-dataset: flyvis_noise_free_blank50_cv00
+description: ""
+dataset: flyvis_conductance_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -16,10 +16,10 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.0
+  noise_model_level: 0.05
   seed: 42
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -41,11 +41,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   torch_compile: true
   mlp_precision: bf16
@@ -74,13 +74,17 @@ training:
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1042
-  n_epochs: 1
+  n_epochs: 10
   data_augmentation_loop: 100
-  train_on_teacher: true
-  student_reversal_mode: learned
-  student_reversal_dim: per_type
-  student_neuron_params: per_type
-  student_learn_edges: true
-  student_init: teacher_closed_form
   rollout_frames: 1000
-config_file: fly/flyvis_current_noise_free_conductance_learned_pertype_cv00
+config_file: fly/flyvis_conductance_noise_005_conductance_knownode_cv00
+claude:
+  n_parallel: 8
+  n_iter_block: 16
+  n_epochs: 3
+  data_augmentation_loop: 100
+  node_name: l4
+  generate_data: false
+  training_time_target_min: 150
+  hard_runtime_limit_min: 1440
+  claude_call_timeout_min: 20

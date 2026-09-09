@@ -636,9 +636,19 @@ def create_log_dir(config=[], erase=True, erase_results=False):
             os.remove(f)
         _robust_rmtree(os.path.join(log_dir, 'tmp_training'))
 
+    # ONE FOLDER PER RECOVERED QUANTITY, named after the quantity itself --
+    # Wij / Eij / tau / vrest -- so that flipping through a run means opening the
+    # folder whose name is the symbol on the figure. They are all created up
+    # front even for a model that recovers only some of them: an empty tau/ says
+    # "this run has no tau_i" far more directly than a missing folder, which
+    # reads as a plotting failure.
     _tmp_training_subdirs = [
         'tmp_training/external_input',
-        'tmp_training/matrix',
+        'tmp_training/Wij',
+        'tmp_training/Eij',
+        'tmp_training/tau',
+        'tmp_training/vrest',
+        'tmp_training/msgi',
         'tmp_training/function',
         'tmp_training/function/f_theta',
         'tmp_training/function/g_phi',

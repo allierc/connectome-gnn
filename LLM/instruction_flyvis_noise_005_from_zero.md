@@ -29,7 +29,7 @@ config files). Do not Glob, list, or Read anything else.
 - The working memory file named in the prompt (this exploration's only).
 - The analysis log named in the prompt (this exploration's only).
 - The 4 slot YAML files named in the prompt.
-- The current iteration's `tmp_training/matrix/connectivity_*.png` and
+- The current iteration's `tmp_training/Wij/connectivity_*.png` and
   metrics output, when analyzing results.
 
 If you need a "base config" reference and one is not explicitly named:

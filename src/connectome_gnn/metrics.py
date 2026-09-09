@@ -299,11 +299,26 @@ validate_registry()
 # ------------------------------------------------------------------ #
 
 def get_model_W(model) -> torch.Tensor:
-    """Get the weight matrix from a model, handling low-rank factorization."""
+    """The model's weights IN THE SAME UNITS AS ode_params.W, for comparison."""
+    # w_squared FIRST, because it is a statement about how W enters the ODE and
+    # therefore about what W MEANS, which overrides any convention about its
+    # sign. Under it the message uses W**2, so W**2 is the learned conductance
+    # and the raw parameter is its square root; scattering the root against
+    # ode_params.W would report the mismatch as a recovery failure. The sign-lock
+    # below is moot here anyway -- a square has no sign to lock.
+    if getattr(model, 'w_squared', False):
+        return model.W.detach() ** 2
     # Prefer the effective weight (|W|·sign_GT under the hard sign-lock); when
     # the lock is off this equals the raw W, so existing models are unaffected.
     if hasattr(model, 'effective_W'):
         return model.effective_W
+    # THE CONDUCTANCE STUDENT STORES THE SQUARE ROOT. Its `W` parameter enters the
+    # ODE as W**2, so the conductance is non-negative by construction, and
+    # ode_params.W on a conductance-generated dataset holds that SQUARE. Returning
+    # the raw parameter here would scatter sqrt(g) against g and report the
+    # mismatch as a recovery failure.
+    if hasattr(model, 'get_learned_conductance'):
+        return model.get_learned_conductance()
     if hasattr(model, 'W'):
         return model.W
     elif hasattr(model, 'WL') and hasattr(model, 'WR'):
@@ -1003,6 +1018,162 @@ def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, 
     return eta
 
 
+def extract_conductance_params_from_gnn(model, config, edges, x_ts, n_frames=64,
+                                        vj_quantile=0.25, min_points=8, seed=0):
+    """Read W_ij and E_ij back out of a trained conductance GNN, per edge.
+
+    THE PROBLEM. The known-ODE student stores W and E as named parameters, so
+    :func:`compute_reversal_metrics` just reads them. The GNN stores a per-edge
+    weight and an MLP, and its message is
+
+        msg_ij  =  W_gnn_ij * g_phi(v_j, a_j, v_i, a_i)^2
+
+    with nothing labelled "conductance" or "reversal potential" anywhere in it.
+    Both quantities are still in there, because the generator this is fitting is
+
+        msg_ij  =  W_ij * relu(v_j) * (E_i - v_i)
+
+    and they can be read out without any optimisation at all.
+
+    THE METHOD, and why it is a division rather than a fit. Divide the message by
+    v_j -- the same normalisation the current-data extraction applies through
+    `compute_g_phi_correction_conductance`, and for the same reason: it stops the
+    presynaptic drive from being absorbed into W and producing enormous W on the
+    edges whose v_j happened to be small. What is left,
+
+        y_ij(t)  =  msg_ij(t) / v_j(t)  =  W_ij * (E_i - v_i(t))
+
+    is a STRAIGHT LINE IN v_i with slope -W_ij and intercept W_ij * E_i. So one
+    ordinary least-squares line per edge, over the real co-occurring (v_i, v_j)
+    the network actually visits, gives
+
+        W_ij = -slope            E_ij = intercept / W_ij = -intercept / slope
+
+    THE STRAIGHT LINE IS ALSO THE TEST. `fit_r2` is the R2 of that line per edge.
+    If it is not near 1 the learned message is not affine in v_i, the model has
+    not found the conductance form, and the W and E read off it describe nothing.
+    Check it before reporting either.
+
+    WHAT IS AND IS NOT IDENTIFIABLE. W_gnn and the amplitude of g_phi^2 trade off
+    against one common scalar -- doubling one and halving the other leaves every
+    message unchanged -- so W_ij comes out UP TO A SINGLE GLOBAL FACTOR and its
+    absolute size means nothing. E_ij is a RATIO of the intercept to the slope, so
+    that factor cancels and E is recovered absolutely. Compare W with
+    :func:`r2_up_to_scale`, which fits the one factor and reports R2 with the
+    slope pinned to 1 by construction; compare E directly.
+
+    Only samples with v_j above `vj_quantile` OF THE POSITIVE v_j VALUES enter the
+    fit. Below that the division amplifies noise without adding information, and
+    v_j <= 0 carries none at all -- the true drive is relu(v_j), so those frames
+    say nothing about W_ij or E_ij.
+
+    Args:
+        n_frames: real frames sampled per edge.
+        vj_quantile: quantile OF THE POSITIVE SAMPLED v_j used as the floor.
+        min_points: an edge needs this many surviving samples, with a non-zero
+            spread in v_i, or its entry is nan.
+
+    Returns a dict of (E,) arrays unless noted:
+        W          extracted conductance, up to one global scale factor
+        E          extracted per-edge reversal potential, in voltage units
+        fit_r2     R2 of the per-edge straight line -- the validity check
+        n_used     samples that survived the v_j floor, per edge
+        E_pooled   per-edge reversal after pooling each postsynaptic neuron's
+                   incoming edges by SIGN of E, median within group: the
+                   generator gives every edge onto neuron i the same E_exc[i] or
+                   E_inh[i], so pooling is the estimator that uses that, and the
+                   split by sign is what keeps excitatory and inhibitory apart
+        E_exc, E_inh   (N,) the two pooled values per postsynaptic neuron, nan
+                   where that neuron received no edge of that sign
+        vj_floor   the floor actually used, in voltage units
+    """
+    res = sample_g_phi_vi_vj_observed(model, config, edges, x_ts,
+                                      n_edges=edges.shape[1], n_frames=n_frames,
+                                      seed=seed)
+    vi, vj, g_sq = res['vi'], res['vj'], res['g_phi']      # each (E, n_frames)
+    i_ids = res['edge_ij'][:, 0].astype(np.int64)          # postsynaptic
+
+    W_gnn = to_numpy(get_model_W(model)).ravel()[:vi.shape[0]].astype(np.float64)
+
+    pos = vj[vj > 0]
+    vj_floor = float(np.quantile(pos, vj_quantile)) if pos.size else 0.0
+    keep = vj > max(vj_floor, 1e-6)
+
+    # y = msg / v_j = W_ij * (E_i - v_i); masked entries contribute 0 to every sum.
+    y = np.where(keep, W_gnn[:, None] * g_sq / np.where(keep, vj, 1.0), 0.0)
+    x = np.where(keep, vi, 0.0)
+
+    n = keep.sum(axis=1).astype(np.float64)
+    Sx, Sy = x.sum(axis=1), y.sum(axis=1)
+    Sxx, Syy, Sxy = (x * x).sum(axis=1), (y * y).sum(axis=1), (x * y).sum(axis=1)
+
+    den_x = n * Sxx - Sx ** 2
+    den_y = n * Syy - Sy ** 2
+    cov = n * Sxy - Sx * Sy
+    ok = (n >= min_points) & (den_x > 0)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        slope = np.where(ok, cov / den_x, np.nan)
+        intercept = np.where(ok, (Sy - slope * Sx) / n, np.nan)
+        fit_r2 = np.where(ok & (den_y > 0), cov ** 2 / (den_x * den_y), np.nan)
+        W = -slope
+        E = np.where(W != 0, -intercept / slope, np.nan)
+
+    # Pool by (postsynaptic neuron, sign of E). The generator hands every edge
+    # onto neuron i one of exactly two reversals, so the per-edge estimates of
+    # each sign are repeated measurements of the same number; the median is the
+    # estimator that says so, and it is taken separately per sign because mixing
+    # +24.8 with -14.5 would average to a value neither of them takes.
+    n_neurons = model.a.shape[0]
+    E_exc = np.full(n_neurons, np.nan)
+    E_inh = np.full(n_neurons, np.nan)
+    good = np.isfinite(E) & np.isfinite(fit_r2)
+    for arr, sign_mask in ((E_exc, E > 0), (E_inh, E < 0)):
+        m = good & sign_mask
+        if not m.any():
+            continue
+        order = np.argsort(i_ids[m], kind='stable')
+        ids_s, vals_s = i_ids[m][order], E[m][order]
+        uniq, start = np.unique(ids_s, return_index=True)
+        for _i, vals in zip(uniq, np.split(vals_s, start[1:])):
+            arr[_i] = np.median(vals)
+    E_pooled = np.where(E < 0, E_inh[i_ids], E_exc[i_ids])
+
+    return {'W': W, 'E': E, 'fit_r2': fit_r2, 'n_used': n,
+            'E_pooled': E_pooled, 'E_exc': E_exc, 'E_inh': E_inh,
+            'vj_floor': vj_floor}
+
+
+def r2_up_to_scale(true, learned):
+    """R2 of `learned` against `true` after fitting ONE global scale factor.
+
+    For a quantity the model can only pin down up to a common gain -- the GNN's
+    W_ij, where W and the amplitude of g_phi^2 trade off exactly -- the ordinary
+    identity-line R2 reports that gain as error and says nothing about whether the
+    shape is right. This divides the gain out first: it fits the single c that
+    minimises ||c*learned - true||^2, which is c = <true, learned> / <learned,
+    learned>, then returns the identity-line R2 of c*learned against true.
+
+    ONE free parameter over however many edges there are, and the slope afterwards
+    is 1 BY CONSTRUCTION, so the slope is not a result and must not be reported as
+    one. `scale` is returned separately for the record.
+
+    Returns dict with r2, scale, n.
+    """
+    true = np.asarray(true).ravel().astype(np.float64)
+    learned = np.asarray(learned).ravel().astype(np.float64)
+    n = min(true.size, learned.size)
+    true, learned = true[:n], learned[:n]
+    ok = np.isfinite(true) & np.isfinite(learned)
+    true, learned = true[ok], learned[ok]
+    denom = float(learned @ learned)
+    if true.size < 2 or denom <= 0:
+        return {'r2': float('nan'), 'scale': float('nan'), 'n': int(true.size)}
+    c = float(true @ learned) / denom
+    r2, _ = _r2_slope_identity(true, c * learned)
+    return {'r2': r2, 'scale': c, 'n': int(true.size)}
+
+
 def g_phi_first_layer_discard_score(model, emb_dim):
     """L1 mass on g_phi's [vi, ai] first-layer input columns (the ones the
     true flyvis_conductance generative model ReLU(vj) doesn't need), as a
@@ -1409,10 +1580,18 @@ W_OUTLIER_THRESH = 1.0
 
 
 _DYNAMICS_R2_EMPTY = {
+    'n_out_conn': 0, 'n_total_conn': 0,
     'vrest_r2': 0.0, 'vrest_r2_clean': float('nan'),
     'n_out_vrest': 0, 'n_total_vrest': 0,
     'tau_r2':   0.0, 'tau_r2_clean':   float('nan'),
     'n_out_tau':   0, 'n_total_tau':   0,
+    # THE ARRAYS THE R2s ABOVE WERE COMPUTED FROM. A caller that wants the
+    # recovery panel would otherwise have to re-derive tau and V_rest out of
+    # f_theta -- a whole extract_f_theta_slopes pass over every neuron -- and,
+    # worse, could then draw a panel describing different numbers from the ones
+    # in metrics.log. None when the model or the dataset has no such parameter.
+    'tau_true': None, 'tau_learned': None,
+    'vrest_true': None, 'vrest_learned': None,
 }
 
 
@@ -1434,28 +1613,11 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             n_out_tau      : number of tau outliers
             n_total_tau    : total neurons evaluated for tau
     """
-    from connectome_gnn.generators.ode_params import (
-        FlyVisCurrentODEParams, get_ode_params_class,
-    )
-    signal_model = config.graph_model.signal_model_name
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
     try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-    try:
-        ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
-    except FileNotFoundError:
+        ode_params = load_ode_params_for_run(config, device=device)
+    except (FileNotFoundError, TypeError):
         return dict(_DYNAMICS_R2_EMPTY)
-    except TypeError:
-        # On-disk schema mismatch (e.g. signal_model=drosophila_cx maps to
-        # DrosophilaCxODEParams but the file holds FlyVisCurrentODEParams from the
-        # voltage-recovery generator). Fall back to FlyVisCurrentODEParams.
-        try:
-            ode_params = FlyVisCurrentODEParams.load(
-                graphs_data_path(config.dataset), device=device
-            )
-        except (FileNotFoundError, TypeError):
-            return dict(_DYNAMICS_R2_EMPTY)
 
     mu, sigma = compute_activity_stats(x_ts, device)
 
@@ -1484,6 +1646,8 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             out['tau_r2_clean']  = tm['r2_clean']
             out['n_out_tau']     = tm['n_outliers']
             out['n_total_tau']   = tm['n_total']
+            out['tau_true']      = to_numpy(gt_tau).ravel()
+            out['tau_learned']   = to_numpy(learned_tau).ravel()
 
     if ode_params.has_vrest():
         gt_vrest = ode_params.gt_vrest(n_neurons)
@@ -1495,6 +1659,8 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             out['vrest_r2_clean']  = vm['r2_clean']
             out['n_out_vrest']     = vm['n_outliers']
             out['n_total_vrest']   = vm['n_total']
+            out['vrest_true']      = to_numpy(gt_vrest).ravel()
+            out['vrest_learned']   = to_numpy(learned_vrest).ravel()
 
     return out
 
@@ -1511,13 +1677,8 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     """
     import torch.nn.functional as F
 
-    from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisCurrentODEParams
-    signal_model = config.graph_model.signal_model_name
-    try:
-        OdeParamsCls = get_ode_params_class(signal_model)
-    except KeyError:
-        OdeParamsCls = FlyVisCurrentODEParams
-    ode_params = OdeParamsCls.load(graphs_data_path(config.dataset), device=device)
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
+    ode_params = load_ode_params_for_run(config, device=device)
     gt_weights = to_numpy(ode_params.W)
     learned_W = to_numpy(get_model_W(model).squeeze())
 
@@ -1552,7 +1713,9 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
         # the GNN training-time connectivity_r2 convention). Previously this
         # was the full-sample R² of the raw weights, which silently disagreed
         # with what the accompanying plot showed.
-        conn_r2 = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)['r2_clean']
+        _cm = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)
+        conn_r2 = _cm['r2_clean']
+        out['n_out_conn'], out['n_total_conn'] = _cm['n_outliers'], _cm['n_total']
     except Exception:
         pass
 
@@ -1603,7 +1766,151 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
 #  Reversal potential recovery (conductance datasets only)
 # ------------------------------------------------------------------ #
 
-def compute_reversal_metrics(model, ode_params):
+def _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts):
+    """The GNN branch of :func:`compute_reversal_metrics` -- same dict, read out
+    of the learned message rather than off a parameter.
+
+    Returns None when the extraction produced too few usable edges, which is the
+    same signal the parameter path uses: no panel, no bar entry, rather than a
+    number nothing stands behind.
+    """
+    import numpy as np
+
+    ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
+    true = to_numpy(ode_params.reversal_per_edge()).ravel()
+    learned = ext['E_pooled']
+
+    n = int(min(true.size, learned.size))
+    true, learned = true[:n], learned[:n]
+    ok = np.isfinite(true) & np.isfinite(learned)
+    if ok.sum() < 2:
+        return None
+    true_ok, learned_ok = true[ok], learned[ok]
+
+    m = recovery_param_metrics(true_ok, learned_ok)
+    w_true = to_numpy(ode_params.W).ravel()[:ext['W'].size]
+    w_fit = r2_up_to_scale(w_true, ext['W'])
+
+    # The per-neuron reversals the granularity-adaptive panel draws. The
+    # extraction already pools each postsynaptic neuron's incoming edges by the
+    # sign of E, so E_exc/E_inh are the same two numbers per cell the known-ODE
+    # student stores -- just estimated rather than parameterised.
+    type_index = (to_numpy(core.type_index).ravel()
+                  if getattr(core, "type_index", None) is not None else None)
+    _dst = to_numpy(ode_params.edge_index[1]).ravel()
+    per_neuron = dict(
+        true_exc=to_numpy(ode_params.E_exc).ravel(),
+        true_inh=to_numpy(ode_params.E_inh).ravel(),
+        learned_exc=ext['E_exc'],
+        learned_inh=ext['E_inh'],
+        type_index=type_index,
+    )
+    if type_index is not None:
+        per_neuron["edge_type"] = type_index[_dst % type_index.size]
+    _targeted = np.zeros(per_neuron["true_exc"].size, dtype=bool)
+    _targeted[np.unique(_dst) % _targeted.size] = True
+    per_neuron["targeted"] = _targeted
+
+    return {
+        "rmse": float(np.sqrt(np.mean((learned_ok - true_ok) ** 2))),
+        "r2": float(m["r2"]),
+        "slope": float(m["slope"]),
+        "n_edges": int(true_ok.size),
+        "true": true_ok,
+        "learned": learned_ok,
+        "fit_r2_median": float(np.nanmedian(ext['fit_r2'])),
+        "w_r2_scaled": float(w_fit['r2']),
+        "w_scale": float(w_fit['scale']),
+        **per_neuron,
+    }
+
+
+# How many frames the msg_i panel is evaluated on. THE SAME FRAMES EVERY TIME --
+# evenly spaced over the recording by linspace, not sampled -- because the point
+# of the panel is to be flipped through: two consecutive checkpoints must differ
+# because the MODEL moved, not because the frames did.
+MSG_N_FRAMES = 10
+
+
+def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
+                           n_frames=MSG_N_FRAMES):
+    """The aggregated per-neuron message msg_i, true vs learned.
+
+    WHY THE AGGREGATED MESSAGE AND NOT THE EDGE ONE. msg_i is what f_theta
+    consumes and the only channel through which connectivity reaches dv/dt, so it
+    is the quantity whose recovery the trajectory actually depends on. It is also
+    the one place the conductance/driving-force degeneracy stops mattering: the
+    message is g_ij * act(v_j) * (E_i - v_i), g and the driving force trade off
+    inside it, and msg_i is the product that survives that trade -- a model can
+    have W_ij wrong by 3x and E_ij wrong by 1/3 and still land msg_i on the
+    identity line, which is exactly what a trajectory correlation of 0.95 beside
+    an R2 of -10 on W_ij means.
+
+    THE TRUE SIDE IS REBUILT FROM ode_params, not read from the dataset, so it is
+    the generator's own message rather than anything the trainer derived:
+
+        edge_msg = W_ij * gt_g_phi_func(v_j)          the activation the
+                                                      generator used, ReLU on
+                                                      flyvis, whatever
+                                                      `activation` says on cx
+        edge_msg *= (E_ij - v_i)                      conductance datasets only;
+                                                      a current generator has no
+                                                      such term
+        msg_i     = sum of edge_msg over incoming edges
+
+    THE LEARNED SIDE IS THE MODEL'S OWN msg, via forward(..., return_all=True),
+    which every family implements -- NeuralGNN and KnownODEBase alike. Nothing is
+    re-derived, so the panel shows the message the model is really passing rather
+    than a reconstruction that could differ from it.
+
+    Returns (true, learned, groups) flattened over frames, each
+    (n_frames * n_neurons,), with `groups` the postsynaptic cell type tiled to
+    match -- or None when there is no ground-truth W to build the true side from.
+    """
+    if getattr(ode_params, 'W', None) is None:
+        return None
+
+    T = int(x_ts.n_frames)
+    frame_idx = np.linspace(0, T - 1, n_frames).astype(int)
+
+    ei = edges.to(device)
+    src, dst = ei[0], ei[1]
+    W = torch.as_tensor(to_numpy(ode_params.W).ravel(), dtype=torch.float32,
+                        device=device)
+    E_edge = None
+    if getattr(ode_params, 'E_exc', None) is not None:
+        E_edge = ode_params.reversal_per_edge().to(device).float().ravel()
+
+    n_neurons = int(x_ts.voltage.shape[1])
+    data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
+
+    was_training = model.training
+    model.eval()
+    true_all, learned_all = [], []
+    with torch.no_grad():
+        for k in frame_idx:
+            state = x_ts.frame(int(k)).to(device)
+            v = state.voltage.float().ravel()
+
+            act = torch.as_tensor(
+                np.asarray(ode_params.gt_g_phi_func(to_numpy(v[src]))),
+                dtype=torch.float32, device=device).ravel()
+            edge_msg = W[:act.numel()] * act
+            if E_edge is not None:
+                edge_msg = edge_msg * (E_edge[:act.numel()] - v[dst][:act.numel()])
+            msg_true = torch.zeros(n_neurons, device=device)
+            msg_true.scatter_add_(0, dst[:edge_msg.numel()], edge_msg)
+
+            _, _, msg_learned = model(state, ei, data_id=data_id, return_all=True)
+            true_all.append(to_numpy(msg_true).ravel())
+            learned_all.append(to_numpy(msg_learned).ravel()[:n_neurons])
+    if was_training:
+        model.train()
+
+    return np.concatenate(true_all), np.concatenate(learned_all)
+
+
+def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=None):
     """Recovery of the per-edge reversal potential E_ij, true vs learned.
 
     ONLY DEFINED ON CONDUCTANCE-GENERATED DATA. The current-based generator has
@@ -1627,6 +1934,26 @@ def compute_reversal_metrics(model, ode_params):
       slope   slope of the least-squares fit of learned on true
       n_edges how many edges entered the comparison
       true, learned   the two (n_edges,) numpy arrays, for the scatter
+
+    TWO WAYS OF GETTING `learned`, chosen by what the model is. The known-ODE
+    student holds E as a named parameter and `get_learned_reversal_per_edge`
+    reads it. THE GNN HOLDS NO SUCH PARAMETER -- its message is
+    `W_gnn * g_phi(v_j, a_j, v_i, a_i)^2` and E is implicit in the shape of the
+    MLP -- so when `config`, `edges` and `x_ts` are supplied it falls back to
+    :func:`extract_conductance_params_from_gnn`, which reads E out as the
+    zero-crossing in v_i of the message divided by v_j. That path adds two keys:
+
+      fit_r2_median  median per-edge R2 of the straight line the extraction
+                     assumes. THIS IS THE PRECONDITION, not a detail: below
+                     roughly 0.9 the message is not affine in v_i, the GNN has
+                     not found the conductance form, and the E and W beside it
+                     describe nothing.
+      w_r2_scaled / w_scale   R2 of the extracted W against the true W after
+                     dividing out the one global gain the GNN cannot pin down
+                     (see :func:`r2_up_to_scale`), and the gain that was divided
+                     out. The slope after that is 1 by construction, so it is not
+                     reported.
+
     Returns None when either side has no reversals.
     """
     import numpy as np
@@ -1634,17 +1961,45 @@ def compute_reversal_metrics(model, ode_params):
     gt_rev = getattr(ode_params, "reversal_per_edge", None)
     if gt_rev is None or getattr(ode_params, "E_exc", None) is None:
         return None
-    if not hasattr(model, "get_learned_reversal_per_edge"):
-        return None
     # Under torch.compile the parameters live on the wrapped module.
     core = getattr(model, "_orig_mod", model)
     if not hasattr(core, "get_learned_reversal_per_edge"):
-        return None
+        if config is None or edges is None or x_ts is None:
+            return None
+        return _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts)
 
     with torch.no_grad():
         true = to_numpy(gt_rev()).ravel()
         learned = to_numpy(
             core.get_learned_reversal_per_edge(ode_params.edge_index)).ravel()
+        # PER-NEURON arrays alongside the per-edge ones. The per-edge form is what
+        # the RMSE is defined on -- E_ij is an edge quantity -- but it weights each
+        # neuron by its in-degree and hides how many neurons sit behind a stripe.
+        # The per-neuron form is what the reversals actually ARE, one E_exc and one
+        # E_inh per postsynaptic cell, and it is what the granularity-adaptive
+        # panel in plot_reversal_scatter draws.
+        l_exc, l_inh = core.get_learned_reversals()
+        per_neuron = dict(
+            true_exc=to_numpy(ode_params.E_exc).ravel(),
+            true_inh=to_numpy(ode_params.E_inh).ravel(),
+            learned_exc=to_numpy(l_exc).ravel(),
+            learned_inh=to_numpy(l_inh).ravel(),
+            type_index=(to_numpy(core.type_index).ravel()
+                        if getattr(core, "type_index", None) is not None else None),
+        )
+        # Neurons no edge ever targets get no gradient on their reversals, so their
+        # learned value is still the initialisation. Recorded, not filtered: a
+        # violin that silently drops them would misreport how much of the
+        # parameterisation the data actually constrains.
+        _dst = to_numpy(ode_params.edge_index[1]).ravel()
+        # Per-EDGE cell type for the violin panel: the POSTSYNAPTIC cell, since
+        # E belongs to the neuron the driving force (E - v_i) acts on.
+        if per_neuron["type_index"] is not None:
+            _ti = per_neuron["type_index"]
+            per_neuron["edge_type"] = _ti[_dst % _ti.size]
+        _targeted = np.zeros(per_neuron["true_exc"].size, dtype=bool)
+        _targeted[np.unique(_dst) % _targeted.size] = True
+        per_neuron["targeted"] = _targeted
 
     n = int(min(true.size, learned.size))
     true, learned = true[:n], learned[:n]
@@ -1661,6 +2016,7 @@ def compute_reversal_metrics(model, ode_params):
         "n_edges": int(true.size),
         "true": true,
         "learned": learned,
+        **per_neuron,
     }
 
 

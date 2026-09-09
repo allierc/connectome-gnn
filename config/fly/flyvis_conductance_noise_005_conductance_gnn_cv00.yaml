@@ -1,13 +1,13 @@
-description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained margin/global/extremes student (held-out rollout r 0.9980, the best of the 18-cell grid and PR #46s own parametrisation). noise_model_level 0.05. The dataset name follows the data model, so this is the first flyvis_conductance_* dataset rather than flyvis_current_*.'
+description: ""
 dataset: flyvis_conductance_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ''
+  adjacency_matrix: ""
   params:
-  - - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -18,16 +18,14 @@ simulation:
   visual_input_type: DAVIS
   noise_model_level: 0.05
   seed: 42
-  ground_truth_model: conductance
-  conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_margin_global_cv00/models/best_model_with_0_graphs_0.pt
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
   signal_model_name: flyvis_conductance
   prediction: first_derivative
-  input_size: 3
+  input_size: 6
   n_layers: 3
   hidden_dim: 80
   output_size: 1
@@ -38,19 +36,20 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-  - -2.5
-  - 2.5
+    - -2.5
+    - 2.5
   ylim:
-  - -100
-  - 100
+    - -100
+    - 100
 training:
   torch_compile: true
-  mlp_precision: bf16
+  mlp_precision: fp32
   n_runs: 1
   device: auto
   recurrent_training: false
@@ -75,14 +74,18 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1042
+  seed: 1041
+  deterministic: false
   n_epochs: 1
+  data_augmentation_loop: 500
+config_file: fly/flyvis_conductance_noise_005_conductance_gnn_cv00
+claude:
+  n_parallel: 4
+  n_iter_block: 12
+  n_epochs: 3
   data_augmentation_loop: 100
-  conductance_reversal_mode: margin
-  conductance_reversal_dim: global
-  conductance_neuron_params: per_type
-  conductance_learn_edges: true
-  conductance_init: teacher_closed_form
-  train_on_teacher: true
-  teacher_rollout_frames: 1000
-config_file: fly/flyvis_conductance_noise_005_cv00
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 150
+  hard_runtime_limit_min: 1440
+  claude_call_timeout_min: 20
