@@ -1,4 +1,4 @@
-description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained ION student -- ONE cation reversal E_exc for the whole network, because the sodium and potassium gradients that set it are near-uniform across cells, and ONE chloride reversal E_inh per cell type, because the KCC2/NKCC1 transporter balance that sets it is not. E is then rank 2 over (i,j) pairs: the sender''s transmitter picks the ion, the receiving cell supplies its value. noise_model_level 0.0. The dataset name carries the rig that made it: two twins of the same current teacher generate two ground truths, and a run has to say which one it trained on.'
+description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance and the sign carried entirely by the driving force -- using the parameters of the ION twin -- one cation reversal for the whole network, because the sodium and potassium gradients that set it are near-uniform across cells, and one chloride reversal per POSTSYNAPTIC cell type, because each cell''s internal chloride concentration is set by its own KCC2/NKCC1 transporter balance. The edge type chooses which ion, the postsynaptic cell type supplies its value. Its reversals are PHYSIOLOGICAL rather than bracketed: E_exc is pinned +2.5 voltage excursions above rest and E_Cl was learned within [-1.5, +0.5] excursions of rest, the range a real chloride equilibrium potential occupies (-90 to -50 mV against a rest of -60). E_Cl therefore lies INSIDE the operating range, so the inhibitory driving force reverses whenever a cell crosses it -- ordinary shunting and depolarising inhibition. conductance_bracket_strict false because those crossings are the intended behaviour here and not a generation failure; they are counted into BRACKET_CROSSINGS.txt instead. noise_model_level 0.0. The dataset name carries the rig that made it: two twins of the same current teacher give two ground truths, and a run has to say which one it trained on.'
 dataset: flyvis_conductance_ion_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -19,6 +19,7 @@ simulation:
   noise_model_level: 0.0
   seed: 42
   ground_truth_model: conductance
+  conductance_bracket_strict: false
   conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_ion_cv00/models/best_model_with_0_graphs_0.pt
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test

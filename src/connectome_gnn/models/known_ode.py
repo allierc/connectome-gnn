@@ -335,6 +335,8 @@ class FlyvisConductanceKnownODE(KnownODEBase):
     # that sets one outside distillation is refused rather than ignored.
     STUDENT_ONLY_KEYS = ("student_reversal_mode", "student_reversal_dim",
                          "student_reversal_exc_global",
+                         "student_E_exc_excursions_lo", "student_E_exc_excursions_hi",
+                         "student_E_inh_excursions_lo", "student_E_inh_excursions_hi",
                          "student_neuron_params", "student_init",
                          "student_span_mode", "student_delta_inh",
                          "student_delta_exc", "student_learn_edges")
@@ -353,6 +355,13 @@ class FlyvisConductanceKnownODE(KnownODEBase):
                              student_span_mode="extremes",
                              student_delta_inh=0.4,
                              student_delta_exc=1.0,
+                             # Unused under 'learned', but _resolve_student_knobs
+                             # returns every STUDENT_ONLY_KEY and __init__ reads them
+                             # unconditionally, so they need values here too.
+                             student_E_exc_excursions_lo=2.5,
+                             student_E_exc_excursions_hi=2.5,
+                             student_E_inh_excursions_lo=-1.5,
+                             student_E_inh_excursions_hi=0.5,
                              student_learn_edges=True)
 
     @classmethod
@@ -441,8 +450,42 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         # shared row index, so the two shapes can never be confused for each other.
         self.student_reversal_exc_global = bool(k["student_reversal_exc_global"])
         n_rev_exc = 1 if self.student_reversal_exc_global else n_rev
-        self.E_exc = nn.Parameter(torch.ones(n_rev_exc, device=device), requires_grad=_free)
-        self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
+
+        # PHYSIOLOGICAL MODE STORES E DERIVED, NOT FREE. E_exc/E_inh stop being
+        # parameters and become BUFFERS holding the materialised reversals, while the
+        # free variables are raw_E_exc/raw_E_inh, squashed into the configured band of
+        # excursions from rest. Keeping the buffers named E_exc/E_inh is deliberate:
+        # FlyVisConductanceODEParams.from_twin_checkpoint, compute_reversal_metrics and
+        # extract_recovered_params all read `sd["E_exc"]` / `sd["E_inh"]` and neither
+        # knows nor should know how the numbers were produced. `state_dict` below
+        # refreshes them so a checkpoint is never stale.
+        self.physiological = self.student_reversal_mode == "physiological"
+        self.exc_lo = float(k["student_E_exc_excursions_lo"])
+        self.exc_hi = float(k["student_E_exc_excursions_hi"])
+        self.inh_lo = float(k["student_E_inh_excursions_lo"])
+        self.inh_hi = float(k["student_E_inh_excursions_hi"])
+        if self.physiological:
+            if self.exc_hi < self.exc_lo or self.inh_hi < self.inh_lo:
+                raise ValueError(
+                    "student_E_*_excursions_hi must be >= its _lo; got exc "
+                    f"[{self.exc_lo}, {self.exc_hi}] inh [{self.inh_lo}, {self.inh_hi}]")
+            self.register_buffer("E_exc", torch.ones(n_rev_exc, device=device))
+            self.register_buffer("E_inh", -torch.ones(n_rev, device=device))
+            # requires_grad False when the band has zero width: a reversal biology pins
+            # exactly, like the cation one at 0 mV, carries no free parameter at all
+            # rather than a parameter the sigmoid then ignores.
+            self.raw_E_exc = nn.Parameter(torch.zeros(n_rev_exc, device=device),
+                                          requires_grad=self.exc_hi > self.exc_lo)
+            self.raw_E_inh = nn.Parameter(torch.zeros(n_rev, device=device),
+                                          requires_grad=self.inh_hi > self.inh_lo)
+            # The anchor: rest per row, and the one excursion width both rows are
+            # measured in. Buffers so `-o test` restores them without the setter.
+            self.register_buffer("_rest_exc", torch.zeros(n_rev_exc, device=device))
+            self.register_buffer("_rest_inh", torch.zeros(n_rev, device=device))
+            self.register_buffer("_excursion", torch.ones(1, device=device))
+        else:
+            self.E_exc = nn.Parameter(torch.ones(n_rev_exc, device=device), requires_grad=_free)
+            self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
         self.register_buffer("_range_set_b", torch.zeros(1, dtype=torch.bool, device=device))
         self._range_set = False
         self.W.requires_grad_(bool(k["student_learn_edges"]))
@@ -527,6 +570,85 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         if self.student_reversal_dim == "per_type":
             return self.type_index[ids]
         return ids
+
+    @staticmethod
+    def _in_band(raw, lo, hi):
+        """Squash a free variable into [lo, hi] excursions. Constant when lo == hi.
+
+        A sigmoid rather than a clamp because the bound then holds at every gradient
+        step by algebra instead of by projection, and because a clamped parameter
+        sitting on its boundary receives zero gradient and never leaves it.
+        """
+        if hi <= lo:
+            return torch.full_like(raw, lo)
+        return lo + (hi - lo) * torch.sigmoid(raw)
+
+    def _materialise_reversals(self):
+        """(E_exc, E_inh) at their own row counts, DIFFERENTIABLE, in voltage units.
+
+        Under 'margin' and 'learned' the parameters already are the reversals. Under
+        'physiological' they are excursions from rest:
+
+            E(r) = V_rest(r) + (lo + (hi - lo) * sigmoid(raw_r)) * excursion
+
+        with `excursion` the teacher's voltage width at student_span_mode's
+        granularity and `V_rest(r)` the teacher's resting potential reduced onto that
+        row. Both come from set_physiological_anchor; see the config block for why
+        multiples of the excursion are the only scale-free way to state a reversal on
+        a model whose voltage carries no physical unit.
+        """
+        if not self.physiological:
+            return self.E_exc, self.E_inh
+        return (self._rest_exc + self._in_band(self.raw_E_exc, self.exc_lo, self.exc_hi)
+                * self._excursion,
+                self._rest_inh + self._in_band(self.raw_E_inh, self.inh_lo, self.inh_hi)
+                * self._excursion)
+
+    def set_physiological_anchor(self, v_rest, excursion):
+        """Pin what 'rest' and 'one excursion' mean (student_reversal_mode physiological).
+
+        v_rest: (N,) the TEACHER's resting potential per neuron, reduced here onto each
+            row by mean, so a per-type chloride reversal is anchored on the mean rest of
+            that cell type and a global cation reversal on the network's mean rest.
+        excursion: scalar, the teacher's voltage width -- the central-99% width under
+            student_span_mode p99, the raw range under 'extremes'. ONE number for both
+            rows, because it is the network's operating scale and not a property of any
+            cell: a near-silent cell type must not get a degenerate unit, which is
+            exactly how the per-type margin rig drove Tm30's driving force to 0.006.
+        """
+        dev = self.E_exc.device
+        vr = torch.as_tensor(v_rest, dtype=torch.float32, device=dev).reshape(-1)
+        with torch.no_grad():
+            self._excursion.fill_(max(float(excursion), 1e-3))
+            for buf, idx_fn in ((self._rest_exc, self._rev_index_exc),
+                                (self._rest_inh, self._rev_index_inh)):
+                if vr.numel() != self.n_neurons:
+                    buf.fill_(float(vr.mean()))
+                    continue
+                idx = idx_fn(torch.arange(self.n_neurons, device=dev))
+                n = buf.numel()
+                sums = torch.zeros(n, device=dev).index_add_(0, idx, vr)
+                cnts = torch.zeros(n, device=dev).index_add_(0, idx, torch.ones_like(vr))
+                buf.copy_(sums / cnts.clamp_min(1))
+            exc, inh = self._materialise_reversals()
+            self.E_exc.copy_(exc); self.E_inh.copy_(inh)
+        self._range_set_b.fill_(True); self._range_set = True
+
+    def state_dict(self, *args, **kwargs):
+        """Refresh the E_exc/E_inh buffers before every save.
+
+        Under 'physiological' they are derived from raw_E_* and only recomputed inside
+        forward, so a checkpoint written between steps would otherwise carry whatever
+        the last materialisation left. Every downstream reader --
+        from_twin_checkpoint, compute_reversal_metrics, extract_recovered_params --
+        goes through the state dict, so refreshing here covers all of them at once
+        rather than asking each save site to remember.
+        """
+        if getattr(self, "physiological", False):
+            with torch.no_grad():
+                exc, inh = self._materialise_reversals()
+                self.E_exc.copy_(exc); self.E_inh.copy_(inh)
+        return super().state_dict(*args, **kwargs)
 
     def _rev_index_inh(self, neuron_ids):
         """Row of E_inh. Always at student_reversal_dim's granularity -- the chloride
@@ -633,22 +755,40 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             return sums / cnts.clamp_min(1)
 
         vbar_pn = vbar[dst[:n] % self.n_neurons]
-        rows_exc = _vbar_rows(self._rev_index_exc, self.E_exc.numel())
-        rows_inh = _vbar_rows(self._rev_index_inh, self.E_inh.numel())
+        E_exc_row, E_inh_row = self._materialise_reversals()
+        rows_exc = _vbar_rows(self._rev_index_exc, E_exc_row.numel())
+        rows_inh = _vbar_rows(self._rev_index_inh, E_inh_row.numel())
         vbar_e = torch.where(self.edge_is_inh[:n],
                              vbar_pn if rows_inh is None else rows_inh[r_inh],
                              vbar_pn if rows_exc is None else rows_exc[r_exc])
-        E = torch.where(self.edge_is_inh[:n], self.E_inh[r_inh], self.E_exc[r_exc])
+        E = torch.where(self.edge_is_inh[:n], E_inh_row[r_inh], E_exc_row[r_exc])
         alpha = (w[:n] / (E - vbar_e))
         neg = int((alpha < 0).sum())
-        if neg:
+        if neg and not self.physiological:
             raise RuntimeError(
                 f"student_init teacher_closed_form: {neg} of {n} edges gave a NEGATIVE "
                 "conductance, which means E - Vbar does not carry the connectome sign "
                 "on them -- the reversals are not bracketing the teacher's range. "
                 "Check student_reversal_mode and the deltas.")
+        if neg:
+            # A NEGATIVE alpha IS EXPECTED HERE, AND IT IS THE MODEL MISMATCH ITSELF,
+            # not a misconfiguration. A physiological chloride reversal sits INSIDE the
+            # operating range, so a cell whose mean voltage is below its own E_Cl is
+            # DEPOLARISED at rest by its chloride synapses -- real depolarising GABA.
+            # The current-based teacher recorded those same synapses as inhibitory, and
+            # no non-negative conductance can reproduce an inhibitory current through a
+            # positive driving force. So the twin cannot match the teacher at rest on
+            # these edges; it can only match it away from rest, and the derivative loss
+            # is what has to settle that. Initialising on |alpha| matches the MAGNITUDE
+            # of the teacher's current and lets the sign be whatever biology says.
+            frac = 100.0 * neg / max(n, 1)
+            print(f"\033[93mstudent_init teacher_closed_form: {neg} of {n} edges "
+                  f"({frac:.2f}%) have (E - Vbar) against the connectome sign -- "
+                  f"initialising on |alpha|. Expected under student_reversal_mode "
+                  f"'physiological': these are the synapses whose reversal lies on the "
+                  f"far side of the postsynaptic cell's mean voltage.\033[0m")
         with torch.no_grad():
-            self.W[:n, 0] = alpha.clamp_min(0.0).sqrt()
+            self.W[:n, 0] = alpha.abs().sqrt()
 
     def set_neuron_types(self, type_list):
         """(N,) cell-type id per neuron, for student_neuron_params: per_type."""
@@ -703,8 +843,9 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         no change on the extraction side -- provided the expansion happens here.
         """
         ids = torch.arange(self.n_neurons, device=self.E_exc.device)
-        return (self.E_exc[self._rev_index_exc(ids)].detach(),
-                self.E_inh[self._rev_index_inh(ids)].detach())
+        E_exc, E_inh = self._materialise_reversals()
+        return (E_exc[self._rev_index_exc(ids)].detach(),
+                E_inh[self._rev_index_inh(ids)].detach())
 
     def get_learned_reversal_per_edge(self, edge_index=None):
         """(n_edges,) the reversal E_ij each edge drives toward, learned side.
@@ -756,9 +897,10 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             n_edges_batch, device=self.device) % (self.n_edges + self.n_extra_null_edges)
 
         g = self.W[edge_W_idx] ** 2                          # (E,1) conductance >= 0
+        E_exc, E_inh = self._materialise_reversals()
         E = torch.where(self.edge_is_inh[edge_W_idx],
-                        self.E_inh[self._rev_index_inh(dst)],
-                        self.E_exc[self._rev_index_exc(dst)]).unsqueeze(-1)
+                        E_inh[self._rev_index_inh(dst)],
+                        E_exc[self._rev_index_exc(dst)]).unsqueeze(-1)
         edge_msg = g * self._activation(v[src]) * (E - v[dst])
 
         msg = torch.zeros(v.shape[0], 1, device=self.device, dtype=v.dtype)

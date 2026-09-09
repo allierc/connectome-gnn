@@ -2953,7 +2953,22 @@ def data_generate_voltage(
                 f"worst margin {_worst:+.4f} "
                 f"(v {_bracket['v_min']:+.3f}..{_bracket['v_max']:+.3f} vs "
                 f"[{_bracket['E_inh']:+.3f}, {_bracket['E_exc']:+.3f}])")
-        if _tot:
+        _strict = bool(getattr(sim, "conductance_bracket_strict", True))
+        if _tot and not _strict:
+            # A CROSSING IS EXPECTED, NOT A FAILURE, once the reversals are
+            # physiological. A real chloride equilibrium potential sits INSIDE the
+            # operating range -- inhibition is hyperpolarising above it and
+            # depolarising-but-shunting below it -- so a twin built with a
+            # physiological E_Cl crosses by construction and a dataset that never
+            # crossed would be the suspicious one. Recorded as a diagnostic, with the
+            # dataset still validated.
+            logger.warning(_msg + "  [conductance_bracket_strict False: recorded, "
+                                  "not fatal]")
+            with open(graphs_data_path(config.dataset, "BRACKET_CROSSINGS.txt"), "w") as _bf:
+                _bf.write(_msg + "\n")
+                for _k, _v in _bracket.items():
+                    _bf.write(f"{_k}: {_v}\n")
+        elif _tot:
             logger.error(_msg)
             # The zarr writers have already flushed by this point, so x_list_*
             # and y_list_* ARE on disk. What is withheld is generation_log.txt

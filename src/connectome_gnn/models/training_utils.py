@@ -1725,10 +1725,18 @@ def init_training_model(
     # flyvis_conductance_known_ode needs three things the config cannot carry: the per-edge
     # polarity, the cell-type map, and (when frozen) the teacher's own neuron
     # constants. All three are GT STRUCTURE rather than fitted quantities -- only the
-    # SIGN of ode_params.W is read, never its magnitude. Dale's law does NOT hold in
-    # this connectome (4,573 of 13,279 presynaptic neurons have mixed-sign outgoing
-    # edges), so the polarity has to be per EDGE; a per-neuron or per-type reduction
-    # would silently pick one sign for a third of them.
+    # SIGN of ode_params.W is read, never its magnitude.
+    #
+    # PER EDGE, BECAUSE THE POLARITY BELONGS TO THE EDGE TYPE. The transmitter belongs
+    # to the sender but the receptor belongs to the receiver, so the sign is a property
+    # of the (presynaptic type -> postsynaptic type) pair -- which is exactly how flyvis
+    # itself stores it (SynapseSign, groupby [source_type, target_type],
+    # requires_grad False). Measured on the flyvis_noise_free teacher: all 604 edge-type
+    # groups have a constant sign, 0 mixed. Reduce to the presynaptic NEURON instead and
+    # 434 of 13,279 look mixed; to the presynaptic TYPE and 2 of 65 do -- Am and R8,
+    # which are excitatory onto some targets and inhibitory onto others (Am->L1 positive,
+    # Am->L2 negative; R8->Mi1 positive, R8->L1 negative). Per-edge is the granularity
+    # that is exact under every one of those readings, which is why it is used.
     if hasattr(model, "set_presynaptic_sign"):
         op = getattr(data, "ode_params", None)
         _get = (lambda k: op.get(k)) if isinstance(op, dict) else (lambda k: getattr(op, k, None))
@@ -1782,14 +1790,14 @@ def init_training_model(
                 _nf = min(4000, v.shape[0])
                 _idx = torch.linspace(0, v.shape[0] - 1, _nf, device=v.device).long()
                 _sub = v[_idx].float()
-                # Keyed on student_reversal_dim, i.e. on the INHIBITORY row, which is
-                # the one the ion rig leaves at a real granularity. Under the ion rig
-                # (dim per_type, exc collapsed to one row) this takes the per-neuron
-                # branch, and the excitatory row then reduces those per-neuron
-                # quantiles by min/max -- the "widest neuron's tail" statistic the
-                # comment above warns is larger. It only bites when a percentile span
-                # is crossed with the ion rig; both ion specs run at 'extremes'.
-                if model.student_reversal_dim == "global":
+                # POOLED whenever one number is wanted -- for 'global' because there is
+                # one reversal pair, and for 'physiological' ALWAYS, because the
+                # excursion there is the network's operating scale and not a property
+                # of any cell. Taking per-neuron quantiles and then the widest across
+                # neurons is a different and much larger statistic, and reducing them
+                # per cell type is what drove Tm30's driving force to 0.006 under the
+                # margin rig: a near-silent type must not get a degenerate unit.
+                if model.student_reversal_dim == "global" or model.physiological:
                     # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
                     # per-neuron quantiles and then the widest across neurons is a
                     # different and much larger statistic (span 9.2 against 3.9 here),
@@ -1808,7 +1816,34 @@ def init_training_model(
                         _lo[_c0:_c0 + _chunk] = torch.quantile(_c, _q, dim=0)
                         _hi[_c0:_c0 + _chunk] = torch.quantile(_c, 1.0 - _q, dim=0)
                 del _sub
-            model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
+            if model.physiological:
+                # ANCHORED ON REST, NOT ON THE EXTREMES. 'margin' asks where the
+                # teacher's voltages stop, so it needs v_min/v_max; 'physiological'
+                # asks where an ion's equilibrium potential sits relative to the cell's
+                # resting potential, so it needs V_rest and one excursion width. The
+                # excursion is (hi - lo) pooled over the whole network at
+                # student_span_mode's percentile -- 4.876 at p99 on this teacher,
+                # against 14.2 for the raw extremes, a 2.9x difference that lands E_exc
+                # at 15.1 rather than 44.
+                _vr = _get("V_i_rest")
+                if _vr is None:
+                    raise RuntimeError(
+                        "student_reversal_mode 'physiological' needs the teacher's "
+                        "V_i_rest to anchor the reversals; this dataset carries none")
+                if _lo is None:
+                    _exc = float(_vmax.max() - _vmin.min())
+                else:
+                    _exc = float(_hi.max() - _lo.min())
+                model.set_physiological_anchor(_vr, _exc)
+                _ex, _ih = model.get_learned_reversals()
+                print(f"\033[96mphysiological reversals: excursion {_exc:.3f} "
+                      f"({model.student_span_mode})  |  E_exc "
+                      f"[{model.exc_lo}, {model.exc_hi}] excursions of rest -> "
+                      f"{float(_ex.min()):.3f}..{float(_ex.max()):.3f}  |  E_inh "
+                      f"[{model.inh_lo}, {model.inh_hi}] -> "
+                      f"{float(_ih.min()):.3f}..{float(_ih.max()):.3f}\033[0m")
+            else:
+                model.set_teacher_voltage_range(_vmin, _vmax, v_lo=_lo, v_hi=_hi)
         if model.student_init == "teacher_closed_form":
             # Vbar per CELL TYPE, not per neuron: the expansion in the methods is
             # about the type's mean postsynaptic voltage, and the teacher's own

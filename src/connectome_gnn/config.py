@@ -402,6 +402,21 @@ class SimulationConfig(BaseModel):
     # parameters generate the data. Required when ground_truth_model is
     # 'conductance'; ignored otherwise.
     conductance_checkpoint: str = ""
+    # WHETHER A DRIVING FORCE THAT CHANGES SIGN MID-RUN ABORTS GENERATION.
+    #
+    # True is right for a twin whose reversals were BRACKETED outside the teacher's
+    # voltage range (student_reversal_mode 'margin'): there a crossing means the
+    # bracket failed, the generated voltages went somewhere the fitted E did not
+    # anticipate, and below E_inh it is self-amplifying -- the inhibitory driving
+    # force turns positive, so inhibitory synapses start exciting.
+    #
+    # False is right for a twin with PHYSIOLOGICAL reversals, where a crossing is the
+    # intended behaviour rather than a failure. A real chloride equilibrium potential
+    # sits inside the operating range, so inhibition is hyperpolarising above it and
+    # depolarising-but-shunting below it, and the cell crosses it routinely. The
+    # crossings are then written to BRACKET_CROSSINGS.txt as a diagnostic and the
+    # dataset validates normally.
+    conductance_bracket_strict: bool = True
 
     # Connconstr model parameters (Beiran & Litwin-Kumar 2023, Fig 5)
     connconstr_datapath: str = ""      # path to external data files (hemibrain CSVs, goldman_data/, etc.)
@@ -1451,7 +1466,14 @@ class TrainingConfig(BaseModel):
     # teacher. Small delta is strongly conductance-like; large delta degenerates to
     # the teacher, continuously. The asymmetric default mirrors the inhibitory
     # driving force being roughly half the excitatory one in real neurons.
-    student_reversal_mode: Literal["learned", "margin"] = "margin"
+    #   'physiological'  E is LEARNED, inside the range biology allows it to occupy.
+    #              Neither pinned like 'margin' nor unconstrained like 'learned'.
+    #              See the block above student_E_exc_excursions_lo for the whole
+    #              argument; the short form is that a chloride reversal genuinely
+    #              sits INSIDE the operating range, so no bracket can be imposed
+    #              without leaving biology, and the constraint that replaces it is
+    #              the physiological range of the ion's equilibrium potential.
+    student_reversal_mode: Literal["learned", "margin", "physiological"] = "margin"
     # GRANULARITY of E. The driving force is (E - V_i), so E belongs to the
     # POSTSYNAPTIC cell -- these are per postsynaptic neuron/type, not per edge.
     #   'global'      two scalars, E_exc and E_inh.
@@ -1482,11 +1504,100 @@ class TrainingConfig(BaseModel):
     # chloride reversals + 1 cation) rather than 130, and spends them where the
     # variation is.
     #
-    # It also decides the RANK of E over (i, j) pairs. With both rows global, E_ij is
-    # one outer product -- a constant per polarity, no i-dependence at all, rank 1.
-    # Freeing the chloride row makes it two, E_ij = E_cat * 1_exc(j) + E_cl(i) *
-    # 1_inh(j), which is the rank-2 factorisation the biology describes.
+    # It also decides whether E_ij depends on the receiving cell AT ALL. With both
+    # rows global there are exactly two numbers in the whole network, E_cat and E_cl,
+    # and every edge takes one of them according to its polarity -- so E_ij is a
+    # function of the SENDER's edge type only, and the receiving cell never enters.
+    # Freeing the chloride row per cell type makes E_ij genuinely a function of BOTH
+    # endpoints: the edge type chooses which ion, and the postsynaptic cell type
+    # supplies that ion's value, E_cl(type of i). An excitatory edge onto L2 and one
+    # onto Mi1 still share E_cat, but an inhibitory edge onto L2 and one onto Mi1 no
+    # longer share anything.
     student_reversal_exc_global: bool = False
+
+    # ---- RIG 2: WHERE A REVERSAL POTENTIAL IS PHYSICALLY ALLOWED TO LAND -------
+    #
+    # MESSAGE AND DRIVING FORCE. msg_ij = W_ij * (E_ij - V_i) * relu(V_j), with i the
+    # POSTsynaptic cell and j the PREsynaptic one. E_ij is the reversal potential;
+    # (E_ij - V_i) is the driving force -- two different things. The postsynaptic
+    # channel opening is set entirely by the presynaptic side, g_ij = W_ij relu(V_j),
+    # a conductance; the driving force then multiplies it, I = g (E - V_i), so a
+    # larger driving force gives more current AT THE SAME OPENING. Transmitter opens
+    # the channel; the electrochemical gradient decides how much current flows and in
+    # which direction. Since W >= 0 and relu(V_j) >= 0, the SIGN of the message is
+    # carried entirely by (E_ij - V_i), for excitatory and inhibitory synapses alike.
+    #
+    # WHICH CHANNEL OPENS IS A PROPERTY OF THE EDGE TYPE. The transmitter belongs to
+    # the sender but the receptor belongs to the receiver, so the polarity belongs to
+    # the (presynaptic type -> postsynaptic type) pair. This is not Dale's law
+    # failing; it is Dale's law asked at the wrong granularity. flyvis stores it
+    # exactly this way -- SynapseSign, groupby [source_type, target_type],
+    # requires_grad False -- and on the flyvis_noise_free teacher all 604 edge-type
+    # groups have a constant sign, 0 mixed. Grouped by presynaptic NEURON instead,
+    # 434 of 13,279 look mixed; by presynaptic TYPE, 2 of 65 do -- Am and R8, which
+    # are excitatory onto some targets and inhibitory onto others (Am->L1 positive,
+    # Am->L2 negative; R8->Mi1 positive, R8->L1 negative).
+    #
+    # EXCITATION. Acetylcholine opens a nicotinic cation channel permeable to sodium
+    # and potassium together, reversal near 0 mV, well above a resting potential of
+    # -60 to -70 mV. The excitatory driving force is LARGE: about 50 mV against a
+    # graded excursion of about 20 mV, i.e. 2.5 excursions. So E_exc belongs well
+    # ABOVE V_max, not near it -- near V_max would give a vanishing excitatory driving
+    # force, the opposite of a real neuron. One value for the whole network, since the
+    # sodium and potassium gradients that set it are near-uniform across cells.
+    #
+    # INHIBITION. Three transmitters, all opening CHLORIDE channels: GABA on Rdl,
+    # glutamate on GluCl, histamine on Ort (the photoreceptor transmitter, which is
+    # why R8 is inhibitory onto L1 and L3). Three transmitters but only TWO ION
+    # SPECIES, cation and chloride, so the whole of E_ij is two numbers per
+    # postsynaptic cell and the edge type says which of the two applies.
+    #
+    # E_Cl IS POSTSYNAPTIC-CELL-TYPE DEPENDENT: 65 values, one per postsynaptic type,
+    # because it is that cell's own internal chloride concentration, set by its
+    # KCC2/NKCC1 transporter balance. The edge type selects only WHICH ION, so every
+    # chloride synapse landing on L2 sees the same E_Cl(L2) whether it came from Am or
+    # from R8 -- 65 values, not 65^2, and not one per edge. Physiologically E_Cl runs
+    # about -90 to -50 mV against a rest of -60, so it lies ABOVE OR BELOW rest:
+    # inhibition is hyperpolarising when E_Cl < V_i and depolarising-but-shunting when
+    # E_Cl > V_i, and it reverses sign whenever the cell crosses it. That is ordinary
+    # inhibition, not a pathology -- which is why E_Cl cannot be bracketed outside the
+    # operating range without leaving biology, and why 'margin' is the wrong mode for
+    # it however the margin is tuned.
+    #
+    # THE DOMAIN. flyvis carries no voltage scale: there is no `mV` anywhere in the
+    # package, the state variable is called `activity`, and the resting potential
+    # (`bias`) is initialised Normal(0.5, 0.05) -- 0.5 of nothing. The scale is not
+    # merely unmeasured but UNIDENTIFIABLE, since dv/dt = (-v + bias + sum w relu(v)
+    # + x)/tau is invariant under v -> lambda v, bias -> lambda bias, x -> lambda x
+    # for any lambda > 0. Reversals must therefore be stated as MULTIPLES OF THE
+    # NETWORK'S OWN VOLTAGE EXCURSION, RELATIVE TO THE RESTING POTENTIAL, which is
+    # what the four knobs below are in. Measured on the flyvis_noise_free teacher over
+    # 41.2M (neuron, frame) samples: mean 0.416, std 0.700, central-90% width 2.262,
+    # central-99% width 4.876, extremes [-5.878, 8.340]; V_rest takes 65 distinct
+    # values in 0.007..0.796, mean 0.511. Taking the central-99% width to be the ~20 mV
+    # graded excursion of a medulla neuron gives ~4.1 mV per model unit, and hence
+    # E_exc = +2.5 excursions above rest = +15.1 model units, roughly 1.8x V_max, so
+    # bracketed BY BIOLOGY without any constraint being imposed; and E_Cl in [-1.5,
+    # +0.5] excursions of rest = [-6.81, +2.95] model units, with the typical -70 mV
+    # value landing at -1.93, inside even the central-99% band -- right in the middle
+    # of where the neurons live. For comparison the margin rig sits at E_exc 24.775
+    # and E_inh -14.472, i.e. 4.9 and -2.9 excursions: excitation nearly twice as far
+    # out as biology, inhibition placed where a real chloride reversal never is.
+    #
+    # HOW THE FOUR KNOBS ARE READ. Each row is confined to [lo, hi] EXCURSIONS FROM
+    # REST and learned inside it,
+    #     E(r) = V_rest(r) + (lo + (hi - lo) * sigmoid(raw_r)) * excursion
+    # so the bound holds at every gradient step rather than being hoped for. The
+    # excursion is the teacher's voltage width at the granularity student_span_mode
+    # asks for -- use p99 to match the 4.876 above; 'extremes' inflates it 2.9x.
+    # lo == hi FIXES that row (no parameter, no gradient), which is how a quantity
+    # biology pins exactly, like the cation reversal, is expressed without a mode flag.
+    # Defaults are the physiological values derived above.
+    student_E_exc_excursions_lo: float = 2.5
+    student_E_exc_excursions_hi: float = 2.5
+    student_E_inh_excursions_lo: float = -1.5
+    student_E_inh_excursions_hi: float = 0.5
+
     # WHAT delta IS MEASURED IN. The reversals bracket from the teacher's min/max in
     # every case -- that is what guarantees the sign and the convex-hull bound -- but
     # delta needs a UNIT, and PR #46 uses (v_max - v_min), the raw extremes.
