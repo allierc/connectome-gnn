@@ -50,16 +50,9 @@ class GNNDataset(Dataset):
         self._min_k = self.time_window
         self._max_k = self.n_frames - 4 - self.time_step
 
-        # Epoch-dependent state
-        self.loss_noise_level = 0.0
-
     def __len__(self):
         """Number of valid frame indices."""
         return max(self._max_k - self._min_k, 0)
-
-    def set_epoch(self, epoch):
-        """Update epoch-dependent state (noise decay)."""
-        self.loss_noise_level = self.config.training.loss_noise_level * (0.95 ** epoch)
 
     def get_frame(self, k):
         """Extract a single training sample at frame index k.
@@ -90,10 +83,6 @@ class GNNDataset(Dataset):
             y = self.x_ts.stimulus[k, :self.n_input_neurons].unsqueeze(-1)
         else:
             y = torch.tensor(self.y_ts[k], device=x.device)
-
-        # Optional noise injection
-        if self.loss_noise_level > 0:
-            y = y + torch.randn_like(y) * self.loss_noise_level
 
         return x, y, k
 
