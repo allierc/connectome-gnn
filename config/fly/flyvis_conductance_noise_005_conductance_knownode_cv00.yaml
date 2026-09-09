@@ -72,6 +72,7 @@ training:
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
+  w_init_scale: 88
   use_gt_edges: true
   seed: 1042
   n_epochs: 10
@@ -82,7 +83,7 @@ claude:
   n_parallel: 8
   n_iter_block: 16
   n_epochs: 3
-  data_augmentation_loop: 100
+  data_augmentation_loop: 218
   node_name: l4
   generate_data: false
   training_time_target_min: 150
