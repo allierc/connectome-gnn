@@ -72,6 +72,7 @@ training:
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
+  w_init_scale: 88
   use_gt_edges: true
   seed: 1041
   deterministic: false
