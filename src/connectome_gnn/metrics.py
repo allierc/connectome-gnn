@@ -1612,6 +1612,13 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
             tau_r2_clean   : R² over inliers (|learned-gt| <= TAU_OUTLIER_THRESH)
             n_out_tau      : number of tau outliers
             n_total_tau    : total neurons evaluated for tau
+
+    THE FAMILY FORK IS GONE. This used to branch on hasattr(model,
+    "get_learned_tau") and had a sister, compute_dynamics_r2_linear, that differed
+    ONLY in that branch before computing an identical R2. Both now delegate:
+    extract_recovered_params decides how to obtain tau and V_rest, and
+    recovery_param_metrics scores them. The dict shape is unchanged, so callers
+    (graph_trainer, plot_dynamics_recovery) are untouched.
     """
     from connectome_gnn.generators.ode_params import load_ode_params_for_run
     try:
@@ -1619,49 +1626,32 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     except (FileNotFoundError, TypeError):
         return dict(_DYNAMICS_R2_EMPTY)
 
-    mu, sigma = compute_activity_stats(x_ts, device)
+    rec = extract_recovered_params(model, ode_params, config, edges=None, x_ts=x_ts,
+                                   device=device, n_neurons=n_neurons,
+                                   need=("tau", "V_rest"))
+    return _dynamics_dict_from(rec, config)
 
-    # KNOWN-ODE MODELS PARAMETERISE tau AND V_rest DIRECTLY, so there is nothing to
-    # extract: get_learned_tau()/get_learned_vrest() ARE the answer, where
-    # extract_f_theta_slopes recovers them from an MLP's local slope and offset and
-    # needs a model.f_theta that these classes do not have. Reading the parameters is
-    # also exact rather than a linearisation.
-    _direct = hasattr(model, "get_learned_tau") and hasattr(model, "get_learned_vrest")
-    if _direct:
-        slopes = offsets = None
-    else:
-        slopes, offsets = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
 
+def _dynamics_dict_from(rec, config):
+    """Render a RecoveredParams into the legacy dynamics dict.
+
+    Kept as a shim so the extraction refactor does not have to move the trainer's
+    metrics.log column layout at the same time -- plot.py reads that file by
+    POSITIONAL index, so a shape change there breaks every reader after it.
+    """
     out = dict(_DYNAMICS_R2_EMPTY)
-
-    if ode_params.has_tau():
-        gt_tau = ode_params.gt_tau(n_neurons)
-        if gt_tau is not None:
-            # .cpu(): derive_tau returns something recovery_param_metrics can call
-            # .numpy() on; the model's own parameter is still on the GPU.
-            learned_tau = (model.get_learned_tau().detach().cpu() if _direct
-                           else ode_params.derive_tau(slopes, n_neurons))
-            tm = recovery_param_metrics(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
-            out['tau_r2']        = tm['r2']
-            out['tau_r2_clean']  = tm['r2_clean']
-            out['n_out_tau']     = tm['n_outliers']
-            out['n_total_tau']   = tm['n_total']
-            out['tau_true']      = to_numpy(gt_tau).ravel()
-            out['tau_learned']   = to_numpy(learned_tau).ravel()
-
-    if ode_params.has_vrest():
-        gt_vrest = ode_params.gt_vrest(n_neurons)
-        if gt_vrest is not None:
-            learned_vrest = (model.get_learned_vrest().detach().cpu() if _direct
-                             else ode_params.derive_vrest(slopes, offsets, n_neurons))
-            vm = recovery_param_metrics(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
-            out['vrest_r2']        = vm['r2']
-            out['vrest_r2_clean']  = vm['r2_clean']
-            out['n_out_vrest']     = vm['n_outliers']
-            out['n_total_vrest']   = vm['n_total']
-            out['vrest_true']      = to_numpy(gt_vrest).ravel()
-            out['vrest_learned']   = to_numpy(learned_vrest).ravel()
-
+    for quantity, prefix in (("tau", "tau"), ("V_rest", "vrest")):
+        pair = rec.get(quantity)
+        if pair is None:
+            continue
+        gt, learned = pair
+        m = recovery_param_metrics(gt, learned, _thresh_for(quantity, config))
+        out[f'{prefix}_r2'] = m['r2']
+        out[f'{prefix}_r2_clean'] = m['r2_clean']
+        out[f'n_out_{prefix}'] = m['n_outliers']
+        out[f'n_total_{prefix}'] = m['n_total']
+        out[f'{prefix}_true'] = gt
+        out[f'{prefix}_learned'] = learned
     return out
 
 
@@ -1674,50 +1664,32 @@ def compute_dynamics_r2_linear(model, config, device, n_neurons):
     Returns:
         (dynamics_dict, conn_r2): the same dict layout as compute_dynamics_r2
         plus a separate conn_r2 float.
-    """
-    import torch.nn.functional as F
 
+    NOW A THIN WRAPPER over the same extractor compute_dynamics_r2 uses. It used
+    to reach into model.V_rest and F.softplus(model.raw_tau) directly rather than
+    calling the accessors the class exposes, and -- the reason plot.py grew its own
+    copy of that reach-in -- it returned the R2s WITHOUT the arrays, so a caller
+    that wanted the tau panel had no choice but to re-derive them. The arrays come
+    back now, which is what lets the panels stop computing anything.
+    """
     from connectome_gnn.generators.ode_params import load_ode_params_for_run
     ode_params = load_ode_params_for_run(config, device=device)
-    gt_weights = to_numpy(ode_params.W)
-    learned_W = to_numpy(get_model_W(model).squeeze())
 
-    out = dict(_DYNAMICS_R2_EMPTY)
+    rec = extract_recovered_params(model, ode_params, config, edges=None,
+                                   device=device, n_neurons=n_neurons,
+                                   need=("W", "tau", "V_rest"))
+    out = _dynamics_dict_from(rec, config)
+
     conn_r2 = 0.0
-
-    # tau and V_rest only exist for FlyVis models
-    if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
-        try:
-            learned_vrest = to_numpy(model.V_rest[:n_neurons].detach())
-            gt_vrest = to_numpy(ode_params.V_i_rest[:n_neurons])
-            vm = recovery_param_metrics(gt_vrest, learned_vrest, VREST_OUTLIER_THRESH)
-            out['vrest_r2']        = vm['r2']
-            out['vrest_r2_clean']  = vm['r2_clean']
-            out['n_out_vrest']     = vm['n_outliers']
-            out['n_total_vrest']   = vm['n_total']
-        except Exception:
-            pass
-    if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
-        try:
-            learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-            gt_tau = to_numpy(ode_params.tau_i[:n_neurons])
-            tm = recovery_param_metrics(gt_tau, learned_tau, TAU_OUTLIER_THRESH)
-            out['tau_r2']        = tm['r2']
-            out['tau_r2_clean']  = tm['r2_clean']
-            out['n_out_tau']     = tm['n_outliers']
-            out['n_total_tau']   = tm['n_total']
-        except Exception:
-            pass
-    try:
-        # Filtered (matches plot_training_linear's scatter annotation, and
-        # the GNN training-time connectivity_r2 convention). Previously this
-        # was the full-sample R² of the raw weights, which silently disagreed
-        # with what the accompanying plot showed.
-        _cm = recovery_param_metrics(gt_weights, learned_W, W_OUTLIER_THRESH)
+    w_pair = rec.get("W")
+    if w_pair is not None:
+        # Outlier-filtered, matching plot_training_linear's scatter annotation and
+        # the GNN training-time convention. Before the filter was added this was
+        # the full-sample R2 of the raw weights, which silently disagreed with the
+        # plot printed beside it.
+        _cm = recovery_param_metrics(w_pair[0], w_pair[1], _thresh_for("W", config))
         conn_r2 = _cm['r2_clean']
         out['n_out_conn'], out['n_total_conn'] = _cm['n_outliers'], _cm['n_total']
-    except Exception:
-        pass
 
     return out, conn_r2
 
@@ -2642,7 +2614,10 @@ def _extract_direct(rec, model, ode_params, edges, n_neurons):
             rec.pairs[name] = _pair(gt, learned[:n_neurons])
             rec.estimator[name] = "direct"
 
-    if hasattr(core, "get_learned_reversal_per_edge") and _is_conductance_data(ode_params):
+    # edges is required here and only here: the per-edge reversal is assembled
+    # from the per-neuron E_exc/E_inh through the edge index.
+    if (edges is not None and _is_conductance_data(ode_params)
+            and hasattr(core, "get_learned_reversal_per_edge")):
         rec.pairs["E_ij"] = _pair(ode_params.reversal_per_edge(),
                                   core.get_learned_reversal_per_edge(edges))
         rec.estimator["E_ij"] = "direct"
@@ -2681,7 +2656,13 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
             # n x n matrix and not a per-edge vector like every other estimator.
             rec.estimator["W"] = estimator
     except Exception as exc:
+        # Caught rather than raised because this runs inside the training loop and
+        # a failed diagnostic must not kill a run -- but NOT silently: an aborted
+        # extraction drops every quantity at once, which reads downstream as "this
+        # model has no tau" rather than "the extractor broke".
         rec.diagnostics["extraction_error"] = f"{type(exc).__name__}: {exc}"
+        print(f"\033[91mextract_recovered_params({estimator}) failed: "
+              f"{type(exc).__name__}: {exc}\033[0m")
 
     if "msg_i" in need and _is_conductance_data(ode_params) and x_ts is not None:
         try:
@@ -2768,12 +2749,16 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
     core = getattr(model, "_orig_mod", model)
     gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
 
-    gt_W = getattr(ode_params, "W", None)
-    if gt_W is not None:
+    # Only when W is actually wanted: effective_true_weights needs the edge index,
+    # and a caller asking for tau alone (the trainer's per-checkpoint dynamics
+    # pass) legitimately has none to give.
+    want_W = "W" in need and edges is not None
+    gt_W = None
+    if want_W and getattr(ode_params, "W", None) is not None:
         gt_W = np.asarray(ode_params.effective_true_weights(
-            to_numpy(gt_W), to_numpy(edges), n_neurons))
+            to_numpy(ode_params.W), to_numpy(edges), n_neurons))
 
-    if "W" in need and estimator == "edge_line_fit":
+    if want_W and estimator == "edge_line_fit":
         ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
         fit_r2 = float(np.nanmedian(ext["fit_r2"]))
         rec.diagnostics["Eij_gate"] = fit_r2
@@ -2791,7 +2776,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             rec.correction["E_ij"] = "E_ij = -intercept / slope, the same line as W"
             rec.valid["E_ij"] = ok
 
-    elif "W" in need and estimator == "gain_corrected":
+    elif want_W and estimator == "gain_corrected":
         corrected_W, slopes_f, g_phi_corr, offsets_f, _ = compute_all_corrected_weights(
             core, config, edges, x_ts, device, ode_params=ode_params)
         rec.pairs["W"] = _pair(gt_W, to_numpy(corrected_W).squeeze())
@@ -2813,15 +2798,20 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             mu, sigma = compute_activity_stats(x_ts, device)
             slopes, offsets = extract_f_theta_slopes(core, config, n_neurons,
                                                     mu, sigma, device)
+        # ode_params.derive_tau, NOT the module-level derive_tau: the inversion is
+        # family-specific and the two disagree. CX's f_theta slope is -alpha/tau,
+        # so it divides by alpha and clips to [0, 10], where the module-level
+        # helper assumes -1/slope and clips to [0, 1]. Using the wrong one is
+        # silent -- it returns a plausible number.
         if "tau" in need and ode_params.has_tau():
             rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
-                                     derive_tau(np.asarray(slopes), n_neurons))
+                                     ode_params.derive_tau(np.asarray(slopes), n_neurons))
             rec.estimator["tau"] = "f_theta_slope"
-            rec.correction["tau"] = "tau_i = -1 / dftheta_dv[i], clipped to [0, 1]"
+            rec.correction["tau"] = "tau_i from dftheta_dv[i], per ode_params.derive_tau"
         if "V_rest" in need and ode_params.has_vrest():
             rec.pairs["V_rest"] = _pair(
                 ode_params.gt_vrest(n_neurons),
-                derive_vrest(np.asarray(slopes), np.asarray(offsets), n_neurons))
+                ode_params.derive_vrest(np.asarray(slopes), np.asarray(offsets), n_neurons))
             rec.estimator["V_rest"] = "f_theta_slope"
             rec.correction["V_rest"] = "V_rest_i = -offset_i / dftheta_dv[i]"
 
