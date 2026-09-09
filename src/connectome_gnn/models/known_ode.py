@@ -334,6 +334,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
     # data every one of them has an answer on disk instead. Named here so a spec
     # that sets one outside distillation is refused rather than ignored.
     STUDENT_ONLY_KEYS = ("student_reversal_mode", "student_reversal_dim",
+                         "student_reversal_exc_global",
                          "student_neuron_params", "student_init",
                          "student_span_mode", "student_delta_inh",
                          "student_delta_exc", "student_learn_edges")
@@ -342,6 +343,11 @@ class FlyvisConductanceKnownODE(KnownODEBase):
     # parameterisation, assuming no structure at all. See _resolve_student_knobs.
     RECOVERY_DEFAULTS = dict(student_reversal_mode="learned",
                              student_reversal_dim="per_neuron",
+                             # Both rows per neuron under recovery: the ion rig is a
+                             # structural ASSUMPTION about which row varies, and on
+                             # conductance data the true E is on disk, so asserting it
+                             # could only hide a mismatch as a fit failure.
+                             student_reversal_exc_global=False,
                              student_neuron_params="per_neuron",
                              student_init="default",
                              student_span_mode="extremes",
@@ -427,7 +433,15 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         n_rev = {"global": 1,
                  "per_type": int(getattr(config.simulation, "n_neuron_types", 0) or self.n_neurons),
                  "per_neuron": self.n_neurons}[self.student_reversal_dim]
-        self.E_exc = nn.Parameter(torch.ones(n_rev, device=device), requires_grad=_free)
+        # THE TWO ROWS CAN HAVE DIFFERENT ROW COUNTS. student_reversal_exc_global
+        # collapses the excitatory (cation) row to a single value and leaves the
+        # inhibitory (chloride) row at student_reversal_dim's granularity -- see the
+        # config comment for why that asymmetry is the biological one. Everything
+        # downstream goes through _rev_index_exc / _rev_index_inh, never through a
+        # shared row index, so the two shapes can never be confused for each other.
+        self.student_reversal_exc_global = bool(k["student_reversal_exc_global"])
+        n_rev_exc = 1 if self.student_reversal_exc_global else n_rev
+        self.E_exc = nn.Parameter(torch.ones(n_rev_exc, device=device), requires_grad=_free)
         self.E_inh = nn.Parameter(-torch.ones(n_rev, device=device), requires_grad=_free)
         self.register_buffer("_range_set_b", torch.zeros(1, dtype=torch.bool, device=device))
         self._range_set = False
@@ -514,6 +528,22 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             return self.type_index[ids]
         return ids
 
+    def _rev_index_inh(self, neuron_ids):
+        """Row of E_inh. Always at student_reversal_dim's granularity -- the chloride
+        reversal is the one the ion rig leaves free to vary across cells."""
+        return self._rev_index(neuron_ids)
+
+    def _rev_index_exc(self, neuron_ids):
+        """Row of E_exc. Row 0 for every neuron under student_reversal_exc_global.
+
+        Separate from _rev_index_inh because under the ion rig E_exc holds ONE row
+        while E_inh holds 65 or 13,741; indexing the first with the second's rows
+        would be an out-of-bounds read on GPU, i.e. a bare device-side assert.
+        """
+        if self.student_reversal_exc_global:
+            return torch.zeros_like(neuron_ids)
+        return self._rev_index(neuron_ids)
+
     def set_teacher_voltage_range(self, v_min, v_max, v_lo=None, v_hi=None):
         """Pin the reversals OUTSIDE the teacher's voltage range (student_reversal_mode margin).
 
@@ -538,15 +568,22 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             v_lo, dtype=torch.float32, device=dev).reshape(-1)
         shi = hi if v_hi is None else torch.as_tensor(
             v_hi, dtype=torch.float32, device=dev).reshape(-1)
+        # ROW BY ROW, because the two rows need not have the same row count: under
+        # student_reversal_exc_global the excitatory row is a single value while the
+        # inhibitory one is per type or per neuron. Each row reduces the teacher's
+        # extremes onto ITS OWN rows, so each brackets exactly the voltages the cells
+        # sharing that reversal actually visit.
         with torch.no_grad():
-            if self.E_exc.numel() == 1 or lo.numel() == 1:
-                lo_r, hi_r = lo.min(), hi.max()
-                span = (shi.max() - slo.min()).clamp_min(1e-3)
-                self.E_exc.fill_(float(hi_r + self.delta_exc * span))
-                self.E_inh.fill_(float(lo_r - self.delta_inh * span))
-            else:
-                idx = self._rev_index(torch.arange(lo.numel(), device=dev))
-                n = self.E_exc.numel()
+            for param, idx_fn, delta, is_exc in (
+                    (self.E_exc, self._rev_index_exc, self.delta_exc, True),
+                    (self.E_inh, self._rev_index_inh, self.delta_inh, False)):
+                if param.numel() == 1 or lo.numel() == 1:
+                    span = (shi.max() - slo.min()).clamp_min(1e-3)
+                    param.fill_(float(hi.max() + delta * span) if is_exc
+                                else float(lo.min() - delta * span))
+                    continue
+                idx = idx_fn(torch.arange(lo.numel(), device=dev))
+                n = param.numel()
                 lo_r = torch.full((n,), float("inf"), device=dev).scatter_reduce(
                     0, idx, lo, reduce="amin", include_self=True)
                 hi_r = torch.full((n,), float("-inf"), device=dev).scatter_reduce(
@@ -559,8 +596,7 @@ class FlyvisConductanceKnownODE(KnownODEBase):
                 lo_r[empty] = lo.min(); hi_r[empty] = hi.max()
                 slo_r[empty] = slo.min(); shi_r[empty] = shi.max()
                 span = (shi_r - slo_r).clamp_min(1e-3)
-                self.E_exc.copy_(hi_r + self.delta_exc * span)
-                self.E_inh.copy_(lo_r - self.delta_inh * span)
+                param.copy_(hi_r + delta * span if is_exc else lo_r - delta * span)
         self._range_set_b.fill_(True); self._range_set = True
 
     def init_from_teacher(self, w_signed, edge_index, v_mean_per_neuron):
@@ -577,22 +613,32 @@ class FlyvisConductanceKnownODE(KnownODEBase):
         dst = torch.as_tensor(edge_index[1]).reshape(-1).long().to(dev)
         vbar = torch.as_tensor(v_mean_per_neuron).reshape(-1).to(dev)
         n = min(w.numel(), self.W.shape[0])
-        r = self._rev_index(dst[:n])
+        r_exc = self._rev_index_exc(dst[:n])
+        r_inh = self._rev_index_inh(dst[:n])
+
         # VBAR AT E'S OWN GRANULARITY. The margin brackets whatever range E was built
         # from; a Vbar reduced differently can fall outside it and flip the sign of
         # (E - Vbar). Measured: per-neuron reversals against a per-CELL-TYPE Vbar gave
         # 512 of 434,112 edges a negative conductance. Reducing Vbar onto the same
-        # rows removes the mismatch by construction.
-        if self.student_reversal_dim != "per_neuron" and vbar.numel() == self.n_neurons:
-            ridx = self._rev_index(torch.arange(self.n_neurons, device=dev))
-            nrow = self.E_exc.numel()
+        # rows removes the mismatch by construction -- and ONCE PER ROW, since the two
+        # rows can now be at different granularities.
+        def _vbar_rows(idx_fn, nrow):
+            """Vbar averaged onto one reversal's rows, or None when that row is already
+            per neuron and the per-neuron Vbar can be used directly."""
+            if nrow == self.n_neurons or vbar.numel() != self.n_neurons:
+                return None
+            ridx = idx_fn(torch.arange(self.n_neurons, device=dev))
             sums = torch.zeros(nrow, device=dev).index_add_(0, ridx, vbar)
             cnts = torch.zeros(nrow, device=dev).index_add_(0, ridx, torch.ones_like(vbar))
-            vbar_row = sums / cnts.clamp_min(1)
-            vbar_e = vbar_row[r]
-        else:
-            vbar_e = vbar[dst[:n] % self.n_neurons]
-        E = torch.where(self.edge_is_inh[:n], self.E_inh[r], self.E_exc[r])
+            return sums / cnts.clamp_min(1)
+
+        vbar_pn = vbar[dst[:n] % self.n_neurons]
+        rows_exc = _vbar_rows(self._rev_index_exc, self.E_exc.numel())
+        rows_inh = _vbar_rows(self._rev_index_inh, self.E_inh.numel())
+        vbar_e = torch.where(self.edge_is_inh[:n],
+                             vbar_pn if rows_inh is None else rows_inh[r_inh],
+                             vbar_pn if rows_exc is None else rows_exc[r_exc])
+        E = torch.where(self.edge_is_inh[:n], self.E_inh[r_inh], self.E_exc[r_exc])
         alpha = (w[:n] / (E - vbar_e))
         neg = int((alpha < 0).sum())
         if neg:
@@ -636,20 +682,29 @@ class FlyvisConductanceKnownODE(KnownODEBase):
 
         The parameters are stored at whichever granularity
         `training.student_reversal_dim` asked for -- 1 row (global), one per
-        cell type (per_type) or one per neuron (per_neuron) -- and `forward` never
-        expands them: `_rev_index` maps a postsynaptic neuron id straight to its
-        parameter row and indexes lazily.
+        cell type (per_type) or one per neuron (per_neuron), and the excitatory row
+        collapsed to 1 on its own under `student_reversal_exc_global` -- and
+        `forward` never expands them: `_rev_index_exc` / `_rev_index_inh` map a
+        postsynaptic neuron id straight to its parameter row and index lazily.
 
         Comparison against ground truth needs the opposite: one value per neuron
-        regardless of how few free parameters produced it, so that a global fit and
-        a per-neuron fit are read on the same axis. `_rev_index(arange(N))` is
-        exactly that expansion, and it is the same rule the generator applies on
-        the ground-truth side (`FlyVisConductanceODEParams._per_neuron`, which
-        broadcasts a scalar or indexes a 65-row array through `type_index`).
+        regardless of how few free parameters produced it, so that a global fit, an
+        ion-rig fit and a per-neuron fit are all read on the same axis. Expanding
+        each row through its own index is exactly that, and it is the same rule the
+        generator applies on the ground-truth side
+        (`FlyVisConductanceODEParams._per_neuron`, which broadcasts a scalar or
+        indexes a 65-row array through `type_index`).
+
+        THIS IS THE CONTRACT THE EXTRACTION RELIES ON. `extract_recovered_params`
+        pairs `get_learned_reversal_per_edge` against
+        `ode_params.reversal_per_edge()`, both (n_edges,), and
+        `compute_reversal_metrics` pairs these two against `ode_params.E_exc/E_inh`,
+        both (n_neurons,). Neither ever sees a row count, so a new granularity needs
+        no change on the extraction side -- provided the expansion happens here.
         """
         ids = torch.arange(self.n_neurons, device=self.E_exc.device)
-        r = self._rev_index(ids)
-        return self.E_exc[r].detach(), self.E_inh[r].detach()
+        return (self.E_exc[self._rev_index_exc(ids)].detach(),
+                self.E_inh[self._rev_index_inh(ids)].detach())
 
     def get_learned_reversal_per_edge(self, edge_index=None):
         """(n_edges,) the reversal E_ij each edge drives toward, learned side.
@@ -701,9 +756,9 @@ class FlyvisConductanceKnownODE(KnownODEBase):
             n_edges_batch, device=self.device) % (self.n_edges + self.n_extra_null_edges)
 
         g = self.W[edge_W_idx] ** 2                          # (E,1) conductance >= 0
-        r = self._rev_index(dst)
         E = torch.where(self.edge_is_inh[edge_W_idx],
-                        self.E_inh[r], self.E_exc[r]).unsqueeze(-1)
+                        self.E_inh[self._rev_index_inh(dst)],
+                        self.E_exc[self._rev_index_exc(dst)]).unsqueeze(-1)
         edge_msg = g * self._activation(v[src]) * (E - v[dst])
 
         msg = torch.zeros(v.shape[0], 1, device=self.device, dtype=v.dtype)

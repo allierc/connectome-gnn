@@ -1,5 +1,5 @@
-description: 'Conductance twin, margin reversals, dim=per_type, span unit p95. E brackets from the teacher min/max in every rig -- the sign guarantee and the convex-hull bound do not depend on this axis -- and only the UNIT of delta changes. cond_span_mode extremes is PR #46 exactly: span = v_max - v_min, which on this teacher is set by outliers (98%% of the voltage lies in a band of width 3.86 against a global range of 16.27), so the nominal margin (0.4, 1.0) acts ~3.4x larger than intended and (E_exc - V_i) varies by only 16%% across the bulk -- the delta -> infinity limit, i.e. the twin degenerating to the current-based teacher. The percentile spans restore state dependence: at dim=global, 32.8%% (p99), 38.0%% (p95), 41.5%% (p90). At dim=per_neuron every reversal sits just outside its own neuron band and the driving force varies by more than 100%%, the opposite extreme. This grid measures whether more state dependence helps the held-out rollout or costs stability.'
-dataset: flyvis_noise_free_blank50_cv00
+description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained GLOBAL student -- both reversals a single scalar, E_exc and E_inh, set from the teacher''s voltage range at the raw extremes. E is then rank 1 over (i,j) pairs: a constant per polarity, with no dependence on the postsynaptic cell at all. noise_model_level 0.05. The dataset name carries the rig that made it: two twins of the same current teacher generate two ground truths, and a run has to say which one it trained on.'
+dataset: flyvis_conductance_global_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -16,14 +16,16 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.0
+  noise_model_level: 0.05
   seed: 42
+  ground_truth_model: conductance
+  conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_global_cv00/models/best_model_with_0_graphs_0.pt
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_conductance_known_ode
+  signal_model_name: flyvis_conductance
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -76,12 +78,4 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 100
-  train_on_teacher: true
-  student_reversal_mode: margin
-  student_reversal_dim: per_type
-  student_span_mode: p95
-  student_neuron_params: per_type
-  student_learn_edges: true
-  student_init: teacher_closed_form
-  rollout_frames: 1000
-config_file: fly/flyvis_current_noise_free_conductance_sp_pertype_p95_cv00
+config_file: fly/flyvis_conductance_global_noise_005_blank50_cv00
