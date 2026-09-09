@@ -1505,6 +1505,25 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     _logger.info(f"training completed in {training_time_min:.1f} minutes")
 
+    # THE REVERSALS THE RUN ENDED WITH, written out whether or not any ground
+    # truth exists for them. On a distillation run compute_reversal_metrics
+    # returns None -- the current-based teacher has no reversal to recover --
+    # so without this the learned E_exc/E_inh were only readable by loading the
+    # checkpoint by hand, which is how the free-E runs' sign flips went unseen
+    # until someone went looking.
+    try:
+        from connectome_gnn.plot import report_learned_reversals
+        _v = getattr(x_ts, "voltage", None)
+        _csv = report_learned_reversals(
+            model, log_dir, edges=edges, type_list=type_list,
+            v_min=None if _v is None else _v.float().amin(dim=0),
+            v_max=None if _v is None else _v.float().amax(dim=0))
+        if _csv is not None:
+            logger.info(f"learned reversals written to {_csv}")
+    except Exception as _e:
+        logger.warning(
+            f"learned-reversal report failed: {type(_e).__name__}: {_e}")
+
     logger.info(f"training completed in {training_time_min:.1f} minutes")
 
     if log_file is not None:

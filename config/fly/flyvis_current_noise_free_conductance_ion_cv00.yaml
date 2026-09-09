@@ -1,4 +1,4 @@
-description: 'Conductance twin, margin reversals, dim=global, span unit p95. E brackets from the teacher min/max in every rig -- the sign guarantee and the convex-hull bound do not depend on this axis -- and only the UNIT of delta changes. cond_span_mode extremes is PR #46 exactly: span = v_max - v_min, which on this teacher is set by outliers (98%% of the voltage lies in a band of width 3.86 against a global range of 16.27), so the nominal margin (0.4, 1.0) acts ~3.4x larger than intended and (E_exc - V_i) varies by only 16%% across the bulk -- the delta -> infinity limit, i.e. the twin degenerating to the current-based teacher. The percentile spans restore state dependence: at dim=global, 32.8%% (p99), 38.0%% (p95), 41.5%% (p90). At dim=per_neuron every reversal sits just outside its own neuron band and the driving force varies by more than 100%%, the opposite extreme. This grid measures whether more state dependence helps the held-out rollout or costs stability.'
+description: 'Conductance student distilled from the current-based flyvis teacher, noise-free, fold 0. E reversal rig ion: the two rows are two ION SPECIES rather than two polarities, because the sender''s transmitter selects a channel and the channel selects an ion -- acetylcholine opens a nicotinic sodium/potassium channel, GABA opens Rdl and glutamate opens GluCl, both chloride, so three transmitters give two rows. The cation reversal is set by sodium and potassium gradients every cell holds near the same values, so E_exc is ONE number for the whole network; the chloride reversal is set by the KCC2/NKCC1 transporter balance, which differs cell type to cell type, so E_inh is one per cell type. 66 reversal parameters against per_type''s 130, spent where the variation is. Both rows still SET from the teacher''s voltage range, E_exc = V_max + 1.0*span, E_inh = V_min - 0.4*span, each reduced onto its own rows, so bracketing stays structural. This is also the rig that makes E rank 2 over (i,j) pairs: with both rows global E_ij is one outer product and carries no i-dependence at all. Everything else held -- W learned per edge and entering squared, tau/V_rest learned per cell type, stage-1 closed-form init alpha = alpha_curr/(E - Vbar_ti), per-edge polarity from the connectome sign (Dale fails here, 4,573 of 13,279 presynaptic neurons have mixed-sign outgoing edges). NOT parameter recovery: the teacher has no (E - v_i) term, so the acceptance test is the ROLLOUT.'
 dataset: flyvis_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -78,10 +78,10 @@ training:
   data_augmentation_loop: 100
   train_on_teacher: true
   student_reversal_mode: margin
-  student_reversal_dim: global
-  student_span_mode: p95
+  student_reversal_dim: per_type
+  student_reversal_exc_global: true
   student_neuron_params: per_type
   student_learn_edges: true
   student_init: teacher_closed_form
   rollout_frames: 1000
-config_file: fly/flyvis_current_noise_free_conductance_sp_global_p95_cv00
+config_file: fly/flyvis_current_noise_free_conductance_ion_cv00

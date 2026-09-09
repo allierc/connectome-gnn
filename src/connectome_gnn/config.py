@@ -1463,6 +1463,30 @@ class TrainingConfig(BaseModel):
     # Crosses with student_reversal_mode: 'learned' fits them, 'margin' sets them from
     # the teacher's voltage range measured AT THE SAME GRANULARITY.
     student_reversal_dim: Literal["global", "per_type", "per_neuron"] = "global"
+    # THE EXCITATORY ROW HELD AT ONE VALUE FOR EVERY CELL, whatever granularity
+    # student_reversal_dim gives the inhibitory one. This is the ION RIG, and it is
+    # the only asymmetry the biology actually asks for.
+    #
+    # The two rows are not two polarities, they are two ION SPECIES, because the
+    # sender's transmitter selects a channel and the channel selects an ion:
+    # acetylcholine opens a nicotinic channel permeable to sodium and potassium
+    # together, GABA opens the Rdl chloride channel, and glutamate opens the GluCl
+    # chloride channel -- so three transmitters still give two rows, GABA and
+    # glutamate sharing one. E is then that ion's equilibrium potential in the
+    # POSTSYNAPTIC cell, and the two ions do not vary across cells the same way:
+    #   cation   set by the sodium and potassium gradients, which every cell holds
+    #            near the same values, so one number for the whole network.
+    #   chloride set by the KCC2/NKCC1 transporter balance, which genuinely differs
+    #            cell to cell and cell type to cell type -- the row worth resolving.
+    # So `student_reversal_dim: per_type` with this True spends 66 parameters (65
+    # chloride reversals + 1 cation) rather than 130, and spends them where the
+    # variation is.
+    #
+    # It also decides the RANK of E over (i, j) pairs. With both rows global, E_ij is
+    # one outer product -- a constant per polarity, no i-dependence at all, rank 1.
+    # Freeing the chloride row makes it two, E_ij = E_cat * 1_exc(j) + E_cl(i) *
+    # 1_inh(j), which is the rank-2 factorisation the biology describes.
+    student_reversal_exc_global: bool = False
     # WHAT delta IS MEASURED IN. The reversals bracket from the teacher's min/max in
     # every case -- that is what guarantees the sign and the convex-hull bound -- but
     # delta needs a UNIT, and PR #46 uses (v_max - v_min), the raw extremes.

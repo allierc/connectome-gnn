@@ -1,5 +1,5 @@
-description: 'Conductance student distilled from the current-based flyvis teacher, noise-free, fold 0. E reversal rig margin/perneuron: SET from the teacher''s voltage range at that granularity, E_exc = V_max + 1.0*span, E_inh = V_min - 0.4*span. Bracketing is then structural and E is not fitted. Granularity: two per neuron, the overparameterised control: a reversal is physically a receptor property shared by synapse type, so a per-neuron gain is capacity absorbing model mismatch. Everything else held -- W learned per edge and entering squared, tau/V_rest learned per cell type, stage-1 closed-form init alpha = alpha_curr/(E - Vbar_ti), per-edge polarity from the connectome sign (Dale fails here, 4,573 of 13,279 presynaptic neurons have mixed-sign outgoing edges). NOT parameter recovery: the teacher has no (E - v_i) term, so the acceptance test is the ROLLOUT.'
-dataset: flyvis_noise_free_blank50_cv00
+description: 'GENERATION spec. Data made by the CONDUCTANCE twin -- msg = W*relu(v_j)*(E-v_i) with W a non-negative conductance -- using the parameters of the trained GLOBAL student -- both reversals a single scalar, E_exc and E_inh, set from the teacher''s voltage range at the raw extremes. E is then rank 1 over (i,j) pairs: a constant per polarity, with no dependence on the postsynaptic cell at all. noise_model_level 0.0. The dataset name carries the rig that made it: two twins of the same current teacher generate two ground truths, and a run has to say which one it trained on.'
+dataset: flyvis_conductance_global_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,12 +18,14 @@ simulation:
   visual_input_type: DAVIS
   noise_model_level: 0.0
   seed: 42
+  ground_truth_model: conductance
+  conductance_checkpoint: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_current_noise_free_conductance_global_cv00/models/best_model_with_0_graphs_0.pt
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_conductance_known_ode
+  signal_model_name: flyvis_conductance
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -76,11 +78,4 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 100
-  train_on_teacher: true
-  student_reversal_mode: margin
-  student_reversal_dim: per_neuron
-  student_neuron_params: per_type
-  student_learn_edges: true
-  student_init: teacher_closed_form
-  rollout_frames: 1000
-config_file: fly/flyvis_current_noise_free_conductance_margin_perneuron_cv00
+config_file: fly/flyvis_conductance_global_noise_free_blank50_cv00

@@ -3483,6 +3483,168 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     )
 
 
+def report_learned_reversals(model, log_dir, edges=None, type_list=None,
+                             v_min=None, v_max=None, style: FigureStyle = default_style):
+    """Every reversal potential the student ended training with -> results/.
+
+    WHY THIS EXISTS SEPARATELY FROM plot_reversal_scatter. That panel is a
+    RECOVERY panel: it needs a true E_ij to scatter against, so it draws nothing
+    on a distillation run, where the teacher is current-based and has no reversal
+    at all. But a distillation run is exactly where the reversals are a RESULT --
+    they are the parameterisation the teacher could not identify and the spec had
+    to choose -- so with no output path they were only ever readable by loading
+    the checkpoint by hand. This writes them out unconditionally, with no ground
+    truth anywhere in it.
+
+    Two files under ``<log_dir>/results``:
+
+    ``learned_reversals.csv``
+        One row per postsynaptic CELL TYPE, since that is the granularity the ion
+        rig resolves, plus a final ``all`` row over every neuron. Columns are the
+        chloride (inhibitory) and cation (excitatory) reversals -- mean, min and
+        max over the neurons of that type, which collapse to one value when the
+        row is stored per type or global -- the neuron count, how many of those
+        neurons any edge actually targets, and the two DRIVING FORCES evaluated at
+        the teacher's voltage extremes.
+
+    ``learned_reversals.png``
+        E_inh per cell type, sorted, against the band of voltages the teacher
+        visits. Sorted rather than in anatomical order because the question the
+        figure answers is how much SPREAD the chloride row acquired, and an
+        anatomical axis hides that behind the ordering.
+
+    UNTARGETED NEURONS ARE MARKED, NOT DROPPED. A neuron no edge points at gets no
+    gradient on its reversals, so its value is still the initialisation; counting
+    it as a fitted reversal would overstate how much of the parameterisation the
+    data constrains. `n_targeted` is that count, and the plot draws untargeted
+    types hollow.
+
+    args:
+        model: the trained model, compiled or not.
+        log_dir: run directory; the two files land in ``<log_dir>/results``.
+        edges: (2, n_edges) edge index, for the targeted count. Optional.
+        type_list: (N,) cell-type id per neuron. Falls back to the model's own
+            ``type_index`` buffer.
+        v_min, v_max: the teacher's voltage extremes, per neuron or scalar, for
+            the driving-force columns and the shaded band. Optional.
+
+    returns:
+        the path of the CSV, or None when the model holds no reversals.
+    """
+    core = getattr(model, "_orig_mod", model)
+    if not hasattr(core, "get_learned_reversals"):
+        return None
+
+    with torch.no_grad():
+        E_exc, E_inh = core.get_learned_reversals()
+    E_exc = np.asarray(to_numpy(E_exc)).ravel().astype(float)
+    E_inh = np.asarray(to_numpy(E_inh)).ravel().astype(float)
+    n = min(E_exc.size, E_inh.size)
+    E_exc, E_inh = E_exc[:n], E_inh[:n]
+
+    if type_list is None:
+        type_list = getattr(core, "type_index", None)
+    types = (np.asarray(to_numpy(type_list)).ravel().astype(int)[:n]
+             if type_list is not None else np.zeros(n, dtype=int))
+
+    targeted = np.zeros(n, dtype=bool)
+    if edges is not None:
+        dst = np.asarray(to_numpy(edges)).reshape(2, -1)[1]
+        targeted[np.unique(dst) % n] = True
+    else:
+        targeted[:] = True
+
+    def _scalar(v, default):
+        if v is None:
+            return default
+        a = np.asarray(to_numpy(v)).ravel().astype(float)
+        return a if a.size == n else np.full(n, float(a.reshape(-1)[0]))
+
+    v_lo = _scalar(v_min, None)
+    v_hi = _scalar(v_max, None)
+
+    out_dir = os.path.join(log_dir, "results")
+    os.makedirs(out_dir, exist_ok=True)
+    csv_path = os.path.join(out_dir, "learned_reversals.csv")
+
+    rows = []
+    for t in sorted(set(types.tolist())):
+        m = types == t
+        row = dict(
+            type_id=int(t),
+            type_name=INDEX_TO_NAME.get(int(t), f"type_{int(t)}"),
+            n_neurons=int(m.sum()),
+            n_targeted=int(targeted[m].sum()),
+            E_inh_mean=float(E_inh[m].mean()),
+            E_inh_min=float(E_inh[m].min()),
+            E_inh_max=float(E_inh[m].max()),
+            E_exc_mean=float(E_exc[m].mean()),
+            E_exc_min=float(E_exc[m].min()),
+            E_exc_max=float(E_exc[m].max()),
+        )
+        # DRIVING FORCE AT THE EXTREME THAT MAKES IT SMALLEST, which is the one
+        # that decides whether the synapse still has any pull left: for an
+        # inhibitory edge that is v_i at its lowest (closest to E_inh), for an
+        # excitatory edge v_i at its highest.
+        if v_lo is not None and v_hi is not None:
+            row["drive_inh_min"] = float((v_lo[m] - E_inh[m]).min())
+            row["drive_exc_min"] = float((E_exc[m] - v_hi[m]).min())
+        rows.append(row)
+
+    allm = np.ones(n, dtype=bool)
+    total = dict(type_id=-1, type_name="all", n_neurons=int(n),
+                 n_targeted=int(targeted.sum()),
+                 E_inh_mean=float(E_inh.mean()), E_inh_min=float(E_inh.min()),
+                 E_inh_max=float(E_inh.max()),
+                 E_exc_mean=float(E_exc.mean()), E_exc_min=float(E_exc.min()),
+                 E_exc_max=float(E_exc.max()))
+    if v_lo is not None and v_hi is not None:
+        total["drive_inh_min"] = float((v_lo[allm] - E_inh).min())
+        total["drive_exc_min"] = float((E_exc - v_hi[allm]).min())
+    rows.append(total)
+
+    cols = list(rows[0].keys())
+    with open(csv_path, "w") as f:
+        f.write(",".join(cols) + "\n")
+        for r in rows:
+            f.write(",".join(
+                f"{r[c]:.6f}" if isinstance(r[c], float) else str(r[c])
+                for c in cols) + "\n")
+
+    # ---- the figure ---------------------------------------------------- #
+    per_type = [r for r in rows if r["type_id"] >= 0]
+    order = np.argsort([r["E_inh_mean"] for r in per_type])
+    y = np.arange(len(order))
+    e_inh = np.array([per_type[i]["E_inh_mean"] for i in order])
+    e_exc = np.array([per_type[i]["E_exc_mean"] for i in order])
+    hit = np.array([per_type[i]["n_targeted"] > 0 for i in order])
+    names = [per_type[i]["type_name"] for i in order]
+
+    fig, ax = style.figure(height=max(4.0, 0.16 * len(order)), aspect=1.1)
+    if v_lo is not None and v_hi is not None:
+        # The band the teacher's voltages live in. Every reversal must sit
+        # outside it or the driving force changes sign mid-run.
+        ax.axvspan(float(v_lo.min()), float(v_hi.max()), color="0.85",
+                   zorder=0, lw=0)
+    # Red and blue: two distinct sources, the chloride row and the cation row --
+    # not a prediction against a ground truth, which is what green/black is for.
+    ax.scatter(e_inh[hit], y[hit], s=style.marker_size, color="tab:blue",
+               label="$E_{inh}$ (chloride)", zorder=3)
+    ax.scatter(e_inh[~hit], y[~hit], s=style.marker_size, facecolors="none",
+               edgecolors="tab:blue", zorder=3)
+    ax.scatter(e_exc[hit], y[hit], s=style.marker_size, color="tab:red",
+               label="$E_{exc}$ (cation)", zorder=3)
+    ax.scatter(e_exc[~hit], y[~hit], s=style.marker_size, facecolors="none",
+               edgecolors="tab:red", zorder=3)
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=5, color=style.foreground)
+    style.xlabel(ax, "reversal potential (voltage units)")
+    ax.legend(fontsize=style.annotation_font_size, frameon=False,
+              loc="lower right")
+    style.savefig(fig, os.path.join(out_dir, "learned_reversals.png"))
+    return csv_path
+
+
 def plot_weight_comparison(w_true, w_modified, output_path, xlabel='true $W$', ylabel='modified $W$', color='white'):
     w_true_np = w_true.detach().cpu().numpy().flatten()
     w_modified_np = w_modified.detach().cpu().numpy().flatten()

@@ -1782,6 +1782,13 @@ def init_training_model(
                 _nf = min(4000, v.shape[0])
                 _idx = torch.linspace(0, v.shape[0] - 1, _nf, device=v.device).long()
                 _sub = v[_idx].float()
+                # Keyed on student_reversal_dim, i.e. on the INHIBITORY row, which is
+                # the one the ion rig leaves at a real granularity. Under the ion rig
+                # (dim per_type, exc collapsed to one row) this takes the per-neuron
+                # branch, and the excitatory row then reduces those per-neuron
+                # quantiles by min/max -- the "widest neuron's tail" statistic the
+                # comment above warns is larger. It only bites when a percentile span
+                # is crossed with the ion rig; both ion specs run at 'extremes'.
                 if model.student_reversal_dim == "global":
                     # ONE reversal pair -> POOL over every (neuron, frame) pair. Taking
                     # per-neuron quantiles and then the widest across neurons is a
