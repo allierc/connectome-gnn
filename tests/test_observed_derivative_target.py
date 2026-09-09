@@ -57,11 +57,21 @@ def test_noise_free_path_is_unchanged(ts):
     np.testing.assert_allclose(y[:-1, :, 0], expected, rtol=1e-6, atol=1e-6)
 
 
-def test_absent_noise_field_falls_back_to_the_clean_voltage(ts):
-    """A dataset generated before noise.zarr existed loads with .noise = None."""
+def test_missing_noise_field_raises_rather_than_falling_back(ts):
+    """A dataset whose noise.zarr was never written loads with .noise = None,
+    and from_zarr_v3 does not complain. Silently differencing the clean voltage
+    there would put the oracle target straight back, so it must raise."""
+    bare = NeuronTimeSeries(voltage=ts.voltage)
+
+    with pytest.raises(AssertionError, match="noise.zarr is missing"):
+        observed_derivative_target(bare, GAMMA, DELTA_T)
+
+
+def test_missing_noise_field_is_fine_when_noise_free(ts):
+    """The same dataset is legitimate at measurement_noise_level 0."""
     bare = NeuronTimeSeries(voltage=ts.voltage)
     np.testing.assert_array_equal(
-        observed_derivative_target(bare, GAMMA, DELTA_T),
+        observed_derivative_target(bare, 0.0, DELTA_T),
         observed_derivative_target(ts, 0.0, DELTA_T),
     )
 
