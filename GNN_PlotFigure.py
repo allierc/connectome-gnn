@@ -72,6 +72,8 @@ from connectome_gnn.metrics import (
     derive_vrest,
     compute_reversal_metrics,
     compute_msg_i_recovery,
+    extract_recovered_params,
+    score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
     _batched_mlp_eval,
@@ -549,26 +551,32 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     gt_w_np = to_numpy(gt_weights)
     learned_weights = to_numpy(get_model_W(model).squeeze())
 
-    if hasattr(model, 'get_learned_tau') and model.get_learned_tau() is not None:
-        learned_tau = to_numpy(model.get_learned_tau()[:n_neurons])
-    elif hasattr(model, 'raw_tau'):
-        learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-    else:
-        learned_tau = np.zeros(n_neurons)
-    if hasattr(model, 'get_learned_vrest') and model.get_learned_vrest() is not None:
-        learned_V_rest = to_numpy(model.get_learned_vrest()[:n_neurons])
-    elif has_V_rest:
-        learned_V_rest = to_numpy(model.V_rest[:n_neurons].detach())
-    elif has_bias:
-        learned_V_rest = to_numpy(model.bias[:n_neurons].detach())
-    else:
-        learned_V_rest = np.zeros(n_neurons)
+    # ONE EXTRACTOR, AND NO ZEROS FALLBACK. This was a hasattr ladder --
+    # get_learned_tau(), else softplus(raw_tau), else np.zeros(n_neurons) -- and
+    # that last branch wrote a zero-filled array into the analysis log where it
+    # was indistinguishable from a measurement of exactly zero. A quantity the
+    # model does not have is now absent, and the panels below skip it.
+    _rec = extract_recovered_params(model, ode_params, config, edges=edges,
+                                    device=device, n_neurons=n_neurons,
+                                    need=('tau', 'V_rest', 'gain', 'bias'))
+    _tau_pair = _rec.get('tau')
+    _vrest_pair = _rec.get('V_rest')
+    _gain_pair = _rec.get('gain')
+    _bias_pair = _rec.get('bias')
+    # has_* gates the LOG WRITES below. The panels still receive an array either
+    # way, because this branch only runs for model_family == 'linear' and every
+    # such model defines get_learned_tau -- so the placeholder is unreachable in
+    # practice. What matters is that if it ever were reached, the number would no
+    # longer be WRITTEN as though it had been measured.
+    has_tau_learned = _tau_pair is not None
+    has_vrest_learned = _vrest_pair is not None
+    learned_tau = _tau_pair[1] if has_tau_learned else np.zeros(n_neurons)
+    learned_V_rest = _vrest_pair[1] if has_vrest_learned else np.zeros(n_neurons)
 
-    # Gain and bias extraction (known_ode models)
-    gt_gain_np = ode_params.gt_gain(n_neurons) if ode_params is not None else None
-    gt_bias_np = ode_params.gt_bias(n_neurons) if ode_params is not None else None
-    learned_gain = to_numpy(model.get_learned_gain()[:n_neurons]) if hasattr(model, 'get_learned_gain') and model.get_learned_gain() is not None else None
-    learned_bias = to_numpy(model.get_learned_bias()[:n_neurons]) if hasattr(model, 'get_learned_bias') and model.get_learned_bias() is not None else None
+    gt_gain_np = _gain_pair[0] if _gain_pair is not None else None
+    gt_bias_np = _bias_pair[0] if _bias_pair is not None else None
+    learned_gain = _gain_pair[1] if _gain_pair is not None else None
+    learned_bias = _bias_pair[1] if _bias_pair is not None else None
 
     # --- Save learned parameters (mirrors ode_params.pt schema, no edge_index) ---
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
@@ -935,12 +943,16 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     if log_file:
         log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
         log_file.write(f"connectivity_full_sample_R2: {r_squared_W_full:.4f}\n")
-        log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
-        log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
-        log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
-        log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
-        log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
-        log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
+        # Gated on the extractor actually having produced the quantity: a
+        # placeholder must never be written as though it were a measurement.
+        if has_tau_learned:
+            log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
+            log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
+            log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
+        if has_vrest_learned:
+            log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+            log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
+            log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
         if gt_gain_np is not None and learned_gain is not None:
             log_file.write(f"gain_R2: {r_squared_gain:.4f}\n")
         if gt_bias_np is not None and learned_bias is not None:

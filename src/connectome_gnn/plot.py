@@ -2665,7 +2665,7 @@ def plot_loss_from_file(log_dir):
 def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
                       gt_weights, edges, n_neurons=None, n_neuron_types=None,
                       ode_params=None, hidden_ids=None, anchor_ids=None,
-                      out_counts=None, save_panels=True):
+                      out_counts=None, save_panels=True, rec=None):
     from connectome_gnn.plot import (
         plot_embedding,
         plot_f_theta,
@@ -2752,9 +2752,21 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         _tl = np.asarray(to_numpy(type_list)).ravel().astype(int)
         _w_groups = _tl[to_numpy(edges[0]).ravel() % _tl.size]
 
+    # THE PAIRS COME FROM THE EXTRACTOR, NOT FROM HERE. `rec` is the
+    # RecoveredParams the caller already built; this function draws it. It used to
+    # do the extraction itself and RETURN the R2 -- which meant the trainer's
+    # headline connectivity_r2 was a return value of a panel drawer, and test_plot
+    # re-derived the same number independently down a different path. `rec=None`
+    # keeps the old self-contained behaviour for callers that have not moved.
+    _rec_W = rec.get("W") if rec is not None else None
+    _rec_W_unc = rec.pairs.get("W_uncorrected") if rec is not None else None
+
     # Plot 2: raw W (no g_phi correction) — all edges.
-    _gt_w = to_numpy(gt_weights)
-    raw_W = to_numpy(get_model_W(model).squeeze())
+    if _rec_W_unc is not None:
+        _gt_w, raw_W = _rec_W_unc
+    else:
+        _gt_w = to_numpy(gt_weights)
+        raw_W = to_numpy(get_model_W(model).squeeze())
     r_squared_raw, _ = plot_recovery_panels(
         _gt_w, raw_W,
         f"{log_dir}/tmp_training/Wij/raw_{epoch}_{N}.png",
@@ -2770,19 +2782,21 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # Compute corrected weights. Forward ode_params so each model uses its own
     # g_phi fit (cx softplus/sigmoid vs flyvis ReLU) instead of the generic
     # linear slope; without it the per-neuron g_phi correction is mis-scaled.
-    corrected_W, _, _, _, _ = compute_all_corrected_weights(
-        model, config, edges, x_ts, device, ode_params=ode_params)
-
-    # Plot 3: Corrected weight comparison scatter plot — all edges.
-    # GT side: apply the model's effective-true-weight adjustment (g_phi gain for
-    # gain-entangled models; identity for flyvis / cx-voltage) so this matches
-    # plot_synaptic's corrected comparison exactly.
-    if ode_params is not None:
-        _gt_w_full = np.asarray(
-            ode_params.effective_true_weights(to_numpy(gt_weights), to_numpy(edges), n_neurons))
+    corrected_W = None
+    if _rec_W is not None:
+        _gt_w_full, _corr_w_full = _rec_W
     else:
-        _gt_w_full = to_numpy(gt_weights)
-    _corr_w_full = to_numpy(corrected_W.squeeze())
+        corrected_W, _, _, _, _ = compute_all_corrected_weights(
+            model, config, edges, x_ts, device, ode_params=ode_params)
+        # GT side: apply the model's effective-true-weight adjustment (g_phi gain
+        # for gain-entangled models; identity for flyvis / cx-voltage) so this
+        # matches plot_synaptic's corrected comparison exactly.
+        if ode_params is not None:
+            _gt_w_full = np.asarray(
+                ode_params.effective_true_weights(to_numpy(gt_weights), to_numpy(edges), n_neurons))
+        else:
+            _gt_w_full = to_numpy(gt_weights)
+        _corr_w_full = to_numpy(corrected_W.squeeze())
     # The [-1, 2] axis box the bare scatter used is gone: the 2x2 bounds the
     # scatter by outlier_threshold instead, which removes the same extreme points
     # from the R2 rather than only from view, and reports how many.
@@ -2858,7 +2872,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     if n_neurons < 1000 and ode_params is not None:
         ei = to_numpy(edges)
         gt_W = to_numpy(gt_weights)
-        learned_W = to_numpy(corrected_W.squeeze())
+        learned_W = _corr_w_full
 
         # GT connectivity matrix
         J_gt = np.zeros((n_neurons, n_neurons), dtype=np.float32)
@@ -2960,6 +2974,15 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     if tl is not None and ei is not None:
         w_groups = tl[to_numpy(ei[0]).ravel() % tl.size]
 
+    # EVERY PANEL BELOW DRAWS THE ARRAYS compute_dynamics_r2_linear ALREADY
+    # SCORED. It used to re-derive them -- F.softplus(model.raw_tau) here and
+    # model.V_rest there -- because that function returned the R2s without the
+    # arrays. Two derivations of one quantity is two chances to disagree, and the
+    # panel is the one a reader trusts. Falls back to the model only for a
+    # quantity the extractor did not return.
+    _tau_pair = (dyn_r2.get('tau_true'), dyn_r2.get('tau_learned'))
+    _vrest_pair = (dyn_r2.get('vrest_true'), dyn_r2.get('vrest_learned'))
+
     # Plot 1: W recovery
     plot_recovery_panels(
         to_numpy(gt_weights),
@@ -2974,10 +2997,9 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
     )
 
     # Plot 2: tau recovery (only for models with tau_i)
-    if hasattr(ode_params, 'tau_i') and ode_params.tau_i is not None:
+    if _tau_pair[0] is not None:
         plot_recovery_panels(
-            to_numpy(ode_params.tau_i[:n_neurons]),
-            to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach()),
+            _tau_pair[0], _tau_pair[1],
             f"{log_dir}/tmp_training/tau/tau_{epoch}_{N}.png",
             symbol=r'\tau',
             groups=None if tl is None else tl[:n_neurons],
@@ -2987,10 +3009,9 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
         )
 
     # Plot 3: V_rest recovery (only for models with V_i_rest)
-    if hasattr(ode_params, 'V_i_rest') and ode_params.V_i_rest is not None:
+    if _vrest_pair[0] is not None:
         plot_recovery_panels(
-            to_numpy(ode_params.V_i_rest[:n_neurons]),
-            to_numpy(model.V_rest[:n_neurons].detach()),
+            _vrest_pair[0], _vrest_pair[1],
             f"{log_dir}/tmp_training/vrest/vrest_{epoch}_{N}.png",
             symbol='V_{rest}',
             groups=None if tl is None else tl[:n_neurons],
