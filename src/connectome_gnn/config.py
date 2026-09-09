@@ -1339,14 +1339,6 @@ class TrainingConfig(BaseModel):
     coeff_L1: float = 0.0  # Phase 2 target L1 regularization
     coeff_diff: float = 0.0  # Monotonicity constraint on edge function
 
-    loss_noise_level: float = 0.0
-
-    # Resample stored measurement noise (x_ts.noise) at the start of every epoch
-    # using the per-epoch RNG seeded from simulation.seed + epoch. Lets the model
-    # average noise across epochs instead of memorising the fixed realisation
-    # baked into noise.zarr at data-generation time.
-    resample_noise_per_epoch: bool = False
-
     # Compilation flag for torch.compile optimization
     torch_compile: bool = True
 

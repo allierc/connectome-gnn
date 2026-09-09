@@ -153,7 +153,6 @@ class EpochState:
     frame_indices: np.ndarray
 
     # Loss
-    loss_noise_level: float
     total_loss_gpu: torch.Tensor
     total_regul_gpu: torch.Tensor
 
@@ -255,15 +254,6 @@ def init_epoch_state(
     )
 
     # ---------------------------------------------------------------------
-    # Loss noise
-    # ---------------------------------------------------------------------
-
-    loss_noise_level = (
-        training.loss_noise_level
-        * (0.95 ** epoch)
-    )
-
-    # ---------------------------------------------------------------------
     # Dale's law
     # ---------------------------------------------------------------------
 
@@ -336,7 +326,6 @@ def init_epoch_state(
 
         frame_indices=frame_indices,
 
-        loss_noise_level=loss_noise_level,
         total_loss_gpu=total_loss_gpu,
         total_regul_gpu=total_regul_gpu,
 
@@ -807,6 +796,76 @@ def load_flyvis_data(dataset_name, split='train', fields=None,
     return x_ts, y_ts, type_list
 
 
+def observed_derivative_target(x_ts, measurement_noise_level, delta_t):
+    """Finite-difference dv/dt of the OBSERVED voltage, shape (T, N, 1).
+
+    The target has to be the finite difference of the same signal the model is
+    fed. x_ts.voltage is the simulated state v[t]: it carries the process noise
+    xi_t, which the integrator adds to the state, but NOT the measurement noise
+    eta_t, which the generator stores separately in noise.zarr and which
+    run_nominal_train_step adds to the model's input one frame at a time.
+
+    Differencing the clean voltage would score the model against
+        (v[t+1] - v[t]) / dt = f(v[t]) + xi_t/dt
+    while feeding it v[t] + eta_t -- an oracle no recording can supply, and the
+    same defect as training on the generator's analytic y_list (which is
+    f(v[t]) alone, with xi_t stripped as well). Differencing the observed
+    voltage gives what a recording actually measures:
+        (v[t+1] + eta[t+1] - v[t] - eta[t]) / dt = f(v[t]) + xi_t/dt + d(eta)/dt
+    At measurement_noise_level 0.1 and delta_t 0.01 the d(eta)/dt term has std
+    0.1*sqrt(2)/0.01 = 14.1 in the same units as dv/dt, a third of the target's
+    total variance on fly/flyvis_noise_005_010_blank50_cv00 -- not a rounding
+    difference.
+
+    Works on a local copy rather than updating x_ts.voltage in place: the
+    per-frame `x.voltage + x.noise` in run_nominal_train_step would otherwise
+    add eta a second time, and xnorm would move off the clean voltage it has
+    always been computed from.
+
+    The last frame has no successor and repeats its predecessor.
+
+    Args:
+        x_ts: NeuronTimeSeries on CPU, with .voltage (T, N) and, when
+            measurement_noise_level > 0, .noise (T, N) holding the stored
+            measurement-noise realisation.
+        measurement_noise_level: SimulationConfig.measurement_noise_level; the
+            noise field is only folded in when this is > 0, so noise-free
+            datasets keep bit-identical targets. When it is > 0, x_ts.noise is
+            required, not optional.
+        delta_t: the observation interval, in the same time units as the ODE.
+
+    Returns:
+        numpy array (T, N, 1), matching the layout of the stored y_list.
+
+    Raises:
+        AssertionError: if measurement_noise_level > 0 but x_ts.noise is None.
+    """
+    voltage = x_ts.voltage.numpy()
+
+    if measurement_noise_level > 0:
+        # Nothing upstream catches this: determine_load_fields only REQUESTS
+        # 'noise' when the level is > 0, and NeuronTimeSeries.from_zarr_v3
+        # leaves a field None when its zarr is absent rather than raising. So a
+        # dataset whose noise.zarr never got written -- generated before the
+        # field existed, or by an interrupted run -- would silently fall back to
+        # the clean voltage and reintroduce the exact oracle target this
+        # function exists to remove. Fail loudly instead.
+        assert x_ts.noise is not None, (
+            f"measurement_noise_level={measurement_noise_level} but the dataset "
+            f"has no noise field: x_list_<split>/noise.zarr is missing, so the "
+            f"measurement noise added to the model's input cannot be put into "
+            f"the derivative target. Regenerate the dataset, or set "
+            f"measurement_noise_level=0 to train on the clean voltage."
+        )
+        voltage = voltage + x_ts.noise.numpy()
+
+    y_ts = np.zeros_like(voltage)
+    y_ts[:-1] = (voltage[1:] - voltage[:-1]) / delta_t
+    y_ts[-1] = y_ts[-2]
+
+    return y_ts[..., None]
+
+
 def build_model(config, device, checkpoint_path=None, reset_epoch=False):
     """Create a NeuralGNN model and optionally load a checkpoint.
 
@@ -1222,18 +1281,11 @@ def init_training_data(
     # Derivative target from observed voltage
     # -------------------------------------------------------------------------
 
-    voltage = x_ts.voltage.numpy()
-
-    y_ts = np.zeros_like(voltage)
-
-    y_ts[:-1] = (
-        voltage[1:]
-        - voltage[:-1]
-    ) / simulation.delta_t
-
-    y_ts[-1] = y_ts[-2]
-
-    y_ts = y_ts[..., None]
+    y_ts = observed_derivative_target(
+        x_ts,
+        simulation.measurement_noise_level,
+        simulation.delta_t,
+    )
 
     # -------------------------------------------------------------------------
     # Dimensions
@@ -2358,16 +2410,19 @@ def run_nominal_train_step(
                 else (k + training.time_step)
             )
 
+            # Observed voltage, for the same reason the one-step target is built
+            # from the observed voltage: the input frame above carries eta_k, so a
+            # clean v[target_frame] would be an oracle target.
             y = x_ts.voltage[target_frame].unsqueeze(-1)
+
+            if x_ts.noise is not None and sim.measurement_noise_level > 0:
+                y = y + x_ts.noise[target_frame].unsqueeze(-1)
 
         elif train.test_neural_field:
             y = x_ts.stimulus[k, : sim.n_input_neurons].unsqueeze(-1)
 
         else:
             y = y_ts_gpu[k] / ynorm
-
-        if epoch_state.loss_noise_level > 0:
-            y = y + torch.randn(y.shape, device=device) * epoch_state.loss_noise_level
 
         # ---------------------------------------------------------
         # Accumulate batch
