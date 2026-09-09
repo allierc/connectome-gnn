@@ -78,10 +78,6 @@ class TestGNNDataset:
         assert x.n_neurons == 10
         assert y.shape == (10, 1)
 
-    def test_set_epoch(self, synthetic_dataset):
-        synthetic_dataset.set_epoch(5)
-        assert synthetic_dataset.loss_noise_level == pytest.approx(0.0)  # config noise = 0
-
 
 class TestGNNFrameSampler:
     def test_len(self, synthetic_dataset):

@@ -430,22 +430,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         )
 
         # -----------------------------------------------------------------
-        # Measurement-noise resampling
-        # -----------------------------------------------------------------
-
-        if training.resample_noise_per_epoch and sim.measurement_noise_level > 0 and x_ts.noise is not None:
-            noise_generator = torch.Generator(device=x_ts.noise.device).manual_seed(int(sim.seed) + int(epoch))
-
-            x_ts.noise = (
-                torch.randn(
-                    x_ts.noise.shape, generator=noise_generator, dtype=x_ts.noise.dtype, device=x_ts.noise.device
-                )
-                * sim.measurement_noise_level
-            )
-
-            _logger.info(f"epoch {epoch}: resampled measurement noise (seed={int(sim.seed) + int(epoch)})")
-
-        # -----------------------------------------------------------------
         # Circuit LR damping (let the SIRENs learn their inputs first)
         #
         # After epoch 0, damp the circuit-side LRs (embedding, message MLP,
