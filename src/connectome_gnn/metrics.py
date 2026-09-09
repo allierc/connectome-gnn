@@ -2636,6 +2636,111 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
 
     Every quantity is best-effort. One that cannot be computed is absent from
     `pairs`, never a zero-filled array standing in for a measurement.
+
+    ----------------------------------------------------------------------------
+    EVERY METRIC THIS PRODUCES, AND WHAT EACH ONE MEANS
+    ----------------------------------------------------------------------------
+    This function returns ARRAYS; :func:`score_recovery` turns them into the
+    key-value metrics that reach `results/metrics.txt`, the per-slot analysis log
+    and the LLM exploration instructions. The catalogue is written here because
+    this is where a reader arrives asking "what can I measure", and because the
+    names are a contract: the instruction files rank slots on these spellings, so
+    renaming one silently breaks an agentic loop that has no way to notice.
+
+    FIVE QUANTITIES, and the key each is emitted under (`_KEY`):
+
+        quantity   key       what it is
+        W          Wij       per-edge synaptic weight. On conductance data this is
+                             the CONDUCTANCE (non-negative); on current data it is
+                             the signed current weight.
+        tau        tau       per-neuron membrane time constant.
+        V_rest     V_rest    per-neuron resting potential.
+        E_ij       Eij       per-edge reversal potential, i.e. the voltage each
+                             edge's driving force (E_ij - v_i) points toward.
+                             CONDUCTANCE-GENERATED DATA ONLY -- absent elsewhere,
+                             which is information, not a failure.
+        msg_i      msg_i     the aggregated per-neuron message, sum over incoming
+                             edges of W_ij * act(v_j) * (E_ij - v_i). The one
+                             quantity the W/E degeneracy does not touch.
+        gain       gain      per-neuron output gain, where the model has one.
+        bias       bias      per-neuron output bias, where the model has one.
+
+    FOR EACH of the above, `score_recovery` emits:
+
+        <key>_R2          coefficient of determination of learned against true, on
+                          the IDENTITY line (not a free-slope fit), so a scale
+                          error costs R2 rather than being absorbed. Outlier-
+                          filtered for W, tau and V_rest; unfiltered for Eij and
+                          msg_i, which have no published tolerance band.
+        <key>_slope       identity-line slope of the same scatter. 1.0 is perfect.
+                          FOR W THIS IS THE GAIN: 2.4 means the learned conductance
+                          is 2.4x the true one. It is the third ranking key of the
+                          known-ODE exploration.
+        <key>_rmse        root-mean-square error, in that quantity's own units.
+                          Read it against the SPREAD OF THE TRUTH, not a fixed bar:
+                          the reversals of one twin span 8 voltage units and those
+                          of another span 40.
+        <key>_n           how many elements entered the comparison. Context, but a
+                          drop in it means pairs were trimmed or non-finite.
+
+    AND ONLY WHERE AN OUTLIER THRESHOLD APPLIES (W, tau, V_rest -- see
+    :func:`_thresh_for`; None for Eij and msg_i):
+
+        <key>_R2_all       the same R2 WITHOUT outlier filtering. The gap between
+                           it and <key>_R2 says how much of the recovery rests on
+                           a tail. Rank on the filtered one, report both.
+        <key>_n_outliers   how many elements the threshold removed.
+        <key>_pct_outliers the same as a percentage of <key>_n.
+
+    PROVENANCE, emitted whenever the extractor recorded it. These are STRINGS, not
+    numbers, and they exist because the same key can be produced by different
+    estimators on different runs -- a comparison across runs that does not check
+    them may be comparing two different measurements:
+
+        <key>_estimator   which path produced the number:
+                            direct         a named parameter, read straight off.
+                            edge_line_fit  per-edge line fit of msg_ij/v_j against
+                                           v_i; W is -slope and E is -intercept/
+                                           slope, so the two cannot disagree.
+                            gain_corrected the GNN's W after dividing out the
+                                           g_phi and f_theta gains.
+                            jacobian       the MLP baseline's effective
+                                           connectivity, a dense n x n matrix.
+                            f_theta_slope  tau and V_rest read out of f_theta's
+                                           local linearisation.
+                            forward        msg_i, from the model's own forward.
+        <key>_correction  the exact algebra that was applied, e.g.
+                          `W**2 (stored value is sqrt of the conductance)` or
+                          `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
+
+    THREE KEYS THAT ARE NOT PER-QUANTITY:
+
+        Wij_R2_uncorrected  W scored BEFORE the gain correction. Says how much of
+                            the recovery the correction is responsible for. Only
+                            on the `gain_corrected` path -- note "uncorrected"
+                            means before the CORRECTION, not before outlier
+                            filtering, two senses the old `raw_W_R2` conflated.
+        Eij_gate            median per-edge R2 of the straight line the
+                            `edge_line_fit` extraction assumes. THIS IS A
+                            PRECONDITION, not a detail: below roughly 0.9 the
+                            message is not affine in v_i, the model has not found
+                            the conductance form, and the W and E beside it
+                            describe nothing. GNN paths only.
+        extraction_error    present only when this function caught an exception,
+                            carrying `TypeName: message`. Its presence means every
+                            quantity below it is missing because the extractor
+                            broke, NOT because the model lacks them.
+
+    A QUANTITY GATED OUT EMITS NOTHING AT ALL. `rec.valid[q]` False makes
+    `rec.get(q)` return None, so `score_recovery` skips the whole family rather
+    than reporting a number nothing stands behind. Absence is the signal.
+
+    RENAMED IN THE UNIFICATION, and listed so an old log or document can be read:
+    `connectivity_R2` / `connectivity_R2_scaled` / `connectivity_pearson_r` ->
+    `Wij_R2`; `raw_W_R2` -> `Wij_R2_all`; `Eij_n_edges` -> `Eij_n`. `w_scale` was
+    never one of these keys at all -- it is a column of
+    `tmp_training/gnn_conductance_fit.log`, produced only by the GNN branch of
+    :func:`compute_reversal_metrics`; the equivalent here is `Wij_slope`.
     """
     rec = RecoveredParams()
     if ode_params is None:
