@@ -72,6 +72,8 @@ from connectome_gnn.metrics import (
     derive_vrest,
     compute_reversal_metrics,
     compute_msg_i_recovery,
+    extract_recovered_params,
+    score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
     _batched_mlp_eval,
@@ -361,6 +363,19 @@ def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices
     plt.close()
 
 
+def _finite_range(values, fallback):
+    """min/max over the finite entries, falling back when there are none.
+
+    An all-NaN array means the quantity was never measured; matplotlib rejects
+    NaN axis limits, so the fallback keeps the (empty) panel drawable instead of
+    raising in a plotting path.
+    """
+    finite = np.asarray(values)[np.isfinite(values)]
+    if finite.size == 0:
+        return float(fallback[0]), float(fallback[1])
+    return float(finite.min()), float(finite.max())
+
+
 def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
                                     device, log_dir, logger, log_file):
     """Score E_ij and msg_i and write them to the analysis log and metrics.txt.
@@ -549,26 +564,39 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     gt_w_np = to_numpy(gt_weights)
     learned_weights = to_numpy(get_model_W(model).squeeze())
 
-    if hasattr(model, 'get_learned_tau') and model.get_learned_tau() is not None:
-        learned_tau = to_numpy(model.get_learned_tau()[:n_neurons])
-    elif hasattr(model, 'raw_tau'):
-        learned_tau = to_numpy(F.softplus(model.raw_tau[:n_neurons]).detach())
-    else:
-        learned_tau = np.zeros(n_neurons)
-    if hasattr(model, 'get_learned_vrest') and model.get_learned_vrest() is not None:
-        learned_V_rest = to_numpy(model.get_learned_vrest()[:n_neurons])
-    elif has_V_rest:
-        learned_V_rest = to_numpy(model.V_rest[:n_neurons].detach())
-    elif has_bias:
-        learned_V_rest = to_numpy(model.bias[:n_neurons].detach())
-    else:
-        learned_V_rest = np.zeros(n_neurons)
+    # ONE EXTRACTOR, AND NO ZEROS FALLBACK. This was a hasattr ladder --
+    # get_learned_tau(), else softplus(raw_tau), else np.zeros(n_neurons) -- and
+    # that last branch wrote a zero-filled array into the analysis log where it
+    # was indistinguishable from a measurement of exactly zero. A quantity the
+    # model does not have is now absent, and the panels below skip it.
+    _rec = extract_recovered_params(model, ode_params, config, edges=edges,
+                                    device=device, n_neurons=n_neurons,
+                                    need=('tau', 'V_rest', 'gain', 'bias'))
+    _tau_pair = _rec.get('tau')
+    _vrest_pair = _rec.get('V_rest')
+    _gain_pair = _rec.get('gain')
+    _bias_pair = _rec.get('bias')
+    # has_* gates the LOG WRITES below. The panels still receive an array either
+    # way, because this branch only runs for model_family == 'linear' and every
+    # such model defines get_learned_tau -- so the placeholder is unreachable in
+    # practice. What matters is that if it ever were reached, the number would no
+    # longer be WRITTEN as though it had been measured.
+    has_tau_learned = _tau_pair is not None
+    has_vrest_learned = _vrest_pair is not None
+    # NaN, NOT zeros, when the extractor produced nothing. A zero-filled array is
+    # a lie that survives every downstream operation: it scatters on the axis, it
+    # scores a plausible R2, and it reaches the log looking like a measurement of
+    # exactly zero. NaN propagates as NaN through recovery_param_metrics, draws no
+    # points, and cannot be mistaken for data. The two axis-limit computations and
+    # the clustering feature stack below are the only places that need it handled
+    # explicitly; everything else is NaN-safe already.
+    learned_tau = _tau_pair[1] if has_tau_learned else np.full(n_neurons, np.nan)
+    learned_V_rest = _vrest_pair[1] if has_vrest_learned else np.full(n_neurons, np.nan)
 
-    # Gain and bias extraction (known_ode models)
-    gt_gain_np = ode_params.gt_gain(n_neurons) if ode_params is not None else None
-    gt_bias_np = ode_params.gt_bias(n_neurons) if ode_params is not None else None
-    learned_gain = to_numpy(model.get_learned_gain()[:n_neurons]) if hasattr(model, 'get_learned_gain') and model.get_learned_gain() is not None else None
-    learned_bias = to_numpy(model.get_learned_bias()[:n_neurons]) if hasattr(model, 'get_learned_bias') and model.get_learned_bias() is not None else None
+    gt_gain_np = _gain_pair[0] if _gain_pair is not None else None
+    gt_bias_np = _bias_pair[0] if _bias_pair is not None else None
+    learned_gain = _gain_pair[1] if _gain_pair is not None else None
+    learned_bias = _bias_pair[1] if _bias_pair is not None else None
 
     # --- Save learned parameters (mirrors ode_params.pt schema, no edge_index) ---
     os.makedirs(os.path.join(log_dir, 'results'), exist_ok=True)
@@ -623,7 +651,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _tau_xlim = (-0.025, 0.5)
     _tau_ticks = [0.0, 0.25, 0.5]
     _tau_tick_labels = ['0.0', '0.25', '0.5']
-    _tau_lo = float(np.min(learned_tau)); _tau_hi = float(np.max(learned_tau))
+    _tau_lo, _tau_hi = _finite_range(learned_tau, _tau_xlim)
     _tau_pad = 0.02 * (_tau_hi - _tau_lo) if _tau_hi > _tau_lo else 0.01
     _tau_ylim = (_tau_lo - _tau_pad, _tau_hi + _tau_pad)
 
@@ -755,7 +783,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _v_xlim = (-0.025, 1.0)
     _v_ticks = [0.0, 0.5, 1.0]
     _v_tick_labels = ['0.0', '0.5', '1.0']
-    _v_lo = float(np.min(learned_V_rest)); _v_hi = float(np.max(learned_V_rest))
+    _v_lo, _v_hi = _finite_range(learned_V_rest, _v_xlim)
     _v_pad = 0.02 * (_v_hi - _v_lo) if _v_hi > _v_lo else 0.01
     _v_ylim = (_v_lo - _v_pad, _v_hi + _v_pad)
 
@@ -935,12 +963,16 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     if log_file:
         log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
         log_file.write(f"connectivity_full_sample_R2: {r_squared_W_full:.4f}\n")
-        log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
-        log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
-        log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
-        log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
-        log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
-        log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
+        # Gated on the extractor actually having produced the quantity: a
+        # placeholder must never be written as though it were a measurement.
+        if has_tau_learned:
+            log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
+            log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
+            log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
+        if has_vrest_learned:
+            log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+            log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
+            log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
         if gt_gain_np is not None and learned_gain is not None:
             log_file.write(f"gain_R2: {r_squared_gain:.4f}\n")
         if gt_bias_np is not None and learned_bias is not None:
@@ -1326,10 +1358,17 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     n_gmm = min(100, n_neurons - 1)
 
-    # Augmented clustering: (tau, V_rest, W_stats) since no embeddings
-    a_aug = np.column_stack([learned_tau, learned_V_rest,
-                             w_in_mean, w_in_std, w_out_mean, w_out_std,
-                             w_in_min, w_in_max, w_out_min, w_out_max])
+    # Augmented clustering: (tau, V_rest, W_stats) since no embeddings.
+    # A quantity the extractor did not produce is dropped from the feature stack
+    # rather than fed in as NaN, which the GMM cannot fit -- clustering on the
+    # features that exist is a smaller claim than clustering on invented ones.
+    _aug = []
+    if has_tau_learned:
+        _aug.append(learned_tau)
+    if has_vrest_learned:
+        _aug.append(learned_V_rest)
+    a_aug = np.column_stack(_aug + [w_in_mean, w_in_std, w_out_mean, w_out_std,
+                                    w_in_min, w_in_max, w_out_min, w_out_max])
     results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
     cluster_acc = results['accuracy']
     print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")

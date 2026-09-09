@@ -2144,6 +2144,46 @@ class CircuitConfig(BaseModel):
     name: Optional[str] = None
 
 
+class WMode(StrEnum):
+    AUTO = "auto"
+    DIRECT = "direct"
+    GAIN_CORRECTED = "gain_corrected"
+    EDGE_LINE_FIT = "edge_line_fit"
+    JACOBIAN = "jacobian"
+
+
+class RecoveryConfig(BaseModel):
+    """How the learned circuit parameters are read back out of a trained model.
+
+    WHICH ESTIMATOR RAN IS A PROPERTY OF THE RUN, so it belongs in the config
+    rather than being re-derived at each call site. Four ways exist to obtain a
+    learned W -- read it off a named parameter, divide out the gains of g_phi and
+    f_theta, fit a line per edge, or take the Jacobian -- and until now nothing
+    recorded which one produced a number.
+
+    ``auto`` resolves from the model's MODEL_FAMILY tag and the dataset's own
+    ``ground_truth_model`` key, which is the correct default; the explicit values
+    exist so a run can be pinned when the default is not what you want to measure.
+
+    Optional with a default because ~200 existing yamls have no ``recovery:``
+    block and NeuralGraphConfig forbids extra keys.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    W_mode: WMode = WMode.AUTO
+    # Outlier bands from neurips.tex eq:outlier_threshold. Owned here so the
+    # trainer and test_plot cannot filter the same quantity differently -- which
+    # they did: the same checkpoint read -1.22 outlier-free in metrics.log and
+    # -34.35 unfiltered in results/metrics.txt.
+    W_outlier_thresh: float = 1.0
+    tau_outlier_thresh: float = 0.1
+    V_rest_outlier_thresh: float = 0.2
+    # Below this median per-edge R2, the edge_line_fit estimator's W and E_ij
+    # describe nothing and are reported as invalid rather than as numbers.
+    gate_fit_r2: float = 0.9
+    report_scaled: bool = True
+
+
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2164,6 +2204,7 @@ class NeuralGraphConfig(BaseModel):
     zarr: Optional[ZarrConfig] = None
     task: Optional[TaskConfig] = None
     circuit: Optional[CircuitConfig] = None
+    recovery: RecoveryConfig = Field(default_factory=RecoveryConfig)
 
     @staticmethod
     def from_yaml(file_name: str):
