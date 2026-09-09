@@ -480,6 +480,35 @@ def _read_results_metric(log_dir, key):
     return None
 
 
+def _read_last_csv_value(log_dir, filename, col=1):
+    """Last row's `col`-th field from a tmp_training CSV, or None.
+
+    For the one-value-per-checkpoint trajectory logs the trainer writes beside
+    metrics.log — msgi_r2.log, reversal_rmse.log, rollout_r.log — each of which
+    has its own file precisely so that metrics.log's positional column layout
+    stays fixed for the readers that index into it.
+    """
+    path = os.path.join(log_dir, 'tmp_training', filename)
+    if not os.path.isfile(path):
+        return None
+    try:
+        last = None
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line[0].isalpha() and not line.startswith('#'):
+                    last = line
+        if last is None:
+            return None
+        parts = last.split(',')
+        if col >= len(parts):
+            return None
+        v = parts[col].strip()
+        return None if not v or v.lower() == 'nan' else float(v)
+    except (OSError, ValueError):
+        return None
+
+
 def _read_clustering_accuracy(log_dir):
     """clustering_accuracy from <log_dir>/results/metrics.txt, or None."""
     return _read_results_metric(log_dir, 'clustering_accuracy')
@@ -590,11 +619,11 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
         # Prefer the no-outliers (cleaned) R² for display when available; the
         # legacy 6-column metrics.log only carries the all-neurons R².
         r2 = r2_clean if r2_clean is not None else r2_all
-        base = f"{_r2_color(r2)}{name}={r2:.3f}"
+        base = f"{_r2_color(r2)}{name}={r2:.2f}"
         if r2_clean is None or not n_total or n_total <= 0:
             return base + _ANSI_RESET
         pct = 100.0 * n_out / n_total
-        return base + f"({pct:.1f}%)" + _ANSI_RESET
+        return base + f"({pct:.0f}%)" + _ANSI_RESET
 
     for cond in ordered_conds:
         rs = sorted(groups[cond], key=lambda x: x['slot'])
@@ -655,12 +684,20 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
             zr = _read_results_metric(log_dir, 'W_zscored_R2')
 
             parts = [
-                f"{_r2_color(tm['conn'])}R²W={tm['conn']:.3f}{_ANSI_RESET}",
+                f"{_r2_color(tm['conn'])}R²W={tm['conn']:.2f}{_ANSI_RESET}",
             ]
+            # msg_i beside R²W, from tmp_training/msgi_r2.log. The pair is the
+            # point: R²W=-5.00 with msg=0.95 says the dynamics are recovered and
+            # only the conductance/reversal split is wrong, while R²W=-5.00 with
+            # msg=-0.04 says nothing is being learned. Absent on current-generated
+            # data, which has no conductance ground truth to build msg_i from.
+            mg = _read_last_csv_value(log_dir, 'msgi_r2.log', col=1)
+            if mg is not None:
+                parts.append(f"{_r2_color(mg)}R²msg={mg:.2f}{_ANSI_RESET}")
             if sr is not None:
-                parts.append(f"{_r2_color(sr, thresholds=(0.8, 0.5, 0.3))}r_struct={sr:.3f}{_ANSI_RESET}")
+                parts.append(f"{_r2_color(sr, thresholds=(0.8, 0.5, 0.3))}r_struct={sr:.2f}{_ANSI_RESET}")
             if zr is not None:
-                parts.append(f"{_r2_color(zr, thresholds=(0.7, 0.4, 0.2))}zR²={zr:.3f}{_ANSI_RESET}")
+                parts.append(f"{_r2_color(zr, thresholds=(0.7, 0.4, 0.2))}zR²={zr:.2f}{_ANSI_RESET}")
             parts += [
                 _fmt_R2_out('R²Vr', tm['vr_clean'], tm['vr'],
                             tm['n_out_vr'], tm['n_total_vr']),
@@ -675,8 +712,13 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                 if tm['anc'] is not None:
                     nnr_str += f"({tm['anc']:.3f})"
                 parts.append(f"{_r2_color(tm['hid'], thresholds=(0.5, 0.3, 0.1))}{nnr_str}{_ANSI_RESET}")
+            # The config tag is deliberately NOT printed here: every slot of an
+            # exploration repeats the same 60-character base-config name and
+            # differs only in the trailing _NN, which the slot number already
+            # says. It stays on the task rows above, where several unrelated
+            # configs can share a block.
             slot_text = f"slot {slot}"
-            print(f"{prefix} {slot_text:<{slot_w}}  {cfg_tag:<{tag_w}}  "
+            print(f"{prefix} {slot_text:<{slot_w}}  "
                   f"{r['iter_str']:<{iter_w}}  " + '  '.join(parts))
 
 

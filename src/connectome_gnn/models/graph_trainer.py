@@ -800,16 +800,42 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     epoch_state.metrics.reversal_r2 = _rev["r2"]
                     epoch_state.metrics.reversal_scale = float(
                         _rev["true"].max() - _rev["true"].min())
+                    # msg_i, the ONE recovery number the conductance degeneracy
+                    # does not touch: W_ij and E_ij trade off inside the message,
+                    # so msg_i scores what the trajectory actually depends on.
+                    # Computed on every R2 checkpoint rather than only on panel
+                    # iterations, because it belongs in the progress bar beside
+                    # conn and E -- conn=-5.0 with msg=0.95 (dynamics right, split
+                    # wrong) and conn=-5.0 with msg=-0.04 (nothing learned) look
+                    # identical without it. Ten forward passes; the panel below
+                    # reuses this result rather than recomputing it.
+                    from connectome_gnn.metrics import (
+                        compute_msg_i_recovery, recovery_param_metrics)
+                    _msg = None
+                    try:
+                        _msg = compute_msg_i_recovery(model, ode_params, x_ts,
+                                                      edges, device)
+                    except Exception as _e:
+                        logger.warning(f"msg_i recovery eval failed: {type(_e).__name__}: {_e}")
+                    if _msg is not None:
+                        epoch_state.metrics.msgi_r2 = float(
+                            recovery_param_metrics(_msg[0], _msg[1])['r2'])
+                        # Its own file, for the same reason reversal_rmse.log has
+                        # one: plot.py reads metrics.log by POSITIONAL index, so
+                        # a new column there shifts every reader after it.
+                        _msg_log = os.path.join(log_dir, "tmp_training", "msgi_r2.log")
+                        if not os.path.exists(_msg_log):
+                            with open(_msg_log, "w") as f:
+                                f.write("iteration,r2,n\n")
+                        with open(_msg_log, "a") as f:
+                            f.write(f"{regularizer.iter_count},"
+                                    f"{epoch_state.metrics.msgi_r2:.6f},{_msg[0].size}\n")
+
                     if save_panels:
                         plot_reversal_scatter(_rev, log_dir, epoch, N)
-                        # msg_i, the ONE recovery panel the conductance
-                        # degeneracy does not touch: W_ij and E_ij trade off
-                        # inside the message, so msg_i scores what the trajectory
-                        # actually depends on. Drawn beside E_ij because it needs
-                        # the same conductance ground truth, and only on a
-                        # panel iteration -- it costs ten forward passes.
                         plot_msg_recovery(model, ode_params, x_ts, edges, device,
-                                          log_dir, epoch, N, type_list=type_list)
+                                          log_dir, epoch, N, type_list=type_list,
+                                          precomputed=_msg)
                     # Its own file, for the same reason rollout_r.log has one:
                     # plot.py reads metrics.log by POSITIONAL index (`_f(parts,
                     # idx)`), so adding a column there shifts every reader after
@@ -1169,6 +1195,17 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     bar_parts.append(
                         f"{rmse_color(epoch_state.metrics.reversal_rmse, epoch_state.metrics.reversal_scale)}"
                         f"E={epoch_state.metrics.reversal_rmse:.2f}"
+                        f"{ANSI_RESET}"
+                    )
+
+                # msg_i beside E_ij: same conductance ground truth, opposite
+                # meaning. E is the factorisation the data barely constrain,
+                # msg is the product they fully constrain, so reading them
+                # together is what separates "wrong split" from "not learning".
+                if epoch_state.metrics.msgi_r2 is not None:
+                    bar_parts.append(
+                        f"{r2_color(epoch_state.metrics.msgi_r2)}"
+                        f"msg={epoch_state.metrics.msgi_r2:.2f}"
                         f"{ANSI_RESET}"
                     )
 
