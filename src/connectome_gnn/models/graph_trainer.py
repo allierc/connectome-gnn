@@ -946,9 +946,24 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 metrics_changed = True
 
             elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "gnn":
+                # EXTRACT FIRST, THEN DRAW. connectivity_r2 used to be a return
+                # value of plot_training_gnn, which got it from the 2x2 panel
+                # drawer -- so the trainer's headline number was a by-product of
+                # making a figure, and test_plot re-derived it independently down
+                # another path. The two could and did disagree. Now the extractor
+                # produces the (gt, learned) pair once, score_recovery scores it,
+                # and the panels consume the same arrays.
+                from connectome_gnn.metrics import (
+                    extract_recovered_params, score_recovery)
+                _rec = extract_recovered_params(
+                    model, ode_params, config, edges=edges, x_ts=x_ts,
+                    device=device, n_neurons=n_neurons, need=("W",))
+                _scored = score_recovery(_rec, config)
+                epoch_state.metrics.connectivity_r2 = _scored.get("Wij_R2")
+
                 _w_counts = {}
                 (
-                    epoch_state.metrics.connectivity_r2,
+                    _conn_r2_unused,
                     epoch_state.metrics.connectivity_r2_visible,
                     hidden_r2,
                     anchor_r2,
@@ -970,9 +985,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     anchor_ids=hn.anchor_ids,
                     out_counts=_w_counts,
                     save_panels=save_panels,
+                    rec=_rec,
                 )
-                epoch_state.metrics.n_out_conn = _w_counts.get("n_out_conn", 0)
-                epoch_state.metrics.n_total_conn = _w_counts.get("n_total_conn", 0)
+                epoch_state.metrics.n_out_conn = _scored.get(
+                    "Wij_n_outliers", _w_counts.get("n_out_conn", 0))
+                epoch_state.metrics.n_total_conn = _scored.get(
+                    "Wij_n", _w_counts.get("n_total_conn", 0))
 
                 if hidden_r2 is not None:
                     epoch_state.metrics.hidden_r2 = hidden_r2
