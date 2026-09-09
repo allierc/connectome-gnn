@@ -2669,11 +2669,19 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
         n_neurons = int(getattr(model, "a", np.zeros((0, 0))).shape[0]) or None
 
     estimator = resolve_W_estimator(model, ode_params, config)
-    if estimator == "direct":
-        _extract_direct(rec, model, ode_params, edges, n_neurons)
-    else:
-        rec.estimator["W"] = estimator
-        rec.diagnostics["W_estimator_unimplemented"] = estimator
+    try:
+        if estimator == "direct":
+            _extract_direct(rec, model, ode_params, edges, n_neurons)
+        elif estimator in ("gain_corrected", "edge_line_fit"):
+            _extract_gnn(rec, model, ode_params, config, edges, x_ts, device,
+                         n_neurons, estimator, need)
+        else:
+            # jacobian: the MLP baseline's effective connectivity. Left to its
+            # existing caller rather than moved, because it compares a dense
+            # n x n matrix and not a per-edge vector like every other estimator.
+            rec.estimator["W"] = estimator
+    except Exception as exc:
+        rec.diagnostics["extraction_error"] = f"{type(exc).__name__}: {exc}"
 
     if "msg_i" in need and _is_conductance_data(ode_params) and x_ts is not None:
         try:
@@ -2731,6 +2739,101 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
             out[f"{key}_estimator"] = rec.estimator[quantity]
         if quantity in rec.correction:
             out[f"{key}_correction"] = rec.correction[quantity]
+
+    # The uncorrected parameter is scored on R2 alone: it exists to say how much
+    # of the recovery the gain correction is responsible for, not as a second
+    # headline. Note this is "before the correction", NOT "before outlier
+    # filtering" -- the two senses that raw_W_R2 and connectivity_full_sample_R2
+    # used to share the word "raw" for.
+    unc = rec.pairs.get("W_uncorrected")
+    if unc is not None:
+        out["Wij_R2_uncorrected"] = float(
+            recovery_param_metrics(unc[0], unc[1],
+                                   _thresh_for("W", config))["r2_clean"])
+
+    # Underscore-prefixed diagnostics are intermediates shared between quantities
+    # (the f_theta slopes, the g_phi correction) and are numpy arrays; they stay
+    # on the object for the caller and never reach the key-value log.
     for k, v in rec.diagnostics.items():
-        out[k] = v
+        if not k.startswith("_"):
+            out[k] = v
     return out
+
+
+def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
+                 estimator, need):
+    """A GNN keeps no parameter in the units of ode_params.W, so every quantity
+    here is inferred. See the block comment above for the two W estimators and the
+    f_theta-slope inversion that yields tau and V_rest."""
+    core = getattr(model, "_orig_mod", model)
+    gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
+
+    gt_W = getattr(ode_params, "W", None)
+    if gt_W is not None:
+        gt_W = np.asarray(ode_params.effective_true_weights(
+            to_numpy(gt_W), to_numpy(edges), n_neurons))
+
+    if "W" in need and estimator == "edge_line_fit":
+        ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
+        fit_r2 = float(np.nanmedian(ext["fit_r2"]))
+        rec.diagnostics["Eij_gate"] = fit_r2
+        # Below the gate the message is not affine in v_i, so the W and E the
+        # line produced describe nothing. Recorded as invalid rather than
+        # dropped: "we measured and it failed" is not "we did not measure".
+        ok = fit_r2 >= gate
+        rec.pairs["W"] = _pair(gt_W, ext["W"])
+        rec.estimator["W"] = "edge_line_fit"
+        rec.correction["W"] = "msg_ij / v_j = W_ij * (E_i - v_i); W_ij = -slope"
+        rec.valid["W"] = ok
+        if "E_ij" in need and _is_conductance_data(ode_params):
+            rec.pairs["E_ij"] = _pair(ode_params.reversal_per_edge(), ext["E"])
+            rec.estimator["E_ij"] = "edge_line_fit"
+            rec.correction["E_ij"] = "E_ij = -intercept / slope, the same line as W"
+            rec.valid["E_ij"] = ok
+
+    elif "W" in need and estimator == "gain_corrected":
+        corrected_W, slopes_f, g_phi_corr, offsets_f, _ = compute_all_corrected_weights(
+            core, config, edges, x_ts, device, ode_params=ode_params)
+        rec.pairs["W"] = _pair(gt_W, to_numpy(corrected_W).squeeze())
+        rec.estimator["W"] = "gain_corrected"
+        rec.correction["W"] = "g_phi[j] * dftheta_dmsg[i] / dftheta_dv[i]"
+        # The uncorrected parameter, for the comparison that says how much of the
+        # recovery the correction is responsible for.
+        rec.pairs["W_uncorrected"] = _pair(gt_W, to_numpy(get_model_W(core)).squeeze())
+        rec.diagnostics["_slopes_f_theta"] = slopes_f
+        rec.diagnostics["_offsets_f_theta"] = offsets_f
+        rec.diagnostics["_g_phi_correction"] = g_phi_corr
+
+    # tau and V_rest come out of the SAME f_theta linearisation, so they are
+    # derived together from one slope fit rather than two.
+    if ("tau" in need or "V_rest" in need) and x_ts is not None:
+        slopes = rec.diagnostics.get("_slopes_f_theta")
+        offsets = rec.diagnostics.get("_offsets_f_theta")
+        if slopes is None:
+            mu, sigma = compute_activity_stats(x_ts, device)
+            slopes, offsets = extract_f_theta_slopes(core, config, n_neurons,
+                                                    mu, sigma, device)
+        if "tau" in need and ode_params.has_tau():
+            rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
+                                     derive_tau(np.asarray(slopes), n_neurons))
+            rec.estimator["tau"] = "f_theta_slope"
+            rec.correction["tau"] = "tau_i = -1 / dftheta_dv[i], clipped to [0, 1]"
+        if "V_rest" in need and ode_params.has_vrest():
+            rec.pairs["V_rest"] = _pair(
+                ode_params.gt_vrest(n_neurons),
+                derive_vrest(np.asarray(slopes), np.asarray(offsets), n_neurons))
+            rec.estimator["V_rest"] = "f_theta_slope"
+            rec.correction["V_rest"] = "V_rest_i = -offset_i / dftheta_dv[i]"
+
+    # E_ij under gain_corrected still comes from the line fit, which is the only
+    # way to read a reversal out of a GNN; compute_reversal_metrics runs it.
+    if ("E_ij" in need and "E_ij" not in rec.pairs
+            and _is_conductance_data(ode_params)):
+        _rev = compute_reversal_metrics(core, ode_params, config=config,
+                                        edges=edges, x_ts=x_ts)
+        if _rev is not None:
+            rec.pairs["E_ij"] = _pair(_rev["true"], _rev["learned"])
+            rec.estimator["E_ij"] = "edge_line_fit"
+            if "fit_r2_median" in _rev:
+                rec.diagnostics["Eij_gate"] = _rev["fit_r2_median"]
+                rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate
