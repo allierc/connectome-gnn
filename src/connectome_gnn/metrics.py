@@ -2431,3 +2431,306 @@ def best_observed_match(
     if return_scores:
         return best_idx, best_score, scores
     return best_idx, best_score
+
+
+# ------------------------------------------------------------------ #
+#  Recovered circuit parameters — the single extraction entry point
+# ------------------------------------------------------------------ #
+#
+# WHY THIS EXISTS. `recovery_param_metrics` is already the single entry point for
+# R2 everywhere. The EXTRACTION side -- producing the `learned` array that gets
+# scored -- had five independent implementations that disagreed, and the trainer's
+# headline connectivity_r2 arrived as a return value of `plot_training_gnn`, which
+# got it from `plot_recovery_panels`: the 2x2 panel drawer. Metric and figure were
+# the same call, so `test_plot` re-derived the number independently and the two
+# could differ. On one known-ODE checkpoint they did, by a factor of 30 (-1.22
+# outlier-free against -34.35 unfiltered), because nothing forced the two paths to
+# filter the same quantity the same way.
+#
+# `extract_recovered_params` returns the (ground truth, learned) PAIRS, not
+# metrics. `score_recovery` turns those into numbers via recovery_param_metrics.
+# Panels become consumers of the arrays rather than producers of the metric.
+#
+#
+# ESTIMATORS. What "the learned W" means depends on where W sits in the model.
+#
+#   direct          W is a named parameter. Known-ODE / linear. W**2 under
+#                   w_squared, since there the stored value is sqrt(conductance).
+#
+#   gain_corrected  W reaches dv/dt through two learned functions, so the gains
+#                   they apply must be divided out:
+#
+#                       msg_i    = sum_j W_ij * g_phi(v_j, ...)
+#                       dv_i/dt  = f_theta(v_i, a_i, msg_i, ...)
+#
+#                       corrected_W_ij = -W_ij / slope_f_theta[i]
+#                                               * grad_msg[i]
+#                                               * slope_g_phi[j]
+#
+#                   slope_g_phi[j]   = d g_phi / d v_j at the presynaptic neuron;
+#                   grad_msg[i]      = d f_theta / d msg_i;
+#                   slope_f_theta[i] = d f_theta / d v_i, the leak, ~ -1/tau_i.
+#                   The two f_theta terms form a RATIO, so tau cancels -- which is
+#                   why a W error under this estimator does not track tau_i
+#                   (measured on a conductance known-ODE: corr = +0.014).
+#
+#   edge_line_fit   Conductance data. The generator's message is affine in v_i,
+#                   so dividing it by v_j leaves a straight line per edge:
+#
+#                       msg_ij / v_j = W_ij * (E_i - v_i)
+#                       slope = -W_ij,   intercept = W_ij * E_i
+#
+#                   Gated: the median per-edge R2 of that line is the test that
+#                   the message has the conductance form at all. Below
+#                   recovery.gate_fit_r2 the W and E beside it describe nothing.
+#
+#   jacobian        MLP baseline, no explicit W. Effective connectivity from
+#                   dF/dv averaged over frames.
+#
+#
+# tau AND V_rest. Two estimators, and which one ran has never been recorded.
+#
+#   direct          Named parameters. tau = softplus(raw_tau), V_rest = V_rest.
+#
+#   f_theta_slope   A GNN buries both inside f_theta, but the local linearisation
+#                   dv_i/dt ~ slope_i * v_i + offset_i recovers them:
+#
+#                       tau_i    = -1 / slope_i          (clipped to [0, 1])
+#                       V_rest_i = -offset_i / slope_i
+#
+#                   slope_i and offset_i come from extract_f_theta_slopes. The
+#                   clip and the slope==0 guard are why a degenerate fit returns
+#                   tau = 1.0 rather than an infinity.
+#
+#
+# E_ij. Conductance-generated data only. None elsewhere, which is information --
+# a current generator has no reversal potential to recover -- not a failure.
+#
+#   direct          get_learned_reversal_per_edge(): a named parameter,
+#                   where(edge_is_inh, E_inh[dst], E_exc[dst]).
+#
+#   edge_line_fit   The same line as the W estimator above, read from the other
+#                   end: E_ij = -intercept / slope. W and E come from ONE fit and
+#                   so cannot disagree about it.
+#
+#
+# msg_i. One path, no estimator, no family branch -- the reason it is the model
+# the other five are being made to look like. Compares the model's own message,
+# via forward(..., return_all=True), against the generator's rebuilt from
+# ode_params. The one quantity the conductance degeneracy does not touch: W and E
+# trade off INSIDE the message, so msg_i scores the product the trajectory
+# depends on rather than a factorisation the data cannot resolve.
+#
+#
+# NONE, NEVER ZEROS. A quantity the model does not have is absent. The ladder this
+# replaces fell through to np.zeros(n_neurons), which reached the analysis log
+# looking exactly like a measurement of zero.
+
+from dataclasses import dataclass, field  # noqa: E402
+
+
+RECOVERED_QUANTITIES = ("W", "tau", "V_rest", "E_ij", "msg_i", "gain", "bias")
+
+
+@dataclass
+class RecoveredParams:
+    """The (ground truth, learned) pairs for every quantity a run can recover.
+
+    `pairs` holds `{quantity: (gt, learned)}` as 1-D float arrays of equal length;
+    a quantity the model or the dataset does not have is simply absent. Panels and
+    metrics both read from here, which is what stops them describing different
+    numbers.
+    """
+
+    pairs: dict = field(default_factory=dict)
+    estimator: dict = field(default_factory=dict)   # 'W' -> 'gain_corrected'
+    correction: dict = field(default_factory=dict)  # 'W' -> the factors divided out
+    valid: dict = field(default_factory=dict)       # False when gated out
+    diagnostics: dict = field(default_factory=dict)  # fit_r2_median, w_scale, ...
+
+    def get(self, quantity):
+        """The (gt, learned) pair, or None when absent or gated out."""
+        if not self.valid.get(quantity, True):
+            return None
+        return self.pairs.get(quantity)
+
+    def __contains__(self, quantity):
+        return self.get(quantity) is not None
+
+
+def _is_conductance_data(ode_params) -> bool:
+    """True when the generator had a reversal potential. Asked of the DATA, not
+    the model: the same conductance known-ODE is trained on a current-generated
+    teacher in the distillation runs and on conductance data in the recovery runs,
+    so its name cannot answer."""
+    return getattr(ode_params, "E_exc", None) is not None
+
+
+def resolve_W_estimator(model, ode_params, config) -> str:
+    """Which W estimator this run uses. `auto` reads the model's family tag and
+    the dataset's generator; an explicit config value overrides."""
+    from connectome_gnn.models.utils import model_family
+
+    mode = getattr(getattr(config, "recovery", None), "W_mode", "auto")
+    mode = getattr(mode, "value", mode)
+    if mode != "auto":
+        return mode
+
+    family = model_family(model)
+    if family == "mlp":
+        return "jacobian"
+    if family in ("linear", "known_ode"):
+        return "direct"
+    # A GNN has no named W in the units of ode_params.W. On conductance data the
+    # per-edge line fit matches the generative form exactly and carries its own
+    # goodness-of-fit; on current data there is no (E - v_i) term to fit, so the
+    # gain correction is the only option.
+    return "edge_line_fit" if _is_conductance_data(ode_params) else "gain_corrected"
+
+
+def _pair(gt, learned):
+    """Trim two arrays to a common length and drop non-finite entries.
+
+    Returns None rather than an empty pair when nothing survives, so an absent
+    quantity and a quantity that produced only NaN are indistinguishable to the
+    caller -- both mean "no measurement", which is the honest reading."""
+    if gt is None or learned is None:
+        return None
+    # Both sides arrive in whatever the source uses: ode_params.gt_tau() returns
+    # numpy, a model accessor returns a tensor, a test passes a list.
+    def _np(a):
+        return np.asarray(to_numpy(a) if torch.is_tensor(a) else a).ravel().astype(float)
+
+    gt, learned = _np(gt), _np(learned)
+    n = min(gt.size, learned.size)
+    if n < 2:
+        return None
+    gt, learned = gt[:n], learned[:n]
+    ok = np.isfinite(gt) & np.isfinite(learned)
+    if ok.sum() < 2:
+        return None
+    return gt[ok], learned[ok]
+
+
+def _extract_direct(rec, model, ode_params, edges, n_neurons):
+    """Known-ODE and linear models: every quantity is a named parameter."""
+    core = getattr(model, "_orig_mod", model)
+
+    w_learned = get_model_W(core)
+    w_true = getattr(ode_params, "W", None)
+    if w_true is not None and w_learned is not None:
+        rec.pairs["W"] = _pair(w_true, w_learned)
+        rec.estimator["W"] = "direct"
+        rec.correction["W"] = ("W**2 (stored value is sqrt of the conductance)"
+                               if getattr(core, "w_squared", False) else "none")
+
+    if hasattr(core, "get_learned_tau") and ode_params.has_tau():
+        rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
+                                 core.get_learned_tau()[:n_neurons])
+        rec.estimator["tau"] = "direct"
+    if hasattr(core, "get_learned_vrest") and ode_params.has_vrest():
+        rec.pairs["V_rest"] = _pair(ode_params.gt_vrest(n_neurons),
+                                    core.get_learned_vrest()[:n_neurons])
+        rec.estimator["V_rest"] = "direct"
+
+    for name, getter in (("gain", "get_learned_gain"), ("bias", "get_learned_bias")):
+        if not hasattr(core, getter):
+            continue
+        learned = getattr(core, getter)()
+        gt = getattr(ode_params, f"gt_{name}")(n_neurons)
+        if learned is not None and gt is not None:
+            rec.pairs[name] = _pair(gt, learned[:n_neurons])
+            rec.estimator[name] = "direct"
+
+    if hasattr(core, "get_learned_reversal_per_edge") and _is_conductance_data(ode_params):
+        rec.pairs["E_ij"] = _pair(ode_params.reversal_per_edge(),
+                                  core.get_learned_reversal_per_edge(edges))
+        rec.estimator["E_ij"] = "direct"
+        rec.correction["E_ij"] = "where(edge_is_inh, E_inh[dst], E_exc[dst])"
+
+
+def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=None,
+                             device=None, n_neurons=None,
+                             need=RECOVERED_QUANTITIES) -> RecoveredParams:
+    """Every learned circuit parameter of a trained model, paired with its truth.
+
+    Returns arrays, not metrics -- see the block comment above for the estimators
+    and the equation each one inverts. Pass `need` to skip work: the f_theta slope
+    fit runs over every neuron and msg_i costs ten forward passes, so a caller that
+    wants only W should say so.
+
+    Every quantity is best-effort. One that cannot be computed is absent from
+    `pairs`, never a zero-filled array standing in for a measurement.
+    """
+    rec = RecoveredParams()
+    if ode_params is None:
+        return rec
+    if n_neurons is None:
+        n_neurons = int(getattr(model, "a", np.zeros((0, 0))).shape[0]) or None
+
+    estimator = resolve_W_estimator(model, ode_params, config)
+    if estimator == "direct":
+        _extract_direct(rec, model, ode_params, edges, n_neurons)
+    else:
+        rec.estimator["W"] = estimator
+        rec.diagnostics["W_estimator_unimplemented"] = estimator
+
+    if "msg_i" in need and _is_conductance_data(ode_params) and x_ts is not None:
+        try:
+            out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
+        except Exception:
+            out = None
+        if out is not None:
+            rec.pairs["msg_i"] = _pair(out[0], out[1])
+            rec.estimator["msg_i"] = "forward"
+
+    rec.pairs = {k: v for k, v in rec.pairs.items() if v is not None}
+    return rec
+
+
+def _thresh_for(quantity, config):
+    r = getattr(config, "recovery", None)
+    return {
+        "W": getattr(r, "W_outlier_thresh", W_OUTLIER_THRESH),
+        "tau": getattr(r, "tau_outlier_thresh", TAU_OUTLIER_THRESH),
+        "V_rest": getattr(r, "V_rest_outlier_thresh", VREST_OUTLIER_THRESH),
+    }.get(quantity)          # None -> no filtering, which is right for E_ij/msg_i
+
+
+# The emitted key for each quantity. Wij/Eij/msg_i are symbol-first; tau and
+# V_rest keep the spelling every consumer already reads.
+_KEY = {"W": "Wij", "tau": "tau", "V_rest": "V_rest",
+        "E_ij": "Eij", "msg_i": "msg_i", "gain": "gain", "bias": "bias"}
+
+
+def score_recovery(rec: RecoveredParams, config=None) -> dict:
+    """Score every recovered quantity through the one R2 entry point.
+
+    THE EXTRACTOR OWNS THE OUTLIER THRESHOLD, which is the point: the headline
+    `<q>_R2` is outlier-free and `<q>_R2_all` is not, decided here rather than at
+    each call site. Previously the trainer reported the filtered number and
+    test_plot the unfiltered one under similar names.
+    """
+    out = {}
+    for quantity, key in _KEY.items():
+        pair = rec.get(quantity)
+        if pair is None:
+            continue
+        gt, learned = pair
+        m = recovery_param_metrics(gt, learned, _thresh_for(quantity, config))
+        clean = _thresh_for(quantity, config) is not None
+        out[f"{key}_R2"] = float(m["r2_clean"] if clean else m["r2"])
+        out[f"{key}_slope"] = float(m["slope_clean"] if clean else m["slope"])
+        out[f"{key}_rmse"] = float(np.sqrt(np.mean((learned - gt) ** 2)))
+        out[f"{key}_n"] = int(m["n_total"])
+        if clean:
+            out[f"{key}_R2_all"] = float(m["r2"])
+            out[f"{key}_n_outliers"] = int(m["n_outliers"])
+            out[f"{key}_pct_outliers"] = float(m["pct_outliers"])
+        if quantity in rec.estimator:
+            out[f"{key}_estimator"] = rec.estimator[quantity]
+        if quantity in rec.correction:
+            out[f"{key}_correction"] = rec.correction[quantity]
+    for k, v in rec.diagnostics.items():
+        out[k] = v
+    return out
