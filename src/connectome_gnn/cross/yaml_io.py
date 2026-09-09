@@ -66,12 +66,6 @@ CONDITIONS = [
     # gamma=0.50 base condition (extends the {0.10, 0.20} measurement-noise
     # sweep — see flyvis_noise_005_010 / flyvis_noise_005_020).
     ('flyvis_noise_005_050',           'flyvis_unified_winner'),
-    # Per-epoch measurement-noise resampling twins (DAL=1, n_epochs=25 set
-    # via overrides in the runner; resample_noise_per_epoch=True is preserved
-    # from the base yaml via the pass-through in emit_one).
-    ('flyvis_noise_005_010_resample',  'flyvis_noise_005_010_resample'),
-    ('flyvis_noise_005_020_resample',  'flyvis_noise_005_020_resample'),
-    ('flyvis_noise_005_050_resample',  'flyvis_noise_005_050_resample'),
     # Short-trajectory tile-25 twins (n_frames/25 unique frames generated
     # then tiled ×25 across the train zarr; flag lives in simulation block
     # so it flows through unchanged).
@@ -188,12 +182,11 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
         merged['training']['data_augmentation_loop'] = _dal
 
     # Condition-defining training knobs always come from the base yaml. These
-    # describe the data regime (e.g. stride_5 BPTT, per-epoch noise resampling)
-    # rather than tunable HPs, so a uniform HP yaml must not be allowed to
-    # silently disable them.
+    # describe the data regime (e.g. stride_5 BPTT) rather than tunable HPs, so
+    # a uniform HP yaml must not be allowed to silently disable them.
     _base_tr = base.get('training') or {}
     if 'training' in merged:
-        for _k in ('recurrent_training', 'time_step', 'resample_noise_per_epoch'):
+        for _k in ('recurrent_training', 'time_step'):
             if _k in _base_tr:
                 merged['training'][_k] = _base_tr[_k]
     if 'claude' in merged:
@@ -215,9 +208,10 @@ def emit_one(base_name, hp_yaml_path, out_yaml_path, suffix, yt_root,
     # dataset is suffix-free so the underlying hold-out training data (which
     # only depends on the base + seed, not on the HP block) is shared
     # between the two scripts.
-    # Allow a condition to share another condition's already-generated
-    # datasets — used by the resample twins to point at the existing
-    # flyvis_noise_005_010_blank50_cv* data without re-running the generator.
+    # Allow a condition to share another condition's already-generated datasets,
+    # for conditions that differ only in their training block and so simulate
+    # identical data — points them at the existing <other>_blank50_cv* dirs
+    # instead of re-running the generator.
     _ds_base = (dataset_base_aliases or {}).get(base_name, base_name)
     if fold_i is not None:
         yaml_name    = f'{base_name}_{suffix}_cv{fold_i:02d}'
