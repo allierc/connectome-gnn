@@ -866,6 +866,69 @@ def observed_derivative_target(x_ts, measurement_noise_level, delta_t):
     return y_ts[..., None]
 
 
+# Relative tolerance on the empirical noise std vs the configured level. The
+# realisation is (T, N) with T*N ~ 1e9, so the sample std tracks sigma very
+# tightly; this only has to be loose enough to not trip on sampling jitter,
+# while still catching a config pointed at the wrong rung of the ladder.
+MEASUREMENT_NOISE_STD_RTOL = 0.25
+
+
+def apply_measurement_noise(x_ts, sim, logger=None):
+    """Fold the stored measurement-noise realisation into the observed voltage.
+
+    The generator keeps ``voltage`` clean and writes the observation noise
+    alongside it in ``x_list_<split>/noise.zarr``; the two must be summed to
+    get what an experimenter would actually have recorded. The nominal/GNN
+    path does this per frame (``run_nominal_train_step``), but the baseline
+    trainers slice windows out of the whole trajectory up front, so they fold
+    it in once here instead.
+
+    No-op when the config asks for no measurement noise. Mutates ``x_ts``.
+
+    Raises:
+        ValueError: if measurement noise was requested but the dataset has no
+            noise field, or the realisation's scale disagrees with the
+            configured level — both mean the run would silently train on
+            something other than the advertised noise condition.
+
+    Returns:
+        True if noise was applied, False if the config asked for none.
+    """
+    sigma = float(sim.measurement_noise_level)
+    if sigma <= 0:
+        return False
+
+    if x_ts.noise is None:
+        raise ValueError(
+            f"simulation.measurement_noise_level={sigma} but the dataset has "
+            "no noise field. determine_load_fields() requests 'noise' only "
+            "when the level is > 0, and a missing noise.zarr loads as None, "
+            "so this would have trained on clean voltage. Point the config at "
+            "a dataset generated with measurement noise, or set the level to 0."
+        )
+
+    # Guard against a config/dataset mismatch (e.g. level 0.1 against the
+    # sigma=0.5 rung, or against a clean split whose noise array is all zeros).
+    stride = max(1, x_ts.noise.shape[0] // 256)
+    observed = float(x_ts.noise[::stride].std())
+    if abs(observed - sigma) > MEASUREMENT_NOISE_STD_RTOL * sigma:
+        raise ValueError(
+            f"measurement noise scale mismatch: config asks for sigma={sigma} "
+            f"but the dataset's noise field has std={observed:.4f}. The config "
+            "is pointed at a dataset generated for a different noise level "
+            "(or at a split generated with noisy_test_data=false, whose noise "
+            "array is all zeros)."
+        )
+
+    x_ts.voltage = x_ts.voltage + x_ts.noise
+    if logger is not None:
+        logger.info(
+            f'measurement noise applied to voltage: sigma={sigma} '
+            f'(empirical std={observed:.4f})'
+        )
+    return True
+
+
 def build_model(config, device, checkpoint_path=None, reset_epoch=False):
     """Create a NeuralGNN model and optionally load a checkpoint.
 
