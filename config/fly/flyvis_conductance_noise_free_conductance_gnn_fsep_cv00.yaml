@@ -1,0 +1,82 @@
+description: ' The g_phi shape priors are OFF here, and that is the point. coeff_g_phi_diff penalises relu(g_phi(v_j) - g_phi(v_j+d)), i.e. it charges the model whenever g_phi DECREASES in the presynaptic voltage. With w_squared true the conductance W**2 is non-negative and the sign of the synapse lives entirely in g_phi, so every inhibitory edge must have g_phi decreasing in v_j -- measured on this dataset, the true message decreases in v_j on 99.0%% of (edge, frame) samples for the 151,155 inhibitory edges and on 0.0%% for the 282,957 excitatory ones, so at coeff 375 the prior was fining 34.5%% of all samples for being correct. coeff_g_phi_norm is off for the same reason: it drives EVERY sampled edge''s g_phi toward the same positive value 2*xnorm at the probe point, which an inhibitory edge cannot satisfy while carrying its own sign. Removing both leaves the W <-> g_phi gauge unpinned, so read the scale-free numbers -- msg_i R2 after dividing out the scale, and w_r2_scaled -- rather than the raw ones. ARM gnn_fsep, on top of the priors-off base: coeff_f_theta_separable 375. Penalises the mixed second difference f(v+dv, m+dm) - f(v+dv, m) - f(v, m+dm) + f(v, m), zero iff f_theta is additively separable in (v, msg) as the true update (-v + msg + I + V_rest)/tau is. This closes the route by which the GNN discarded the conductance: the postsynaptic term -v_i * sum_j W_ij relu(v_j) is exactly a v x msg product, and a free f_theta carried it instead of g_phi -- ratio_vi fell to 0.070 and 0.055, and df/dmsg varied 9.4..18.8 across a (v, msg) grid where the ODE requires a constant 1/tau. UNTUNED at 375; it is a SECOND difference, ~20x smaller than the first-difference hinges at equal curvature, so sweep upward before calling it inert.'
+dataset: flyvis_conductance_ion_noise_free_blank50_cv00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ""
+  params:
+    - - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.0
+  seed: 42
+  datavis_roots:
+    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_conductance
+  prediction: first_derivative
+  input_size: 6
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+    - -2.5
+    - 2.5
+  ylim:
+    - -100
+    - 100
+training:
+  torch_compile: true
+  mlp_precision: fp32
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  time_step: 1
+  batch_size: 4
+  regul_batch_scaling: sqrt
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_separable: 375
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 88
+  use_gt_edges: true
+  seed: 1041
+  deterministic: false
+  n_epochs: 1
+  data_augmentation_loop: 500
+config_file: fly/flyvis_conductance_noise_free_conductance_gnn_fsep_cv00
