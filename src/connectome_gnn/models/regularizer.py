@@ -33,8 +33,10 @@ class LossRegularizer:
     # Components tracked in history
     COMPONENTS = [
         'W_L1', 'W_L2', 'W_sign',
-        'g_phi_diff', 'g_phi_norm', 'g_phi_weight', 'g_phi_input_group', 'f_theta_weight',
+        'g_phi_diff', 'g_phi_norm', 'g_phi_zero_below', 'g_phi_weight', 'g_phi_input_group',
+        'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
+        'f_theta_separable',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
@@ -159,6 +161,8 @@ class LossRegularizer:
         self._coeffs['W_sign'] = tc.coeff_W_sign
         self._coeffs['g_phi_diff'] = tc.coeff_g_phi_diff
         self._coeffs['g_phi_norm'] = tc.coeff_g_phi_norm
+        self._coeffs['g_phi_zero_below'] = getattr(tc, 'coeff_g_phi_zero_below', 0.0)
+        self._coeffs['f_theta_separable'] = getattr(tc, 'coeff_f_theta_separable', 0.0)
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
         self._coeffs['f_theta_msg_diff'] = tc.coeff_f_theta_msg_diff
@@ -225,7 +229,8 @@ class LossRegularizer:
         exactly, so gating the draw on this leaves the RNG stream — and therefore
         bit-reproducibility of every existing run — untouched.
         """
-        return ((self._coeffs['g_phi_diff'] > 0 or self._coeffs['g_phi_norm'] > 0)
+        return ((self._coeffs['g_phi_diff'] > 0 or self._coeffs['g_phi_norm'] > 0
+                 or self._coeffs['g_phi_zero_below'] > 0)
                 and self.model_config.signal_model_name == 'flyvis_conductance')
 
     def sample_g_phi_perm(self, device=None):
@@ -259,7 +264,8 @@ class LossRegularizer:
         """Check if update regularization is needed (update_diff, update_msg_diff, or update_msg_sign)."""
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
-                self._coeffs['f_theta_msg_sign'] > 0)
+                self._coeffs['f_theta_msg_sign'] > 0 or
+                self._coeffs['f_theta_separable'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -402,7 +408,8 @@ class LossRegularizer:
             self._add('f_theta_zero', regul_term)
 
         # --- g_phi diff/norm regularization ---
-        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0)) and hasattr(model, 'g_phi'):
+        if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0)
+                | (self._coeffs['g_phi_zero_below'] > 0)) and hasattr(model, 'g_phi'):
             in_features_edge, in_features_edge_next = get_in_features_g_phi(
                 x, model, mc, xnorm, n_neurons, device, perm_indices=perm_indices)
 
@@ -460,6 +467,26 @@ class LossRegularizer:
                     regul_term = (msg_norm - 2 * xnorm).norm(2) * _ct['g_phi_norm']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_norm', regul_term)
+
+            if self._coeffs['g_phi_zero_below'] > 0:
+                # g_phi = 0 wherever the presynaptic voltage is <= 0, because
+                # relu(v_j) = 0 there and the true per-edge message vanishes for
+                # every edge regardless of E_ij or v_i. See config for why this is
+                # the gauge anchor rather than g_phi_norm's positive point.
+                #
+                # v_j is column 0 in both g_phi layouts (get_in_features_g_phi
+                # keeps it there deliberately). Masked by MULTIPLICATION, not
+                # boolean indexing: compute() runs under torch.compile
+                # fullgraph, and a data-dependent row count is a graph break.
+                _feat = in_features_edge[ids].clone().detach()
+                _below = (_feat[:, 0] < 0).to(_feat.dtype).unsqueeze(-1)
+                if mc.g_phi_positive:
+                    _g = model.g_phi(_feat) ** 2
+                else:
+                    _g = model.g_phi(_feat)
+                regul_term = (_g * _below).norm(2) * _ct['g_phi_zero_below']
+                total_regul = total_regul + regul_term
+                self._add('g_phi_zero_below', regul_term)
 
         # --- W_sign (Dale's Law) regularization ---
         if self._coeffs['W_sign'] > 0 and self.epoch > 0:
@@ -644,6 +671,29 @@ class LossRegularizer:
             regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * _ct['f_theta_msg_sign']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
+
+        if self._coeffs['f_theta_separable'] > 0:
+            # Mixed second difference of f_theta in (v, msg): the discrete
+            # d2f/dv.dmsg, zero iff f_theta is additively separable in the two.
+            # The generator's update never multiplies v by msg; see config for
+            # why a free f_theta otherwise absorbs the conductance's v_i term.
+            # Four evaluations on the same detached features, same step sizes
+            # as f_theta_diff / f_theta_msg_diff so the three are comparable.
+            _base = in_features.clone().detach()
+            _dv = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            _dm = _dv
+            _v_col, _m_col = 0, embedding_dim + 1
+            _fv = _base.clone(); _fv[:, _v_col] = _fv[:, _v_col] + _dv
+            _fm = _base.clone(); _fm[:, _m_col] = _fm[:, _m_col] + _dm
+            _fvm = _fv.clone(); _fvm[:, _m_col] = _fvm[:, _m_col] + _dm
+            _f00 = model.f_theta(_base)
+            _f10 = model.f_theta(_fv)
+            _f01 = model.f_theta(_fm)
+            _f11 = model.f_theta(_fvm)
+            _cross = (_f11 - _f10 - _f01 + _f00)[ids_batch]
+            regul_term = _cross.norm(2) * _ct['f_theta_separable']
+            total_regul = total_regul + regul_term
+            self._add('f_theta_separable', regul_term)
 
         return total_regul
 

@@ -1194,6 +1194,26 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_diff: float = 0  # Negative monotonicity of f_theta w.r.t. state v_i (enforces leak: df/dv < 0)
     coeff_f_theta_msg_diff: float = 0  # Monotonicity of f_theta w.r.t. aggregated message input
     coeff_f_theta_msg_sign: float = 0  # Sign consistency: f_theta output should match message sign
+    # ADDITIVE SEPARABILITY OF f_theta IN (v, msg): penalise the mixed second
+    # difference f(v+dv, m+dm) - f(v+dv, m) - f(v, m+dm) + f(v, m), which is
+    # d2f/dv.dmsg * dv * dm. The true update is (-v + msg + I + V_rest)/tau, in which
+    # v and msg never multiply, so this term is zero for the generator.
+    #
+    # It closes the route by which the GNN discards the conductance. The
+    # postsynaptic dependence of the true message, -v_i * sum_j W_ij relu(v_j), is
+    # exactly a v x msg product, and f_theta -- a free MLP of (v, a, msg, exc) with no
+    # shape constraint -- can carry it instead of g_phi. Measured on the two
+    # completed runs: g_phi's sensitivity to v_i fell to 0.070 and 0.055 of its
+    # sensitivity to v_j (ratio_vi in g_phi_discard.log), and df/dmsg varied
+    # 9.4..18.8 across a (v, msg) grid at sigma 0 where the ODE requires a constant
+    # 1/tau. With this term on, the v_i dependence has nowhere to live but g_phi.
+    #
+    # Complementary to coeff_f_theta_msg_diff, which forbids df/dmsg < 0 (the sign
+    # flip at sigma 0.05) but says nothing about df/dmsg varying with v.
+    # UNTUNED: 375 mirrors the sibling hinges. Note this is a SECOND difference,
+    # so at the same curvature it is ~(0.05 * xnorm) ~ 20x smaller than the
+    # first-difference terms; sweep upward before concluding it is inert.
+    coeff_f_theta_separable: float = 0
     coeff_func_f_theta: float = 0.0  # Penalize f_theta output at zero input
     coeff_f_theta_weight_L1: float = 0  # L1 penalty on f_theta MLP weights
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights
@@ -1201,6 +1221,26 @@ class TrainingConfig(BaseModel):
     # -- g_phi (edge message) regularizers --
     coeff_g_phi_diff: float = 0  # Positive-monotonicity prior on ∂g_phi/∂v (forces g_phi non-decreasing in presynaptic state — Dale-conformant when g_phi_positive=False)
     coeff_g_phi_norm: float = 0  # Norm penalty on g_phi edge messages
+    # ZERO-INPUT, ZERO-MESSAGE: the physically correct gauge anchor for a
+    # conductance g_phi, replacing what coeff_g_phi_norm was for.
+    #
+    # The true per-edge message is W_ij * relu(v_j) * (E_ij - v_i). Whenever
+    # v_j <= 0, relu(v_j) = 0 and the message is EXACTLY zero -- for every edge,
+    # whatever E_ij and v_i are. That is the one point of g_phi the data pin
+    # unconditionally, and it is where the msg_i <-> V_rest gauge has to be
+    # fixed: dv/dt = (-v + msg + I + V_rest)/tau cannot tell msg + c from
+    # V_rest - c, and since f_theta takes the embedding it absorbs a constant PER
+    # CELL TYPE. That is the family of parallel streaks in the msg_i scatter and
+    # the 38.65% outlier rate on V_rest of the same run -- one error, two panels.
+    #
+    # coeff_g_phi_norm pinned g_phi to a POSITIVE value at a positive probe point,
+    # which an inhibitory edge cannot satisfy while carrying its sign; this pins it
+    # to zero on the data samples where zero is the truth. Penalty is the L2 norm
+    # of g_phi over sampled (i, j) pairs, masked to v_j < 0 by multiplication
+    # rather than indexing so the shape stays static under torch.compile.
+    # UNTUNED: 5 is a guess sized between the 0.45 of the point-anchor it
+    # replaces (which acted on an O(1) deviation) and the 375 of the hinge terms.
+    coeff_g_phi_zero_below: float = 0
     # g_phi_norm anchoring target — pins g_phi(2*xnorm)^2 to resolve the W<->g_phi
     # scale degeneracy (the gain can float between W and g_phi, leaving W under-
     # scaled). "auto": legacy trainer_type behaviour (1 for signal, 2*xnorm for
