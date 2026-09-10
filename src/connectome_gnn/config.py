@@ -1203,10 +1203,18 @@ class TrainingConfig(BaseModel):
     # postsynaptic dependence of the true message, -v_i * sum_j W_ij relu(v_j), is
     # exactly a v x msg product, and f_theta -- a free MLP of (v, a, msg, exc) with no
     # shape constraint -- can carry it instead of g_phi. Measured on the two
-    # completed runs: g_phi's sensitivity to v_i fell to 0.070 and 0.055 of its
-    # sensitivity to v_j (ratio_vi in g_phi_discard.log), and df/dmsg varied
-    # 9.4..18.8 across a (v, msg) grid at sigma 0 where the ODE requires a constant
-    # 1/tau. With this term on, the v_i dependence has nowhere to live but g_phi.
+    # completed runs by probing f_theta directly on a (v, msg) grid: df/dmsg varied
+    # 9.4..18.8 at sigma 0 where the ODE requires the constant 1/tau, and at sigma
+    # 0.05 it was negative everywhere. With this term on, the v_i dependence has
+    # nowhere to live but g_phi.
+    #
+    # DO NOT read the absorption off ratio_vi in g_phi_discard.log. That ratio,
+    # |dg/dv_i| / |dg/dv_j| averaged over real (edge, frame) samples, has a TRUE
+    # value on this data of 0.081 (0.058 excitatory, 0.140 inhibitory), because
+    # |E - v_i| ~ 6.2 dwarfs relu(v_j) ~ 0.5 -- the driving force is large and the
+    # release is small, so the message is far more sensitive to the sender. The
+    # completed runs' 0.070 and 0.055 were therefore near-correct, not a discard,
+    # and a value well ABOVE 0.08 is over-sensitivity to v_i rather than retention.
     #
     # Complementary to coeff_f_theta_msg_diff, which forbids df/dmsg < 0 (the sign
     # flip at sigma 0.05) but says nothing about df/dmsg varying with v.
