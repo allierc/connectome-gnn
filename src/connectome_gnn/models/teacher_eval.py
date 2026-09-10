@@ -67,31 +67,54 @@ def score_rollout(true, pred):
                r_pooled 0.84, r_fisher 0.50. Kept in the log precisely so that
                gap is visible, never as the headline.
 
-    Non-finite anywhere in a neuron's trace excludes that neuron. A free-run that
-    produces a NaN has diverged, and there is no partial credit for the frames
-    before it did.
+    WHO SCORES ZERO AND WHO IS EXCLUDED -- this is the rule that decides whether a
+    diverged rollout can look perfect, so it is spelled out:
+
+      * truth flat (std <= 1e-8): r is UNDEFINED for that neuron, and it is
+        excluded. There is nothing to track.
+      * truth varies, prediction non-finite, overflowed, or flat: r = 0. The
+        prediction captured none of the variance, and that is a measurement, not
+        a missing value. Excluding these is how a rollout that explodes to 1e34 at
+        3.5 s scored 0.9995 -- every exploded neuron went nan in the arithmetic,
+        fisher_pool dropped it, and the 1,736 stimulus-clamped input neurons
+        scored alone. Likewise a model that predicts a flat line for 87% of the
+        network must not be graded on the 13% it moved.
+
+    `n_diverged` counts neurons with a non-finite or overflowed prediction;
+    `n_scored` counts neurons that entered the pool. Both go to the log so a
+    reader can see how much of the network the r describes.
     """
     true = np.asarray(true, dtype=np.float64)
     pred = np.asarray(pred, dtype=np.float64)
+    n_neurons = true.shape[1]
     ok = np.isfinite(true) & np.isfinite(pred)
     if ok.sum() < 2:
-        return float("nan"), float("nan"), float("nan")
+        return dict(r_fisher=float("nan"), r_pooled=float("nan"), rmse=float("nan"),
+                    n_scored=0, n_diverged=n_neurons, n_neurons=n_neurons)
     a, b = true[ok].ravel(), pred[ok].ravel()
     r_pooled = float(np.corrcoef(a, b)[0, 1]) if a.std() > 0 and b.std() > 0 else float("nan")
     rmse = float(np.sqrt(np.mean((a - b) ** 2)))
-    # per-neuron r over time, vectorised; neurons with any non-finite sample or
-    # a flat trace on either side drop out as nan and fisher_pool ignores them.
-    col_ok = ok.all(axis=0)
-    t = np.where(col_ok, true, 0.0); p = np.where(col_ok, pred, 0.0)
+    # A prediction is "overflowed" when it leaves the truth's range by a factor
+    # that no honest model reaches; 1e6x the truth's own extent is well past any
+    # gauge ambiguity and well short of float overflow.
+    extent = float(np.nanmax(np.abs(true[np.isfinite(true)])) or 1.0)
+    blown = (~np.isfinite(pred)) | (np.abs(pred) > 1e6 * extent)
+    pred_ok = ~blown.any(axis=0)
+    t = np.where(np.isfinite(true), true, 0.0)
+    p = np.where(blown, 0.0, pred)
     tc = t - t.mean(axis=0, keepdims=True)
     pc = p - p.mean(axis=0, keepdims=True)
     st = np.sqrt((tc ** 2).mean(axis=0)); sp = np.sqrt((pc ** 2).mean(axis=0))
-    good = col_ok & (st > 1e-8) & (sp > 1e-8)
+    truth_varies = st > 1e-8
+    scorable = truth_varies & pred_ok & (sp > 1e-8)
+    r_i = np.full(n_neurons, np.nan)
     num = (tc * pc).mean(axis=0)
-    r_i = np.full(true.shape[1], np.nan)
-    r_i[good] = num[good] / (st[good] * sp[good])
+    r_i[scorable] = num[scorable] / (st[scorable] * sp[scorable])
+    r_i[truth_varies & ~scorable] = 0.0          # captured nothing: scored, as zero
     r_fisher = float(fisher_pool(r_i)["r_mean"])
-    return r_fisher, r_pooled, rmse
+    return dict(r_fisher=r_fisher, r_pooled=r_pooled, rmse=rmse,
+                n_scored=int(truth_varies.sum()), n_diverged=int((~pred_ok).sum()),
+                n_neurons=n_neurons)
 
 # Green ground truth, black prediction -- the repo's GT-vs-predicted convention.
 COLOR_TRUE, COLOR_PRED, COLOR_STIM = "tab:green", "black", "tab:red"
@@ -107,15 +130,16 @@ def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
     does. A version that re-anchored the voltage would report the one-step error
     and call it a rollout.
 
-    Returns (r_fisher, rmse, true (T,N), pred (T,N), stim (T,), r_pooled). The
-    first is the per-neuron Fisher-pooled r that `-o test` reports; the last is
-    the flattened-pair r kept only to expose level-fitting -- see score_rollout.
+    Returns (r_fisher, rmse, true (T,N), pred (T,N), stim (T,), score) where
+    score is score_rollout's dict (or None when no frames ran). r_fisher is the
+    per-neuron Fisher-pooled r that `-o test` reports, with diverged and flat
+    predictions scored as zero rather than excluded -- see score_rollout.
     """
     from connectome_gnn.utils import to_numpy
 
     n_frames = int(min(n_frames, x_ts.n_frames - start - 1))
     if n_frames < 2:
-        return float("nan"), float("nan"), None, None, None, float("nan")
+        return float("nan"), float("nan"), None, None, None, None
 
     x = x_ts.frame(start)
     x.voltage = x.voltage.clone()
@@ -141,12 +165,13 @@ def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
 
     true = np.asarray(true_l)
     pred = np.asarray(pred_l)
-    r_fisher, r_pooled, rmse = score_rollout(true, pred)
-    return r_fisher, rmse, true, pred, np.asarray(stim_l), r_pooled
+    s = score_rollout(true, pred)
+    return s["r_fisher"], s["rmse"], true, pred, np.asarray(stim_l), s
 
 
 def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
-                      type_names=None, type_list=None, r_pooled=None):
+                      type_names=None, type_list=None, r_pooled=None,
+                      n_diverged=0, n_neurons=None):
     """Supplementary-Figure-6 style: stacked traces, green truth, black rollout, red stimulus.
 
     Traces are baseline-subtracted and offset so that a shared y-scale does not let
@@ -200,7 +225,8 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
     if r is not None and np.isfinite(r):
         ax.text(0.01, 0.99,
                 (f"r = {r:.4f}" if r_pooled is None else
-                 f"r = {r:.4f}  (per-neuron, Fisher-z)      pooled r = {r_pooled:.4f}"),
+                 f"r = {r:.4f}  (per-neuron, Fisher-z)      pooled r = {r_pooled:.4f}")
+                + (f"      DIVERGED: {n_diverged}/{n_neurons} neurons" if n_diverged else ""),
                 transform=ax.transAxes, va="top",
                 fontsize=9)
     fig.tight_layout()
@@ -223,26 +249,31 @@ def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration
     was_training = model.training
     model.eval()
     try:
-        r, rmse, true, pred, stim, r_pooled = teacher_rollout(
+        r, rmse, true, pred, stim, score = teacher_rollout(
             model, x_ts, edges, sim, device, n_frames=n_frames,
             has_visual_field=has_visual_field, hn=hn)
     finally:
         if was_training:
             model.train()
 
+    r_pooled = float("nan") if score is None else score["r_pooled"]
+    n_div = 0 if score is None else score["n_diverged"]
+    n_sc = 0 if score is None else score["n_scored"]
     tmp = os.path.join(log_dir, "tmp_training")
     os.makedirs(tmp, exist_ok=True)
-    # Columns: iteration, r (per-neuron Fisher-pooled -- the same statistic as
-    # `-o test`), rmse, n_frames, r_pooled (flattened pairs; level-fitting
-    # detector, see score_rollout). The fifth column is new; the first four are
-    # unchanged so any reader of the old layout still works.
+    # Columns: iteration, r (per-neuron Fisher-pooled, diverged/flat scored as 0
+    # -- the `-o test` statistic), rmse, n_frames, r_pooled (flattened pairs;
+    # level-fitting detector), n_diverged (neurons whose prediction went
+    # non-finite or overflowed), n_scored (neurons whose truth varied and so
+    # entered the pool). The first four columns are the original layout.
     with open(os.path.join(tmp, "rollout_r.log"), "a") as f:
-        f.write(f"{iteration},{r:.6f},{rmse:.6f},"
-                f"{0 if true is None else true.shape[0]},{r_pooled:.6f}\n")
+        f.write(f"{iteration},{r:.6f},{rmse:.6g},"
+                f"{0 if true is None else true.shape[0]},{r_pooled:.6f},{n_div},{n_sc}\n")
 
     if make_figure and true is not None:
         save_trace_figure(
             os.path.join(tmp, "traces", f"rollout_{iteration:08d}.png"),
             true, pred, stim, sim.delta_t, r,
-            type_names=type_names, type_list=type_list, r_pooled=r_pooled)
+            type_names=type_names, type_list=type_list, r_pooled=r_pooled,
+            n_diverged=n_div, n_neurons=true.shape[1])
     return r, rmse
