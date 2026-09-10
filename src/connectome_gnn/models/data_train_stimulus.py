@@ -14,7 +14,9 @@ import torch.nn.functional as F
 from tqdm import trange
 
 from connectome_gnn.log import get_logger
-from connectome_gnn.models.training_utils import build_model, load_flyvis_data, determine_load_fields
+from connectome_gnn.models.training_utils import (
+    build_model, load_flyvis_data, determine_load_fields, apply_measurement_noise,
+)
 from connectome_gnn.utils import create_log_dir
 
 _logger = get_logger(__name__)
@@ -75,6 +77,7 @@ def data_train_stimulus(config, erase, best_model, device, log_file=None):
         config.dataset, split='train', fields=load_fields,
     )
     x_ts = x_ts.to(device)
+    apply_measurement_noise(x_ts, sim, logger=_logger)
 
     n_neurons = x_ts.n_neurons
     n_frames = x_ts.n_frames
