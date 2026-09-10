@@ -346,9 +346,19 @@ Per-block notes:
   zero. Here `(E_i - v_i)` is real, so those inputs **are** needed and the same lasso must
   **not** discard them. Read `g_phi_discard.log`: `ratio_vi` and `ratio_ai` are the
   gradient of g_phi with respect to `v_i` and `a_i` divided by its gradient with respect to
-  `v_j`, so **them falling toward zero IS the discard you are testing for**. A lasso
-  strength that keeps them up here while still discarding them on current data would be a
-  single specification serving both data families — that is the win condition.
+  `v_j`, averaged over real (edge, frame) samples.
+
+  **THE REFERENCE VALUE IS NOT 1, IT IS 0.081.** On this dataset the true message
+  `relu(v_j)·(E_ij − v_i)` has |∂/∂v_i| / |∂/∂v_j| = ⟨relu(v_j)⟩ / ⟨|E − v_i|⟩ ≈ 0.5 / 6.2 =
+  **0.081** (0.058 on excitatory edges, 0.140 on inhibitory), because the driving force is
+  large and the release small. So a `ratio_vi` near 0.05–0.10 is the model being *right*;
+  the discard you are testing for is `ratio_vi` falling **well below** that, toward 0.01
+  and under; and a value far **above** it — 1.3 was measured on one arm — is
+  over-sensitivity to `v_i`, which is a different failure and not a success. A random
+  MLP starts near 1.1, so the trajectory from init *down* to ~0.08 is convergence, not
+  loss. A lasso strength that holds `ratio_vi` near 0.08 here while driving it to zero on
+  current data would be a single specification serving both data families — that is the
+  win condition.
   (These columns are all-NaN on `flyvis_current`, which has no `v_i`/`a_i` inputs at all.
   Here they are meaningful.)
 - **Block 6**: `coeff_g_phi_weight_L1 >= 0.1` is known to collapse training at flyvis
