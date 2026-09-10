@@ -1,4 +1,4 @@
-description: ""
+description: ' The g_phi shape priors are OFF here, and that is the point. coeff_g_phi_diff penalises relu(g_phi(v_j) - g_phi(v_j+d)), i.e. it charges the model whenever g_phi DECREASES in the presynaptic voltage. With w_squared true the conductance W**2 is non-negative and the sign of the synapse lives entirely in g_phi, so every inhibitory edge must have g_phi decreasing in v_j -- measured on this dataset, the true message decreases in v_j on 99.0%% of (edge, frame) samples for the 151,155 inhibitory edges and on 0.0%% for the 282,957 excitatory ones, so at coeff 375 the prior was fining 34.5%% of all samples for being correct. coeff_g_phi_norm is off for the same reason: it drives EVERY sampled edge''s g_phi toward the same positive value 2*xnorm at the probe point, which an inhibitory edge cannot satisfy while carrying its own sign. Removing both leaves the W <-> g_phi gauge unpinned, so read the scale-free numbers -- msg_i R2 after dividing out the scale, and w_r2_scaled -- rather than the raw ones.'
 dataset: flyvis_conductance_ion_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -62,8 +62,8 @@ training:
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 375
-  coeff_g_phi_norm: 0.45
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
   coeff_g_phi_weight_L1: 0.14
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_msg_diff: 0
