@@ -1202,11 +1202,13 @@ class TrainingConfig(BaseModel):
     # It closes the route by which the GNN discards the conductance. The
     # postsynaptic dependence of the true message, -v_i * sum_j W_ij relu(v_j), is
     # exactly a v x msg product, and f_theta -- a free MLP of (v, a, msg, exc) with no
-    # shape constraint -- can carry it instead of g_phi. Measured on the two
-    # completed runs by probing f_theta directly on a (v, msg) grid: df/dmsg varied
-    # 9.4..18.8 at sigma 0 where the ODE requires the constant 1/tau, and at sigma
-    # 0.05 it was negative everywhere. With this term on, the v_i dependence has
-    # nowhere to live but g_phi.
+    # shape constraint -- can carry it instead of g_phi. Measured by probing f_theta
+    # directly on a (v, msg) grid: on the sigma-0.05 conductance-form run df/dmsg was
+    # negative everywhere, where the ODE requires the constant +1/tau. (A sigma-0 run
+    # probed the same way gave df/dmsg varying 9.4..18.8, but that run was later found
+    # to be the sign-in-W form -- g_phi_positive true, no w_squared -- so it is a
+    # measurement of a different model and is not cited here.) With this term on,
+    # the v_i dependence has nowhere to live but g_phi.
     #
     # DO NOT read the absorption off ratio_vi in g_phi_discard.log. That ratio,
     # |dg/dv_i| / |dg/dv_j| averaged over real (edge, frame) samples, has a TRUE
