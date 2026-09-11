@@ -1,4 +1,4 @@
-description: 'Conductance GNN on the rig-2 (ion) twin''s data, noise 0.05, fold 0. STRUCTURE: W enters squared (w_squared true), so the learned edge weight is a non-negative conductance, and g_phi is NOT squared (g_phi_positive false), so the sign of every synapse must be produced by g_phi(v_j, a_j, v_i, a_i) -- learned from the two embeddings, with no polarity input. This is the parameterisation the generator implies: g_phi has to become relu(v_j) * (E_ij - v_i), which is positive on excitatory edges, negative on 99%% of inhibitory samples, and reverses on 18%% of (neuron, frame) samples where v_i crosses E_Cl. Everything else -- MLP sizes, learning rates, batch, and EVERY regulariser -- is copied from the current-GNN paper config flyvis_current_noise_005_current_cv00, as the baseline the regulariser discussion starts from; w_init_scale 88 is the one addition, so W**2 starts at the true non-zero conductance mean (0.0179) rather than at 2.3e-6. The eight earlier conductance GNN arms are in archive_5, with their logs.'
+description: 'Conductance GNN on the rig-2 (ion) twin''s data, noise 0.05, fold 0. STRUCTURE: W enters squared (w_squared true), so the learned edge weight is a non-negative conductance, and g_phi is NOT squared (g_phi_positive false), so the sign of every synapse must be produced by g_phi(v_j, a_j, v_i, a_i) -- learned from the two embeddings, with no polarity input. This is the parameterisation the generator implies: g_phi has to become relu(v_j) * (E_ij - v_i), which is positive on excitatory edges, negative on 99%% of inhibitory samples, and reverses on 18%% of (neuron, frame) samples where v_i crosses E_Cl. Everything else -- MLP sizes, learning rates, batch, and EVERY regulariser -- is copied from the current-GNN paper config flyvis_current_noise_005_current_cv00, as the baseline the regulariser discussion starts from; w_init_scale 88 is the one addition, so W**2 starts at the true non-zero conductance mean (0.0179) rather than at 2.3e-6. The eight earlier conductance GNN arms are in archive_5, with their logs. REGULARISERS, decided against the current-GNN paper values after the archive_5 round: coeff_g_phi_diff 375 -> 0 (its hinge fines g_phi for decreasing in v_j, which an inhibitory g_phi must do -- 99%% of inhibitory samples); coeff_g_phi_norm 0.45 -> 0 (pins every pair to +2*xnorm, which an inhibitory pair cannot reach); coeff_g_phi_weight_L1 0.14 -> 0 (with the norm anchor gone it collapses g_phi to zero, message scale 1e-13 by iteration 16K); coeff_g_phi_zero_below 0 -> 5, the sign-free anchor that replaces them -- g_phi = 0 wherever v_j < 0, exact for every edge, the only free-run-stable arm of the last round and the one that brought tau outliers to the known-ODE''s level. Every other coefficient is the paper''s. Known and left as-is: coeff_W_L1/L2 act on the raw W = sqrt(g), so L1 on W is L1 on sqrt(g) and L2 on W is L1 on the conductance; coeff_W_sign and lock_edge_signs_from_connectome are inert under w_squared. Open lever not used here: coeff_embedding_cluster, the one term that addresses the sign having to come from (a_i, a_j).'
 dataset: flyvis_conductance_ion_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -62,10 +62,11 @@ training:
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 375
-  coeff_g_phi_norm: 0.45
-  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
   coeff_g_phi_weight_L2: 0
+  coeff_g_phi_zero_below: 5
   coeff_f_theta_msg_diff: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_f_theta_weight_L2: 0.0005
