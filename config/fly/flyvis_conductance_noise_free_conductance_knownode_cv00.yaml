@@ -1,5 +1,5 @@
-description: 'Known-ODE conductance recovery on the rig-2 (ion) twin, noise-free, fold 0.'
-dataset: flyvis_conductance_ion_noise_free_blank50_cv00
+description: 'Known-ODE conductance recovery on the rig-2 (ion, E_inh below rest) twin, noise-free, fold 0.'
+dataset: flyvis_conductance_ion_sub_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
