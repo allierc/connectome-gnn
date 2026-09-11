@@ -398,7 +398,8 @@ if __name__ == "__main__":
             try:
                 from connectome_gnn.plot_twin import plot_twin_params
                 from connectome_gnn.models.training_utils import init_training_data
-                _d = init_training_data(config, device)
+                import logging as _logging
+                _d = init_training_data(config, device, run_log_dir, _logging.getLogger(__name__))
                 _p = plot_twin_params(run_log_dir, _d.ode_params, x_ts=_d.x_ts)
                 if _p:
                     print(f"twin parameter panels -> {_p}")

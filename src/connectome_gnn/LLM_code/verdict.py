@@ -174,15 +174,15 @@ def collect_metrics_from_run_dirs(run_dirs: Sequence[str]) -> Dict[str, List[flo
     """Parse metrics.txt files produced by data_plot into a per-metric seed list.
 
     Reads `<run_dir>/results/metrics.txt` for each run and extracts
-    W_corrected_R2, tau_R2, V_rest_R2, clustering_accuracy, and rollout/one-step
-    pearson (if present). Primary returned key is W_R2 (alias of W_corrected_R2).
+    Wij_R2_all, tau_R2_all, V_rest_R2_all, clustering_accuracy, and rollout/one-step
+    pearson (if present). Primary returned key is W_R2 (alias of Wij_R2_all, the full-sample W R2).
     """
     import os
 
     wanted = {
-        "W_corrected_R2": "W_R2",
-        "tau_R2": "tau_R2",
-        "V_rest_R2": "V_rest_R2",
+        "Wij_R2_all": "W_R2",
+        "tau_R2_all": "tau_R2",
+        "V_rest_R2_all": "V_rest_R2",
         "clustering_accuracy": "clustering_accuracy",
     }
     out: Dict[str, List[float]] = {v: [] for v in wanted.values()}

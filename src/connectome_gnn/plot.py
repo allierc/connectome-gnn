@@ -8,6 +8,7 @@ Metric computation lives in connectome_gnn.metrics — re-exported here
 for backward compatibility.
 """
 import os
+import re
 from collections import deque
 
 import matplotlib.pyplot as plt
@@ -152,35 +153,29 @@ def plot_training_summary_panels(fig, log_dir, Niter=None):
         else:
             plt.title(title, fontsize=style.label_font_size)
 
-    # Panel 6: R² metrics trajectory
-    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
-    if os.path.exists(metrics_log_path):
-        r2_iters, conn_vals, vrest_vals, tau_vals = [], [], [], []
+    # Panel 6: R² metrics trajectory, from tmp_training/<key>.log by column name
+    from connectome_gnn.metrics import training_log_read
+    _series6 = []
+    for _name, _col, _color, _label in (("Wij", "Wij_R2", "#d62728", "conn"),
+                                        ("V_rest", "V_rest_R2", "#1f77b4", r'$V_{rest}$'),
+                                        ("tau", "tau_R2", "#2ca02c", r'$\tau$')):
         try:
-            with open(metrics_log_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith(('epoch', 'iteration')):
-                        continue
-                    parts = line.split(',')
-                    r2_iters.append(int(parts[0]))
-                    conn_vals.append(float(parts[1]))
-                    vrest_vals.append(float(parts[2]) if len(parts) > 2 else 0.0)
-                    tau_vals.append(float(parts[3]) if len(parts) > 3 else 0.0)
+            _d = training_log_read(log_dir, _name)
         except Exception:
-            pass
-        if conn_vals:
-            ax6 = fig.add_subplot(2, 3, 6)
-            ax6.plot(r2_iters, conn_vals, color='#d62728', linewidth=style.line_width, label='conn')
-            ax6.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=style.line_width, label=r'$V_{rest}$')
-            ax6.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=style.line_width, label=r'$\tau$')
-            ax6.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
-            ax6.set_ylim(-0.05, 1.05)
-            style.xlabel(ax6, 'iteration')
-            style.ylabel(ax6, r'$R^2$')
-            ax6.set_title(r'$R^2$ metrics', fontsize=style.label_font_size)
-            ax6.legend(fontsize=style.annotation_font_size, loc='lower right')
-            ax6.grid(True, alpha=0.3)
+            _d = None
+        if _d is not None and _col in _d and np.isfinite(_d[_col]).any():
+            _series6.append((_d["iteration"], _d[_col], _color, _label))
+    if _series6:
+        ax6 = fig.add_subplot(2, 3, 6)
+        for _it, _v, _c, _l in _series6:
+            ax6.plot(_it, _v, color=_c, linewidth=style.line_width, label=_l)
+        ax6.axhline(y=0.9, color='green', linestyle='--', alpha=0.4, linewidth=1)
+        ax6.set_ylim(-0.05, 1.05)
+        style.xlabel(ax6, 'iteration')
+        style.ylabel(ax6, r'$R^2$')
+        ax6.set_title(r'$R^2$ metrics', fontsize=style.label_font_size)
+        ax6.legend(fontsize=style.annotation_font_size, loc='lower right')
+        ax6.grid(True, alpha=0.3)
 
 
 
@@ -2278,11 +2273,11 @@ def plot_signal_loss(loss_dict, log_dir, epoch=None, Niter=None, epoch_boundarie
 def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
     """Render R\u00b2 and NNR per-neuron Pearson trajectories into metrics.png.
 
-    Reads ``{log_dir}/tmp_training/metrics.log`` (R\u00b2: connectivity, V_rest,
-    tau) and ``{log_dir}/tmp_training/nnr_pearson.log`` (per-neuron Pearson
+    Reads ``{log_dir}/tmp_training/{Wij,V_rest,tau}.log`` (R\u00b2 trajectories,
+    by column name) and ``{log_dir}/tmp_training/nnr_pearson.log`` (per-neuron Pearson
     r mean+SD when an NGP/SIREN hidden head is active). Layout:
 
-    - 1\u00d71 if only metrics.log has rows.
+    - 1\u00d71 if only the R\u00b2 logs have rows.
     - 1\u00d72 if both logs have rows (R\u00b2 panel + NNR mean \u00b1 SD panel).
     - skipped (no file written) if neither has rows.
 
@@ -2291,59 +2286,40 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
     refresh) instead of the slower ``plot_frequency`` (\u2248Niter/20)
     tick that gates ``loss.png``.
     """
-    metrics_log_path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
     nnr_log_path = os.path.join(log_dir, 'tmp_training', 'nnr_pearson.log')
 
-    # metrics.log columns:
-    # 0 iteration
-    # 1 connectivity_r2
-    # 2 vrest_r2 (raw, with outliers)
-    # 3 tau_r2   (raw, with outliers)
-    # 4 hidden_nnr_pearson
-    # 5 anchor_nnr_pearson
-    # 6 vrest_r2_clean
-    # 7 n_out_vrest
-    # 8 n_total_vrest
-    # 9 tau_r2_clean
-    # 10 n_out_tau
-    # 11 n_total_tau
+    # The R2 trajectories, one file per quantity, read BY COLUMN NAME
+    # (metrics.training_log_read). <key>_R2 is the outlier-filtered headline,
+    # <key>_R2_all the unfiltered one, <key>_pct_outliers the share removed. A
+    # quantity's file is absent when the model does not have it, and W's rows
+    # carry nan while a conductance GNN is below the line-fit gate.
+    from connectome_gnn.metrics import training_log_read
+
+    def _series(name, col):
+        try:
+            d = training_log_read(log_dir, name)
+        except Exception:
+            d = None
+        if d is None or col not in d:
+            return [], []
+        return d['iteration'].tolist(), d[col].tolist()
+
+    w_iters, conn_vals = _series('Wij', 'Wij_R2')
+    v_iters, vrest_vals = _series('V_rest', 'V_rest_R2_all')
+    _, vrest_clean_vals = _series('V_rest', 'V_rest_R2')
+    _, vrest_out_pct = _series('V_rest', 'V_rest_pct_outliers')
+    t_iters, tau_vals = _series('tau', 'tau_R2_all')
+    _, tau_clean_vals = _series('tau', 'tau_R2')
+    _, tau_out_pct = _series('tau', 'tau_pct_outliers')
+    r2_iters = sorted(set(w_iters) | set(v_iters) | set(t_iters))
+
     def _f(parts, idx):
         if idx >= len(parts):
             return np.nan
-        v = parts[idx]
         try:
-            return float(v)
+            return float(parts[idx])
         except ValueError:
             return np.nan
-
-    r2_iters = []
-    conn_vals, vrest_vals, tau_vals = [], [], []
-    vrest_clean_vals, tau_clean_vals = [], []
-    vrest_out_pct, tau_out_pct = [], []
-    if os.path.exists(metrics_log_path):
-        try:
-            with open(metrics_log_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith(('epoch', 'iteration')):
-                        continue
-                    parts = line.split(',')
-                    r2_iters.append(int(parts[0]))
-                    conn_vals.append(_f(parts, 1))
-                    vrest_vals.append(_f(parts, 2))
-                    tau_vals.append(_f(parts, 3))
-                    vrest_clean_vals.append(_f(parts, 6))
-                    tau_clean_vals.append(_f(parts, 9))
-                    n_out_v = _f(parts, 7)
-                    n_tot_v = _f(parts, 8)
-                    n_out_t = _f(parts, 10)
-                    n_tot_t = _f(parts, 11)
-                    vrest_out_pct.append(100.0 * n_out_v / n_tot_v
-                                         if n_tot_v and n_tot_v > 0 else np.nan)
-                    tau_out_pct.append(100.0 * n_out_t / n_tot_t
-                                       if n_tot_t and n_tot_t > 0 else np.nan)
-        except Exception:
-            r2_iters = []
 
     nnr_iters, nnr_h_mean, nnr_h_std, nnr_a_mean, nnr_a_std = [], [], [], [], []
     if os.path.exists(nnr_log_path):
@@ -2441,18 +2417,18 @@ def plot_metrics(log_dir, epoch_boundaries=None, ngp_stages=None):
 
     if has_r2:
         # Connectivity: single solid line.
-        ax_r2.plot(r2_iters, conn_vals, color='#d62728', linewidth=1.2,
+        ax_r2.plot(w_iters, conn_vals, color='#d62728', linewidth=1.2,
                    label=r'$R^2_W$')
         # V_rest: solid = wo outlier (clean), dashed = raw (with outliers).
-        ax_r2.plot(r2_iters, vrest_clean_vals, color='#1f77b4', linewidth=1.2,
+        ax_r2.plot(v_iters, vrest_clean_vals, color='#1f77b4', linewidth=1.2,
                    label=r'$R^2_{V_{rest}}$ (wo outlier)')
-        ax_r2.plot(r2_iters, vrest_vals, color='#1f77b4', linewidth=1.0,
+        ax_r2.plot(v_iters, vrest_vals, color='#1f77b4', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_{V_{rest}}$ (raw)')
         # τ: solid = wo outlier (clean), dashed = raw.
-        ax_r2.plot(r2_iters, tau_clean_vals, color='#2ca02c', linewidth=1.2,
+        ax_r2.plot(t_iters, tau_clean_vals, color='#2ca02c', linewidth=1.2,
                    label=r'$R^2_\tau$ (wo outlier)')
-        ax_r2.plot(r2_iters, tau_vals, color='#2ca02c', linewidth=1.0,
+        ax_r2.plot(t_iters, tau_vals, color='#2ca02c', linewidth=1.0,
                    linestyle='--', alpha=0.7,
                    label=r'$R^2_\tau$ (raw)')
         ax_r2.axhline(y=0.9, color='gray', linestyle='--', alpha=0.4, linewidth=1)
@@ -2934,7 +2910,7 @@ plot_training_flyvis = plot_training_gnn
 
 def plot_training_linear(model, config, epoch, N, log_dir, device,
                          gt_weights, n_neurons=None, type_list=None,
-                         save_panels=True):
+                         save_panels=True, rec=None):
     """Training diagnostics for LinearODE — raw W scatter + tau/Vrest vs GT.
 
     Uses compute_dynamics_r2_linear from metrics for R² computation,
@@ -2953,7 +2929,16 @@ def plot_training_linear(model, config, epoch, N, log_dir, device,
 
     # Compute all R² values via shared metrics function. Returns (dict, conn_r2)
     # where dict has vrest_r2 / tau_r2 plus cleaned + outlier-count fields.
-    dyn_r2, conn_r2 = compute_dynamics_r2_linear(model, config, device, n_neurons)
+    if rec is not None:
+        # The trainer already extracted; draw those arrays, score that dict.
+        from connectome_gnn.metrics import _dynamics_dict_from, score_recovery
+        dyn_r2 = _dynamics_dict_from(rec, config)
+        _sc = score_recovery(rec, config)
+        conn_r2 = _sc.get('Wij_R2', 0.0)
+        dyn_r2['n_out_conn'] = _sc.get('Wij_n_outliers', 0)
+        dyn_r2['n_total_conn'] = _sc.get('Wij_n', 0)
+    else:
+        dyn_r2, conn_r2 = compute_dynamics_r2_linear(model, config, device, n_neurons)
     vrest_r2 = dyn_r2['vrest_r2']
     tau_r2   = dyn_r2['tau_r2']
 
@@ -3353,7 +3338,7 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
 
 def plot_dynamics_recovery(dynamics, log_dir, epoch, N, type_list=None,
                            save_panels=True):
-    """tau and V_rest recovery panels for a GNN, from the arrays metrics.log used.
+    """tau and V_rest recovery panels for a GNN, from the arrays tau.log/V_rest.log scored.
 
     THESE EXIST FOR A GNN, which is the thing that is easy to get wrong. The
     known-ODE student parameterises tau and V_rest directly; a GNN buries them
@@ -3563,9 +3548,23 @@ def report_learned_reversals(model, log_dir, edges=None, type_list=None,
     v_lo = _scalar(v_min, None)
     v_hi = _scalar(v_max, None)
 
-    out_dir = os.path.join(log_dir, "results")
+    return _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi,
+                                  os.path.join(log_dir, "results"),
+                                  "learned_reversals", style)
+
+
+def _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi, out_dir, stem,
+                           style: FigureStyle = default_style, note=None):
+    """The per-type reversal CSV and figure shared by the student report
+    (report_learned_reversals) and the dataset report (report_dataset_reversals).
+
+    Arrays are per NEURON (n,): E_exc, E_inh, the cell-type id, a bool for
+    "some edge targets this neuron", and the voltage extremes (or None). Writes
+    ``<out_dir>/<stem>.csv`` and ``<out_dir>/<stem>.png``; returns the CSV path.
+    """
+    n = E_exc.size
     os.makedirs(out_dir, exist_ok=True)
-    csv_path = os.path.join(out_dir, "learned_reversals.csv")
+    csv_path = os.path.join(out_dir, f"{stem}.csv")
 
     rows = []
     for t in sorted(set(types.tolist())):
@@ -3641,8 +3640,77 @@ def report_learned_reversals(model, log_dir, edges=None, type_list=None,
     style.xlabel(ax, "reversal potential (voltage units)")
     ax.legend(fontsize=style.annotation_font_size, frameon=False,
               loc="lower right")
-    style.savefig(fig, os.path.join(out_dir, "learned_reversals.png"))
+    if note:
+        ax.text(0.01, 0.995, note, transform=ax.transAxes, va="top", ha="left",
+                fontsize=style.annotation_font_size, color=style.foreground)
+    style.savefig(fig, os.path.join(out_dir, f"{stem}.png"))
     return csv_path
+
+
+def report_dataset_reversals(dataset_dir, style: FigureStyle = default_style):
+    """The reversal potentials a conductance dataset was GENERATED with ->
+    ``<dataset_dir>/reversals.csv`` and ``reversals.png``.
+
+    The training runs recover E_ij against these, so they belong beside the
+    data, not only inside the teacher-student run that produced them. Reads
+    ``ode_params.pt`` (E_exc, E_inh per neuron, edge_index, edge_is_inh), the
+    per-neuron cell type from ``x_list_train/neuron_type.zarr``, and the
+    voltage range the generator logged in ``generation_log.txt`` for the
+    shaded band. One row per postsynaptic cell type -- the granularity the ion
+    rig resolves: one cation reversal for every type, one chloride reversal per
+    type. Returns the CSV path, or None when the dataset has no reversals.
+    """
+    p_path = os.path.join(dataset_dir, "ode_params.pt")
+    if not os.path.isfile(p_path):
+        return None
+    p = torch.load(p_path, map_location="cpu", weights_only=False)
+    if not isinstance(p, dict) or p.get("E_exc") is None or p.get("E_inh") is None:
+        return None
+    E_exc = np.asarray(to_numpy(p["E_exc"])).ravel().astype(float)
+    E_inh = np.asarray(to_numpy(p["E_inh"])).ravel().astype(float)
+    n = min(E_exc.size, E_inh.size)
+    E_exc, E_inh = E_exc[:n], E_inh[:n]
+
+    types = np.zeros(n, dtype=int)
+    t_path = os.path.join(dataset_dir, "x_list_train", "neuron_type.zarr")
+    if os.path.isdir(t_path):
+        try:
+            import zarr
+            types = np.asarray(zarr.open(t_path, mode="r")[:]).ravel().astype(int)[:n]
+        except Exception:
+            pass
+
+    targeted = np.zeros(n, dtype=bool)
+    ei = p.get("edge_index")
+    if ei is not None:
+        dst = np.asarray(to_numpy(ei)).reshape(2, -1)[1]
+        targeted[np.unique(dst) % n] = True
+    else:
+        targeted[:] = True
+
+    v_lo = v_hi = None
+    g_path = os.path.join(dataset_dir, "generation_log.txt")
+    if os.path.isfile(g_path):
+        with open(g_path) as f:
+            m = re.search(r"voltage_range:\s*([-+.\deE]+)\s*\.\.\s*([-+.\deE]+)", f.read())
+        if m:
+            v_lo = np.full(n, float(m.group(1)))
+            v_hi = np.full(n, float(m.group(2)))
+
+    n_types = len(set(types.tolist()))
+    frac_inh = None
+    if p.get("edge_is_inh") is not None:
+        eih = np.asarray(to_numpy(p["edge_is_inh"])).ravel().astype(bool)
+        frac_inh = float(eih.mean()) if eih.size else None
+    e_exc_txt = (f"{E_exc[0]:+.2f}" if np.allclose(E_exc, E_exc[0])
+                 else f"[{E_exc.min():+.2f}, {E_exc.max():+.2f}]")
+    note = (f"{n_types} postsynaptic types   $E_{{exc}}$ = {e_exc_txt} (one cation reversal)   "
+            f"$E_{{inh}}$ in [{E_inh.min():+.2f}, {E_inh.max():+.2f}] "
+            f"({np.unique(np.round(E_inh, 4)).size} distinct chloride reversals)")
+    if frac_inh is not None:
+        note += f"   inhibitory edges {100 * frac_inh:.0f}%"
+    return _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi,
+                                  dataset_dir, "reversals", style, note)
 
 
 def plot_weight_comparison(w_true, w_modified, output_path, xlabel='true $W$', ylabel='modified $W$', color='white'):

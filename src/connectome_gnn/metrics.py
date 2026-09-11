@@ -11,6 +11,7 @@ Used by:
 """
 from typing import Optional
 
+import os
 import numpy as np
 import torch
 from scipy.optimize import curve_fit
@@ -1145,20 +1146,29 @@ def extract_conductance_params_from_gnn(model, config, edges, x_ts, n_frames=64,
 
 
 def r2_up_to_scale(true, learned):
-    """R2 of `learned` against `true` after fitting ONE global scale factor.
+    """R2 of `learned` against `true` after dividing out ONE global gain.
 
-    For a quantity the model can only pin down up to a common gain -- the GNN's
-    W_ij, where W and the amplitude of g_phi^2 trade off exactly -- the ordinary
-    identity-line R2 reports that gain as error and says nothing about whether the
-    shape is right. This divides the gain out first: it fits the single c that
-    minimises ||c*learned - true||^2, which is c = <true, learned> / <learned,
-    learned>, then returns the identity-line R2 of c*learned against true.
+    For a quantity the model can only pin down up to a common factor -- the GNN's
+    W_ij, where W and the amplitude of g_phi trade off exactly; msg_i on a GNN,
+    which carries the same g_phi gain -- the identity-line R2 charges that factor
+    as error and says nothing about whether the shape is right.
 
-    ONE free parameter over however many edges there are, and the slope afterwards
-    is 1 BY CONSTRUCTION, so the slope is not a result and must not be reported as
-    one. `scale` is returned separately for the record.
+    THE ONE GAIN CONVENTION, used by every `<key>_gain` this module emits:
 
-    Returns dict with r2, scale, n.
+        gain = <true, learned> / <true, true>        so that  learned ~= gain * true
+
+    i.e. the least-squares factor through the origin with `true` as the regressor,
+    1.0 being perfect, 2.0 meaning the learned values are twice too large. The R2
+    is then the identity-line R2 of learned / gain against true. (The reciprocal
+    fit, c = <true, learned> / <learned, learned> with c * learned against true,
+    gives a slightly different R2 and a gain that reads backwards; it was the
+    convention here before 2026-09-11 while test_plot's `w_scale` and the
+    trainer's msg_i scale used this one -- that split is gone.)
+
+    ONE free parameter over however many samples there are, and the slope
+    afterwards is 1 BY CONSTRUCTION, so no slope is returned.
+
+    Returns dict with r2, gain, n. `scale` is kept as an alias of `gain`.
     """
     true = np.asarray(true).ravel().astype(np.float64)
     learned = np.asarray(learned).ravel().astype(np.float64)
@@ -1166,12 +1176,15 @@ def r2_up_to_scale(true, learned):
     true, learned = true[:n], learned[:n]
     ok = np.isfinite(true) & np.isfinite(learned)
     true, learned = true[ok], learned[ok]
-    denom = float(learned @ learned)
+    denom = float(true @ true)
+    nan = float('nan')
     if true.size < 2 or denom <= 0:
-        return {'r2': float('nan'), 'scale': float('nan'), 'n': int(true.size)}
-    c = float(true @ learned) / denom
-    r2, _ = _r2_slope_identity(true, c * learned)
-    return {'r2': r2, 'scale': c, 'n': int(true.size)}
+        return {'r2': nan, 'gain': nan, 'scale': nan, 'n': int(true.size)}
+    gain = float(true @ learned) / denom
+    if abs(gain) < 1e-300:
+        return {'r2': nan, 'gain': gain, 'scale': gain, 'n': int(true.size)}
+    r2, _ = _r2_slope_identity(true, learned / gain)
+    return {'r2': r2, 'gain': gain, 'scale': gain, 'n': int(true.size)}
 
 
 def g_phi_first_layer_discard_score(model, emb_dim):
@@ -2593,6 +2606,7 @@ def _extract_direct(rec, model, ode_params, edges, n_neurons):
     if w_true is not None and w_learned is not None:
         rec.pairs["W"] = _pair(w_true, w_learned)
         rec.estimator["W"] = "direct"
+        rec.diagnostics["_W_learned_full"] = np.asarray(to_numpy(w_learned)).ravel()
         rec.correction["W"] = ("W**2 (stored value is sqrt of the conductance)"
                                if getattr(core, "w_squared", False) else "none")
 
@@ -2713,6 +2727,29 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                           `W**2 (stored value is sqrt of the conductance)` or
                           `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
 
+    ALWAYS, per quantity:
+
+        <key>_rel_err_median  median of |learned - true| / max(|true|, 1e-6) over
+                              the full sample, and
+        <key>_rel_err_iqr     its interquartile range. Median and IQR, never mean
+                              and SD, which the heavy tails inflate.
+
+    ONLY FOR W AND msg_i, the two a GNN pins down up to a gain:
+
+        <key>_gain        learned ~= gain * true, the least-squares factor through
+                          the origin with the truth as regressor (see
+                          :func:`r2_up_to_scale`). 1.0 is perfect; 2.0 means twice
+                          too large. THE ONE CONVENTION -- the reciprocal
+                          <true,learned>/<learned,learned> is not used anywhere.
+        <key>_R2_scaled   the identity-line R2 once that gain is divided out. The
+                          number to steer by while <key>_R2 is deeply negative.
+
+    ONLY FOR W, scale ignored altogether (over edges whose true weight is non-zero):
+
+        Wij_pearson       Pearson r of learned against true. High with a low
+                          Wij_R2 reads "wiring recovered, scale not".
+        Wij_zscored_R2    identity-line R2 of the two z-scored vectors.
+
     THREE KEYS THAT ARE NOT PER-QUANTITY:
 
         Wij_R2_uncorrected  W scored BEFORE the gain correction. Says how much of
@@ -2735,12 +2772,30 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `rec.get(q)` return None, so `score_recovery` skips the whole family rather
     than reporting a number nothing stands behind. Absence is the signal.
 
-    RENAMED IN THE UNIFICATION, and listed so an old log or document can be read:
-    `connectivity_R2` / `connectivity_R2_scaled` / `connectivity_pearson_r` ->
-    `Wij_R2`; `raw_W_R2` -> `Wij_R2_all`; `Eij_n_edges` -> `Eij_n`. `w_scale` was
-    never one of these keys at all -- it is a column of
-    `tmp_training/gnn_conductance_fit.log`, produced only by the GNN branch of
-    :func:`compute_reversal_metrics`; the equivalent here is `Wij_slope`.
+    WHERE THE NUMBERS LAND, spelled identically in all three places:
+
+        tmp_training/<key>.log   one CSV per quantity (Wij.log, tau.log, V_rest.log,
+                                 Eij.log, msg_i.log), header `iteration,<key>_R2,
+                                 <key>_R2_all,...` in :func:`recovery_log_columns`
+                                 order; one row per training checkpoint. Read by
+                                 name with :func:`training_log_read`. cluster.log
+                                 and rollout.log follow the same layout for the
+                                 two numbers that are not recovered parameters.
+        results/metrics.txt      `key: value`, written once by `-o test_plot`
+                                 through :func:`write_recovery_metrics`.
+        the per-slot analysis log the LLM exploration reads: the same lines.
+
+    RENAMED ON 2026-09-11 (tools/extraction_gate.py carries the map for logs
+    written before): `connectivity_R2` / `W_corrected_no_outliers_R2` -> `Wij_R2`;
+    `W_corrected_R2` -> `Wij_R2_all`; `connectivity_R2_scaled` -> `Wij_R2_scaled`;
+    `w_scale` -> `Wij_gain`; `connectivity_pearson_r` / `W_structure_r` ->
+    `Wij_pearson`; `W_zscored_R2` -> `Wij_zscored_R2`; `raw_W_R2` ->
+    `Wij_R2_uncorrected`; test_plot's old `tau_R2` (unfiltered) -> `tau_R2_all`
+    and `tau_no_outliers_R2` -> `tau_R2`, likewise V_rest; `Eij_n_edges` ->
+    `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
+    columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
+    `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
+    `gnn_conductance_fit.log`'s `fit_r2_median` -> `Eij_gate`.
     """
     rec = RecoveredParams()
     if ode_params is None:
@@ -2769,14 +2824,37 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
         print(f"\033[91mextract_recovered_params({estimator}) failed: "
               f"{type(exc).__name__}: {exc}\033[0m")
 
-    if "msg_i" in need and _is_conductance_data(ode_params) and x_ts is not None:
+    # msg_i ON BOTH DATA FAMILIES: the true message on current data is simply
+    # W_ij * act(v_j) with no driving-force factor, and compute_msg_i_recovery
+    # builds that itself (None only when there is no ground-truth W). It is the
+    # one recovery number that needs no estimator choice, so a current run wants
+    # it beside Wij_R2 exactly as a conductance run does.
+    if "msg_i" in need and x_ts is not None:
         try:
             out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
-        except Exception:
+        except Exception as exc:
+            # Loud, like the family extractors above: a silent None here read
+            # downstream as "this model has no msg_i".
+            rec.diagnostics["msg_i_error"] = f"{type(exc).__name__}: {exc}"
+            print(f"\033[91mmsg_i extraction failed: {type(exc).__name__}: {exc}\033[0m")
             out = None
-        if out is not None:
-            rec.pairs["msg_i"] = _pair(out[0], out[1])
-            rec.estimator["msg_i"] = "forward"
+        if out is None:
+            rec.diagnostics.setdefault(
+                "msg_i_error", "compute_msg_i_recovery returned None (no ground-truth W)")
+            print("\033[93mmsg_i: compute_msg_i_recovery returned None\033[0m")
+        else:
+            pair = _pair(out[0], out[1])
+            if pair is None:
+                _t, _l = np.asarray(out[0]).ravel(), np.asarray(out[1]).ravel()
+                rec.diagnostics["msg_i_error"] = (
+                    f"empty pair: true n={_t.size} finite={int(np.isfinite(_t).sum())}, "
+                    f"learned n={_l.size} finite={int(np.isfinite(_l).sum())}")
+                print(f"\033[93mmsg_i: {rec.diagnostics['msg_i_error']}\033[0m")
+            else:
+                rec.pairs["msg_i"] = pair
+                rec.estimator["msg_i"] = "forward"
+    elif "msg_i" in need:
+        print("\033[93mmsg_i skipped: x_ts is None\033[0m")
 
     rec.pairs = {k: v for k, v in rec.pairs.items() if v is not None}
     return rec
@@ -2821,6 +2899,10 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
             out[f"{key}_R2_all"] = float(m["r2"])
             out[f"{key}_n_outliers"] = int(m["n_outliers"])
             out[f"{key}_pct_outliers"] = float(m["pct_outliers"])
+        # |learned - true| / max(|true|, 1e-6) over the full sample: median and
+        # interquartile range, never mean +- SD, which the heavy tails inflate.
+        out[f"{key}_rel_err_median"] = float(m["rel_err_median"])
+        out[f"{key}_rel_err_iqr"] = float(m["rel_err_iqr"])
         if quantity in rec.estimator:
             out[f"{key}_estimator"] = rec.estimator[quantity]
         if quantity in rec.correction:
@@ -2837,12 +2919,295 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
             recovery_param_metrics(unc[0], unc[1],
                                    _thresh_for("W", config))["r2_clean"])
 
+    # SCALE-FREE COMPANIONS for the two quantities a GNN pins down only up to a
+    # gain. `<key>_gain` follows the one convention (learned ~= gain * true, see
+    # r2_up_to_scale); `<key>_R2_scaled` is the R2 once it is divided out.
+    for quantity in ("W", "msg_i"):
+        pair = rec.get(quantity)
+        if pair is None:
+            continue
+        key = _KEY[quantity]
+        s_ = r2_up_to_scale(pair[0], pair[1])
+        out[f"{key}_R2_scaled"] = float(s_["r2"])
+        out[f"{key}_gain"] = float(s_["gain"])
+    # W STRUCTURE, ignoring scale altogether: Pearson r over the edges whose true
+    # weight is non-zero, and the identity-line R2 of the two z-scored vectors.
+    # High Wij_pearson with a low Wij_R2 reads as "wiring recovered, scale not";
+    # low Wij_pearson as "wiring wrong". These were W_structure_r / W_zscored_R2.
+    w = rec.get("W")
+    if w is not None:
+        gt, learned = (np.asarray(w[0]).ravel().astype(np.float64),
+                       np.asarray(w[1]).ravel().astype(np.float64))
+        nz = gt != 0
+        gt, learned = gt[nz], learned[nz]
+        if gt.size > 1 and gt.std() > 0 and learned.std() > 0:
+            out["Wij_pearson"] = float(np.corrcoef(gt, learned)[0, 1])
+            gz = (gt - gt.mean()) / (gt.std() + 1e-12)
+            lz = (learned - learned.mean()) / (learned.std() + 1e-12)
+            out["Wij_zscored_R2"] = float(recovery_param_metrics(gz, lz)["r2"])
+        else:
+            out["Wij_pearson"] = float("nan")
+            out["Wij_zscored_R2"] = float("nan")
+
     # Underscore-prefixed diagnostics are intermediates shared between quantities
     # (the f_theta slopes, the g_phi correction) and are numpy arrays; they stay
     # on the object for the caller and never reach the key-value log.
     for k, v in rec.diagnostics.items():
         if not k.startswith("_"):
             out[k] = v
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  ONE VOCABULARY, ONE WRITER
+#
+#  Every number a run reports about a recovered quantity is a `<key>_<stat>` from
+#  score_recovery, and it is spelled the same in the three places it lands:
+#
+#    tmp_training/<key>.log   one CSV per quantity, one row per checkpoint, the
+#                             TRAJECTORY (Wij.log, tau.log, V_rest.log, Eij.log,
+#                             msg_i.log; plus cluster.log and rollout.log, which
+#                             are not recovered parameters but follow the layout)
+#    results/metrics.txt      `key: value`, the FINAL numbers `-o test_plot` writes
+#    the per-slot analysis log the LLM exploration reads (same lines)
+#
+#  Before 2026-09-11 the trainer wrote a positional-column metrics.log with its
+#  own column names (connectivity_r2, vrest_r2_clean, ...), test_plot wrote
+#  results/metrics.txt with a third set (W_corrected_no_outliers_R2, tau_R2 for
+#  the UNFILTERED number, ...), and readers guessed. The gate in
+#  tools/extraction_gate.py carries the rename map for logs written before.
+# --------------------------------------------------------------------------- #
+
+RECOVERY_KEYS = tuple(_KEY.values())
+
+# Column order of tmp_training/<key>.log, and the order results/metrics.txt lists
+# them in. Shared stats first, then what only some quantities have.
+_COMMON_STATS = ("R2", "R2_all", "slope", "rmse", "n", "n_outliers", "pct_outliers",
+                 "rel_err_median", "rel_err_iqr")
+_EXTRA_STATS = {
+    "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
+    "Eij":   ("gate",),
+    "msg_i": ("R2_scaled", "gain"),
+}
+
+
+def recovery_log_columns(key):
+    """The `<key>_<stat>` columns of tmp_training/<key>.log, in file order."""
+    return tuple(f"{key}_{st}" for st in _COMMON_STATS + _EXTRA_STATS.get(key, ()))
+
+
+def _fmt_metric(v):
+    if v is None:
+        return "nan"
+    if isinstance(v, (bool, np.bool_)):
+        return str(int(v))
+    if isinstance(v, (int, np.integer)):
+        return str(int(v))
+    if isinstance(v, (float, np.floating)):
+        return "nan" if not np.isfinite(v) else f"{float(v):.6f}"
+    return str(v)
+
+
+def training_log_append(log_dir, name, iteration, row):
+    """Append one row to tmp_training/<name>.log, writing the header first.
+
+    `row` is an ordered {column: value}; the header is `iteration,` + its keys.
+    Readers parse by NAME (training_log_read), never by position, so a column
+    can be added without shifting anyone.
+    """
+    tmp = os.path.join(log_dir, "tmp_training")
+    os.makedirs(tmp, exist_ok=True)
+    path = os.path.join(tmp, f"{name}.log")
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        with open(path, "w") as f:
+            f.write("iteration," + ",".join(row.keys()) + "\n")
+    with open(path, "a") as f:
+        f.write(f"{int(iteration)}," + ",".join(_fmt_metric(v) for v in row.values()) + "\n")
+
+
+def training_log_read(log_dir, name):
+    """Read tmp_training/<name>.log into {column: np.ndarray} by header name.
+
+    None when the file is missing or has no data rows. Unparseable cells read
+    as NaN; a row shorter than the header is padded with NaN.
+    """
+    path = os.path.join(log_dir, "tmp_training", f"{name}.log")
+    if not os.path.isfile(path):
+        return None
+    with open(path) as f:
+        lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    if len(lines) < 2 or not lines[0].startswith("iteration"):
+        return None
+    cols = lines[0].split(",")
+    rows = []
+    for ln in lines[1:]:
+        parts = ln.split(",")
+        vals = []
+        for i in range(len(cols)):
+            try:
+                vals.append(float(parts[i]) if i < len(parts) else np.nan)
+            except ValueError:
+                vals.append(np.nan)
+        rows.append(vals)
+    arr = np.asarray(rows, dtype=np.float64)
+    out = {c: arr[:, i] for i, c in enumerate(cols)}
+    out["iteration"] = out["iteration"].astype(np.int64)
+    return out
+
+
+def training_log_last(log_dir, name):
+    """The last row of tmp_training/<name>.log as {column: float}, or None."""
+    d = training_log_read(log_dir, name)
+    if d is None:
+        return None
+    return {c: (int(v[-1]) if c == "iteration" else float(v[-1])) for c, v in d.items()}
+
+
+def recovery_log_append(log_dir, iteration, scored):
+    """One row into tmp_training/<key>.log for every quantity `scored` carries.
+
+    `scored` is score_recovery's dict. A quantity is present when its `<key>_R2`
+    is; a column the quantity does not have (Wij_gain on a known-ODE, whose W is
+    read directly) is written as nan, so every file has a fixed header.
+    """
+    for key in RECOVERY_KEYS:
+        if f"{key}_R2" not in scored:
+            continue
+        cols = recovery_log_columns(key)
+        training_log_append(log_dir, key, iteration,
+                            {c: scored.get(c) for c in cols})
+
+
+def metrics_lines(scored):
+    """`key: value` lines for results/metrics.txt and the analysis log.
+
+    Per quantity, the numeric columns in file order, then the estimator and the
+    correction strings. Keys score_recovery emits that belong to no quantity
+    (a diagnostic such as extraction_error) come last, unchanged.
+    """
+    lines, seen = [], set()
+    for key in RECOVERY_KEYS:
+        if f"{key}_R2" not in scored:
+            continue
+        for c in recovery_log_columns(key) + (f"{key}_estimator", f"{key}_correction"):
+            if c in scored:
+                lines.append(f"{c}: {_fmt_metric(scored[c])}")
+                seen.add(c)
+    for k, v in scored.items():
+        if k not in seen and not isinstance(v, np.ndarray):
+            lines.append(f"{k}: {_fmt_metric(v)}")
+    return lines
+
+
+def write_recovery_metrics(scored, log_dir, log_file=None, logger=None):
+    """THE writer of recovered-parameter metrics for `-o test_plot`.
+
+    Appends metrics_lines(scored) to results/metrics.txt, to the analysis log
+    `log_file` when given, and to `logger`. Nothing else writes a `<key>_<stat>`
+    line to either file.
+    """
+    lines = metrics_lines(scored)
+    if not lines:
+        return
+    path = os.path.join(log_dir, "results", "metrics.txt")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as mf:
+        mf.write("\n".join(lines) + "\n")
+    if log_file is not None:
+        log_file.write("\n".join(lines) + "\n")
+    if logger is not None:
+        for ln in lines:
+            logger.info(ln)
+
+
+def _connectivity_stats(w, src, dst, n):
+    """Per-neuron mean/std/min/max of in-weights and out-weights, (8, n)."""
+    w = np.asarray(w, dtype=np.float64).ravel()
+    in_count = np.bincount(dst, minlength=n).astype(np.float64)
+    out_count = np.bincount(src, minlength=n).astype(np.float64)
+    in_sum = np.bincount(dst, weights=w, minlength=n)
+    out_sum = np.bincount(src, weights=w, minlength=n)
+    in_sq = np.bincount(dst, weights=w ** 2, minlength=n)
+    out_sq = np.bincount(src, weights=w ** 2, minlength=n)
+    safe_in = np.where(in_count > 0, in_count, 1)
+    safe_out = np.where(out_count > 0, out_count, 1)
+    in_mean = in_sum / safe_in
+    out_mean = out_sum / safe_out
+    in_std = np.sqrt(np.maximum(in_sq / safe_in - in_mean ** 2, 0))
+    out_std = np.sqrt(np.maximum(out_sq / safe_out - out_mean ** 2, 0))
+    in_max = np.full(n, -np.inf); np.maximum.at(in_max, dst, w)
+    in_min = np.full(n, np.inf); np.minimum.at(in_min, dst, w)
+    out_max = np.full(n, -np.inf); np.maximum.at(out_max, src, w)
+    out_min = np.full(n, np.inf); np.minimum.at(out_min, src, w)
+    for arr, c in [(in_mean, in_count), (in_std, in_count),
+                   (in_min, in_count), (in_max, in_count),
+                   (out_mean, out_count), (out_std, out_count),
+                   (out_min, out_count), (out_max, out_count)]:
+        arr[c == 0] = 0
+    return np.column_stack([in_mean, in_std, out_mean, out_std,
+                            in_min, in_max, out_min, out_max])
+
+
+def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
+                     learned_tau=None, learned_vrest=None, n_components=None,
+                     return_features=False):
+    """Cell-type clustering accuracy from what the model learned -- ONE function
+    for the trainer's cluster.log and test_plot's `clustering_accuracy`.
+
+    Features per neuron, in this order and only when present: the learned
+    embedding a_i (GNN only), tau_i, V_rest_i, then eight statistics of the
+    learned weights around the neuron (mean/std/min/max of incoming and of
+    outgoing). A Gaussian mixture with n_components = min(100, n_neurons - 1)
+    is fitted on the standardised stack and its components matched to the true
+    types (sparsify.clustering_gmm). A quantity that is absent, not per-neuron,
+    or not finite everywhere is left out of the stack rather than fed as NaN.
+
+    Returns {clustering_accuracy, clustering_ari, clustering_nmi, clustering_n_components,
+    clustering_n_features} (+ `_X`, the feature stack, when return_features), or
+    None when there is nothing to cluster.
+    """
+    from connectome_gnn.sparsify import clustering_gmm
+
+    def _host(x):
+        # Callers hand over tensors on the GPU (type_list, edges, model.a) as
+        # readily as arrays; np.asarray cannot read a CUDA tensor.
+        if x is None:
+            return None
+        return to_numpy(x) if hasattr(x, "detach") else np.asarray(x)
+
+    type_list, edges, learned_W = _host(type_list), _host(edges), _host(learned_W)
+    embedding, learned_tau, learned_vrest = (_host(embedding), _host(learned_tau),
+                                             _host(learned_vrest))
+    n = int(n_neurons)
+    feats = []
+    for arr in (embedding, learned_tau, learned_vrest):
+        if arr is None:
+            continue
+        arr = np.asarray(arr, dtype=np.float64)
+        arr = arr.reshape(n, -1) if arr.size % n == 0 and arr.shape[0] == n else None
+        if arr is not None and np.isfinite(arr).all():
+            feats.append(arr)
+    if learned_W is not None and edges is not None:
+        e = np.asarray(edges)
+        w = np.asarray(learned_W, dtype=np.float64).ravel()
+        m = min(w.size, e.shape[1])
+        if m > 0:
+            feats.append(_connectivity_stats(w[:m], e[0, :m], e[1, :m], n))
+    if not feats:
+        return None
+    X = np.column_stack(feats)
+    if n_components is None:
+        n_components = min(100, n - 1)
+    res = clustering_gmm(X, np.asarray(type_list).ravel()[:n], n_components=n_components)
+    out = {
+        "clustering_accuracy": float(res["accuracy"]),
+        "clustering_ari": float(res["ari"]),
+        "clustering_nmi": float(res["nmi"]),
+        "clustering_n_components": int(n_components),
+        "clustering_n_features": int(X.shape[1]),
+    }
+    if return_features:
+        out["_X"] = X          # underscore: never reaches a log or metrics.txt
     return out
 
 
@@ -2873,6 +3238,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
         ok = fit_r2 >= gate
         rec.pairs["W"] = _pair(gt_W, ext["W"])
         rec.estimator["W"] = "edge_line_fit"
+        rec.diagnostics["_W_learned_full"] = np.asarray(to_numpy(ext["W"])).ravel()
         rec.correction["W"] = "msg_ij / v_j = W_ij * (E_i - v_i); W_ij = -slope"
         rec.valid["W"] = ok
         if "E_ij" in need and _is_conductance_data(ode_params):
@@ -2886,6 +3252,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             core, config, edges, x_ts, device, ode_params=ode_params)
         rec.pairs["W"] = _pair(gt_W, to_numpy(corrected_W).squeeze())
         rec.estimator["W"] = "gain_corrected"
+        rec.diagnostics["_W_learned_full"] = to_numpy(corrected_W).squeeze().ravel()
         rec.correction["W"] = "g_phi[j] * dftheta_dmsg[i] / dftheta_dv[i]"
         # The uncorrected parameter, for the comparison that says how much of the
         # recovery the correction is responsible for.

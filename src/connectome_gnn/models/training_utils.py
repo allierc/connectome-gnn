@@ -73,6 +73,9 @@ class TrainingMetrics:
     # the split is wrong, and that is a completely different situation from
     # conn=-5.0 with msg=-0.04, which says nothing is being learned at all.
     msgi_r2: float | None = None
+    # Cell-type clustering accuracy from cluster_recovery (regular checkpoints
+    # only); None until the first one.
+    cluster_acc: float | None = None
 
 
 @dataclass
@@ -409,37 +412,13 @@ def init_metrics_files(log_dir):
     if os.path.exists(g_phi_discard_log_path):
         os.remove(g_phi_discard_log_path)
 
-    metrics_log_path = os.path.join(
-        log_dir,
-        "tmp_training",
-        "metrics.log",
-    )
-
-    with open(
-        metrics_log_path,
-        "w",
-    ) as f:
-        f.write(
-            "iteration,"
-            "connectivity_r2,"
-            # RAW, i.e. over every neuron including the outliers. A handful of
-            # neurons with a near-zero fitted slope send these to -30 or worse, so
-            # they are NOT the numbers metrics.png shows and NOT the paper
-            # convention. The comparable values are vrest_r2_clean / tau_r2_clean
-            # below, with their outlier counts. Named _raw so that reading the
-            # obvious column no longer looks like a broken run.
-            "vrest_r2_raw,"
-            "tau_r2_raw,"
-            "hidden_nnr_pearson,"
-            "anchor_nnr_pearson,"
-            "vrest_r2_clean,"
-            "n_out_vrest,"
-            "n_total_vrest,"
-            "tau_r2_clean,"
-            "n_out_tau,"
-            "n_total_tau\n"
-        )
-
+    # The recovered-parameter trajectories live in tmp_training/<key>.log, one
+    # file per quantity with the metrics.txt column names, written by
+    # metrics.recovery_log_append as each checkpoint is scored. The positional
+    # metrics.log (connectivity_r2, vrest_r2_clean, hidden_nnr_pearson, ...) is
+    # gone; only the hidden-INR Pearson log, which is not a recovered
+    # parameter, keeps a file of its own.
+    os.makedirs(os.path.join(log_dir, "tmp_training"), exist_ok=True)
     nnr_pearson_log_path = os.path.join(
         log_dir,
         "tmp_training",
@@ -458,10 +437,7 @@ def init_metrics_files(log_dir):
             "anchor_pearson_std\n"
         )
 
-    return (
-        metrics_log_path,
-        nnr_pearson_log_path,
-    )
+    return nnr_pearson_log_path
 
 
 def init_training_runtime(
@@ -480,9 +456,7 @@ def init_training_runtime(
         profiler directory
     """
 
-    metrics_log_path, nnr_pearson_log_path = (
-        init_metrics_files(log_dir)
-    )
+    nnr_pearson_log_path = init_metrics_files(log_dir)
 
     # This is the same formula used at epoch start.
     n_iter_per_epoch = int(
@@ -534,7 +508,6 @@ def init_training_runtime(
         )
 
     return (
-        metrics_log_path,
         nnr_pearson_log_path,
         frame_sampling,
         profiler_trace_dir,

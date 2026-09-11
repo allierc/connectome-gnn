@@ -12,7 +12,7 @@ This is the first setting in which the GNN is asked to recover a driving force t
 fitting a current-based teacher.
 
 **Primary metric: `Wij_R2`. Gating metric: `Eij_gate` in the analysis log, the same
-number as the `fit_r2_median` column of `tmp_training/gnn_conductance_fit.log`. Ungated sanity metric: `msg_i_R2`, in the
+number as the `Eij_gate` column of `tmp_training/Eij.log`. Ungated sanity metric: `msg_i_R2`, in the
 analysis log.** Read "the gate" below before trusting any recovery number — and read
 `msg_i_R2` first when a slot is gated out, because it is the one number that still means
 something there.
@@ -88,21 +88,21 @@ so one least-squares line per edge gives `W_ij = -slope` and `E_ij = -intercept/
 Samples below the 25th percentile of the positive `v_j` are dropped, which is what stops a
 small `v_j` from manufacturing an enormous `W`.
 
-**The straight line is also the test.** `fit_r2_median` is the median per-edge R2 of that
+**The straight line is also the test.** `Eij_gate` is the median per-edge R2 of that
 line. If it is not near 1 the learned message is not affine in `v_i`, the model has not
 found the conductance form, and the `W` and `E` beside it describe nothing. On a model
 trained on *current* data — where there is no `(E - v_i)` term to find — the extraction
-correctly reports `fit_r2_median` 0.079 and a W recovery of -0.009. It declines to
+correctly reports `Eij_gate` 0.079 and a W recovery of -0.009. It declines to
 manufacture structure that is not there, and so must you.
 
-**Rule: do not report or act on `E_ij` or the extracted `W` while the gate is below 0.9** — `Eij_gate` in the analysis log, `fit_r2_median` in `gnn_conductance_fit.log`; they are the same number.
+**Rule: do not report or act on `E_ij` or the extracted `W` while the gate is below 0.9** — `Eij_gate` in the analysis log, `Eij_gate` in `Eij.log` / `Wij.log`; they are the same number.
 Early in training it will sit near 0.15-0.5 and the E_ij RMSE will be enormous. That is the
 gate working, not a failure. Say so in the entry and move on.
 
-`w_r2_scaled` is the extracted `W` scored after dividing out the one global gain the GNN
+`Wij_R2_scaled` is the extracted `W` scored after dividing out the one global gain the GNN
 cannot pin down (`W` and the amplitude of `g_phi` trade off exactly). Its slope is 1 by
 construction, so **the slope is not a result** — only the R2 and the gain beside it. Both
-live in `gnn_conductance_fit.log`; the analysis log's equivalent of that gain is
+live in `Eij.log` / `Wij.log`; the analysis log's equivalent of that gain is
 `Wij_slope`.
 
 ---
@@ -171,20 +171,18 @@ learning the form at all.
 
 ## Metrics — the exact names
 
-**WHICH FILE, WHICH NAMES — read this first.** Two writers score the same quantities
-under two vocabularies, and the file you are told to read decides which one you see:
-
-| file | written by | W recovery | gain | reversal | message |
-| --- | --- | --- | --- | --- | --- |
-| `results/metrics.txt` (**your source**) | `-o test_plot` (GNN_PlotFigure) | `connectivity_R2_scaled`, `W_corrected_R2`, `connectivity_pearson_r` | `w_scale` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n_edges` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
-| per-slot analysis log, in-training | trainer via `score_recovery` | `Wij_R2`, `Wij_R2_all`, `Wij_slope` | `Wij_slope` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
-
-`connectivity_R2_scaled` is the scale-corrected W recovery and `w_scale` is the gain (learned
-conductance = `w_scale` × true; 1.0 is perfect) — these are the `metrics.txt` spellings of what
-the analysis log calls `Wij_R2` and `Wij_slope`. Rank on whichever file you read, using its
-own names, and never write a name from one file into an entry sourced from the other. An
-earlier version of this file said the legacy names were gone; that was true of the trainer's
-log and false of `metrics.txt`, and the correction here is the measured one.
+**ONE VOCABULARY.** Every recovered quantity is scored by `score_recovery`, and every
+file you read -- `results/metrics.txt`, the per-slot analysis log, the trainer's in-training
+log -- now carries the same names. Keys are `<key>_<stat>` with keys `Wij`, `tau`, `V_rest`,
+`Eij`, `msg_i` and stats `R2` (outlier-filtered headline), `R2_all` (unfiltered), `slope`,
+`rmse`, `n`, `n_outliers`, `pct_outliers`, `rel_err_median`, `rel_err_iqr`, `estimator`,
+`correction`; plus for W only `Wij_R2_scaled` (R2 after dividing out one global gain),
+`Wij_gain` (that gain: learned ~= gain x true, 1.0 is perfect), `Wij_pearson` and
+`Wij_zscored_R2` (scale-free structure). Old names you may meet in files written before
+2026-09-11: `Wij_R2_scaled` -> `Wij_R2_scaled`, `Wij_gain` -> `Wij_gain`,
+`Wij_R2_all` -> `Wij_R2_all`, `W_corrected_no_outliers_R2` -> `Wij_R2`,
+`Wij_pearson` / `W_structure_r` -> `Wij_pearson`, `tau_R2` (old, full) ->
+`tau_R2_all`, `tau_no_outliers_R2` -> `tau_R2`, likewise `V_rest`, `Eij_n` -> `Eij_n`.
 
 
 **From the per-slot analysis log** (the `Metrics:` file named in your prompt):
@@ -211,10 +209,10 @@ Every quantity is scored through ONE entry point, `score_recovery`, which emits
 | `msg_i_R2` | R2 of the aggregated per-neuron message | > 0.80 — **the non-degenerate number, and NOT gated** |
 | `msg_i_slope`, `msg_i_rmse` | slope and RMSE of the message scatter | slope -> 1.0; rmse context only |
 
-**Renamed, not removed.** `connectivity_R2` → `connectivity_R2_scaled` is the headline in `metrics.txt`; `raw_W_R2` is not written by either writer. `w_scale` and `fit_r2_median` live in `metrics.txt` / `gnn_conductance_fit.log`; `Wij_*` and `Eij_gate` live in the trainer's analysis log. See the table above.
+**Renamed, see the vocabulary block at the top of this section.**
 
 **`msg_i_R2` is the exception to the gate.** `Eij_*` and the extracted `W` come out
-of the per-edge line fit and are meaningless while `fit_r2_median < 0.9`, but `msg_i_R2`
+of the per-edge line fit and are meaningless while `Eij_gate < 0.9`, but `msg_i_R2`
 compares the model's own message against the generator's directly — no line fit, nothing
 to be invalidated — so it is readable from the first checkpoint and is what tells you
 whether a gated-out slot is learning anything at all.
@@ -234,11 +232,12 @@ not Glob:
 
 | Path | What it carries |
 | --- | --- |
-| `metrics.log` | CSV: `iteration,connectivity_r2,vrest_r2_raw,tau_r2_raw,hidden_nnr_pearson,anchor_nnr_pearson,vrest_r2_clean,n_out_vrest,n_total_vrest,tau_r2_clean,n_out_tau,n_total_tau` |
-| `gnn_conductance_fit.log` | CSV: `iteration,fit_r2_median,w_r2_scaled,w_scale` — **the gate** |
-| `Eij.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY, valid only once the gate is passed. Its final row should agree with `Eij_rmse` / `Eij_R2` in the analysis log |
-| `g_phi_discard.log` | CSV: `iteration,cosine_to_keep,ratio_vi,ratio_ai,ratio_noise` — see the lasso block |
-| `rollout_r.log` | CSV: `iteration,r,rmse,n_frames` |
+| `Wij.log` | CSV, header `iteration,Wij_R2,Wij_R2_all,Wij_slope,Wij_rmse,Wij_n,Wij_n_outliers,Wij_pct_outliers,Wij_rel_err_median,Wij_rel_err_iqr,Wij_R2_scaled,Wij_gain,Wij_pearson,Wij_zscored_R2,Wij_R2_uncorrected` — the W TRAJECTORY. Rows are `nan` while the run is below the gate. |
+| `Eij.log` | CSV, header `iteration,Eij_R2,Eij_R2_all,Eij_slope,Eij_rmse,Eij_n,...,Eij_gate` — **`Eij_gate` is the gate** (median per-edge R2 of the line fit); the E_ij columns are valid only once it is ≥ 0.9. Its final row should agree with `Eij_*` in the analysis log. |
+| `msg_i.log` | CSV, header `iteration,msg_i_R2,...,msg_i_R2_scaled,msg_i_gain` — the ungated sanity trajectory. |
+| `tau.log`, `V_rest.log` | CSV, header `iteration,tau_R2,tau_R2_all,tau_slope,tau_rmse,tau_n,tau_n_outliers,tau_pct_outliers,...` (likewise `V_rest_`). `<key>_R2` is outlier-filtered, `<key>_R2_all` is not. |
+| `cluster.log` | CSV: `iteration,clustering_accuracy,clustering_ari,clustering_nmi,clustering_n_components,clustering_n_features` — regular checkpoints only. |
+| `rollout.log` | CSV: `iteration,rollout_r,rollout_rmse,rollout_n_frames,rollout_r_pooled,rollout_n_diverged,rollout_n_scored` |
 | `Wij/raw_*.png`, `Wij/comparison_*.png`, `Wij/connectivity_*.png` | raw `W**2`, the g_phi-corrected `W*`, and the connectivity heatmap |
 | `Eij/`, `tau/`, `vrest/`, `msgi/` | 2x2 recovery panels per quantity |
 | `function/g_phi/`, `function/f_theta/` | learned function shapes against ground truth |
@@ -388,10 +387,10 @@ Three rules specific to this experiment:
   trajectory metrics for it, mark the `Eij_*` numbers "gated out", and do not rank
   it on them. `msg_i_R2` is never gated out — it is how you tell a slot that is still
   learning from one that is stuck.
-- **Frozen-W check.** If `Wij_R2` in `metrics.log` is identical to four decimals
+- **Frozen-W check.** If `Wij_R2` in `Wij.log` is identical to four decimals
   across three consecutive checkpoints, the initialisation is the problem, not the
   regularisation. Return to block 2 rather than continuing the current block.
-- **Trajectory check.** Record the peak of `connectivity_r2` and `(final - peak) / peak`;
+- **Trajectory check.** Record the peak of `Wij_R2` and `(final - peak) / peak`;
   treat `final / peak < 0.95` as disqualified.
 
 ---
@@ -400,11 +399,11 @@ Three rules specific to this experiment:
 
 For each slot, in this order:
 
-1. Read the last row of `gnn_conductance_fit.log` **first** — it decides whether the
+1. Read the last row of `Eij.log` / `Wij.log` **first** — it decides whether the
    `Eij_*` and extracted-`W` numbers mean anything.
 2. Read the analysis log for the slot and extract every metric named in the Metrics
    table; `Wij_R2`, `Eij_*` and `msg_i_*` are all in there. Then
-   `metrics.log` (last row plus the peak of `connectivity_r2`), `Eij.log` for
+   `Wij.log` (last row plus the peak of `Wij_R2`), `Eij.log` for
    the shape of the E_ij trajectory, and `g_phi_discard.log`.
 3. Compare `Wij_R2` against `msg_i_R2` and say which way they disagree, if they
    do. `Wij/comparison_*.png` and `msgi/msgi_*.png` show the two as scatters, and
@@ -422,10 +421,10 @@ Entry template:
 ## Iter N: <one-line hypothesis>
 - Slot: S | seeds: sim=<value> train=<value>
 - Changed: <parameter> <old> -> <new>   (slot 0: unchanged control)
-- GATE fit_r2_median: <value>  -> recovery numbers <valid | gated out>
+- GATE Eij_gate: <value>  -> recovery numbers <valid | gated out>
 - connectivity_R2: <value>  (peak <value> at iter <value>, final/peak <value>)
-- w_r2_scaled: <value>  (w_scale <value>; slope is 1 by construction, not a result)
-- Eij_R2: <value>   Eij_slope: <value>   Eij_rmse: <value>   [gated out if fit_r2_median < 0.9]
+- Wij_R2_scaled: <value>  (w_scale <value>; slope is 1 by construction, not a result)
+- Eij_R2: <value>   Eij_slope: <value>   Eij_rmse: <value>   [gated out if Eij_gate < 0.9]
 - msg_i_R2: <value>   msg_i_slope: <value>         [never gated]
 - tau_R2: <value>   V_rest_R2: <value>
 - onestep_pearson: <value>   rollout_pearson: <value>
@@ -463,7 +462,7 @@ At `>>> BLOCK END <<<`:
 ## Knowledge Base (accumulated across all blocks)
 
 ### Results Comparison Table
-| Iter | Config summary | fit_r2_median | conn_R2 (mean±std) | CV% | w_r2_scaled | Eij_R2 | msg_i_R2 | tau_R2 | V_rest_R2 | rollout_pearson | ratio_vi | Robust? | Hypothesis tested |
+| Iter | Config summary | Eij_gate | conn_R2 (mean±std) | CV% | Wij_R2_scaled | Eij_R2 | msg_i_R2 | tau_R2 | V_rest_R2 | rollout_pearson | ratio_vi | Robust? | Hypothesis tested |
 | ---- | -------------- | ------------- | ------------------ | --- | ----------- | ----------- | -------- | ------ | --------- | --------------- | -------- | ------- | ----------------- |
 
 ### Established Principles

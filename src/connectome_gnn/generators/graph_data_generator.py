@@ -3231,6 +3231,16 @@ def data_generate_voltage(
             log_f.write("\n")
             for key, val in snr_stats.items():
                 log_f.write(f"{key}: {val:.2f}\n")
+    # The reversals this dataset was generated with, beside the data: one row
+    # per postsynaptic type, and the sorted E_inh figure against the voltage
+    # band. Only conductance datasets carry them; the function returns None on
+    # a current dataset.
+    if _bracket is not None:
+        try:
+            from connectome_gnn.plot import report_dataset_reversals
+            report_dataset_reversals(os.path.dirname(gen_log_path))
+        except Exception as _exc:
+            print(f"\033[93mreversal report skipped: {type(_exc).__name__}: {_exc}\033[0m")
     logger.info(f"generation log saved to {gen_log_path}")
 
     if not visualize:

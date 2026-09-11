@@ -12,7 +12,7 @@ parameter recovery, and every quantity has a true value on disk in `ode_params.p
 
 **This exploration optimises TWO objectives in order, not one. Stage 1 is the FIT:
 `msg_i_R2`. Stage 2 is the IDENTIFICATION: `Wij_R2`, then `Eij_R2`, then
-`|Wij_slope - 1|`.** Read "the two objectives" below before ranking anything — a W
+`|Wij_gain - 1|`.** Read "the two objectives" below before ranking anything — a W
 recovery number on its own cannot steer this experiment, and the reason is measured, not
 assumed.
 
@@ -86,7 +86,7 @@ connectome.
    `Wij_R2` — a connectivity number computed from a model that no longer
    reproduces the message is measuring noise.
 2. **Among slots that hold the floor, rank on `Wij_R2`**, then on `Eij_R2`, then on
-   `|Wij_slope - 1|` shrinking. These three move together when the scale is genuinely
+   `|Wij_gain - 1|` shrinking. These three move together when the scale is genuinely
    being pinned, and that agreement is itself the evidence. `Wij_slope` is the gain: it
    is the slope of learned `W**2` against true `W`, so 1.0 means the conductance is on
    the right scale and 2.4 means it is 2.4x too large.
@@ -214,20 +214,18 @@ the truth at r = 0.95.
 
 ## Metrics — the exact names
 
-**WHICH FILE, WHICH NAMES — read this first.** Two writers score the same quantities
-under two vocabularies, and the file you are told to read decides which one you see:
-
-| file | written by | W recovery | gain | reversal | message |
-| --- | --- | --- | --- | --- | --- |
-| `results/metrics.txt` (**your source**) | `-o test_plot` (GNN_PlotFigure) | `connectivity_R2_scaled`, `W_corrected_R2`, `connectivity_pearson_r` | `w_scale` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n_edges` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
-| per-slot analysis log, in-training | trainer via `score_recovery` | `Wij_R2`, `Wij_R2_all`, `Wij_slope` | `Wij_slope` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
-
-`connectivity_R2_scaled` is the scale-corrected W recovery and `w_scale` is the gain (learned
-conductance = `w_scale` × true; 1.0 is perfect) — these are the `metrics.txt` spellings of what
-the analysis log calls `Wij_R2` and `Wij_slope`. Rank on whichever file you read, using its
-own names, and never write a name from one file into an entry sourced from the other. An
-earlier version of this file said the legacy names were gone; that was true of the trainer's
-log and false of `metrics.txt`, and the correction here is the measured one.
+**ONE VOCABULARY.** Every recovered quantity is scored by `score_recovery`, and every
+file you read -- `results/metrics.txt`, the per-slot analysis log, the trainer's in-training
+log -- now carries the same names. Keys are `<key>_<stat>` with keys `Wij`, `tau`, `V_rest`,
+`Eij`, `msg_i` and stats `R2` (outlier-filtered headline), `R2_all` (unfiltered), `slope`,
+`rmse`, `n`, `n_outliers`, `pct_outliers`, `rel_err_median`, `rel_err_iqr`, `estimator`,
+`correction`; plus for W only `Wij_R2_scaled` (R2 after dividing out one global gain),
+`Wij_gain` (that gain: learned ~= gain x true, 1.0 is perfect), `Wij_pearson` and
+`Wij_zscored_R2` (scale-free structure). Old names you may meet in files written before
+2026-09-11: `Wij_R2_scaled` -> `Wij_R2_scaled`, `Wij_gain` -> `Wij_gain`,
+`Wij_R2_all` -> `Wij_R2_all`, `W_corrected_no_outliers_R2` -> `Wij_R2`,
+`Wij_pearson` / `W_structure_r` -> `Wij_pearson`, `tau_R2` (old, full) ->
+`tau_R2_all`, `tau_no_outliers_R2` -> `tau_R2`, likewise `V_rest`, `Eij_n` -> `Eij_n`.
 
 
 **From the per-slot analysis log** (the `Metrics:` file named in your prompt). Use these
@@ -256,7 +254,7 @@ are `Wij`, `tau`, `V_rest`, `Eij`, `msg_i`.
 | `msg_i_R2` | R2 of the aggregated per-neuron message | **STAGE-1 FLOOR.** Must not fall > 0.02 below the block control |
 | `msg_i_slope`, `msg_i_rmse` | slope and RMSE of the message scatter | slope -> 1.0; rmse context only |
 
-**Renamed, not removed.** `connectivity_R2` → `connectivity_R2_scaled` is the headline in `metrics.txt`; `raw_W_R2` is not written by either writer. `w_scale` and `fit_r2_median` live in `metrics.txt` / `gnn_conductance_fit.log`; `Wij_*` and `Eij_gate` live in the trainer's analysis log. See the table above.
+**Renamed, see the vocabulary block at the top of this section.**
 
 **THERE ARE NO "OBSERVED" NUMBERS IN THIS FILE, AND THAT IS DELIBERATE.** Every value
 this file used to quote was measured on a superseded dataset and at 10 epochs, while this
@@ -288,9 +286,12 @@ not Glob:
 | Path | What it carries |
 | --- | --- |
 | `../results/metrics.txt` | **A SECOND COPY OF EVERY HEADLINE METRIC**, one `key: value` per line — `msg_i_R2`, `Wij_R2`, `Wij_slope`, `Wij_slope`, `Eij_R2`, `Wij_R2`. The same code writes both this and the analysis log. It is inside the run directory, so it stays reachable when the shared analysis-log directory is not. **If the analysis log is unreadable, read this and report normally — never mark an objective PENDING while a readable copy exists.** |
-| `metrics.log` | CSV: `iteration,connectivity_r2,vrest_r2_raw,tau_r2_raw,hidden_nnr_pearson,anchor_nnr_pearson,vrest_r2_clean,n_out_vrest,n_total_vrest,tau_r2_clean,n_out_tau,n_total_tau` |
-| `Eij.log` | CSV: `iteration,rmse,r2,slope,n_edges` — the E_ij TRAJECTORY. Its final row should agree with `Eij_rmse` / `Eij_R2` in the analysis log; read the log for the value and this file for how it got there |
-| `rollout_r.log` | CSV: `iteration,r,rmse,n_frames` |
+| `Wij.log` | CSV, header `iteration,Wij_R2,Wij_R2_all,Wij_slope,Wij_rmse,Wij_n,Wij_n_outliers,Wij_pct_outliers,Wij_rel_err_median,Wij_rel_err_iqr,Wij_R2_scaled,Wij_gain,Wij_pearson,Wij_zscored_R2,Wij_R2_uncorrected` — the W TRAJECTORY; `Wij_gain` is the degenerate-valley position (1.0 is the truth). |
+| `Eij.log` | CSV, header `iteration,Eij_R2,Eij_R2_all,Eij_slope,Eij_rmse,Eij_n,...` — the E_ij TRAJECTORY. Its final row should agree with `Eij_*` in the analysis log. |
+| `msg_i.log` | CSV, header `iteration,msg_i_R2,...,msg_i_R2_scaled,msg_i_gain`. |
+| `tau.log`, `V_rest.log` | CSV, header `iteration,tau_R2,tau_R2_all,tau_slope,tau_rmse,tau_n,tau_n_outliers,tau_pct_outliers,...` (likewise `V_rest_`). `<key>_R2` is outlier-filtered, `<key>_R2_all` is not. |
+| `cluster.log` | CSV: `iteration,clustering_accuracy,clustering_ari,clustering_nmi,clustering_n_components,clustering_n_features` — regular checkpoints only. |
+| `rollout.log` | CSV: `iteration,rollout_r,rollout_rmse,rollout_n_frames,rollout_r_pooled,rollout_n_diverged,rollout_n_scored` |
 | `Wij/raw_*.png` | 2x2 recovery panel for `W**2` vs the true conductance |
 | `Eij/Eij_*.png` | 2x2 recovery panel for the per-edge reversal |
 | `tau/tau_*.png`, `vrest/vrest_*.png` | 2x2 panels for tau and V_rest |
@@ -452,7 +453,7 @@ Three extra rules specific to this experiment:
   legible than any R2 because it has physical meaning: 2.39 means the learned conductance
   is 2.39x the true one.
 
-- **Trajectory check.** Read the `connectivity_r2` column of `metrics.log` and record both
+- **Trajectory check.** Read the `Wij_R2` column of `Wij.log` and record both
   the iteration of its peak and `(final - peak) / peak`. Treat any slot with
   `final / peak < 0.95` as disqualified even if the final number looks acceptable — a late
   collapse is a real failure mode here.
@@ -472,7 +473,7 @@ For each slot, in this order:
    `Wij_R2`, `Eij_R2`/`Eij_slope`/`Eij_rmse` and
    `msg_i_R2`/`msg_i_slope` are all in there — one read, no figure-scraping and no
    parsing of training logs by hand.
-2. Read `tmp_training/metrics.log` for the peak of `connectivity_r2` and how far the
+2. Read `tmp_training/Wij.log` for the peak of `Wij_R2` and how far the
    final value fell from it, and `tmp_training/Eij.log` for the shape of the
    E_ij trajectory. Both are about the trajectory; the final values came from step 1.
 3. Compare `Wij_R2` against `msg_i_R2` and say which way they disagree, if they
