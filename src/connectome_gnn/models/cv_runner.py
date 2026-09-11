@@ -64,9 +64,9 @@ GENERALIZATION_METRICS = [
 RECOVERY_METRICS = [
     ('holdout_one_step_r',     'One-step r (hold-out→hold-out)'),
     ('holdout_rollout_r',      'Rollout r  (hold-out→hold-out)'),
-    ('W_corrected_R2',    '$R^2$ $W$ (re-train hold-out)'),
-    ('tau_R2',            '$R^2$ $\\tau$ (re-train hold-out)'),
-    ('V_rest_R2',         '$R^2$ $V^{\\mathrm{rest}}$ (re-train hold-out)'),
+    ('Wij_R2_all',        '$R^2$ $W$ (re-train hold-out)'),
+    ('tau_R2_all',        '$R^2$ $\\tau$ (re-train hold-out)'),
+    ('V_rest_R2_all',     '$R^2$ $V^{\\mathrm{rest}}$ (re-train hold-out)'),
     ('clustering_accuracy', 'Clustering acc (re-train hold-out)'),
 ]
 
@@ -550,9 +550,9 @@ def run_cv(config_name, seeds, skip_phase2=False):
 COMPARISON_METRICS = [
     ('holdout_one_step_r',     'One-step r'),
     ('holdout_rollout_r',      'Rollout r'),
-    ('W_corrected_R2',    'W R²'),
-    ('tau_R2',            'τ R²'),
-    ('V_rest_R2',         'V_rest R²'),
+    ('Wij_R2_all',        'W R²'),
+    ('tau_R2_all',        'τ R²'),
+    ('V_rest_R2_all',     'V_rest R²'),
     ('clustering_accuracy', 'Clust. acc'),
 ]
 

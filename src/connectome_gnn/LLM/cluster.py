@@ -339,109 +339,109 @@ def _r2_color(val, thresholds=(0.9, 0.7, 0.3)):
 
 
 def _read_latest_training_metrics(log_dir):
-    """Return a dict from the last line of the training metrics log.
+    """The latest training numbers of one slot, as a dict.
 
-    Always-present keys: iter, conn, vr, tau.
-    Optional (None when absent / 'nan'):
-      hid, anc — hidden-NNR Pearson (hidden-INR runs only).
-      vr_clean, n_out_vr, n_total_vr — V_rest cleaned R² + outlier counts.
-      tau_clean, n_out_tau, n_total_tau — τ cleaned R² + outlier counts.
-    Returns None if the file is missing / empty.
+    Circuit runs (kind 'circuit'): read by NAME from the per-quantity logs
+    tmp_training/Wij.log, V_rest.log, tau.log (metrics.recovery_log_append) and
+    nnr_pearson.log. Keys: iter, conn (Wij_R2, None when W is gated out), vr /
+    vr_clean (V_rest_R2_all / V_rest_R2), n_out_vr, n_total_vr, tau / tau_clean,
+    n_out_tau, n_total_tau, hid, anc (hidden-INR Pearson, hidden-INR runs only),
+    cluster (cluster.log, None until the trainer wrote one), msg
+    (msg_i_R2_scaled), struct_r (Wij_pearson), zscored (Wij_zscored_R2).
 
-    Backward-compatible: legacy 6-column logs still parse (the new fields
-    come back as None / 0)."""
+    Task runs (kind 'task'): the task trainer still writes a positional
+    tmp_training/metrics.log whose header carries `loss`; parsed as before.
+
+    Returns None when no log has a data row yet."""
+    from connectome_gnn.metrics import training_log_last
+
+    # --- task trainer: positional metrics.log with a `loss` column -----------
     path = os.path.join(log_dir, 'tmp_training', 'metrics.log')
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path) as f:
-            header = None
-            last = None
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith('iteration'):
-                    header = line
-                    continue
-                if line.startswith('#'):
-                    continue  # injected post-hoc metrics line — not a CSV data row
-                last = line
-        if last is None:
+    if os.path.isfile(path):
+        try:
+            with open(path) as f:
+                header, last = None, None
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('iteration'):
+                        header = line
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    last = line
+            if last is not None and header is not None and 'loss' in header.split(',')[:5]:
+                parts = last.split(',')
+
+                def _f(idx):
+                    if idx >= len(parts):
+                        return None
+                    v = parts[idx].strip()
+                    if not v or v.lower() == 'nan':
+                        return None
+                    try:
+                        return float(v)
+                    except ValueError:
+                        return None
+
+                return {
+                    'kind':       'task',
+                    'iter':       int(float(parts[0])),
+                    'epoch':      _f(1),
+                    'loss':       _f(2),
+                    'mse':        _f(3),
+                    'pi_acc':     _f(8),
+                    'fwhm_deg':   _f(9),
+                    'r_roll':     _f(10),
+                    'rmse_roll':  _f(11),
+                    'r_roll_1k':  _f(12),
+                }
+        except (OSError, ValueError):
+            pass
+
+    # --- circuit trainer: one file per quantity, read by column name ---------
+    def _last(name):
+        try:
+            return training_log_last(log_dir, name)
+        except (OSError, ValueError):
             return None
-        parts = last.split(',')
-        if len(parts) < 4:
-            return None
 
-        # Task-trainer metrics.log header is
-        #   iteration,epoch,loss,mse,cosd,norm,tv,l1S,pi_acc,fwhm_deg,
-        #   r_roll,rmse_roll_deg,r_roll_1k
-        # Detected via the presence of 'loss' as the third column. Returned
-        # under different keys so _print_training_metrics can branch.
-        if header is not None and 'loss' in header.split(',')[:5]:
-            def _f(idx):
-                if idx >= len(parts):
-                    return None
-                v = parts[idx].strip()
-                if not v or v.lower() == 'nan':
-                    return None
-                try:
-                    return float(v)
-                except ValueError:
-                    return None
-
-            return {
-                'kind':       'task',
-                'iter':       int(float(parts[0])),
-                'epoch':      _f(1),
-                'loss':       _f(2),
-                'mse':        _f(3),
-                'pi_acc':     _f(8),
-                'fwhm_deg':   _f(9),
-                'r_roll':     _f(10),
-                'rmse_roll':  _f(11),
-                'r_roll_1k':  _f(12),
-            }
-
-        def _opt_float(idx):
-            if len(parts) <= idx:
-                return None
-            v = parts[idx].strip()
-            if not v or v.lower() == 'nan':
-                return None
-            try:
-                return float(v)
-            except ValueError:
-                return None
-
-        def _opt_int(idx, default=0):
-            if len(parts) <= idx:
-                return default
-            v = parts[idx].strip()
-            if not v or v.lower() == 'nan':
-                return default
-            try:
-                return int(float(v))
-            except ValueError:
-                return default
-
-        return {
-            'kind':         'circuit',
-            'iter':         int(parts[0]),
-            'conn':         float(parts[1]),
-            'vr':           float(parts[2]),
-            'tau':          float(parts[3]),
-            'hid':          _opt_float(4),
-            'anc':          _opt_float(5),
-            'vr_clean':     _opt_float(6),
-            'n_out_vr':     _opt_int(7),
-            'n_total_vr':   _opt_int(8),
-            'tau_clean':    _opt_float(9),
-            'n_out_tau':    _opt_int(10),
-            'n_total_tau':  _opt_int(11),
-        }
-    except (OSError, ValueError):
+    w, vr, tau = _last('Wij'), _last('V_rest'), _last('tau')
+    nnr, cl, msg = _last('nnr_pearson'), _last('cluster'), _last('msg_i')
+    rows = [r for r in (w, vr, tau) if r is not None]
+    if not rows:
         return None
+
+    def _v(row, key):
+        if row is None or key not in row:
+            return None
+        v = row[key]
+        return None if v is None or (isinstance(v, float) and v != v) else v
+
+    def _n(row, key):
+        v = _v(row, key)
+        return 0 if v is None else int(v)
+
+    return {
+        'kind':         'circuit',
+        'iter':         max(r['iteration'] for r in rows),
+        'conn':         _v(w, 'Wij_R2'),
+        'vr':           _v(vr, 'V_rest_R2_all'),
+        'vr_clean':     _v(vr, 'V_rest_R2'),
+        'n_out_vr':     _n(vr, 'V_rest_n_outliers'),
+        'n_total_vr':   _n(vr, 'V_rest_n'),
+        'tau':          _v(tau, 'tau_R2_all'),
+        'tau_clean':    _v(tau, 'tau_R2'),
+        'n_out_tau':    _n(tau, 'tau_n_outliers'),
+        'n_total_tau':  _n(tau, 'tau_n'),
+        'hid':          _v(nnr, 'hidden_pearson_mean'),
+        'anc':          _v(nnr, 'anchor_pearson_mean'),
+        'cluster':      _v(cl, 'clustering_accuracy'),
+        'msg':          _v(msg, 'msg_i_R2_scaled'),
+        'struct_r':     _v(w, 'Wij_pearson'),
+        'zscored':      _v(w, 'Wij_zscored_R2'),
+    }
 
 
 def _read_total_iter(log_dir):
@@ -478,35 +478,6 @@ def _read_results_metric(log_dir, key):
     except (OSError, ValueError):
         return None
     return None
-
-
-def _read_last_csv_value(log_dir, filename, col=1):
-    """Last row's `col`-th field from a tmp_training CSV, or None.
-
-    For the one-value-per-checkpoint trajectory logs the trainer writes beside
-    metrics.log — msgi_r2.log, Eij.log, rollout_r.log — each of which
-    has its own file precisely so that metrics.log's positional column layout
-    stays fixed for the readers that index into it.
-    """
-    path = os.path.join(log_dir, 'tmp_training', filename)
-    if not os.path.isfile(path):
-        return None
-    try:
-        last = None
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line[0].isalpha() and not line.startswith('#'):
-                    last = line
-        if last is None:
-            return None
-        parts = last.split(',')
-        if col >= len(parts):
-            return None
-        v = parts[col].strip()
-        return None if not v or v.lower() == 'nan' else float(v)
-    except (OSError, ValueError):
-        return None
 
 
 def _read_clustering_accuracy(log_dir):
@@ -675,26 +646,31 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                       + "  ".join(parts))
                 continue
 
-            cl = _read_clustering_accuracy(log_dir)
+            # Live from tmp_training/cluster.log when the trainer wrote one, else
+            # the last test_plot's results/metrics.txt (one iteration stale).
+            cl = tm.get('cluster')
+            if cl is None:
+                cl = _read_clustering_accuracy(log_dir)
             cl_str = (f"{_r2_color(cl)}{cl:.2f}{_ANSI_RESET}"
                       if cl is not None else f"{_ANSI_RESET}n/a{_ANSI_RESET}")
             # Post-hoc scale-free metrics (one-iteration-stale during training,
             # like cluster) — the meaningful recovery signal vs the NSE R²W.
-            sr = _read_results_metric(log_dir, 'W_structure_r')
-            zr = _read_results_metric(log_dir, 'W_zscored_R2')
+            sr = tm.get('struct_r')
+            zr = tm.get('zscored')
 
             parts = [
-                f"{_r2_color(tm['conn'])}R²W={tm['conn']:.2f}{_ANSI_RESET}",
+                (f"{_r2_color(tm['conn'])}R²W={tm['conn']:.2f}{_ANSI_RESET}"
+                 if tm['conn'] is not None else "R²W=gated"),
             ]
-            # msg_i beside R²W, from tmp_training/msgi_r2.log. The pair is the
+            # msg_i beside R²W, from tmp_training/msg_i.log. The pair is the
             # point: R²W=-5.00 with msg=0.95 says the dynamics are recovered and
             # only the conductance/reversal split is wrong, while R²W=-5.00 with
             # msg=-0.04 says nothing is being learned. Absent on current-generated
             # data, which has no conductance ground truth to build msg_i from.
-            # col=2 is r2_scaled: a GNN's message carries the learned g_phi
-            # gain, so the raw R2 beside a gain-corrected R2W would compare an
-            # uncorrected quantity with a corrected one.
-            mg = _read_last_csv_value(log_dir, 'msgi_r2.log', col=2)
+            # msg_i_R2_scaled, not msg_i_R2: a GNN's message carries the learned
+            # g_phi gain, so the raw R2 beside a gain-corrected R2W would compare
+            # an uncorrected quantity with a corrected one.
+            mg = tm.get('msg')
             if mg is not None:
                 parts.append(f"{_r2_color(mg)}R²msg={mg:.2f}{_ANSI_RESET}")
             if sr is not None:

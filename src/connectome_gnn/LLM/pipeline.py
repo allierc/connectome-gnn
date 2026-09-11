@@ -976,11 +976,11 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
             m = re.search(rf'{key}[=:]\s*([\d.eE+-]+|nan)', log_content)
             return m.group(1) if m else None
 
-        conn_r2       = _p('connectivity_R2')
+        conn_r2       = _p('Wij_R2')
         conn_r2_vis   = _p('connectivity_R2_visible')
-        struct_r      = _p('W_structure_r')      # scale-free wiring Pearson (PRIMARY for cx_voltage)
-        zscore_r2     = _p('W_zscored_R2')       # structure R² (scale removed)
-        rollout_pear  = _p('rollout_pearson')    # autoregressive rollout Pearson (GUARD >=0.99)
+        struct_r      = _p('Wij_pearson')        # scale-free wiring Pearson (PRIMARY for cx_voltage)
+        zscore_r2     = _p('Wij_zscored_R2')     # structure R² (scale removed)
+        rollout_pear  = _p('rollout_r')          # autoregressive rollout Pearson (GUARD >=0.99)
         tau_r2        = _p('tau_R2')
         vrest_r2      = _p('V_rest_R2')
         hid_nnr_pear  = _p('hidden_nnr_pearson')

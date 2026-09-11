@@ -250,7 +250,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     training_start_time = time.time()
 
-    (metrics_log_path, nnr_pearson_log_path, frame_sampling, profiler_trace_dir) = init_training_runtime(
+    (nnr_pearson_log_path, frame_sampling, profiler_trace_dir) = init_training_runtime(
         log_dir=log_dir, sim=sim, training=training
     )
 
@@ -754,129 +754,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # A failed diagnostic must not take the training run with it.
                     logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")
 
-            # -------------------------------------------------------------
-            # E_ij RECOVERY, conductance-generated datasets only.
-            #
-            # Gated on the DATA and the MODEL both carrying reversals, not on
-            # model_family: the conductance known-ODE reports family "gnn"
-            # (KnownODEBase sets no MODEL_FAMILY) while the conductance GNN will
-            # report "gnn" too, so the family says nothing useful here.
-            # compute_reversal_metrics returns None whenever either side lacks
-            # E_exc/E_inh, which covers every current-generated dataset and every
-            # model without reversals -- no panel, no bar entry, rather than a
-            # zero that would read like a measurement.
-            # -------------------------------------------------------------
-            if is_regular_r2 or is_early_r2:
-                from connectome_gnn.metrics import compute_reversal_metrics
-                try:
-                    # config/edges/x_ts are only used by the GNN branch, which has
-                    # no E parameter to read and has to recover it from the learned
-                    # message on real (edge, frame) samples. The known-ODE student
-                    # ignores them.
-                    _rev = compute_reversal_metrics(model, ode_params,
-                                                    config=config, edges=edges,
-                                                    x_ts=x_ts)
-                except Exception as _e:
-                    logger.warning(f"E_ij recovery eval failed: {type(_e).__name__}: {_e}")
-                    _rev = None
-                if _rev is not None:
-                    epoch_state.metrics.reversal_rmse = _rev["rmse"]
-                    epoch_state.metrics.reversal_r2 = _rev["r2"]
-                    epoch_state.metrics.reversal_scale = float(
-                        _rev["true"].max() - _rev["true"].min())
-                    # msg_i, the ONE recovery number the conductance degeneracy
-                    # does not touch: W_ij and E_ij trade off inside the message,
-                    # so msg_i scores what the trajectory actually depends on.
-                    if save_panels:
-                        plot_reversal_scatter(_rev, log_dir, epoch, N)
-                    # Its own file, for the same reason rollout_r.log has one:
-                    # plot.py reads metrics.log by POSITIONAL index (`_f(parts,
-                    # idx)`), so adding a column there shifts every reader after
-                    # it. The progress bar shows only the latest value; this is
-                    # the trajectory.
-                    _rev_log = os.path.join(log_dir, "tmp_training", "Eij.log")
-                    if not os.path.exists(_rev_log):
-                        with open(_rev_log, "w") as f:
-                            f.write("iteration,rmse,r2,slope,n_edges\n")
-                    with open(_rev_log, "a") as f:
-                        f.write(f"{regularizer.iter_count},{_rev['rmse']:.6f},"
-                                f"{_rev['r2']:.6f},{_rev['slope']:.6f},{_rev['n_edges']}\n")
-                    logger.info(
-                        f"iter {regularizer.iter_count}: E_ij rmse={_rev['rmse']:.4f} "
-                        f"R2={_rev['r2']:.4f} slope={_rev['slope']:.3f} "
-                        f"over {_rev['n_edges']} edges")
-                    # Only the GNN branch produces these: the straight-line fit
-                    # quality that licenses the E above, and W recovered up to the
-                    # one gain the GNN cannot pin down. Their own file, for the
-                    # same positional-index reason Eij.log has one.
-                    if "fit_r2_median" in _rev:
-                        _ext_log = os.path.join(log_dir, "tmp_training",
-                                                "gnn_conductance_fit.log")
-                        if not os.path.exists(_ext_log):
-                            with open(_ext_log, "w") as f:
-                                f.write("iteration,fit_r2_median,w_r2_scaled,w_scale\n")
-                        with open(_ext_log, "a") as f:
-                            f.write(f"{regularizer.iter_count},"
-                                    f"{_rev['fit_r2_median']:.6f},"
-                                    f"{_rev['w_r2_scaled']:.6f},"
-                                    f"{_rev['w_scale']:.6e}\n")
-                        logger.info(
-                            f"iter {regularizer.iter_count}: message affine in v_i "
-                            f"with median R2={_rev['fit_r2_median']:.4f}; "
-                            f"W R2={_rev['w_r2_scaled']:.4f} after dividing out "
-                            f"gain {_rev['w_scale']:.3e}")
-
-            # msg_i, ON BOTH DATA FAMILIES. This used to sit inside the E_ij
-            # block, so it only ran when the generator had a reversal potential --
-            # but the true message is W_ij * act(v_j) * (E_i - v_i) with the last
-            # factor simply absent on current data, and compute_msg_i_recovery
-            # already handles that. A current run therefore showed no msg= in the
-            # bar at all, which is exactly the run where it is most useful: it is
-            # the only recovery number that needs no correction and no estimator
-            # choice, so conn and msg disagreeing localises the problem to the
-            # correction rather than to the model.
-            if (is_regular_r2 or is_early_r2) and ode_params is not None:
-                from connectome_gnn.metrics import (
-                    compute_msg_i_recovery, recovery_param_metrics)
-                _msg = None
-                try:
-                    _msg = compute_msg_i_recovery(model, ode_params, x_ts,
-                                                  edges, device)
-                except Exception as _e:
-                    logger.warning(f"msg_i recovery eval failed: {type(_e).__name__}: {_e}")
-                if _msg is not None:
-                    _mt, _ml = _msg
-                    _m_raw = float(recovery_param_metrics(_mt, _ml)['r2'])
-                    # SCALE-FREE IS WHAT THE BAR SHOWS, because a GNN's message
-                    # carries the learned g_phi gain and the raw R2 is then
-                    # dominated by it: measured on a current GNN, msg_i scored
-                    # -2.07 raw, but one global factor of 2.67 divided out leaves
-                    # +0.977 at Pearson r 0.989 -- the message was recovered, the
-                    # gain was not divided out. The bar's Wij= is ALREADY the
-                    # gain-corrected number, so showing raw msg beside it would be
-                    # comparing a corrected quantity with an uncorrected one. On a
-                    # known-ODE the scale is ~1 and the two agree anyway.
-                    _denom = float(_mt @ _mt)
-                    _m_scale = float(_mt @ _ml) / _denom if _denom > 0 else float('nan')
-                    _m_scaled = (float(recovery_param_metrics(_mt, _ml / _m_scale)['r2'])
-                                 if abs(_m_scale) > 1e-12 else float('nan'))
-                    epoch_state.metrics.msgi_r2 = _m_scaled
-                    # Its own file, for the same reason Eij.log has one: plot.py
-                    # reads metrics.log by POSITIONAL index, so a new column there
-                    # shifts every reader after it. Both numbers are recorded --
-                    # the raw one is the honest headline, the scaled one is what
-                    # is comparable across model families.
-                    _msg_log = os.path.join(log_dir, "tmp_training", "msgi_r2.log")
-                    if not os.path.exists(_msg_log):
-                        with open(_msg_log, "w") as f:
-                            f.write("iteration,r2,r2_scaled,scale,n\n")
-                    with open(_msg_log, "a") as f:
-                        f.write(f"{regularizer.iter_count},{_m_raw:.6f},"
-                                f"{_m_scaled:.6f},{_m_scale:.6e},{_mt.size}\n")
-                    if save_panels:
-                        plot_msg_recovery(model, ode_params, x_ts, edges, device,
-                                          log_dir, epoch, N, type_list=type_list,
-                                          precomputed=_msg)
+            # ONE EXTRACTION PER CHECKPOINT. Every recovered quantity -- W, tau,
+            # V_rest, E_ij, msg_i -- comes out of extract_recovered_params once,
+            # score_recovery names the numbers, recovery_log_append writes one
+            # row per quantity into tmp_training/<key>.log, and the bar and the
+            # panels read the same dict and arrays. The E_ij, msg_i and
+            # tau/V_rest side paths that used to sit here each had their own
+            # estimator call and their own column names; they are gone.
+            _scored = None
+            _rec_last = None
+            _rec_op = None      # the ode_params the extraction used
 
             if is_regular_r2 and model_family(model) == "mlp" and not train.test_neural_field:
                 from connectome_gnn.metrics import compute_jacobian_connectivity_r2
@@ -891,63 +778,30 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 epoch_state.metrics.tau_r2 = float('nan')
                 epoch_state.metrics.vrest_r2 = float('nan')
 
-                with open(metrics_log_path, "a") as f:
-                    f.write(
-                        f"{regularizer.iter_count},"
-                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
-                        f"{format_metric(epoch_state.metrics.tau_r2)},"
-                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
-                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
-                        f"nan,0,0,nan,0,0\n"
-                    )
+                _scored = {"Wij_R2": epoch_state.metrics.connectivity_r2,
+                           "Wij_estimator": "jacobian"}
 
                 plot_jacobian_w_scatter(model, x_ts, ode_params, gt_weights, n_neurons, log_dir, epoch, N, device)
 
                 metrics_changed = True
 
             elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "linear":
-                (
-                    epoch_state.metrics.connectivity_r2,
-                    epoch_state.metrics.tau_r2,
-                    epoch_state.metrics.vrest_r2,
-                    dynamics,
-                ) = plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights,
-                                         n_neurons=n_neurons, type_list=type_list,
-                                         save_panels=save_panels)
-
-                epoch_state.metrics.n_out_conn = dynamics.get("n_out_conn", 0)
-
-                epoch_state.metrics.n_total_conn = dynamics.get("n_total_conn", 0)
-
-                epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
-
-                epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
-
-                epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
-
-                epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
-
-                epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
-
-                epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
-
-                with open(metrics_log_path, "a") as f:
-                    f.write(
-                        f"{regularizer.iter_count},"
-                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
-                        f"{format_metric(epoch_state.metrics.tau_r2)},"
-                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
-                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_vrest},"
-                        f"{epoch_state.metrics.n_total_vrest},"
-                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_tau},"
-                        f"{epoch_state.metrics.n_total_tau}\n"
-                    )
-
+                from connectome_gnn.metrics import (
+                    extract_recovered_params, score_recovery)
+                _op = ode_params
+                if _op is None:
+                    from connectome_gnn.generators.ode_params import load_ode_params_for_run
+                    _op = load_ode_params_for_run(config, device=device)
+                _rec = extract_recovered_params(
+                    model, _op, config, edges=edges, x_ts=x_ts, device=device,
+                    n_neurons=n_neurons,
+                    need=("W", "tau", "V_rest", "E_ij", "msg_i"))
+                _scored = score_recovery(_rec, config)
+                _rec_last = _rec
+                _rec_op = _op
+                plot_training_linear(model, config, epoch, N, log_dir, device, gt_weights,
+                                     n_neurons=n_neurons, type_list=type_list,
+                                     save_panels=save_panels, rec=_rec)
                 metrics_changed = True
 
             elif (is_regular_r2 or is_early_r2) and not train.test_neural_field and model_family(model) == "gnn":
@@ -962,8 +816,11 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     extract_recovered_params, score_recovery)
                 _rec = extract_recovered_params(
                     model, ode_params, config, edges=edges, x_ts=x_ts,
-                    device=device, n_neurons=n_neurons, need=("W",))
+                    device=device, n_neurons=n_neurons,
+                    need=("W", "tau", "V_rest", "E_ij", "msg_i"))
                 _scored = score_recovery(_rec, config)
+                _rec_last = _rec
+                _rec_op = ode_params
                 epoch_state.metrics.connectivity_r2 = _scored.get("Wij_R2")
 
                 _w_counts = {}
@@ -1007,81 +864,101 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # KEEP HH/V_rest/tau diagnostics in Step 1.
                 # ---------------------------------------------------------
 
-                dynamics = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
-
-                epoch_state.metrics.vrest_r2 = dynamics["vrest_r2"]
-
-                epoch_state.metrics.tau_r2 = dynamics["tau_r2"]
-
-                epoch_state.metrics.vrest_r2_clean = dynamics["vrest_r2_clean"]
-
-                epoch_state.metrics.tau_r2_clean = dynamics["tau_r2_clean"]
-
-                epoch_state.metrics.n_out_vrest = dynamics["n_out_vrest"]
-
-                epoch_state.metrics.n_total_vrest = dynamics["n_total_vrest"]
-
-                epoch_state.metrics.n_out_tau = dynamics["n_out_tau"]
-
-                epoch_state.metrics.n_total_tau = dynamics["n_total_tau"]
-
-                # tau and V_rest panels, which only the linear plotter drew until
-                # now -- a GNN recovers both out of f_theta and reports their R2
-                # in the bar, so tmp_training/tau and /vrest were empty on every
-                # GNN run while the numbers piled up in metrics.log. Fed the
-                # arrays compute_dynamics_r2 just used, so figure and log agree.
+                # tau and V_rest panels from the arrays the log row came from.
+                from connectome_gnn.metrics import _dynamics_dict_from
+                dynamics = _dynamics_dict_from(_rec, config)
                 plot_dynamics_recovery(dynamics, log_dir, epoch, N,
                                        type_list=type_list,
                                        save_panels=save_panels)
 
-                with open(metrics_log_path, "a") as f:
-                    f.write(
-                        f"{regularizer.iter_count},"
-                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
-                        f"{format_metric(epoch_state.metrics.tau_r2)},"
-                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
-                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_vrest},"
-                        f"{epoch_state.metrics.n_total_vrest},"
-                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_tau},"
-                        f"{epoch_state.metrics.n_total_tau}\n"
-                    )
-
-                # g_phi first-layer cosine-to-keep + gradient ratios. Written for ANY
-                # model whose g_phi first layer matches a known column layout, not just
-                # flyvis_conductance: on flyvis_A the vi/ai columns do not exist, so
-                # ratio_vi/ratio_ai are nan and ratio_noise carries the whole result --
-                # which is exactly the noise-probe positive control, since flyvis_A is
-                # the correctly-specified family and its noise columns are the ONLY
-                # useless inputs. Gating this on the model NAME (as it used to) silently
-                # produced no log file at all for those runs.
-                # Same eval cadence as R^2_W above, since it reuses the same real
-                # (edge, frame) sampling machinery and is comparable in cost.
-                from connectome_gnn.metrics import g_phi_column_layout
-                _g_phi_layout, _ = (
-                    g_phi_column_layout(model, model.a.shape[1])
-                    if hasattr(model, 'g_phi') and hasattr(model, 'a') else (None, 0)
-                )
-                if _g_phi_layout is not None:
-                    from connectome_gnn.metrics import compute_g_phi_grad_ratios, g_phi_first_layer_cosine_to_keep
-
-                    cosine_sim = g_phi_first_layer_cosine_to_keep(model, model.a.shape[1])
-                    ratio_vi, ratio_ai, ratio_noise = compute_g_phi_grad_ratios(model, config, edges, x_ts)
-
-                    g_phi_discard_log_path = os.path.join(log_dir, "tmp_training", "g_phi_discard.log")
-                    with open(g_phi_discard_log_path, "a") as f:
-                        f.write(
-                            f"{regularizer.iter_count},"
-                            f"{format_metric(cosine_sim)},"
-                            f"{format_metric(ratio_vi)},"
-                            f"{format_metric(ratio_ai)},"
-                            f"{format_metric(ratio_noise)}\n"
-                        )
-
                 metrics_changed = True
+
+            # THE LOG ROWS AND THE BAR'S NUMBERS, from the one scored dict.
+            if _scored is not None:
+                # Panels shared by every family (a known-ODE takes the linear
+                # branch and has E_ij and msg_i like a GNN does). The tau/V_rest
+                # arrays for the clustering features come from the same
+                # extraction; on the gnn branch `dynamics` already exists.
+                from connectome_gnn.metrics import (
+                    _dynamics_dict_from, cluster_recovery, training_log_append)
+                if _rec_last is not None:
+                    dynamics = _dynamics_dict_from(_rec_last, config)
+                # E_ij and msg_i panels, same arrays. Absent quantity, no panel.
+                if save_panels and _rec_last is not None:
+                    _e = _rec_last.get("E_ij")
+                    if _e is not None:
+                        _grp = None
+                        try:
+                            _dst = to_numpy(edges[1]).ravel()
+                            if type_list is not None and _dst.size == _e[0].size:
+                                _grp = to_numpy(type_list).ravel()[_dst]
+                        except Exception:
+                            _grp = None
+                        plot_reversal_scatter({"true": _e[0], "learned": _e[1],
+                                               "edge_type": _grp}, log_dir, epoch, N)
+                    _m = _rec_last.get("msg_i")
+                    if _m is not None:
+                        plot_msg_recovery(model, _rec_op, x_ts, edges, device,
+                                          log_dir, epoch, N, type_list=type_list,
+                                          precomputed=_m)
+
+                # Cell-type clustering on what the model learned -> cluster.log.
+                # The same function `-o test_plot` uses for clustering_accuracy,
+                # on the same feature stack, so the two numbers can be compared.
+                # Regular checkpoints only: a 100-component mixture on 13.7k
+                # neurons costs seconds, which the dense early checkpoints
+                # would multiply.
+                # A known-ODE run carries no data.type_list; the model's own
+                # type_index buffer (the same one report_learned_reversals reads)
+                # is the cell type per neuron there.
+                _tl = type_list
+                if _tl is None:
+                    _tl = getattr(getattr(model, "_orig_mod", model), "type_index", None)
+                if is_regular_r2 and _tl is not None and _rec_last is not None:
+                    try:
+                        _w_full = _rec_last.diagnostics.get("_W_learned_full")
+                        if _w_full is None:
+                            _w_full = to_numpy(get_model_W(model)).ravel()
+                        _emb = getattr(model, "a", None)
+                        _cl = cluster_recovery(
+                            to_numpy(_tl), to_numpy(edges), _w_full, n_neurons,
+                            embedding=None if _emb is None else to_numpy(_emb),
+                            learned_tau=dynamics.get("tau_learned"),
+                            learned_vrest=dynamics.get("vrest_learned"))
+                    except Exception as _exc:
+                        logger.warning(f"cluster_recovery failed: {type(_exc).__name__}: {_exc}")
+                        _cl = None
+                    if _cl is not None:
+                        training_log_append(log_dir, "cluster", regularizer.iter_count, _cl)
+                        epoch_state.metrics.cluster_acc = _cl["clustering_accuracy"]
+                from connectome_gnn.metrics import recovery_log_append
+                recovery_log_append(log_dir, regularizer.iter_count, _scored)
+                _g = _scored.get
+                epoch_state.metrics.connectivity_r2 = _g("Wij_R2")
+                epoch_state.metrics.n_out_conn = int(_g("Wij_n_outliers", 0) or 0)
+                epoch_state.metrics.n_total_conn = int(_g("Wij_n", 0) or 0)
+                _nan = float("nan")
+                epoch_state.metrics.vrest_r2 = _g("V_rest_R2_all", _nan)
+                epoch_state.metrics.vrest_r2_clean = _g("V_rest_R2", _nan)
+                epoch_state.metrics.n_out_vrest = int(_g("V_rest_n_outliers", 0) or 0)
+                epoch_state.metrics.n_total_vrest = int(_g("V_rest_n", 0) or 0)
+                epoch_state.metrics.tau_r2 = _g("tau_R2_all", _nan)
+                epoch_state.metrics.tau_r2_clean = _g("tau_R2", _nan)
+                epoch_state.metrics.n_out_tau = int(_g("tau_n_outliers", 0) or 0)
+                epoch_state.metrics.n_total_tau = int(_g("tau_n", 0) or 0)
+                if "Eij_R2" in _scored:
+                    epoch_state.metrics.reversal_rmse = _g("Eij_rmse")
+                    epoch_state.metrics.reversal_r2 = _g("Eij_R2")
+                    _e = _rec_last.get("E_ij") if _rec_last is not None else None
+                    if _e is not None:
+                        epoch_state.metrics.reversal_scale = float(
+                            np.max(_e[0]) - np.min(_e[0]))
+                if "msg_i_R2" in _scored:
+                    epoch_state.metrics.msgi_r2 = _g("msg_i_R2_scaled", _g("msg_i_R2"))
+                logger.info(
+                    f"iter {regularizer.iter_count}: "
+                    + "  ".join(f"{k}={v:.4f}" for k, v in _scored.items()
+                                if k.endswith("_R2") and isinstance(v, float)))
 
             else:
                 metrics_changed = False
@@ -1110,22 +987,6 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     ngp_quick_updated = True
 
             if ngp_quick_updated:
-                with open(metrics_log_path, "a") as f:
-                    f.write(
-                        f"{regularizer.iter_count},"
-                        f"{format_metric(epoch_state.metrics.connectivity_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2)},"
-                        f"{format_metric(epoch_state.metrics.tau_r2)},"
-                        f"{format_metric(epoch_state.metrics.hidden_r2)},"
-                        f"{format_metric(epoch_state.metrics.anchor_r2)},"
-                        f"{format_metric(epoch_state.metrics.vrest_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_vrest},"
-                        f"{epoch_state.metrics.n_total_vrest},"
-                        f"{format_metric(epoch_state.metrics.tau_r2_clean)},"
-                        f"{epoch_state.metrics.n_out_tau},"
-                        f"{epoch_state.metrics.n_total_tau}\n"
-                    )
-
                 with open(nnr_pearson_log_path, "a") as f:
                     f.write(
                         f"{regularizer.iter_count},"
@@ -1180,40 +1041,47 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
                     bar_parts.append(f"{conn_color}{conn_string}{ANSI_RESET}")
 
-                    if ode_params.has_vrest():
-                        vr_pct = (
-                            100.0 * epoch_state.metrics.n_out_vrest / epoch_state.metrics.n_total_vrest
-                            if epoch_state.metrics.n_total_vrest > 0
-                            else 0.0
-                        )
+                # Vr= and tau= stand on their own. They used to sit inside the
+                # Wij= block, so whenever score_recovery gated W out (a
+                # conductance GNN below the line-fit gate) the bar lost tau and
+                # V_rest too, although metrics.log had both.
+                if ode_params.has_vrest() and epoch_state.metrics.vrest_r2_clean is not None:
+                    vr_pct = (
+                        100.0 * epoch_state.metrics.n_out_vrest / epoch_state.metrics.n_total_vrest
+                        if epoch_state.metrics.n_total_vrest > 0
+                        else 0.0
+                    )
 
-                        bar_parts.append(
-                            f"{r2_color(epoch_state.metrics.vrest_r2_clean)}"
-                            f"Vr="
-                            f"{fmt_r2_bar(epoch_state.metrics.vrest_r2_clean)}"
-                            f"({vr_pct:.0f}%)"
-                            f"{ANSI_RESET}"
-                        )
+                    bar_parts.append(
+                        f"{r2_color(epoch_state.metrics.vrest_r2_clean)}"
+                        f"Vr="
+                        f"{fmt_r2_bar(epoch_state.metrics.vrest_r2_clean)}"
+                        f"({vr_pct:.0f}%)"
+                        f"{ANSI_RESET}"
+                    )
 
-                    if ode_params.has_tau():
-                        tau_pct = (
-                            100.0 * epoch_state.metrics.n_out_tau / epoch_state.metrics.n_total_tau
-                            if epoch_state.metrics.n_total_tau > 0
-                            else 0.0
-                        )
+                if ode_params.has_tau() and epoch_state.metrics.tau_r2_clean is not None:
+                    tau_pct = (
+                        100.0 * epoch_state.metrics.n_out_tau / epoch_state.metrics.n_total_tau
+                        if epoch_state.metrics.n_total_tau > 0
+                        else 0.0
+                    )
 
-                        bar_parts.append(
-                            f"{r2_color(epoch_state.metrics.tau_r2_clean)}"
-                            f"τ="
-                            f"{fmt_r2_bar(epoch_state.metrics.tau_r2_clean)}"
-                            f"({tau_pct:.0f}%)"
-                            f"{ANSI_RESET}"
-                        )
+                    bar_parts.append(
+                        f"{r2_color(epoch_state.metrics.tau_r2_clean)}"
+                        f"τ="
+                        f"{fmt_r2_bar(epoch_state.metrics.tau_r2_clean)}"
+                        f"({tau_pct:.0f}%)"
+                        f"{ANSI_RESET}"
+                    )
 
                 # E_ij RMSE, two decimals, coloured as a fraction of the true
                 # E_ij spread max-min (about 39.2 voltage units on the
                 # margin/global conductance datasets) -- an RMSE has units and no
                 # ceiling, so a fixed absolute threshold would mean nothing.
+                if getattr(epoch_state.metrics, "cluster_acc", None) is not None:
+                    bar_parts.append(f"cl={epoch_state.metrics.cluster_acc:.2f}")
+
                 if epoch_state.metrics.reversal_rmse is not None:
                     bar_parts.append(
                         f"{rmse_color(epoch_state.metrics.reversal_rmse, epoch_state.metrics.reversal_scale)}"

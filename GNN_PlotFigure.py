@@ -80,6 +80,8 @@ from connectome_gnn.metrics import (
     _vectorized_linear_fit,
     _build_f_theta_features,
 )
+from connectome_gnn.metrics import (
+    RECOVERY_KEYS, cluster_recovery, write_recovery_metrics, score_recovery)
 
 # Per-parameter outlier thresholds for the recovery scatters / R² / metrics.
 # Fixed by neurips.tex eq:outlier_threshold (|theta_hat - theta| > delta), held
@@ -376,145 +378,54 @@ def _finite_range(values, fallback):
     return float(finite.min()), float(finite.max())
 
 
-def _write_message_recovery_metrics(model, ode_params, config, edges, x_ts,
-                                    device, log_dir, logger, log_file):
-    """Score E_ij and msg_i and write them to the analysis log and metrics.txt.
+def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
+                            log_dir, logger, log_file, n_neurons=None, extra=None):
+    """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
 
-    These two were computed during training — the `Eij/` and `msgi/` panels and
-    `tmp_training/Eij.log` — but never reached the per-slot analysis
-    log the LLM exploration reads, so an agent could only get at them by
-    opening figures or parsing a training log by exact path. They are written
-    here beside connectivity_R2 / tau_R2 / V_rest_R2.
+    Extracts every quantity the run can recover (W, tau, V_rest, E_ij, msg_i,
+    gain, bias) through `extract_recovered_params`, names the numbers through
+    `score_recovery`, and writes the resulting `<key>_<stat>` lines once to
+    results/metrics.txt, to the per-slot analysis log and to the logger. The
+    names are the ones the trainer's tmp_training/<key>.log columns carry, so
+    a number can be followed from the last checkpoint into the final file.
 
-    WHY BOTH, AND WHY msg_i MATTERS MOST. The generator's message is
-    g_ij * act(v_j) * (E_i - v_i), so the conductance and the driving force
-    enter as a product: scaling g up by a constant c and shrinking (E - v_i) by
-    the same c leaves every message, and every trajectory, unchanged. On flyvis
-    the data break that tie only through the v_i-dependence of the driving
-    force, which is 3-4% of its magnitude, so W_ij can come out 3x too large
-    with E_ij 3x too small and the rollout still match at r = 0.95. msg_i is
-    the product that survives the trade, and is therefore the number to read
-    when connectivity_R2 and the trajectory disagree.
+    `extra` is a dict of non-recovery numbers to write in the same pass
+    (clustering_*, rollout_*). Returns (rec, scored) so the panels that need
+    the arrays can draw the same ones.
 
-    Called for both model families and both data families. E_ij keys appear
-    only when the generator had a reversal to recover — `compute_reversal_metrics`
-    returns None on current-generated data — so a current run gets msg_i alone,
-    and an absent key means "this quantity does not exist here", not a failure.
+    The panels above draw what they draw; W in particular is drawn gain-
+    corrected on every GNN, while `Wij_*` here is whatever `Wij_estimator`
+    says -- on a conductance GNN the per-edge line fit, which is absent when
+    the message is not affine in v_i (Eij_gate below the threshold). Absence
+    is the signal; nothing is written that nothing stands behind.
 
-    msg_i is scored on MSG_N_FRAMES frames evenly spaced over `x_ts`. Note that
-    `x_ts` here may have been strided or truncated for plotting, so these are
-    not bit-for-bit the frames the training-time msgi/ panel used — the number
-    is comparable across slots, which is what the exploration ranks on, but a
-    small difference against the last panel of a run is expected.
-
-    Every write is best-effort: a metric that cannot be computed must never take
-    down the analysis pass that produced the figures.
+    msg_i is scored on MSG_N_FRAMES frames evenly spaced over `x_ts`, which
+    may have been strided for plotting, so it is comparable across slots but
+    not bit-for-bit the training-time panel's number.
     """
-    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-
-    def _emit(pairs):
-        """Write key: value to the analysis log, metrics.txt and results.log."""
-        for key, val in pairs:
-            text = f"{val:.4f}" if isinstance(val, float) else f"{val}"
-            if log_file:
-                log_file.write(f"{key}: {text}\n")
-            with open(metrics_path, 'a') as mf:
-                mf.write(f"{key}: {text}\n")
-            logger.info(f"{key}: {text}")
-
-    # --- W after removing the one global gain the data cannot pin ---
-    #
-    # WHY A SECOND W NUMBER. `connectivity_R2` is scored on the identity line, so
-    # it charges the model for a global scale that no amount of training can fix:
-    # the conductance and the driving force enter the message as a product, and
-    # scaling one up by c while the other shrinks by c leaves every trajectory
-    # unchanged. Measured on the two known-ODE recovery runs, the learned W came
-    # out 2.39x and 1.28x too large with the reversals 0.442x and 0.740x too
-    # small -- products of 1.056 and 0.950, i.e. a reciprocal trade to within 6%.
-    # That single scalar is what drives connectivity_R2 to -4.95; dividing it out
-    # leaves +0.34, which is a number with a working point and a usable gradient.
-    #
-    # Both are reported, and neither replaces the other: the raw number is what
-    # the paper's tables use and is the one to quote, the scaled number is what
-    # an optimisation should be steered by while the raw one is deeply negative.
-    # `w_scale` is the gain itself -- read it as "how far along the degenerate
-    # valley this run sits", 1.0 being the truth.
-    #
-    # This mirrors `w_r2_scaled` / `w_scale`, which the conductance GNN already
-    # writes to tmp_training/gnn_conductance_fit.log, so the two model families
-    # become comparable on one key instead of two differently-named ones.
     try:
-        w_learn = to_numpy(get_model_W(model)).ravel()
-        w_true = to_numpy(ode_params.W).ravel() if getattr(ode_params, 'W', None) is not None else None
+        rec = extract_recovered_params(model, ode_params, config, edges=edges,
+                                       x_ts=x_ts, device=device, n_neurons=n_neurons)
+        scored = score_recovery(rec, config)
     except Exception as exc:
-        logger.warning(f"scaled W metrics unavailable: {type(exc).__name__}: {exc}")
-        w_true = None
-    if w_true is not None and w_learn.size and w_true.size:
-        nw = min(w_learn.size, w_true.size)
-        wl, wt = w_learn[:nw], w_true[:nw]
-        ok = np.isfinite(wl) & np.isfinite(wt)
-        denom = float(np.dot(wt[ok], wt[ok]))
-        if ok.sum() >= 2 and denom > 0:
-            # Least-squares gain through the origin: the c minimising
-            # ||c * w_true - w_learned||, which is the only free parameter the
-            # degeneracy leaves. Not a two-parameter fit -- an intercept would
-            # also absorb a real offset error and flatter the result.
-            w_scale = float(np.dot(wt[ok], wl[ok]) / denom)
-            if abs(w_scale) > 1e-12:
-                ms = recovery_param_metrics(wt[ok], wl[ok] / w_scale)
-                _emit([
-                    ('connectivity_R2_scaled', float(ms['r2'])),
-                    ('w_scale', w_scale),
-                    ('connectivity_pearson_r', float(np.corrcoef(wt[ok], wl[ok])[0, 1])),
-                ])
-                print(f"W (scale removed) R²: {_r2_color(ms['r2'])}{ms['r2']:.3f}{_ANSI_RESET}  "
-                      f"w_scale: {w_scale:.3f}  pearson r: {np.corrcoef(wt[ok], wl[ok])[0, 1]:.3f}")
-
-    # --- E_ij, per edge: where(edge_is_inh, E_inh[dst], E_exc[dst]) ---
-    try:
-        rev = compute_reversal_metrics(model, ode_params, config=config,
-                                       edges=edges, x_ts=x_ts)
-    except Exception as exc:
-        logger.warning(f"reversal metrics unavailable: {type(exc).__name__}: {exc}")
-        rev = None
-    if rev is not None:
-        # Named Eij_*, not reversal_*: "reversal" alone reads as an action and
-        # prompts "reversal of what?", where E_ij is the per-edge reversal
-        # POTENTIAL and is what the tmp_training/Eij/ panels, the `E=` token in
-        # the progress bar and both instruction files already call it. Sits
-        # beside Wij and msg_i as one symbol-first family.
-        _emit([
-            ('Eij_R2', float(rev['r2'])),
-            ('Eij_slope', float(rev['slope'])),
-            ('Eij_rmse', float(rev['rmse'])),
-            ('Eij_n_edges', int(rev['n_edges'])),
-        ])
-        print(f"E_ij R²: {_r2_color(rev['r2'])}{rev['r2']:.3f}{_ANSI_RESET}  "
-              f"slope: {rev['slope']:.2f}  rmse: {rev['rmse']:.3f}  "
-              f"n_edges: {rev['n_edges']}")
-
-    # --- msg_i, the aggregated per-neuron message on MSG_N_FRAMES fixed frames ---
-    try:
-        out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
-    except Exception as exc:
-        logger.warning(f"msg_i metrics unavailable: {type(exc).__name__}: {exc}")
-        out = None
-    if out is not None:
-        true, learned = out
-        # No outlier threshold, as in the msgi/ panel: there is no published
-        # tolerance band on a message, and inventing one would decide by fiat
-        # which neurons count.
-        m = recovery_param_metrics(true, learned)
-        rmse = float(np.sqrt(np.mean((np.asarray(learned).ravel()
-                                      - np.asarray(true).ravel()) ** 2)))
-        _emit([
-            ('msg_i_R2', float(m['r2'])),
-            ('msg_i_slope', float(m['slope'])),
-            ('msg_i_rmse', rmse),
-            ('msg_i_n', int(m['n_total'])),
-        ])
-        print(f"msg_i R²: {_r2_color(m['r2'])}{m['r2']:.3f}{_ANSI_RESET}  "
-              f"slope: {m['slope']:.2f}  rmse: {rmse:.3f}  n: {m['n_total']}")
+        logger.warning(f"recovery metrics unavailable: {type(exc).__name__}: {exc}")
+        rec, scored = None, {}
+    if extra:
+        scored.update(extra)
+    write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
+    for key in RECOVERY_KEYS:
+        if f"{key}_R2" not in scored:
+            continue
+        r2 = scored[f"{key}_R2"]
+        line = f"{key} R²: {_r2_color(r2)}{r2:.3f}{_ANSI_RESET}"
+        if f"{key}_R2_all" in scored:
+            line += f"  (all {scored[f'{key}_R2_all']:.3f}, outliers {scored.get(f'{key}_pct_outliers', 0.0):.2f}%)"
+        if f"{key}_gain" in scored:
+            line += f"  gain {scored[f'{key}_gain']:.3f}  R² scaled {scored[f'{key}_R2_scaled']:.3f}"
+        if f"{key}_estimator" in scored:
+            line += f"  [{scored[f'{key}_estimator']}]"
+        print(line)
+    return rec, scored
 
 
 def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
@@ -642,9 +553,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
     print(f"W rel.err: {_ANSI_GREEN}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
     logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
-    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-        _mf.write(f"W_rel_err_median: {_rel_err_w_med:.4f}\n")
-        _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
 
     # Fixed *x* range (true τ never changes) for cross-run comparability. y
     # range stays data-driven on learned_tau because that's what varies per run.
@@ -685,9 +593,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _rel_err_tau_iqr = _tau_m['rel_err_iqr']
     print(f"tau rel.err: {_ANSI_GREEN}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
     logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
-    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-        _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
-        _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
 
     # Outlier rule for the tau plots: absolute distance from identity line
     # > 0.1 (i.e. outside the y = x ± 0.1 band). Shared by Plot 3b (cell-type
@@ -772,11 +677,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
           f"outliers: {n_outliers_tau}/{_gt_t.size} ({_pct_outliers_tau:.1f}%)")
     logger.info(f"tau_wo_outliers R²: {r2_tau_clean:.4f}  slope: {slope_tau_clean:.4f}  "
                 f"outliers: {n_outliers_tau}/{_gt_t.size} ({_pct_outliers_tau:.1f}%)")
-    _metrics_path_tau = os.path.join(log_dir, 'results', 'metrics.txt')
-    with open(_metrics_path_tau, 'a') as _mf:
-        _mf.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
-        _mf.write(f"tau_no_outliers_slope: {slope_tau_clean:.4f}\n")
-        _mf.write(f"tau_n_outliers: {n_outliers_tau}\n")
 
     # Fixed axis range for ALL V_rest comparison plots (4, 4b, 4c) so the
     # window is comparable across configs/runs.
@@ -817,9 +717,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     _rel_err_v_iqr = _v_m['rel_err_iqr']
     print(f"V_rest rel.err: {_ANSI_GREEN}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
     logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
-    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-        _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
-        _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
 
     # Outlier rule for V_rest plots: absolute distance from identity line
     # > 0.2 (i.e. outside the y = x ± 0.2 band). Shared by Plot 4b (cell-type
@@ -895,11 +792,6 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
           f"outliers: {n_outliers}/{_gt_v.size} ({_pct_outliers_v:.1f}%)")
     logger.info(f"V_rest_wo_outliers R²: {r2_v_clean:.4f}  slope: {slope_v_clean:.4f}  "
                 f"outliers: {n_outliers}/{_gt_v.size} ({_pct_outliers_v:.1f}%)")
-    _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-    with open(_metrics_path, 'a') as _mf:
-        _mf.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
-        _mf.write(f"V_rest_no_outliers_slope: {slope_v_clean:.4f}\n")
-        _mf.write(f"V_rest_n_outliers: {n_outliers}\n")
 
     # --- Plot 5: tau and V_rest per neuron ---
     fig = plt.figure(figsize=(10, 9))
@@ -959,24 +851,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         print(f"bias R²: {_r2_color(r_squared_bias)}{r_squared_bias:.3f}{_ANSI_RESET}  slope: {slope_bias:.2f}")
         logger.info(f"bias R²: {r_squared_bias:.3f}  slope: {slope_bias:.2f}")
 
-    # --- Write R² to log file ---
-    if log_file:
-        log_file.write(f"connectivity_R2: {r_squared_W:.4f}\n")
-        log_file.write(f"connectivity_full_sample_R2: {r_squared_W_full:.4f}\n")
-        # Gated on the extractor actually having produced the quantity: a
-        # placeholder must never be written as though it were a measurement.
-        if has_tau_learned:
-            log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
-            log_file.write(f"tau_no_outliers_R2: {r2_tau_clean:.4f}\n")
-            log_file.write(f"tau_n_outliers: {n_outliers_tau}\n")
-        if has_vrest_learned:
-            log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
-            log_file.write(f"V_rest_no_outliers_R2: {r2_v_clean:.4f}\n")
-            log_file.write(f"V_rest_n_outliers: {n_outliers}\n")
-        if gt_gain_np is not None and learned_gain is not None:
-            log_file.write(f"gain_R2: {r_squared_gain:.4f}\n")
-        if gt_bias_np is not None and learned_bias is not None:
-            log_file.write(f"bias_R2: {r_squared_bias:.4f}\n")
+    # The R2 lines go to the analysis log through _write_recovery_metrics below.
 
     # --- Eigenvalue / SVD analysis ---
     # The SVD-based eigen_comparison plot is unreliable on the corrected
@@ -1358,30 +1233,19 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
 
     n_gmm = min(100, n_neurons - 1)
 
-    # Augmented clustering: (tau, V_rest, W_stats) since no embeddings.
-    # A quantity the extractor did not produce is dropped from the feature stack
-    # rather than fed in as NaN, which the GMM cannot fit -- clustering on the
-    # features that exist is a smaller claim than clustering on invented ones.
-    _aug = []
-    if has_tau_learned:
-        _aug.append(learned_tau)
-    if has_vrest_learned:
-        _aug.append(learned_V_rest)
-    a_aug = np.column_stack(_aug + [w_in_mean, w_in_std, w_out_mean, w_out_std,
-                                    w_in_min, w_in_max, w_out_min, w_out_max])
-    results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
-    cluster_acc = results['accuracy']
-    print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
-    logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
-
-    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-    try:
-        with open(metrics_path, 'a') as mf:
-            mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
-    except OSError:
-        pass
-    if log_file:
-        log_file.write(f"cluster_accuracy: {cluster_acc:.4f}\n")
+    # Cell-type clustering on (tau, V_rest, W stats) -- no embedding on a linear
+    # model. cluster_recovery is the function the trainer's cluster.log uses, on
+    # the same feature stack, so the two numbers can be compared; a quantity the
+    # extractor did not produce is left out of the stack, not fed in as NaN.
+    _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
+                           learned_tau=learned_tau if has_tau_learned else None,
+                           learned_vrest=learned_V_rest if has_vrest_learned else None,
+                           n_components=n_gmm, return_features=True)
+    a_aug = _cl.pop("_X")
+    results = dict(_cl, accuracy=_cl['clustering_accuracy'], ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+    cluster_acc = _cl['clustering_accuracy']
+    print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={_cl['clustering_ari']:.3f}, NMI={_cl['clustering_nmi']:.3f}")
+    write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
 
     # UMAP scatter
     reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
@@ -1475,9 +1339,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _m = _re.search(rf'{_re.escape(_k)}:\s*([-\d.eE+]+)', _rtext)
             if _m:
                 # Normalize 'Pearson r' → rollout_pearson, 'RMSE' → rollout_RMSE
+                # rollout_r / rollout_rmse: the names tmp_training/rollout.log
+                # carries, so the trained-on-train and the held-out `-o test`
+                # numbers sit under one spelling.
                 _canonical = {
-                    'Pearson r': 'rollout_pearson',
-                    'RMSE': 'rollout_RMSE',
+                    'Pearson r': 'rollout_r',
+                    'RMSE': 'rollout_rmse',
                 }.get(_k, _k)
                 _mirrored.append(f'{_canonical}: {_m.group(1)}\n')
         if _mirrored:
@@ -1686,11 +1553,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     ode_params=ode_params,
                     activity_true=activity_true, n_frames_actual=n_frames_actual,
                     start_frame=start_frame, index_to_name=index_to_name)
-                # E_ij and msg_i, which _plot_synaptic_linear cannot compute:
-                # both need x_ts, which lives here and is not passed into it.
-                _write_message_recovery_metrics(
+                # Every recovered quantity, scored once and written once.
+                _write_recovery_metrics(
                     model, ode_params, config, edges, x_ts, device,
-                    log_dir, logger, log_file)
+                    log_dir, logger, log_file, n_neurons=n_neurons)
                 continue
 
             # print learnable parameters table
@@ -2482,7 +2348,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # low weights R² == wiring recovered but under-scaled (W<->g_phi scale
             # degeneracy); low r == wiring genuinely wrong. Global z-score
             # z(x)=(x-mean)/std removes the scale. Written to metrics.txt for the
-            # agentic exploration (W_structure_r / W_zscored_R2).
+            # agentic exploration (Wij_pearson / Wij_zscored_R2 in metrics.txt).
             _w_t = np.asarray(_tw_c).ravel(); _w_l = np.asarray(_lw_c).ravel()
             _w_nz = _w_t != 0
             _w_t, _w_l = _w_t[_w_nz], _w_l[_w_nz]
@@ -2503,17 +2369,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
             print(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
             logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
-            with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                _mf.write(f"W_rel_err_median: {_rel_err_w_med:.4f}\n")
-                _mf.write(f"W_rel_err_iqr: {_rel_err_w_iqr:.4f}\n")
-                _mf.write(f"W_structure_r: {_w_struct_r:.4f}\n")
-                _mf.write(f"W_zscored_R2: {_w_zscored_r2:.4f}\n")
-            # Also surface the scale-free structure metrics into the analysis log
-            # so the agentic exploration follows them (NSE connectivity_R2 is
-            # misleading under the W<->g_phi scale degeneracy).
-            if log_file:
-                log_file.write(f"W_structure_r: {_w_struct_r:.4f}\n")
-                log_file.write(f"W_zscored_R2: {_w_zscored_r2:.4f}\n")
             _rel_err_tau_med = _rel_err_tau_iqr = None
             _rel_err_v_med = _rel_err_v_iqr = None
 
@@ -2548,9 +2403,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     logger.info(f"tau R²: {_tm['r2']:.3f}  slope: {_tm['slope']:.2f}")
                 print(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
-                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"tau_rel_err_median: {_rel_err_tau_med:.4f}\n")
-                    _mf.write(f"tau_rel_err_iqr: {_rel_err_tau_iqr:.4f}\n")
                 if _tm['degenerate']:
                     print(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("tau_wo_outliers R²: N/A (const GT)")
@@ -2560,10 +2412,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                           f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
                     logger.info(f"tau_wo_outliers R²: {_tm['r2_clean']:.4f}  slope: {_tm['slope_clean']:.4f}  "
                                 f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
-                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"tau_no_outliers_R2: {_tm['r2_clean']:.4f}\n")
-                    _mf.write(f"tau_no_outliers_slope: {_tm['slope_clean']:.4f}\n")
-                    _mf.write(f"tau_n_outliers: {_tm['n_outliers']}\n")
             if ode_params.has_vrest():
                 _vm = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
                 _rel_err_v_med, _rel_err_v_iqr = _vm['rel_err_median'], _vm['rel_err_iqr']
@@ -2575,9 +2423,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     logger.info(f"V_rest R²: {_vm['r2']:.3f}  slope: {_vm['slope']:.2f}")
                 print(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
-                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"V_rest_rel_err_median: {_rel_err_v_med:.4f}\n")
-                    _mf.write(f"V_rest_rel_err_iqr: {_rel_err_v_iqr:.4f}\n")
                 if _vm['degenerate']:
                     print(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("V_rest_wo_outliers R²: N/A (const GT)")
@@ -2587,10 +2432,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                           f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
                     logger.info(f"V_rest_wo_outliers R²: {_vm['r2_clean']:.4f}  slope: {_vm['slope_clean']:.4f}  "
                                 f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
-                with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
-                    _mf.write(f"V_rest_no_outliers_R2: {_vm['r2_clean']:.4f}\n")
-                    _mf.write(f"V_rest_no_outliers_slope: {_vm['slope_clean']:.4f}\n")
-                    _mf.write(f"V_rest_n_outliers: {_vm['n_outliers']}\n")
             _summary_parts = [f"W rel err {100*_rel_err_w_med:.1f}±{100*_rel_err_w_iqr:.1f}%"]
             if _rel_err_tau_med is not None:
                 _summary_parts.append(f"tau rel err {100*_rel_err_tau_med:.1f}±{100*_rel_err_tau_iqr:.1f}%")
@@ -2630,18 +2471,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Write to analysis log file for Claude
             if log_file:
                 log_file.write(f"\n--- Parameter extraction results ---\n")
-                log_file.write(f"raw_W_R2: {raw_W_r2:.4f}\n")
-                log_file.write(f"connectivity_R2: {r_squared:.4f}\n")
                 if r_squared_visible is not None:
                     log_file.write(f"connectivity_R2_visible: {r_squared_visible:.4f}\n")
                 if connectivity_r2_real is not None:
                     log_file.write(f"connectivity_R2_real: {connectivity_r2_real:.4f}\n")
                 log_file.write(f"f_theta_functional_R2: {r2_f_theta_mean:.4f}\n")
                 log_file.write(f"g_phi_functional_R2: {r2_g_phi_mean:.4f}\n")
-                if ode_params.has_tau():
-                    log_file.write(f"tau_R2: {r_squared_tau:.4f}\n")
-                if ode_params.has_vrest():
-                    log_file.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
                 if gt_g_params is not None and g_phi_fitted is not None:
                     for pname in ode_params.g_phi_param_names():
                         if pname in g_phi_fitted and pname in gt_g_params:
@@ -2650,12 +2485,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                             r2_p = recovery_param_metrics(gt_v, lr_v)['r2']
                             log_file.write(f"g_phi_{pname}_R2: {r2_p:.4f}\n")
 
-            # E_ij and msg_i, the same two the linear branch writes. Outside the
-            # `if log_file` above because _write_message_recovery_metrics also
-            # feeds metrics.txt and results.log, which exist either way.
-            _write_message_recovery_metrics(
+            # Every recovered quantity, scored once and written once. Outside
+            # the `if log_file` above because the writer also feeds
+            # results/metrics.txt, which exists either way.
+            _write_recovery_metrics(
                 model, ode_params, config, edges, x_ts, device,
-                log_dir, logger, log_file)
+                log_dir, logger, log_file, n_neurons=n_neurons)
 
             # Plot connectivity matrix comparison (only for small networks)
             if n_neurons < 1000:
@@ -3383,30 +3218,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
             n_gmm = min(100, n_neurons - 1)
 
-            # Build augmented embedding for GMM + UMAP
-            _aug_parts = [to_numpy(model.a), learned_tau.reshape(-1, 1)]
-            if ode_params.has_vrest():
-                _aug_parts.append(learned_V_rest.reshape(-1, 1))
-            _aug_parts.extend([w_in_mean_learned.reshape(-1, 1), w_in_std_learned.reshape(-1, 1),
-                               w_out_mean_learned.reshape(-1, 1), w_out_std_learned.reshape(-1, 1),
-                               w_in_min_learned.reshape(-1, 1), w_in_max_learned.reshape(-1, 1),
-                               w_out_min_learned.reshape(-1, 1), w_out_max_learned.reshape(-1, 1)])
-            a_aug = np.column_stack(_aug_parts)
-
-            results = clustering_gmm(a_aug, type_list, n_components=n_gmm)
-            cluster_acc = results['accuracy']
-            print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
-            logger.info(f"GMM n_components={n_gmm}, accuracy={cluster_acc:.3f}, ARI={results['ari']:.3f}, NMI={results['nmi']:.3f}")
-
-            # Write cluster accuracy to metrics.txt and analysis log
-            metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-            try:
-                with open(metrics_path, 'a') as mf:
-                    mf.write(f"clustering_accuracy: {cluster_acc:.4f}\n")
-            except OSError:
-                pass
-            if log_file:
-                log_file.write(f"cluster_accuracy: {cluster_acc:.4f}\n")
+            # Cell-type clustering on (a_i, tau, V_rest, W stats): the function
+            # the trainer's cluster.log uses, on the same feature stack.
+            _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
+                                   embedding=to_numpy(model.a),
+                                   learned_tau=learned_tau,
+                                   learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                                   n_components=n_gmm, return_features=True)
+            a_aug = _cl.pop("_X")
+            results = dict(_cl, accuracy=_cl['clustering_accuracy'], ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+            cluster_acc = _cl['clustering_accuracy']
+            print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={_cl['clustering_ari']:.3f}, NMI={_cl['clustering_nmi']:.3f}")
+            write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
 
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
             a_umap = reducer.fit_transform(a_aug)
@@ -3593,24 +3416,7 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
     if "vrest" in panels:
         logger.info(f"mean V_rest RMSE: {np.mean(rmse_vrests):.3f} ± {np.std(rmse_vrests):.3f}")
 
-    # Write key-value metrics — use append so clustering_accuracy written
-    # earlier by _plot_synaptic_linear / plot_synaptic is not overwritten.
-    metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-    if r_squared is not None:
-        with open(metrics_path, 'a') as mf:
-            # Naming matches tau/V_rest: the bare _R2 key is full-sample, the
-            # _no_outliers_R2 key is the outlier-filtered headline number
-            # that's actually reported in the paper.
-            if r_squared_full is not None:
-                mf.write(f"W_corrected_R2: {r_squared_full:.4f}\n")
-            mf.write(f"W_corrected_no_outliers_R2: {r_squared:.4f}\n")
-            mf.write(f"W_corrected_no_outliers_slope: {slope_corrected:.4f}\n")
-            if n_w_outliers is not None:
-                mf.write(f"W_corrected_n_outliers: {n_w_outliers}\n")
-            if "tau" in panels:
-                mf.write(f"tau_R2: {r_squared_tau:.4f}\n")
-            if "vrest" in panels:
-                mf.write(f"V_rest_R2: {r_squared_V_rest:.4f}\n")
+    # Recovery metrics are written once, by _write_recovery_metrics.
 
     return {
         'rmse_weights_per_neuron': rmse_weights_per_neuron,

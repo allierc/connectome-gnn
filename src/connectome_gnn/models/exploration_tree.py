@@ -162,7 +162,7 @@ def compute_tree_layout(nodes: list[ExperimentNode]) -> dict[int, tuple[float, f
         x = node.iteration
 
         # y based on connectivity_R2 if available
-        conn_r2 = node.metrics.get('connectivity_R2', 0.5)
+        conn_r2 = node.metrics.get('Wij_R2', 0.5)
         y = conn_r2
 
         positions[node.iteration] = (x, y)
@@ -250,7 +250,7 @@ def plot_exploration_tree(nodes: list[ExperimentNode],
     ax1.axhline(y=0.1, color='red', linestyle=':', alpha=0.5, label='Failed (0.1)')
 
     ax1.set_xlabel('Iteration', fontsize=11)
-    ax1.set_ylabel('connectivity_R2', fontsize=11)
+    ax1.set_ylabel('Wij_R2', fontsize=11)
     ax1.set_title('Convergence Trajectory', fontsize=12)
     ax1.set_ylim(-0.05, 1.05)
     ax1.grid(True, alpha=0.3)
@@ -277,7 +277,7 @@ def plot_exploration_tree(nodes: list[ExperimentNode],
                 colors.append(status_colors.get(node.status, '#95a5a6'))
 
                 # Size based on connectivity_R2
-                conn_r2 = node.metrics.get('connectivity_R2', 0.5)
+                conn_r2 = node.metrics.get('Wij_R2', 0.5)
                 sizes.append(50 + conn_r2 * 150)
                 labels.append(node.iteration)
             except (ValueError, TypeError):
@@ -404,7 +404,7 @@ def plot_data_exploration(nodes: list[ExperimentNode],
     for node in nodes:
         svd_rank = node.metrics.get('svd_rank', None)
         spectral_radius = node.metrics.get('spectral_radius', None)
-        conn_r2 = node.metrics.get('connectivity_R2', None)
+        conn_r2 = node.metrics.get('Wij_R2', None)
         conn_type = node.config.get('connectivity_type', 'chaotic')
 
         # Debug: print node metrics
@@ -495,7 +495,7 @@ def plot_data_exploration(nodes: list[ExperimentNode],
             ax2.plot([x1, x2], [y1, y2], color='#34495e', linestyle='-', linewidth=2, alpha=0.7, zorder=1)
 
     # Draw nodes (size proportional to connectivity_R2)
-    all_r2 = [n.metrics.get('connectivity_R2', 0.0) for n in nodes]
+    all_r2 = [n.metrics.get('Wij_R2', 0.0) for n in nodes]
     min_r2 = min(all_r2) if all_r2 else 0.0
     r2_range = (max(all_r2) - min_r2) if all_r2 else 1.0
     if r2_range == 0:
@@ -507,7 +507,7 @@ def plot_data_exploration(nodes: list[ExperimentNode],
         x = depth_map[node.iteration]
         y = y_positions[node.iteration]
         color = status_colors.get(node.status, '#95a5a6')
-        r2 = node.metrics.get('connectivity_R2', 0.0)
+        r2 = node.metrics.get('Wij_R2', 0.0)
         size = 100 + 150 * (r2 - min_r2) / r2_range
 
         conn_type = node.config.get('connectivity_type', 'chaotic')
@@ -522,7 +522,7 @@ def plot_data_exploration(nodes: list[ExperimentNode],
             continue
         x = depth_map[node.iteration]
         y = y_positions[node.iteration]
-        r2 = node.metrics.get('connectivity_R2', 0.0)
+        r2 = node.metrics.get('Wij_R2', 0.0)
         ax2.annotate(f'R²={r2:.2f}', (x, y), ha='left', va='center', fontsize=6, xytext=(8, 0), textcoords='offset points')
 
     ax2.set_xlabel('Tree Depth', fontsize=11)
@@ -577,7 +577,7 @@ def plot_parameter_space(nodes: list[ExperimentNode],
                 colors.append(status_colors.get(node.status, '#95a5a6'))
 
                 # Size based on connectivity_R2
-                conn_r2 = node.metrics.get('connectivity_R2', 0.5)
+                conn_r2 = node.metrics.get('Wij_R2', 0.5)
                 sizes.append(50 + conn_r2 * 150)
                 labels.append(node.iteration)
             except (ValueError, TypeError):
@@ -645,7 +645,7 @@ def generate_summary_stats(nodes: list[ExperimentNode]) -> dict:
 
     configs_seen = set()
     for node in nodes:
-        conn_r2 = node.metrics.get('connectivity_R2', 0)
+        conn_r2 = node.metrics.get('Wij_R2', 0)
         if conn_r2 > stats['best_connectivity_R2']:
             stats['best_connectivity_R2'] = conn_r2
             stats['best_iteration'] = node.iteration

@@ -52,6 +52,41 @@ RUNS = [
 ]
 
 
+# ONE VOCABULARY. results/metrics.txt used to carry the pre-refactor names while the
+# trainer's log carried score_recovery's; the writer now goes through score_recovery
+# too. A baseline collected before that switch is compared through this map, BY
+# SEMANTICS: the legacy full-sample R2 is the catalogue's <key>_R2_all, the legacy
+# outlier-filtered "no_outliers" R2 is the catalogue's headline <key>_R2.
+RENAMES = {
+    'W_corrected_R2':                'Wij_R2_all',
+    'W_corrected_no_outliers_R2':    'Wij_R2',
+    'W_corrected_no_outliers_slope': 'Wij_slope',
+    'W_corrected_n_outliers':        'Wij_n_outliers',
+    'W_rel_err_median':              'Wij_rel_err_median',
+    'W_rel_err_iqr':                 'Wij_rel_err_iqr',
+    'W_structure_r':                 'Wij_pearson',
+    'W_zscored_R2':                  'Wij_zscored_R2',
+    'connectivity_R2_scaled':        'Wij_R2_scaled',
+    'connectivity_pearson_r':        'Wij_pearson',
+    'w_scale':                       'Wij_gain',
+    'tau_R2':                        'tau_R2_all',
+    'tau_no_outliers_R2':            'tau_R2',
+    'tau_no_outliers_slope':         'tau_slope',
+    'V_rest_R2':                     'V_rest_R2_all',
+    'V_rest_no_outliers_R2':         'V_rest_R2',
+    'V_rest_no_outliers_slope':      'V_rest_slope',
+    'Eij_n_edges':                   'Eij_n',
+    'raw_W_R2':                      'Wij_R2_uncorrected',
+    'rollout_pearson':               'rollout_r',
+    'rollout_RMSE':                  'rollout_rmse',
+}
+
+
+def _canon(metrics: dict) -> dict:
+    """Apply RENAMES so a legacy snapshot and a catalogue snapshot line up."""
+    return {RENAMES.get(k, k): v for k, v in metrics.items()}
+
+
 def log_dir(cfg: str) -> str:
     return os.path.join(DATA_ROOT, 'log', 'fly', cfg)
 
@@ -118,8 +153,8 @@ def compare(a_label: str, b_label: str, decimals: int = 2) -> int:
 
     n_moved = n_added = n_removed = 0
     for cfg, _ in RUNS:
-        ma = a.get(cfg, {}).get('metrics', {})
-        mb = b.get(cfg, {}).get('metrics', {})
+        ma = _canon(a.get(cfg, {}).get('metrics', {}))
+        mb = _canon(b.get(cfg, {}).get('metrics', {}))
         moved, added, removed = [], sorted(set(mb) - set(ma)), sorted(set(ma) - set(mb))
         for k in sorted(set(ma) & set(mb)):
             va, vb = ma[k], mb[k]
@@ -141,6 +176,10 @@ def compare(a_label: str, b_label: str, decimals: int = 2) -> int:
             print(f"      \033[91m- {k:<32s} {ma[k]}\033[0m")
 
     print(f"\n{n_moved} moved, {n_added} added, {n_removed} removed")
+    if n_added or n_removed:
+        print("Added/removed keys do NOT fail the gate. Name each one: a rename should already be\n"
+              "in RENAMES, an estimator change (a conductance GNN's W is line-fit and gated, so its\n"
+              "gain-corrected W keys vanish) should be stated in the commit.")
     if n_moved:
         print("A moved key is a REGRESSION unless it is one you can name the bug for.")
     return 1 if n_moved else 0

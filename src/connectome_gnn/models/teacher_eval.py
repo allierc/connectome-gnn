@@ -32,7 +32,8 @@ learned, which these models do not have). Quote the -o test number in anything
 that leaves this repo; quote this one as train-split.
 
 WHAT IT WRITES, both under tmp_training/ and NEITHER touching metrics.log:
-  rollout_r.log        iteration,pearson_r,rmse,n_frames   -- TRAIN split
+  rollout.log          iteration,rollout_r,rollout_rmse,rollout_n_frames,
+                       rollout_r_pooled,rollout_n_diverged,rollout_n_scored -- TRAIN split
   traces/<iter>.png    green ground truth, black rollout, red stimulus
 
 metrics.log is deliberately left alone. Adding a column there means editing the
@@ -241,7 +242,7 @@ def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration
     """One checkpoint's worth: score the rollout, log it, draw the traces.
 
     `make_figure` separates the two. The rollout itself always runs and always
-    appends to rollout_r.log, because r and rmse are the trajectory metric and
+    appends to rollout.log, because r and rmse are the trajectory metric and
     are what gets trended; the stacked-trace figure is ~1 MB and only useful to
     flip through, so the trainer draws it on its panel cadence rather than on
     every metric evaluation.
@@ -260,15 +261,18 @@ def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration
     n_div = 0 if score is None else score["n_diverged"]
     n_sc = 0 if score is None else score["n_scored"]
     tmp = os.path.join(log_dir, "tmp_training")
-    os.makedirs(tmp, exist_ok=True)
-    # Columns: iteration, r (per-neuron Fisher-pooled, diverged/flat scored as 0
-    # -- the `-o test` statistic), rmse, n_frames, r_pooled (flattened pairs;
-    # level-fitting detector), n_diverged (neurons whose prediction went
-    # non-finite or overflowed), n_scored (neurons whose truth varied and so
-    # entered the pool). The first four columns are the original layout.
-    with open(os.path.join(tmp, "rollout_r.log"), "a") as f:
-        f.write(f"{iteration},{r:.6f},{rmse:.6g},"
-                f"{0 if true is None else true.shape[0]},{r_pooled:.6f},{n_div},{n_sc}\n")
+    # tmp_training/rollout.log, header `iteration,rollout_r,...`, the same names
+    # `-o test_plot` mirrors into results/metrics.txt. rollout_r is per-neuron
+    # Pearson Fisher-pooled with diverged/flat neurons scored 0 (the `-o test`
+    # statistic); rollout_r_pooled flattens all (frame, neuron) pairs and is the
+    # level-fitting detector; rollout_n_diverged counts neurons whose prediction
+    # went non-finite or overflowed; rollout_n_scored those whose truth varied.
+    from connectome_gnn.metrics import training_log_append
+    training_log_append(log_dir, "rollout", iteration, {
+        "rollout_r": float(r), "rollout_rmse": float(rmse),
+        "rollout_n_frames": 0 if true is None else int(true.shape[0]),
+        "rollout_r_pooled": float(r_pooled),
+        "rollout_n_diverged": int(n_div), "rollout_n_scored": int(n_sc)})
 
     if make_figure and true is not None:
         save_trace_figure(

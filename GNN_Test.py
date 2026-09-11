@@ -524,12 +524,13 @@ def main():
     # Phase 1: Training
     if not args.skip_train:
         print(f"\n\033[93m--- Phase 1: Training ---\033[0m")
-        # Erase metrics.log locally before training to avoid stale R² data
-        # in loss.tif right panel (cluster erase may not sync reliably via NFS)
-        metrics_log = os.path.join(log_dir, 'tmp_training', 'metrics.log')
-        if os.path.exists(metrics_log):
-            os.remove(metrics_log)
-            print(f"erased stale {metrics_log}")
+        # Erase the per-quantity training logs (tmp_training/*.log) locally
+        # before training so metrics.png does not trend a previous run's rows
+        # (cluster erase may not sync reliably via NFS).
+        import glob as _glob
+        for _stale in _glob.glob(os.path.join(log_dir, 'tmp_training', '*.log')):
+            os.remove(_stale)
+            print(f"erased stale {_stale}")
         if args.cluster:
             training_output = run_training_cluster(args.config, root_dir, log_dir)
         else:
