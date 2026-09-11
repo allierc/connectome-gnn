@@ -1,5 +1,5 @@
 description: 'Group-lasso sweep on rig-2 (ion) conductance data, coeff_g_phi_input_group_L1 = 0, noise 0.05, fold 0: does the lasso keep g_phi''s v_i and a_i inputs where the data need them?'
-dataset: flyvis_conductance_ion_noise_005_blank50_cv00
+dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ""
