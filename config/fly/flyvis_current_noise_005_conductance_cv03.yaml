@@ -1,4 +1,4 @@
-description: "blank50, LLM parameters, model_noise bug fixed, fold 03"
+description: 'Conductance GNN on current-generated flyvis_A data, LLM-tuned parameters, blank50, noise 0.05, fold 3.'
 dataset: flyvis_noise_005_blank50_cv03
 simulation:
   connectivity_file: to be specified

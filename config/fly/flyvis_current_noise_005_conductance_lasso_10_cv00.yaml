@@ -1,4 +1,4 @@
-description: "Task 4b: width-6 twin of the Task 4 group-lasso sweep, coeff_g_phi_input_group_L1 = 20.0, cv00 seed 1041, 1.6M iterations. Identical to flyvis_noise_005_noiseprobe_lasso20_cv00 except the 2 pure-noise columns are removed (input_size 8->6). Isolates whether the noise columns themselves perturb the lasso dose-response: Task 4 measures the response WITH the calibration instrument attached, this measures it without. Note this is NOT comparable to the older 6.32M grouplasso sweep, which used 8 epochs x dal 500 rather than 5 x 100."
+description: 'Group-lasso sweep on current-generated data, width-6 conductance GNN, coeff_g_phi_input_group_L1 = 10, noise 0.05, fold 0.'
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
