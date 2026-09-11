@@ -3588,6 +3588,14 @@ def _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi, out_dir, s
         if v_lo is not None and v_hi is not None:
             row["drive_inh_min"] = float((v_lo[m] - E_inh[m]).min())
             row["drive_exc_min"] = float((E_exc[m] - v_hi[m]).min())
+            # The voltages this type actually visits: the widest neuron of the
+            # type (v_min / v_max) and the typical one (median over its neurons
+            # of each neuron's own extreme). A reversal inside [v_min, v_max]
+            # means some neuron of the type crosses it.
+            row["v_min"] = float(v_lo[m].min())
+            row["v_max"] = float(v_hi[m].max())
+            row["v_min_median"] = float(np.median(v_lo[m]))
+            row["v_max_median"] = float(np.median(v_hi[m]))
         rows.append(row)
 
     allm = np.ones(n, dtype=bool)
@@ -3600,6 +3608,8 @@ def _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi, out_dir, s
     if v_lo is not None and v_hi is not None:
         total["drive_inh_min"] = float((v_lo[allm] - E_inh).min())
         total["drive_exc_min"] = float((E_exc - v_hi[allm]).min())
+        total["v_min"] = float(v_lo.min()); total["v_max"] = float(v_hi.max())
+        total["v_min_median"] = float(np.median(v_lo)); total["v_max_median"] = float(np.median(v_hi))
     rows.append(total)
 
     cols = list(rows[0].keys())
@@ -3621,10 +3631,23 @@ def _write_reversal_report(E_exc, E_inh, types, targeted, v_lo, v_hi, out_dir, s
 
     fig, ax = style.figure(height=max(4.0, 0.16 * len(order)), aspect=1.1)
     if v_lo is not None and v_hi is not None:
-        # The band the teacher's voltages live in. Every reversal must sit
+        # The band the network's voltages live in. Every reversal must sit
         # outside it or the driving force changes sign mid-run.
-        ax.axvspan(float(v_lo.min()), float(v_hi.max()), color="0.85",
+        ax.axvspan(float(v_lo.min()), float(v_hi.max()), color="0.92",
                    zorder=0, lw=0)
+        # PER TYPE, the activity range the reversals are read against: a thin
+        # segment from the lowest to the highest voltage any neuron of the type
+        # reaches, and a thicker one for the typical neuron (median over the
+        # type's neurons of each neuron's own min and max). E_inh to the right
+        # of a segment's left end, or E_exc to the left of its right end, is a
+        # reversal some neuron of that type crosses.
+        for k, i in enumerate(order):
+            r = per_type[i]
+            ax.plot([r["v_min"], r["v_max"]], [k, k], color="0.65", lw=0.6,
+                    solid_capstyle="butt", zorder=1)
+            ax.plot([r["v_min_median"], r["v_max_median"]], [k, k], color="0.45",
+                    lw=2.0, solid_capstyle="butt", zorder=2,
+                    label="activity range (typical neuron; thin: widest neuron)" if k == 0 else None)
     # Red and blue: two distinct sources, the chloride row and the cation row --
     # not a prediction against a ground truth, which is what green/black is for.
     ax.scatter(e_inh[hit], y[hit], s=style.marker_size, color="tab:blue",
@@ -3654,9 +3677,9 @@ def report_dataset_reversals(dataset_dir, style: FigureStyle = default_style):
     The training runs recover E_ij against these, so they belong beside the
     data, not only inside the teacher-student run that produced them. Reads
     ``ode_params.pt`` (E_exc, E_inh per neuron, edge_index, edge_is_inh), the
-    per-neuron cell type from ``x_list_train/neuron_type.zarr``, and the
-    voltage range the generator logged in ``generation_log.txt`` for the
-    shaded band. One row per postsynaptic cell type -- the granularity the ion
+    per-neuron cell type from ``x_list_train/neuron_type.zarr``, and each
+    neuron's voltage extremes from ``x_list_train/voltage.zarr`` for the per-type
+    activity segments and the shaded band. One row per postsynaptic cell type -- the granularity the ion
     rig resolves: one cation reversal for every type, one chloride reversal per
     type. Returns the CSV path, or None when the dataset has no reversals.
     """
@@ -3688,14 +3711,32 @@ def report_dataset_reversals(dataset_dir, style: FigureStyle = default_style):
     else:
         targeted[:] = True
 
+    # Per-neuron voltage extremes over the training recording, streamed chunk
+    # by chunk from x_list_train/voltage.zarr (64k frames x 13.7k neurons is
+    # 3.5 GB; one chunk of 2,000 frames at a time is 110 MB). Falls back to the
+    # global range the generator logged when the zarr is not there.
     v_lo = v_hi = None
-    g_path = os.path.join(dataset_dir, "generation_log.txt")
-    if os.path.isfile(g_path):
-        with open(g_path) as f:
-            m = re.search(r"voltage_range:\s*([-+.\deE]+)\s*\.\.\s*([-+.\deE]+)", f.read())
-        if m:
-            v_lo = np.full(n, float(m.group(1)))
-            v_hi = np.full(n, float(m.group(2)))
+    z_path = os.path.join(dataset_dir, "x_list_train", "voltage.zarr")
+    if os.path.isdir(z_path):
+        try:
+            import zarr
+            z = zarr.open(z_path, mode="r")
+            step = z.chunks[0] if getattr(z, "chunks", None) else 2000
+            lo = np.full(z.shape[1], np.inf); hi = np.full(z.shape[1], -np.inf)
+            for t0 in range(0, z.shape[0], step):
+                blk = np.asarray(z[t0:t0 + step])
+                lo = np.minimum(lo, blk.min(axis=0)); hi = np.maximum(hi, blk.max(axis=0))
+            v_lo, v_hi = lo[:n].astype(float), hi[:n].astype(float)
+        except Exception:
+            v_lo = v_hi = None
+    if v_lo is None:
+        g_path = os.path.join(dataset_dir, "generation_log.txt")
+        if os.path.isfile(g_path):
+            with open(g_path) as f:
+                m = re.search(r"voltage_range:\s*([-+.\deE]+)\s*\.\.\s*([-+.\deE]+)", f.read())
+            if m:
+                v_lo = np.full(n, float(m.group(1)))
+                v_hi = np.full(n, float(m.group(2)))
 
     n_types = len(set(types.tolist()))
     frac_inh = None
