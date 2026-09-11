@@ -1,4 +1,4 @@
-description: "blank50, LLM parameters, model_noise bug fixed, fold 00"
+description: 'Benchmark variant ''rollout_bf16'' of the noise-0.05 current GNN, LLM-tuned parameters, blank50, unfolded nominal.'
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified

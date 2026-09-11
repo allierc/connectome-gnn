@@ -1,4 +1,4 @@
-description: 'Conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0. W enters squared, the synapse sign is learned by g_phi from (a_i, a_j). Regularisers are the current-GNN paper''s except the three g_phi priors set to 0 and coeff_g_phi_zero_below 5; see the commit for the reasons.'
+description: 'Conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0: W enters squared, the synapse sign is learned by g_phi from (a_i, a_j), and the regularisers are the current-GNN paper''s except the three g_phi priors at 0 and coeff_g_phi_zero_below 5.'
 dataset: flyvis_conductance_ion_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified

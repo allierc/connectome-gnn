@@ -1,4 +1,4 @@
-description: "cv00 baseline with ALL g_phi sparsity regularizers off (coeff_g_phi_weight_L1=0, weight_L2=0, input_group_L1=0) — isolates how much of cv00's R2_W comes from the L1 pressure vs the rest of the loss/training setup"
+description: 'Conductance GNN on current-generated data with every g_phi sparsity regulariser off, noise 0.05, fold 0.'
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified

@@ -1,5 +1,4 @@
-description: 'Nominal noise-free t+1 baseline, fold=4 (blank50).
-  sim_seed=46 train_seed=1046. HPs: flyvis_unified_blank50_fd_winner.yaml. Renamed from flyvis_noise_free_blank50_unified_fd_cv04, which it reproduces verbatim.'
+description: 'Nominal noise-free t+1 baseline, fold=4 (blank50).'
 dataset: flyvis_noise_free_blank50_cv04
 simulation:
   connectivity_file: to be specified

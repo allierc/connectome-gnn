@@ -1,4 +1,4 @@
-description: "blank50, LLM parameters, model_noise bug fixed conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 16K conn=0.950 Vr=0.591(18%) τ=0.902(2%)] 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false )"
+description: 'Benchmark variant ''tf32_a100'' of the noise-0.05 current GNN, LLM-tuned parameters, blank50, unfolded nominal.'
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified

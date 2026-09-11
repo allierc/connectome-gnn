@@ -1,4 +1,4 @@
-description: ""
+description: 'Known-ODE conductance recovery on the rig-2 (ion) twin, noise 0.05, fold 0.'
 dataset: flyvis_conductance_ion_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
