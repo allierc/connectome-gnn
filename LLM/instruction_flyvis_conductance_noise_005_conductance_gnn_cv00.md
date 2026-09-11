@@ -171,6 +171,22 @@ learning the form at all.
 
 ## Metrics — the exact names
 
+**WHICH FILE, WHICH NAMES — read this first.** Two writers score the same quantities
+under two vocabularies, and the file you are told to read decides which one you see:
+
+| file | written by | W recovery | gain | reversal | message |
+| --- | --- | --- | --- | --- | --- |
+| `results/metrics.txt` (**your source**) | `-o test_plot` (GNN_PlotFigure) | `connectivity_R2_scaled`, `W_corrected_R2`, `connectivity_pearson_r` | `w_scale` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n_edges` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
+| per-slot analysis log, in-training | trainer via `score_recovery` | `Wij_R2`, `Wij_R2_all`, `Wij_slope` | `Wij_slope` | `Eij_R2`, `Eij_slope`, `Eij_rmse`, `Eij_n` | `msg_i_R2`, `msg_i_slope`, `msg_i_rmse`, `msg_i_n` |
+
+`connectivity_R2_scaled` is the scale-corrected W recovery and `w_scale` is the gain (learned
+conductance = `w_scale` × true; 1.0 is perfect) — these are the `metrics.txt` spellings of what
+the analysis log calls `Wij_R2` and `Wij_slope`. Rank on whichever file you read, using its
+own names, and never write a name from one file into an entry sourced from the other. An
+earlier version of this file said the legacy names were gone; that was true of the trainer's
+log and false of `metrics.txt`, and the correction here is the measured one.
+
+
 **From the per-slot analysis log** (the `Metrics:` file named in your prompt):
 
 Every quantity is scored through ONE entry point, `score_recovery`, which emits
@@ -195,22 +211,7 @@ Every quantity is scored through ONE entry point, `score_recovery`, which emits
 | `msg_i_R2` | R2 of the aggregated per-neuron message | > 0.80 — **the non-degenerate number, and NOT gated** |
 | `msg_i_slope`, `msg_i_rmse` | slope and RMSE of the message scatter | slope -> 1.0; rmse context only |
 
-**Keys that no longer exist.** `Wij_R2`, `Wij_R2_all`, `Eij_n` and
-`w_scale` were renamed or removed when parameter extraction was unified. In the ANALYSIS
-LOG the gate is `Eij_gate`; `fit_r2_median`, `w_r2_scaled` and `w_scale` survive only as
-column names inside `tmp_training/gnn_conductance_fit.log`, so use those spellings when
-you quote that file and the key spellings when you quote the log.
-| `g_phi_functional_R2`, `f_theta_functional_R2` | shape agreement of the learned functions | > 0.90 |
-| `onestep_pearson` | one-step-ahead correlation | > 0.99 |
-| `rollout_pearson` | free-run rollout correlation | > 0.95 |
-| `cluster_accuracy` | cell-type separability of the embedding | > 0.80 |
-| `training_time_min` | wall clock | see the DAL rule in your prompt |
-
-`Eij_*` and `msg_i_*` are new — they used to exist only as figures and as
-`tmp_training/Eij.log`, so an entry from before this change that omits them is
-not a failed slot. `Eij_*` appears only on conductance-generated data; `msg_i_*`
-appears on both, so it is the one recovery number that stays comparable when you look
-across to a current-generated run.
+**Renamed, not removed.** `connectivity_R2` → `connectivity_R2_scaled` is the headline in `metrics.txt`; `raw_W_R2` is not written by either writer. `w_scale` and `fit_r2_median` live in `metrics.txt` / `gnn_conductance_fit.log`; `Wij_*` and `Eij_gate` live in the trainer's analysis log. See the table above.
 
 **`msg_i_R2` is the exception to the gate.** `Eij_*` and the extracted `W` come out
 of the per-edge line fit and are meaningless while `fit_r2_median < 0.9`, but `msg_i_R2`
