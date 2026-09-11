@@ -3071,7 +3071,14 @@ def recovery_log_append(log_dir, iteration, scored):
     read directly) is written as nan, so every file has a fixed header.
     """
     for key in RECOVERY_KEYS:
-        if f"{key}_R2" not in scored:
+        # A gated-out quantity (a conductance GNN below the line-fit gate) has
+        # no <key>_R2 but still has something to record: the gate itself for
+        # E_ij, and for W the fact that the estimator ran. Those rows are all
+        # nan except the gate, which is the number that says WHY.
+        present = (f"{key}_R2" in scored
+                   or (key == "Eij" and "Eij_gate" in scored)
+                   or (key == "Wij" and "Wij_estimator" in scored))
+        if not present:
             continue
         cols = recovery_log_columns(key)
         training_log_append(log_dir, key, iteration,
@@ -3190,12 +3197,19 @@ def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
     if learned_W is not None and edges is not None:
         e = np.asarray(edges)
         w = np.asarray(learned_W, dtype=np.float64).ravel()
+        # A per-edge line fit leaves nan where the fit failed; a mixture model
+        # cannot take nan, and one bad edge must not blank the whole feature.
+        # Unmeasured is read as zero conductance here, for the features only.
+        w = np.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0)
         m = min(w.size, e.shape[1])
         if m > 0:
             feats.append(_connectivity_stats(w[:m], e[0, :m], e[1, :m], n))
     if not feats:
         return None
     X = np.column_stack(feats)
+    X = X[:, np.isfinite(X).all(axis=0)]      # drop any column a nan still reached
+    if X.shape[1] == 0:
+        return None
     if n_components is None:
         n_components = min(100, n - 1)
     res = clustering_gmm(X, np.asarray(type_list).ravel()[:n], n_components=n_components)

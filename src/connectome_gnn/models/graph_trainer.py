@@ -715,6 +715,12 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # cheap and are what gets trended, the pictures are ~130 KB each across
             # six folders and otherwise pile up to hundreds of files per run.
             save_panels = N > 0 and N % epoch_state.panel_plot_frequency == 0
+            # ... plus once at the first early checkpoint, so a run shows its
+            # first Wij/tau/vrest/msgi/Eij pictures minutes in rather than a
+            # fifth of an epoch in (320k iterations on a 1.6M-iteration GNN
+            # epoch) -- the sanity check a launch wants.
+            if epoch == 0 and N == epoch_state.early_r2_frequency:
+                save_panels = True
 
             is_early_r2 = N < epoch_state.connectivity_plot_frequency and N % epoch_state.early_r2_frequency == 0
 
@@ -955,6 +961,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             np.max(_e[0]) - np.min(_e[0]))
                 if "msg_i_R2" in _scored:
                     epoch_state.metrics.msgi_r2 = _g("msg_i_R2_scaled", _g("msg_i_R2"))
+                epoch_state.metrics.eij_gate = _g("Eij_gate")
                 logger.info(
                     f"iter {regularizer.iter_count}: "
                     + "  ".join(f"{k}={v:.4f}" for k, v in _scored.items()
@@ -1005,10 +1012,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # Progress bar
             # -------------------------------------------------------------
 
-            if (epoch_state.metrics.connectivity_r2 is not None
-                    or epoch_state.metrics.hidden_r2 is not None
-                    or epoch_state.metrics.reversal_rmse is not None):
+            _m = epoch_state.metrics
+            if (_m.connectivity_r2 is not None or _m.hidden_r2 is not None
+                    or _m.reversal_rmse is not None or _m.msgi_r2 is not None
+                    or _m.cluster_acc is not None or _m.eij_gate is not None
+                    or _m.vrest_r2_clean == _m.vrest_r2_clean      # not nan
+                    or _m.tau_r2_clean == _m.tau_r2_clean):
                 bar_parts = []
+                # W gated out (a conductance GNN whose message is not yet
+                # affine in v_i): say so, with the gate value, instead of
+                # showing nothing at all.
+                if _m.connectivity_r2 is None and _m.eij_gate is not None:
+                    bar_parts.append(f"Wij=gated(fit {_m.eij_gate:.2f})")
 
                 if epoch_state.metrics.connectivity_r2 is not None:
                     conn_color = r2_color(epoch_state.metrics.connectivity_r2)

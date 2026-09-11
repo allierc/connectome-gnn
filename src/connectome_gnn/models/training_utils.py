@@ -76,6 +76,9 @@ class TrainingMetrics:
     # Cell-type clustering accuracy from cluster_recovery (regular checkpoints
     # only); None until the first one.
     cluster_acc: float | None = None
+    # Median per-edge R2 of the line fit behind a GNN's W and E_ij extraction;
+    # the reason the bar shows Wij=gated when it does.
+    eij_gate: float | None = None
 
 
 @dataclass
