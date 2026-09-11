@@ -348,7 +348,7 @@ full coefficient applies from the first iteration. This is the only supported re
   `iteration*1000 + slot` and `iteration*1000 + slot + 500`. Log the values it reports.
 - `training.n_epochs` — the pipeline overwrites it from `claude.n_epochs` every batch. Any
   edit is silently reverted, so a "training volume" block that sweeps it is a wasted block.
-- `dataset` — must stay `flyvis_conductance_ion_noise_005_blank50_cv00` in every slot.
+- `dataset` — must stay `flyvis_conductance_ion_sub_noise_005_blank50_cv00` in every slot.
 - `simulation.*` — `n_neurons`, `n_edges`, `n_frames`, `delta_t`, `noise_model_level`.
 - Every `student_*` key — `_resolve_student_knobs` refuses them in recovery mode and
   raises rather than silently accepting.
