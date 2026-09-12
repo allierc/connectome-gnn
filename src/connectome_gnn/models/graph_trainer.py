@@ -892,6 +892,13 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # E_ij and msg_i panels, same arrays. Absent quantity, no panel.
                 if save_panels and _rec_last is not None:
                     _e = _rec_last.get("E_ij")
+                    _e_gate = None
+                    if _e is None and not _rec_last.valid.get("E_ij", True):
+                        # Gated out: the line fit ran and produced a per-edge E,
+                        # draw it marked as such (the W panel beside it draws
+                        # the gain-corrected W the same way).
+                        _e = _rec_last.pairs.get("E_ij")
+                        _e_gate = _rec_last.diagnostics.get("Eij_gate")
                     if _e is not None:
                         _grp = None
                         try:
@@ -901,7 +908,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         except Exception:
                             _grp = None
                         plot_reversal_scatter({"true": _e[0], "learned": _e[1],
-                                               "edge_type": _grp}, log_dir, epoch, N)
+                                               "edge_type": _grp, "gate": _e_gate},
+                                              log_dir, epoch, N)
                     _m = _rec_last.get("msg_i")
                     if _m is not None:
                         plot_msg_recovery(model, _rec_op, x_ts, edges, device,

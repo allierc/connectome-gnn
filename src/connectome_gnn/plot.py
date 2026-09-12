@@ -2776,10 +2776,22 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # The [-1, 2] axis box the bare scatter used is gone: the 2x2 bounds the
     # scatter by outlier_threshold instead, which removes the same extreme points
     # from the R2 rather than only from view, and reports how many.
+    # Below the line-fit gate the extractor produced no W; the gain-corrected
+    # W above is still drawn, but named and labelled as gated (like the E_ij
+    # panel) so the -126 R2 it shows is read as "no affine message yet", not
+    # as a recovery number.
+    _w_gate = None
+    if rec is not None and _rec_W is None and not rec.valid.get("W", True):
+        _w_gate = rec.diagnostics.get("Eij_gate")
+    if _w_gate is None:
+        _w_path, _w_symbol = f"{log_dir}/tmp_training/Wij/comparison_{epoch}_{N}.png", 'W_{ij}'
+    else:
+        _w_path = f"{log_dir}/tmp_training/Wij/comparison_gated_{epoch}_{N}.png"
+        _w_symbol = r'W_{ij}\ (gated,\ fit\ R^2\ %.2f)' % _w_gate
     r_squared, _ = plot_recovery_panels(
         _gt_w_full, _corr_w_full,
-        f"{log_dir}/tmp_training/Wij/comparison_{epoch}_{N}.png",
-        symbol='W_{ij}',
+        _w_path,
+        symbol=_w_symbol,
         corrected=True,
         groups=_w_groups,
         group_names=INDEX_TO_NAME,
@@ -3458,11 +3470,21 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     """
     if rev_metrics is None:
         return
+    # A GNN below the line-fit gate still has a per-edge E from that fit; it
+    # is drawn, like the gain-corrected W panel beside it, but named and
+    # labelled as gated so nobody reads it as a recovery. `gate` is the median
+    # per-edge R2 of the fit (Eij_gate in the logs).
+    gate = rev_metrics.get("gate")
+    if gate is None:
+        path, symbol = f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png", 'E_{ij}'
+    else:
+        path = f"{log_dir}/tmp_training/Eij/Eij_gated_{epoch}_{N}.png"
+        symbol = r'E_{ij}\ (gated,\ fit\ R^2\ %.2f)' % gate
     plot_recovery_panels(
         rev_metrics["true"],
         rev_metrics["learned"],
-        f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png",
-        symbol='E_{ij}',
+        path,
+        symbol=symbol,
         groups=rev_metrics.get("edge_type"),
         group_names=INDEX_TO_NAME,
     )
