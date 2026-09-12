@@ -39,6 +39,32 @@ from connectome_gnn.neuron_state import NeuronState
     "zebrafish",
     "zebrafish_oculomotor",
 )
+class AdditiveUpdate(nn.Module):
+    """f_theta for `additive_message`: takes the full [v, a, msg, stim] row,
+    evaluates the MLP on [v, a, stim] and adds msg back, so that
+
+        f_theta(v, a, msg, stim) = mlp(v, a, stim) + msg,   d f_theta / d msg = 1.
+
+    Every consumer of f_theta -- the regularisers that shift column 0 or the
+    msg column, the slope extraction that zeroes msg, compute_grad_msg, the
+    function panels -- keeps calling it with the full layout and gets the right
+    answer without knowing. `layers` is the inner MLP's, for the code that
+    reaches in (the task GNNs scale the last layer)."""
+
+    def __init__(self, mlp, msg_col: int):
+        super().__init__()
+        self.mlp = mlp
+        self.msg_col = int(msg_col)
+
+    @property
+    def layers(self):
+        return self.mlp.layers
+
+    def forward(self, x):
+        c = self.msg_col
+        return self.mlp(torch.cat([x[:, :c], x[:, c + 1:]], dim=1)) + x[:, c:c + 1]
+
+
 class NeuralGNN(nn.Module):
     """GNN for neural signal dynamics with per-edge W.
 
@@ -238,14 +264,26 @@ class NeuralGNN(nn.Module):
             device=self.device,
         )
 
-        self.f_theta = MLP(
-            input_size=self.input_size_update,
+        # ADDITIVE MESSAGE: dv/dt = f_theta(a, v, stim) + msg. The wrapper keeps
+        # the [v, a, msg, stim] input layout every reader of f_theta expects,
+        # drops the msg column before the MLP and adds it back after. See
+        # GraphModelConfig.additive_message.
+        self.additive_message = bool(getattr(model_config, "additive_message", False))
+        _f_theta_mlp = MLP(
+            input_size=self.input_size_update - (1 if self.additive_message else 0),
             output_size=self.output_size,
             nlayers=self.n_layers_update,
             hidden_size=self.hidden_dim_update,
             activation=self.MLP_activation,
             device=self.device,
         )
+        if self.additive_message:
+            if self.output_size != 1:
+                raise ValueError("additive_message needs output_size 1: one message is "
+                                 "added to one dv/dt.")
+            self.f_theta = AdditiveUpdate(_f_theta_mlp, msg_col=1 + self.embedding_dim)
+        else:
+            self.f_theta = _f_theta_mlp
 
         self.a = nn.Parameter(
             torch.tensor(

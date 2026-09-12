@@ -640,6 +640,23 @@ class GraphModelConfig(BaseModel):
     # parameterisation rather than a mis-specification.
     w_squared: bool = False
 
+    # THE MESSAGE ENTERS THE UPDATE ADDITIVELY, outside f_theta:
+    #
+    #     dv_i/dt = f_theta(a_i, v_i, stim_i) + sum_j W_ij * g_phi(v_i, v_j, a_i, a_j)
+    #
+    # instead of f_theta(a_i, v_i, msg_i, stim_i). f_theta then only carries the
+    # leak and the stimulus response, and the message reaches dv/dt with slope
+    # exactly 1, so the per-neuron gain f_theta could otherwise hide (the
+    # dftheta_dmsg factor of the W correction) does not exist. The 1/tau_i the
+    # generator applies to its message has to come from g_phi through a_i.
+    #
+    # The input layout f_theta receives is unchanged, [v, a, msg, stim] with
+    # input_size_update = 3 + embedding_dim: the additive update wraps the MLP,
+    # drops the msg column before it and adds it back after, so every reader of
+    # f_theta (regularisers, slope extraction, the panels) works untouched;
+    # d f_theta / d msg is 1 by construction.
+    additive_message: bool = False
+
     update_type: UpdateType = UpdateType.NONE
 
     # TaskRNN: shape of W_in / W_out (Hulse path-integration model).
