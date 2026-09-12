@@ -1878,6 +1878,24 @@ def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
 
     was_training = model.training
     model.eval()
+    # THE LEAK SLOPE THAT NORMALISES A GNN'S MESSAGE is the one tau_R2 is built
+    # on: f_theta's slope in v fitted over each neuron's activity range
+    # (extract_f_theta_slopes), not a central difference at the frame. The
+    # local derivative blew up wherever f_theta was locally flat in v
+    # (tau -> 1e7 on a handful of neurons, msg_i_R2 -> -1e7 for the run).
+    tau_fit = None
+    if _msg_i_through_f_theta(model):
+        try:
+            mu, sigma = compute_activity_stats(x_ts, device)
+            slopes, _ = extract_f_theta_slopes(model, None, n_neurons, mu, sigma, device)
+            slopes = torch.as_tensor(np.asarray(slopes, dtype=np.float32), device=device)
+            tau_fit = torch.where(slopes < -1e-6, -1.0 / slopes,
+                                  torch.full_like(slopes, float("nan")))
+            tau_fit = torch.where(tau_fit <= 10.0, tau_fit, torch.full_like(tau_fit, float("nan")))
+        except Exception as exc:
+            print(f"\033[93mmsg_i: leak-slope fit failed ({type(exc).__name__}: {exc}); "
+                  "falling back to the local derivative\033[0m")
+            tau_fit = None
     true_all, learned_all = [], []
     with torch.no_grad():
         for k in frame_idx:
@@ -1896,7 +1914,8 @@ def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
             pred, in_features, msg_learned = model(state, ei, data_id=data_id,
                                                    return_all=True)
             if _msg_i_through_f_theta(model):
-                msg_learned = _msg_through_f_theta(model, pred, in_features, n_neurons)
+                msg_learned = _msg_through_f_theta(model, pred, in_features, n_neurons,
+                                                   tau=tau_fit)
             true_all.append(to_numpy(msg_true).ravel())
             learned_all.append(to_numpy(msg_learned).ravel()[:n_neurons])
     if was_training:
@@ -1918,7 +1937,7 @@ def msg_i_estimator(model) -> str:
     return "through_f_theta" if _msg_i_through_f_theta(model) else "forward"
 
 
-def _msg_through_f_theta(model, pred, in_features, n_neurons):
+def _msg_through_f_theta(model, pred, in_features, n_neurons, tau=None):
     """The message a GNN really passes, read through its own update in voltage
     units:
 
@@ -1938,6 +1957,11 @@ def _msg_through_f_theta(model, pred, in_features, n_neurons):
     The no-message baseline is taken at the ACTUAL v_i, not at v_i = 0, so no
     linearity in v is assumed and V_rest is not needed. Neurons whose leak slope
     is not negative (f_theta not yet a leak there) read nan and are dropped.
+
+    `tau` (n_neurons,), when given, is the per-neuron leak time constant fitted
+    over the activity range (the one tau_R2 reads), clipped like derive_tau;
+    the per-frame central difference is the fallback and is fragile wherever
+    f_theta is locally flat in v.
     """
     core = getattr(model, "_orig_mod", model)
     emb_dim = int(core.a.shape[1])
@@ -1952,9 +1976,10 @@ def _msg_through_f_theta(model, pred, in_features, n_neurons):
         xm = in_features.clone(); xm[:, 0] = v - delta
         dfdv = (core._run_mlp(core.f_theta, xp) - core._run_mlp(core.f_theta, xm)) / (2 * delta)
         d = (pred - f0).ravel()[:n_neurons]
-        dfdv = dfdv.ravel()[:n_neurons]
-        tau = torch.where(dfdv < -1e-6, -1.0 / dfdv, torch.full_like(dfdv, float("nan")))
-        return d * tau
+        if tau is None:
+            dfdv = dfdv.ravel()[:n_neurons]
+            tau = torch.where(dfdv < -1e-6, -1.0 / dfdv, torch.full_like(dfdv, float("nan")))
+        return d * tau.to(d.device, d.dtype)[:n_neurons]
 
 
 def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=None):
