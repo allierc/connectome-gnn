@@ -14,31 +14,6 @@ from connectome_gnn.models.MultiResGrid_Network import (
 from connectome_gnn.neuron_state import NeuronState
 
 
-@register_model(
-    # `flyvis_current` is the name; `flyvis_A` is kept as an ALIAS so the 133
-    # archived run config.yaml files under log/fly -- which record what was
-    # actually trained and are not in git -- keep loading. Do not remove it.
-    "flyvis_current",
-    "flyvis_A",
-    "flyvis_A_tanh",
-    "flyvis_A_multiple_ReLU",
-    "flyvis_A_NULL",
-    "flyvis_conductance",
-    "flyvis_C",
-    "flyvis_D",
-    "flyvis_hybrid",
-    "flyvis_hybrid_zeroedge",
-    "e8_flywireRF",
-    "e8_flywireRF_proximal_nulls",
-    "e8_flywireRF_random_nulls",
-    "full_eye_flywireRF",
-    "full_eye_flywireRF_proximal_nulls",
-    "full_eye_flywireRF_random_nulls",
-    "drosophila_cx",
-    "larva",
-    "zebrafish",
-    "zebrafish_oculomotor",
-)
 class AdditiveUpdate(nn.Module):
     """f_theta for `additive_message`: takes the full [v, a, msg, stim] row,
     evaluates the MLP on [v, a, stim] and adds msg back, so that
@@ -65,6 +40,31 @@ class AdditiveUpdate(nn.Module):
         return self.mlp(torch.cat([x[:, :c], x[:, c + 1:]], dim=1)) + x[:, c:c + 1]
 
 
+@register_model(
+    # `flyvis_current` is the name; `flyvis_A` is kept as an ALIAS so the 133
+    # archived run config.yaml files under log/fly -- which record what was
+    # actually trained and are not in git -- keep loading. Do not remove it.
+    "flyvis_current",
+    "flyvis_A",
+    "flyvis_A_tanh",
+    "flyvis_A_multiple_ReLU",
+    "flyvis_A_NULL",
+    "flyvis_conductance",
+    "flyvis_C",
+    "flyvis_D",
+    "flyvis_hybrid",
+    "flyvis_hybrid_zeroedge",
+    "e8_flywireRF",
+    "e8_flywireRF_proximal_nulls",
+    "e8_flywireRF_random_nulls",
+    "full_eye_flywireRF",
+    "full_eye_flywireRF_proximal_nulls",
+    "full_eye_flywireRF_random_nulls",
+    "drosophila_cx",
+    "larva",
+    "zebrafish",
+    "zebrafish_oculomotor",
+)
 class NeuralGNN(nn.Module):
     """GNN for neural signal dynamics with per-edge W.
 
