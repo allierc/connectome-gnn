@@ -35,6 +35,11 @@ class AdditiveUpdate(nn.Module):
     def layers(self):
         return self.mlp.layers
 
+    @property
+    def input_width(self):
+        """Columns of the row this update consumes: the inner MLP's plus msg."""
+        return self.mlp.layers[0].weight.shape[1] + 1
+
     def forward(self, x):
         c = self.msg_col
         return self.mlp(torch.cat([x[:, :c], x[:, c + 1:]], dim=1)) + x[:, c:c + 1]
