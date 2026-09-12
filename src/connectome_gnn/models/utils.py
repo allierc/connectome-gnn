@@ -183,9 +183,14 @@ def pad_g_phi_input(in_features, model):
 
     Returns in_features unchanged when the widths already match.
     """
-    # accept either the GNN (use its g_phi) or a bare MLP
-    layer0 = model.g_phi.layers[0] if hasattr(model, "g_phi") else model.layers[0]
-    want = layer0.weight.shape[1]
+    # accept either the GNN (use its g_phi) or a bare MLP. A wrapper that
+    # consumes a wider row than its inner MLP (AdditiveUpdate: the full
+    # [v, a, msg, stim] row, msg dropped before the MLP) says so through
+    # `input_width`; the first layer's weight is the truth otherwise.
+    mlp = model.g_phi if hasattr(model, "g_phi") else model
+    want = getattr(mlp, "input_width", None)
+    if want is None:
+        want = mlp.layers[0].weight.shape[1]
     have = in_features.shape[1]
     if have == want:
         return in_features

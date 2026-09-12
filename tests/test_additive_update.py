@@ -57,3 +57,14 @@ def test_layers_alias_reaches_the_inner_mlp(additive_model):
     _, model, *_ = additive_model
     assert model.f_theta.layers is model.f_theta.mlp.layers
     assert sum(p.numel() for p in model.f_theta.parameters()) == sum(p.numel() for p in model.f_theta.mlp.parameters())
+
+
+def test_analysis_paths_evaluate_the_wrapped_f_theta(additive_model):
+    """extract_f_theta_slopes feeds the full [v, a, msg=0, stim=0] row through
+    pad_g_phi_input, which must read the wrapper's width, not the inner MLP's."""
+    import torch
+    from connectome_gnn.metrics import extract_f_theta_slopes
+    cfg, model, state, ei, data_id = additive_model
+    N = cfg.simulation.n_neurons
+    slopes, offsets = extract_f_theta_slopes(model, cfg, N, torch.zeros(N), torch.ones(N), "cpu")
+    assert slopes.shape == (N,) and offsets.shape == (N,)
