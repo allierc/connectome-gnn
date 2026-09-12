@@ -1140,7 +1140,13 @@ def extract_conductance_params_from_gnn(model, config, edges, x_ts, n_frames=64,
             arr[_i] = np.median(vals)
     E_pooled = np.where(E < 0, E_inh[i_ids], E_exc[i_ids])
 
-    return {'W': W, 'E': E, 'fit_r2': fit_r2, 'n_used': n,
+    # Edges whose fitted line RISES with v_i: the message grows as the
+    # postsynaptic cell depolarises, which no conductance does (the driving
+    # force E - v_i can only fall). Not a sign to repair -- W enters squared and
+    # the sign is g_phi's -- but the share of edges where the model has not
+    # found the conductance form, beside the fit R2 that says how far it is.
+    pct_wrong_slope = float(100.0 * np.mean(slope[ok] > 0)) if ok.any() else float('nan')
+    return {'W': W, 'E': E, 'fit_r2': fit_r2, 'n_used': n, 'pct_wrong_slope': pct_wrong_slope,
             'E_pooled': E_pooled, 'E_exc': E_exc, 'E_inh': E_inh,
             'vj_floor': vj_floor}
 
@@ -1804,6 +1810,7 @@ def _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts):
         "true": true_ok,
         "learned": learned_ok,
         "fit_r2_median": float(np.nanmedian(ext['fit_r2'])),
+        "pct_wrong_slope": ext.get("pct_wrong_slope", float("nan")),
         "w_r2_scaled": float(w_fit['r2']),
         "w_scale": float(w_fit['scale']),
         **per_neuron,
@@ -1886,13 +1893,68 @@ def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
             msg_true = torch.zeros(n_neurons, device=device)
             msg_true.scatter_add_(0, dst[:edge_msg.numel()], edge_msg)
 
-            _, _, msg_learned = model(state, ei, data_id=data_id, return_all=True)
+            pred, in_features, msg_learned = model(state, ei, data_id=data_id,
+                                                   return_all=True)
+            if _msg_i_through_f_theta(model):
+                msg_learned = _msg_through_f_theta(model, pred, in_features, n_neurons)
             true_all.append(to_numpy(msg_true).ravel())
             learned_all.append(to_numpy(msg_learned).ravel()[:n_neurons])
     if was_training:
         model.train()
 
     return np.concatenate(true_all), np.concatenate(learned_all)
+
+
+def _msg_i_through_f_theta(model) -> bool:
+    """True for a model whose message only reaches the trajectory through a
+    learned update f_theta(v, a, msg, exc) -- the GNN. A known-ODE's msg is the
+    physical message already."""
+    core = getattr(model, "_orig_mod", model)
+    return hasattr(core, "f_theta") and hasattr(core, "_run_mlp") and \
+        getattr(core, "a", None) is not None
+
+
+def msg_i_estimator(model) -> str:
+    return "through_f_theta" if _msg_i_through_f_theta(model) else "forward"
+
+
+def _msg_through_f_theta(model, pred, in_features, n_neurons):
+    """The message a GNN really passes, read through its own update in voltage
+    units:
+
+        msg_eff_i = tau_i * [ f_theta(a_i, v_i, msg_i, exc_i) - f_theta(a_i, v_i, 0, exc_i) ]
+        tau_i     = -1 / (d f_theta / d v_i)      (central difference at this frame)
+
+    WHY NOT THE RAW AGGREGATE. What `return_all` hands back is the sum of g_phi,
+    and the model is free to scale it by any factor gamma_i that f_theta then
+    undoes: msg' = gamma_i * msg, f'(v, msg') = f(v, msg' / gamma_i). The raw R2
+    charges the model for gamma_i, which never reaches the trajectory, and one
+    global factor (msg_i_R2_scaled) cannot remove a per-neuron one. The
+    difference above is gamma-free, and dividing by the model's own leak slope
+    (not the true tau) keeps it the model's number: on the generator's
+    tau dv/dt = -(v - V_rest) + msg + stim, linear in msg, a perfect model returns
+    msg exactly, whatever the g_phi / f_theta split.
+
+    The no-message baseline is taken at the ACTUAL v_i, not at v_i = 0, so no
+    linearity in v is assumed and V_rest is not needed. Neurons whose leak slope
+    is not negative (f_theta not yet a leak there) read nan and are dropped.
+    """
+    core = getattr(model, "_orig_mod", model)
+    emb_dim = int(core.a.shape[1])
+    msg_col = 1 + emb_dim
+    with torch.no_grad():
+        x0 = in_features.clone()
+        x0[:, msg_col] = 0.0
+        f0 = core._run_mlp(core.f_theta, x0)
+        v = in_features[:, 0]
+        delta = 1e-2 * max(float(v.std()), 1e-3)
+        xp = in_features.clone(); xp[:, 0] = v + delta
+        xm = in_features.clone(); xm[:, 0] = v - delta
+        dfdv = (core._run_mlp(core.f_theta, xp) - core._run_mlp(core.f_theta, xm)) / (2 * delta)
+        d = (pred - f0).ravel()[:n_neurons]
+        dfdv = dfdv.ravel()[:n_neurons]
+        tau = torch.where(dfdv < -1e-6, -1.0 / dfdv, torch.full_like(dfdv, float("nan")))
+        return d * tau
 
 
 def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=None):
@@ -2722,7 +2784,10 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                                            connectivity, a dense n x n matrix.
                             f_theta_slope  tau and V_rest read out of f_theta's
                                            local linearisation.
-                            forward        msg_i, from the model's own forward.
+                            forward        msg_i, a known-ODE's own message.
+                            through_f_theta  msg_i of a GNN, read through its update:
+                                           tau_i * [f_theta(v_i, msg_i) -
+                                           f_theta(v_i, 0)], gauge-free.
         <key>_correction  the exact algebra that was applied, e.g.
                           `W**2 (stored value is sqrt of the conductance)` or
                           `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
@@ -2763,6 +2828,10 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                             message is not affine in v_i, the model has not found
                             the conductance form, and the W and E beside it
                             describe nothing. GNN paths only.
+        Eij_pct_wrong_slope percentage of edges whose per-edge line RISES with
+                            v_i, which no conductance does. Zero on a run in the
+                            conductance form; on a gated run it separates a noisy
+                            fit from a systematically wrong sign. GNN paths only.
         extraction_error    present only when this function caught an exception,
                             carrying `TypeName: message`. Its presence means every
                             quantity below it is missing because the extractor
@@ -2852,7 +2921,10 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                 print(f"\033[93mmsg_i: {rec.diagnostics['msg_i_error']}\033[0m")
             else:
                 rec.pairs["msg_i"] = pair
-                rec.estimator["msg_i"] = "forward"
+                rec.estimator["msg_i"] = msg_i_estimator(model)
+                rec.correction["msg_i"] = (
+                    "tau_i * [f_theta(v_i, msg_i) - f_theta(v_i, 0)], tau_i = -1/dftheta_dv"
+                    if rec.estimator["msg_i"] == "through_f_theta" else "model forward, raw aggregate")
     elif "msg_i" in need:
         print("\033[93mmsg_i skipped: x_ts is None\033[0m")
 
@@ -2986,7 +3058,7 @@ _COMMON_STATS = ("R2", "R2_all", "slope", "rmse", "n", "n_outliers", "pct_outlie
                  "rel_err_median", "rel_err_iqr")
 _EXTRA_STATS = {
     "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
-    "Eij":   ("gate",),
+    "Eij":   ("gate", "pct_wrong_slope"),
     "msg_i": ("R2_scaled", "gain"),
 }
 
@@ -3246,6 +3318,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
         ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
         fit_r2 = float(np.nanmedian(ext["fit_r2"]))
         rec.diagnostics["Eij_gate"] = fit_r2
+        rec.diagnostics["Eij_pct_wrong_slope"] = ext.get("pct_wrong_slope", float("nan"))
         # Below the gate the message is not affine in v_i, so the W and E the
         # line produced describe nothing. Recorded as invalid rather than
         # dropped: "we measured and it failed" is not "we did not measure".
@@ -3312,4 +3385,5 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             rec.estimator["E_ij"] = "edge_line_fit"
             if "fit_r2_median" in _rev:
                 rec.diagnostics["Eij_gate"] = _rev["fit_r2_median"]
+                rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
                 rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate

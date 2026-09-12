@@ -970,6 +970,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if "msg_i_R2" in _scored:
                     epoch_state.metrics.msgi_r2 = _g("msg_i_R2_scaled", _g("msg_i_R2"))
                 epoch_state.metrics.eij_gate = _g("Eij_gate")
+                epoch_state.metrics.eij_pct_wrong_slope = _g("Eij_pct_wrong_slope")
                 logger.info(
                     f"iter {regularizer.iter_count}: "
                     + "  ".join(f"{k}={v:.4f}" for k, v in _scored.items()
@@ -1031,7 +1032,10 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # affine in v_i): say so, with the gate value, instead of
                 # showing nothing at all.
                 if _m.connectivity_r2 is None and _m.eij_gate is not None:
-                    bar_parts.append(f"Wij=gated(fit {_m.eij_gate:.2f})")
+                    _ws = getattr(_m, "eij_pct_wrong_slope", None)
+                    bar_parts.append(
+                        f"Wij=gated(fit {_m.eij_gate:.2f}"
+                        + (f", {_ws:.0f}% rising)" if _ws is not None and _ws == _ws else ")"))
 
                 if epoch_state.metrics.connectivity_r2 is not None:
                     conn_color = r2_color(epoch_state.metrics.connectivity_r2)
