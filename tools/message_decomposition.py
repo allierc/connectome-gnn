@@ -85,7 +85,7 @@ if _root:
 from connectome_gnn.models.registry import create_model  # noqa: E402
 from connectome_gnn.models.training_utils import init_training_data  # noqa: E402
 from connectome_gnn.models.utils import load_run_config  # noqa: E402
-from connectome_gnn.utils import to_numpy  # noqa: E402
+from connectome_gnn.utils import migrate_state_dict, to_numpy  # noqa: E402
 
 
 def _r2(true, pred):
@@ -128,7 +128,19 @@ def _load(log_dir, device, untrained=False):
                          device=device).to(device)
     if ckpts:
         sd = torch.load(ckpts[-1], map_location=device, weights_only=False)
-        model.load_state_dict(sd["model_state_dict"], strict=False)
+        # Checkpoints are written from a torch.compile-wrapped model, so every
+        # key carries an `_orig_mod.` prefix; migrate_state_dict strips it. With
+        # strict=False and no strip, load_state_dict silently loads NOTHING and
+        # the measurement is of an untrained model -- which is exactly what
+        # happened the first time this ran.
+        migrate_state_dict(sd)
+        missing, unexpected = model.load_state_dict(sd["model_state_dict"], strict=False)
+        loaded = len(sd["model_state_dict"]) - len(unexpected)
+        if loaded == 0:
+            raise RuntimeError(f"checkpoint {ckpts[-1]} loaded 0 tensors "
+                               f"(unexpected keys: {list(unexpected)[:4]})")
+        print(f"  loaded {loaded}/{len(sd['model_state_dict'])} tensors from {os.path.basename(ckpts[-1])}"
+              + (f", {len(missing)} missing" if missing else ""))
     model.eval()
     return config, data, model, os.path.basename(ckpts[-1]) if ckpts else "UNTRAINED"
 
