@@ -79,6 +79,8 @@ class TrainingMetrics:
     # Median per-edge R2 of the line fit behind a GNN's W and E_ij extraction;
     # the reason the bar shows Wij=gated when it does.
     eij_gate: float | None = None
+    # Share of edges whose fitted message RISES with v_i (no conductance does).
+    eij_pct_wrong_slope: float | None = None
 
 
 @dataclass
