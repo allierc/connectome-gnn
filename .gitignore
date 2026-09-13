@@ -183,3 +183,4 @@ prototype/**/*.pt
 
 # Local scratch scripts (render/smoke tests), not part of the pipeline
 .scratch/
+tools/bench_results/
