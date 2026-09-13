@@ -1268,6 +1268,45 @@ class TrainingConfig(BaseModel):
     # UNTUNED: 5 is a guess sized between the 0.45 of the point-anchor it
     # replaces (which acted on an O(1) deviation) and the 375 of the hinge terms.
     coeff_g_phi_zero_below: float = 0
+    # SILENT INPUT, ZERO MESSAGE -- the same physics as coeff_g_phi_zero_below,
+    # but evaluated where the data never goes instead of where it happens to go.
+    #
+    # WHY THE OBSERVED-SAMPLE VERSION CANNOT WORK ON THIS DATA. Measured on
+    # flyvis_conductance_ion_sub_noise_free: 43.4% of neurons NEVER have v_j < 0
+    # at any frame, and the median neuron is below zero in 0.6% of frames (30.7%
+    # and 2.3% with noise 0.05). coeff_g_phi_zero_below masks the observed edge
+    # samples with v_j < 0, so for roughly half the presynaptic cells it never
+    # fires at all and for the rest it fires on a fraction of a percent of rows.
+    # The gauge is left unpinned, which is what the V_rest collapse (more than
+    # half the neurons outside the tolerance band, while tau stays at R2 0.92)
+    # and the message decomposition (the leak and message errors cancel at
+    # r = -0.99, and 65-80% of the message error is a function of the
+    # postsynaptic neuron's own state) both report.
+    #
+    # This term does not wait for the data. It takes the real edge features,
+    # REPLACES the presynaptic voltage with a value drawn below zero, keeps
+    # v_i, a_i and a_j as they are, and penalises the g_phi that comes back. It
+    # is exercised on every edge at every iteration, and it is exact rather than
+    # approximate: a conductance synapse with no presynaptic activity opens no
+    # channel and passes no current, whatever the postsynaptic state, so the true
+    # g_phi(v_j <= 0, v_i, a_i, a_j) = 0 identically.
+    #
+    # WHAT IT FORBIDS, precisely: any component of g_phi that does not vanish
+    # with v_j. A per-neuron offset c_i in the message is built as
+    # sum_j W_ij h(a_i, a_j, v_i) with each edge contributing a v_j-independent
+    # amount, and a leak swap -k_i v_i the same way; neither can survive a
+    # g_phi that is zero for every silent presynaptic voltage. That is the
+    # degeneracy, cut at its source.
+    #
+    # UNTUNED: 5 to match coeff_g_phi_zero_below, which it supersedes -- set that
+    # one to 0 when using this.
+    coeff_g_phi_silent: float = 0
+    # The band the silent presynaptic voltage is drawn from, uniformly and
+    # independently per edge per iteration. A RANGE and not a single point so the
+    # network cannot satisfy the anchor at one value and misbehave next to it;
+    # the true g_phi is zero across the whole negative half-line, so any
+    # sub-interval of it is a correct place to ask.
+    g_phi_silent_range: tuple[float, float] = (-2.0, 0.0)
     # g_phi_norm anchoring target — pins g_phi(2*xnorm)^2 to resolve the W<->g_phi
     # scale degeneracy (the gain can float between W and g_phi, leaving W under-
     # scaled). "auto": legacy trainer_type behaviour (1 for signal, 2*xnorm for

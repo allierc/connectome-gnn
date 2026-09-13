@@ -33,7 +33,8 @@ class LossRegularizer:
     # Components tracked in history
     COMPONENTS = [
         'W_L1', 'W_L2', 'W_sign',
-        'g_phi_diff', 'g_phi_norm', 'g_phi_zero_below', 'g_phi_weight', 'g_phi_input_group',
+        'g_phi_diff', 'g_phi_norm', 'g_phi_zero_below', 'g_phi_silent',
+        'g_phi_weight', 'g_phi_input_group',
         'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
         'f_theta_separable',
@@ -162,6 +163,8 @@ class LossRegularizer:
         self._coeffs['g_phi_diff'] = tc.coeff_g_phi_diff
         self._coeffs['g_phi_norm'] = tc.coeff_g_phi_norm
         self._coeffs['g_phi_zero_below'] = getattr(tc, 'coeff_g_phi_zero_below', 0.0)
+        self._coeffs['g_phi_silent'] = getattr(tc, 'coeff_g_phi_silent', 0.0)
+        self.g_phi_silent_range = tuple(getattr(tc, 'g_phi_silent_range', (-2.0, 0.0)))
         self._coeffs['f_theta_separable'] = getattr(tc, 'coeff_f_theta_separable', 0.0)
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
@@ -230,7 +233,8 @@ class LossRegularizer:
         bit-reproducibility of every existing run — untouched.
         """
         return ((self._coeffs['g_phi_diff'] > 0 or self._coeffs['g_phi_norm'] > 0
-                 or self._coeffs['g_phi_zero_below'] > 0)
+                 or self._coeffs['g_phi_zero_below'] > 0
+                 or self._coeffs['g_phi_silent'] > 0)
                 and self.model_config.signal_model_name == 'flyvis_conductance')
 
     def sample_g_phi_perm(self, device=None):
@@ -409,7 +413,8 @@ class LossRegularizer:
 
         # --- g_phi diff/norm regularization ---
         if ((self._coeffs['g_phi_diff'] > 0) | (self._coeffs['g_phi_norm'] > 0)
-                | (self._coeffs['g_phi_zero_below'] > 0)) and hasattr(model, 'g_phi'):
+                | (self._coeffs['g_phi_zero_below'] > 0)
+                | (self._coeffs['g_phi_silent'] > 0)) and hasattr(model, 'g_phi'):
             in_features_edge, in_features_edge_next = get_in_features_g_phi(
                 x, model, mc, xnorm, n_neurons, device, perm_indices=perm_indices)
 
@@ -487,6 +492,22 @@ class LossRegularizer:
                 regul_term = (_g * _below).norm(2) * _ct['g_phi_zero_below']
                 total_regul = total_regul + regul_term
                 self._add('g_phi_zero_below', regul_term)
+
+            if self._coeffs['g_phi_silent'] > 0:
+                # SILENT INPUT, ZERO MESSAGE, asked off the data. The real edge
+                # features with the presynaptic voltage (column 0) replaced by a
+                # draw from the silent band, so every edge is anchored at every
+                # iteration instead of the 0.6% of frames that happen to visit
+                # v_j < 0. See GraphModelConfig/TrainingConfig.coeff_g_phi_silent.
+                _lo, _hi = self.g_phi_silent_range
+                _feat_s = in_features_edge[ids].clone().detach()
+                _feat_s[:, 0] = torch.rand_like(_feat_s[:, 0]) * (_hi - _lo) + _lo
+                _g_s = model.g_phi(_feat_s)
+                if mc.g_phi_positive:
+                    _g_s = _g_s ** 2
+                regul_term = _g_s.norm(2) * _ct['g_phi_silent']
+                total_regul = total_regul + regul_term
+                self._add('g_phi_silent', regul_term)
 
         # --- W_sign (Dale's Law) regularization ---
         if self._coeffs['W_sign'] > 0 and self.epoch > 0:
