@@ -103,9 +103,9 @@ def table_synthetic(n_rows=20000, n_types=65, seed=0, reversals_csv=None):
     y = np.maximum(v_j, 0.0) * (E_by_cat[cat] - v_i)
     a = rng.normal(size=(n_rows, 4)) * 0.1
     X = np.column_stack([v_j, v_i, a[:, 0], a[:, 1], a[:, 2], a[:, 3], cat + 1])
-    return X, y, {"n_categories": int(E_by_cat.size), "E_true_by_cat": E_by_cat,
-                  "features": SYNAPSE_FEATURES, "kind": "synapse",
-                  "label": "synthetic"}
+    return X, y, {"n_categories": int(E_by_cat.size), "features": SYNAPSE_FEATURES,
+                  "kind": "synapse", "label": "synthetic",
+                  "truth": {"E": E_by_cat}}
 
 
 # ------------------------------------------------------------------ #
@@ -153,10 +153,16 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
                 Y.append(to_numpy(pred).ravel()[sel])
         X = np.concatenate(X).astype(np.float64)
         y = np.concatenate(Y).astype(np.float64)
+        # f_theta = (V_rest - v + msg + stim) / tau, so the template's per-type
+        # constants are T = 1/tau and V = V_rest.
+        T_by_type = np.array([1.0 / tau[types == t].mean() if (types == t).any() else np.nan
+                              for t in range(n_types)])
+        V_by_type = np.array([vrest[types == t].mean() if (types == t).any() else np.nan
+                              for t in range(n_types)])
         return X, y, {"n_categories": n_types, "features": NEURON_FEATURES,
                       "kind": "neuron", "label": os.path.basename(log_dir.rstrip("/")),
-                      "tau_true_by_type": tau, "vrest_true_by_type": vrest,
-                      "checkpoint": ckpt}
+                      "checkpoint": ckpt,
+                      "truth": {"T": T_by_type, "V": V_by_type}}
 
     # --- synapse: the per-edge message function ---
     W = torch.as_tensor(to_numpy(op.W).ravel(), dtype=torch.float32, device=device)
@@ -191,9 +197,17 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
             ET.append(to_numpy(E_edge[sel]).ravel())
     X = np.concatenate(X).astype(np.float64)
     y = np.concatenate(Y).astype(np.float64)
+    # The true constant behind each category, to score the recovered ones
+    # against: the chloride reversal of a neuron of that type for categories
+    # 0..n_types-1, and the one shared cation reversal for the last.
+    E_inh_n = to_numpy(op.E_inh).ravel()[:n]
+    E_exc_n = to_numpy(op.E_exc).ravel()[:n]
+    E_by_cat = np.array([E_inh_n[types == t].mean() if (types == t).any() else np.nan
+                         for t in range(n_types)] + [float(np.mean(E_exc_n))])
     return X, y, {"n_categories": n_types + 1, "features": SYNAPSE_FEATURES,
                   "kind": "synapse", "label": os.path.basename(log_dir.rstrip("/")),
-                  "E_true_per_row": np.concatenate(ET), "checkpoint": ckpt}
+                  "E_true_per_row": np.concatenate(ET), "checkpoint": ckpt,
+                  "truth": {"E": E_by_cat}}
 
 
 def _student_reversals(core, device):
@@ -240,6 +254,42 @@ def build_spec(info, template, free):
     )
 
 
+def _learned_parameters(equation: str) -> dict:
+    """The per-category constants out of a template equation string.
+
+    PySR prints them as `f = relu(#1); E = [-5.24, -3.76, ...]`. Parsed rather
+    than read off the Julia object because the printed form is stable across the
+    expression types and the object's layout is not.
+    """
+    out = {}
+    for name, body in re.findall(r"(\w+)\s*=\s*\[([^\]]*)\]", equation):
+        try:
+            out[name] = np.array([float(x) for x in body.replace(";", ",").split(",")
+                                  if x.strip()])
+        except ValueError:
+            pass
+    return out
+
+
+def _score_parameters(equation, truth, lines):
+    """Compare every recovered constant vector with its known value."""
+    got = _learned_parameters(str(equation))
+    for name, true_v in (truth or {}).items():
+        if name not in got:
+            lines.append(f"{name}: not recovered")
+            continue
+        g, t = got[name], np.asarray(true_v, dtype=float)
+        k = min(g.size, t.size)
+        g, t = g[:k], t[:k]
+        ok = np.isfinite(g) & np.isfinite(t)
+        if ok.sum() < 2:
+            continue
+        err = np.abs(g[ok] - t[ok])
+        lines.append(f"{name}: n={ok.sum()} R2={_r2(t[ok], g[ok]):.4f} "
+                     f"max|err|={err.max():.4g} median|err|={np.median(err):.4g}")
+    return lines
+
+
 def run(X, y, info, template="cat", free=False, niterations=40, out_dir=None,
         guesses=True):
     from pysr import PySRRegressor
@@ -264,14 +314,19 @@ def run(X, y, info, template="cat", free=False, niterations=40, out_dir=None,
     model.fit(X, y, variable_names=info["features"])
     pred = np.asarray(model.predict(X)).ravel()
     r2 = _r2(y, pred)
+    best = model.get_best()
+    equation = str(best["equation"])
+    lines = [f"R2 {r2:.6f}", f"equation {equation}"]
+    _score_parameters(equation, info.get("truth"), lines)
     print(f"\n=== {info['label']} | {info['kind']} | "
           f"{'free' if free else template} | R2 = {r2:.5f}")
-    print(model.get_best())
+    for ln in lines:
+        print("   " + ln)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
         tag = f"{info['label']}_{info['kind']}_{'free' if free else template}"
         with open(os.path.join(out_dir, f"sr_{tag}.txt"), "w") as f:
-            f.write(f"R2 {r2:.6f}\n{model.get_best()}\n")
+            f.write("\n".join(lines) + "\n")
         np.savez_compressed(os.path.join(out_dir, f"sr_{tag}.npz"), X=X, y=y, pred=pred)
     return model, r2
 
