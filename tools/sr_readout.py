@@ -135,7 +135,8 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
     data_id = torch.zeros((n, 1), dtype=torch.int, device=device)
 
     if source == "ftheta":
-        emb = core.a.detach()
+        emb = (core.a.detach() if getattr(core, "a", None) is not None
+               else torch.zeros(n, 2, device=device))
         tau = np.asarray(op.gt_tau(n), dtype=np.float64)
         vrest = np.asarray(op.gt_vrest(n), dtype=np.float64)
         X, Y = [], []
@@ -170,8 +171,10 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
     is_inh = op.edge_is_inh.to(device).bool().ravel()
     src, dst = edges[0], edges[1]
     n_edges = int(src.numel())
-    emb = core.a.detach()
-    E_learn = _student_reversals(core, device)
+    # A known-ODE student has no embedding; its message is analytic and the
+    # embedding columns are unused by the category template, so they are zeros.
+    emb = (core.a.detach() if getattr(core, "a", None) is not None
+           else torch.zeros(n, 2, device=device))
 
     X, Y, ET = [], [], []
     with torch.no_grad():
@@ -182,8 +185,10 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
             s_i, d_i = src[sel], dst[sel]
             vj, vi = v[s_i], v[d_i]
             if source == "knownode":
-                E_here = E_learn[sel] if E_learn is not None else E_edge[sel]
-                g = torch.relu(vj) * (E_here - vi)
+                # The generator's own message on the REAL voltage distribution.
+                # The one question this stage answers that stage 1 cannot: is the
+                # rectification identifiable when v_j is almost never negative?
+                g = torch.relu(vj) * (E_edge[sel] - vi)
             else:                                   # gphi: the GNN's own function
                 from connectome_gnn.models.utils import pad_g_phi_input
                 feat = torch.cat([vj[:, None], emb[s_i], vi[:, None], emb[d_i]], dim=1)
@@ -208,18 +213,6 @@ def table_from_run(log_dir, source, n_rows=20000, n_frames=32, device="cpu", see
                   "kind": "synapse", "label": os.path.basename(log_dir.rstrip("/")),
                   "E_true_per_row": np.concatenate(ET), "checkpoint": ckpt,
                   "truth": {"E": E_by_cat}}
-
-
-def _student_reversals(core, device):
-    """The known-ODE student's own per-edge reversal, when it has one."""
-    if not hasattr(core, "get_learned_reversals"):
-        return None
-    with torch.no_grad():
-        E_exc, E_inh = core.get_learned_reversals()
-    idx = getattr(core, "_rev_index_inh", None)
-    if idx is None:
-        return None
-    return None      # per-edge mapping is model-specific; the true E is used instead
 
 
 # ------------------------------------------------------------------ #
