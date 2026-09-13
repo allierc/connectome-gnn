@@ -254,10 +254,12 @@ def run(X, y, info, template="cat", free=False, niterations=40, out_dir=None,
     )
     if spec is not None:
         kw["expression_spec"] = spec
+        # A template guess names a sub-expression's arguments POSITIONALLY, as
+        # #1, #2, ...; PySR rejects real variable names here.
         if guesses and info["kind"] == "synapse" and template == "cat":
-            kw["guesses"] = [{"f": "relu(v_j)"}]
+            kw["guesses"] = [{"f": "relu(#1)"}]          # f(v_j) = relu(v_j)
         elif guesses and info["kind"] == "neuron":
-            kw["guesses"] = [{"f": "msg + stim"}]
+            kw["guesses"] = [{"f": "#1 + #2"}]           # f(msg, stim) = msg + stim
     model = PySRRegressor(**kw)
     model.fit(X, y, variable_names=info["features"])
     pred = np.asarray(model.predict(X)).ravel()
