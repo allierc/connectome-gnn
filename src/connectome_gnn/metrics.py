@@ -856,6 +856,12 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
 
     return {
         'edge_ij': np.stack([to_numpy(dst), to_numpy(src)], axis=1),
+        # WHICH EDGES THESE ARE, as indices into the caller's edge array. Even
+        # when every edge is asked for, rng.choice returns them permuted, so a
+        # caller pairing a result against ode_params.W per edge needs this to
+        # undo the permutation; without it the only way back is matching (i, j)
+        # pairs, which duplicate edges make ambiguous.
+        'edge_idx': np.asarray(sel).astype(np.int64),
         'vi': to_numpy(vi),
         'vj': to_numpy(vj),
         'g_phi': to_numpy(g_phi_vals),
@@ -2966,6 +2972,216 @@ def _thresh_for(quantity, config):
     }.get(quantity)          # None -> no filtering, which is right for E_ij/msg_i
 
 
+# --------------------------------------------------------------------------- #
+#  THE TEMPLATE READOUT: the generator's closed form, fitted per edge
+#
+#  `extract_recovered_params` reads a synapse through the correction chain (the
+#  f_theta slope, the g_phi finite-difference slope, the msg gradient). This twin
+#  asks a different question, the one `neuron_panels` puts in a figure: hand the
+#  model's OWN per-edge message to the form the generator used,
+#
+#       msg_ij  =  W_ij * act(v_j) * (E_ij - v_i)
+#
+#  and fit the two constants. That is PySR's TemplateExpressionSpec with the
+#  presynaptic shape `act` GIVEN rather than searched for -- relu on flyvis, from
+#  ode_params.gt_g_phi_func -- and with it given the fit stops being a symbolic
+#  search and becomes linear:
+#
+#       msg_ij  =  (W_ij * E_ij) * u  +  (-W_ij) * (u * v_i),      u = act(v_j)
+#
+#  a two-column least squares per edge, closed form, every edge of a 13,741
+#  neuron graph in seconds. Searching for `act` instead costs ~300 s per NEURON,
+#  which is the only reason PySR itself is not called here; `neuron_panels` still
+#  runs the real search on the handful of neurons named in config.analysis, and
+#  that is what certifies relu is the right shape to give.
+#
+#  THE GAUGE IS PER NEURON, and it is the reason this exists. A GNN's message has
+#  no absolute scale: multiply every message by c and let f_theta divide by c and
+#  the trajectory is unchanged, so the fitted W_ij is off by a factor that the
+#  line fit cannot see. Panel e of the neuron figure measures that factor from
+#  the update itself -- the generator adds msg/tau to dv/dt, the model adds
+#  df_theta/dmsg * msg, so
+#
+#       k_i  =  tau_i * (d f_theta / d msg)_i
+#
+#  converts one unit of neuron i's model message into the generator's units, and
+#  W_ij_generator ~= k_i * W_ij_fitted. On the reference run this factor is 0.092
+#  at neuron 2895 and it differs per neuron, which is exactly what a single
+#  global gain (`Wij_gain`) cannot absorb. E_ij needs no gauge at all: it is the
+#  voltage where the message vanishes, a root, and a root does not move when the
+#  function around it is rescaled.
+# --------------------------------------------------------------------------- #
+
+def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
+                    n_frames=8, seed=0, gauge_tau="model"):
+    """Per neuron, the factor carrying its model message into the generator's units.
+
+    `gauge_tau` decides whose time constant closes the conversion: "model" uses
+    the tau this model itself gives up through its f_theta slope, so the readout
+    borrows nothing from the truth; "true" uses the generator's, which isolates
+    the template's own error and is what the neuron panels print.
+
+    Returns (k, dfdmsg, tau), each (N,).
+    """
+    core = getattr(model, "_orig_mod", model)
+    rng = np.random.default_rng(seed)
+    n_total = int(x_ts.n_frames)
+    idx = rng.choice(n_total, size=min(n_frames, n_total), replace=False)
+    did = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
+    grads = []
+    with torch.no_grad():
+        frames = [x_ts.frame(int(k)).to(device) for k in idx]
+    for st in frames:
+        with torch.no_grad():
+            _pred, feats, _msg = core(st, edges, data_id=did, return_all=True)
+        # compute_grad_msg rebuilds its own graph from the detached features, so
+        # the forward above costs nothing extra by running under no_grad.
+        grads.append(np.asarray(to_numpy(compute_grad_msg(core, feats, config))
+                                ).ravel()[:n_neurons])
+    dfdmsg = np.mean(np.stack(grads), axis=0).astype(np.float64)
+
+    if gauge_tau == "true":
+        tau = np.asarray(ode_params.gt_tau(n_neurons), dtype=np.float64)
+    else:
+        mu, sigma = compute_activity_stats(x_ts, device)
+        slopes, _offsets = extract_f_theta_slopes(core, config, n_neurons, mu, sigma, device)
+        tau = np.asarray(ode_params.derive_tau(np.asarray(slopes), n_neurons),
+                         dtype=np.float64)
+    return dfdmsg * tau, dfdmsg, tau
+
+
+def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
+                            device=None, n_neurons=None, n_frames=64, seed=0,
+                            vj_quantile=0.5, min_points=8, gauge_tau="model",
+                            gauge_frames=8) -> RecoveredParams:
+    """W_ij and E_ij read out of the model by fitting the generator's own form.
+
+    The twin of :func:`extract_recovered_params` for the two edge quantities; see
+    the block comment above for the equation and the gauge. Returns the same
+    `RecoveredParams` so that :func:`score_recovery` scores both readouts with
+    one vocabulary and the two `results/metrics*.txt` files diff line by line.
+
+    Args:
+        n_frames: real frames sampled per edge for the fit.
+        vj_quantile: floor on the presynaptic drive, as a quantile of the
+            POSITIVE activations. Frames below it carry almost no drive, so they
+            say little about W or E while still weighting the least squares.
+        min_points: an edge needs this many surviving frames, and a non-singular
+            2x2 normal matrix, or its entry is nan.
+        gauge_tau: "model" or "true", see :func:`_template_gauge`.
+    """
+    core = getattr(model, "_orig_mod", model)
+    n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
+    device = core.a.device if device is None else device
+    cond = _is_conductance_data(ode_params)
+    rec = RecoveredParams()
+
+    res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
+                                      n_edges=int(edges.shape[1]), n_frames=n_frames,
+                                      seed=seed)
+    eid = res['edge_idx']
+    vi, vj = res['vi'].astype(np.float64), res['vj'].astype(np.float64)
+    n_e = vi.shape[0]
+    i_ids = res['edge_ij'][:, 0].astype(np.int64)
+    W_gnn = to_numpy(get_model_W(core)).ravel().astype(np.float64)[eid]
+    msg = W_gnn[:, None] * res['g_phi'].astype(np.float64)
+
+    # THE GENERATOR'S OWN ACTIVATION, which is what "relu given" means: the shape
+    # is not fitted, it is read from ode_params, so any error left over is the
+    # model's and not the readout's choice of nonlinearity.
+    u = np.asarray(ode_params.gt_g_phi_func(vj), dtype=np.float64).reshape(vj.shape)
+    pos = u[u > 0]
+    floor = float(np.quantile(pos, vj_quantile)) if pos.size else 0.0
+    keep = u > max(floor, 1e-6)
+
+    y = np.where(keep, msg, 0.0)
+    x1 = np.where(keep, u, 0.0)
+    x2 = np.where(keep, u * vi, 0.0)
+    n_used = keep.sum(axis=1).astype(np.float64)
+    S11, S12, S22 = (x1 * x1).sum(1), (x1 * x2).sum(1), (x2 * x2).sum(1)
+    S1y, S2y, Syy = (x1 * y).sum(1), (x2 * y).sum(1), (y * y).sum(1)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        if cond:
+            det = S11 * S22 - S12 ** 2
+            ok = (n_used >= min_points) & (det > 0)
+            b1 = np.where(ok, (S22 * S1y - S12 * S2y) / det, np.nan)   # W * E
+            b2 = np.where(ok, (S11 * S2y - S12 * S1y) / det, np.nan)   # -W
+            W_fit = -b2
+            E_fit = np.where(np.abs(W_fit) > 1e-12, b1 / W_fit, np.nan)
+            ss_res = Syy - b1 * S1y - b2 * S2y
+        else:
+            ok = (n_used >= min_points) & (S11 > 0)
+            b1 = np.where(ok, S1y / S11, np.nan)
+            b2 = np.zeros(n_e)
+            W_fit, E_fit = b1, np.full(n_e, np.nan)
+            ss_res = Syy - b1 * S1y
+        # UNCENTRED R2, against zero rather than against the edge's mean message:
+        # the template has no intercept, a synapse with no drive must send no
+        # message, so zero is the baseline it has to beat. Centring would flatter
+        # an edge whose message is a large constant the form cannot produce.
+        fit_r2 = np.where(ok & (Syy > 0), 1.0 - ss_res / Syy, np.nan)
+
+    k, dfdmsg, tau_used = _template_gauge(core, config, ode_params, edges, x_ts,
+                                          n_neurons, device, n_frames=gauge_frames,
+                                          seed=seed, gauge_tau=gauge_tau)
+    W_learned = k[i_ids] * W_fit
+
+    # Back into the caller's edge order, so every array lines up with ode_params.W.
+    def _scatter(v, fill=np.nan):
+        out = np.full(int(edges.shape[1]), fill, dtype=np.float64)
+        out[eid] = v
+        return out
+
+    W_learned, E_learned = _scatter(W_learned), _scatter(E_fit)
+    fit_r2_full, slope_full = _scatter(fit_r2), _scatter(b2)
+    gt_W = np.asarray(ode_params.effective_true_weights(
+        to_numpy(ode_params.W), to_numpy(edges), n_neurons))
+
+    gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
+    r2_med = float(np.nanmedian(fit_r2_full)) if np.isfinite(fit_r2_full).any() else float("nan")
+    rec.pairs["W"] = _pair(gt_W, W_learned)
+    rec.estimator["W"] = "template_fit"
+    rec.correction["W"] = (f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
+                           f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)")
+    rec.diagnostics["_W_learned_full"] = W_learned
+    rec.diagnostics["Eij_gate"] = r2_med
+    # Edges whose fitted message RISES with the postsynaptic voltage: no driving
+    # force does that, since E - v_i can only fall as v_i climbs.
+    rec.diagnostics["Eij_pct_wrong_slope"] = (
+        float(100.0 * np.mean(slope_full[np.isfinite(slope_full)] > 0))
+        if cond and np.isfinite(slope_full).any() else float("nan"))
+    if cond:
+        rec.pairs["E_ij"] = _pair(np.asarray(ode_params.reversal_per_edge()).ravel(),
+                                  E_learned)
+        rec.estimator["E_ij"] = "template_fit"
+        rec.correction["E_ij"] = "E_ij = (W*E) / W, the same two-column fit as W"
+        rec.valid["E_ij"] = r2_med >= gate
+    rec.diagnostics["tmpl_k_median"] = float(np.nanmedian(k))
+    rec.diagnostics["tmpl_dfdmsg_median"] = float(np.nanmedian(dfdmsg))
+    rec.diagnostics["tmpl_n_used_median"] = float(np.nanmedian(n_used))
+    rec.diagnostics["tmpl_pct_unfitted"] = float(100.0 * np.mean(~np.isfinite(W_learned)))
+    rec.diagnostics["tmpl_vj_floor"] = floor
+    rec.diagnostics["_tmpl_fit_r2"] = fit_r2_full
+    rec.diagnostics["_tmpl_k"] = k
+    rec.diagnostics["_tmpl_tau"] = tau_used
+    return rec
+
+
+def score_Pysr_recovery(model, ode_params, config=None, edges=None, x_ts=None,
+                        device=None, n_neurons=None, **kw) -> dict:
+    """The twin of :func:`score_recovery` for the template readout.
+
+    Same keys, same statistics, same outlier rule -- the only difference is where
+    W_ij and E_ij came from, which is recorded in `Wij_estimator`. Everything
+    above the edges (tau, V_rest, msg_i) is unchanged by the readout and is left
+    to `score_recovery` rather than reported twice under the same names.
+    """
+    rec = extract_template_params(model, ode_params, config=config, edges=edges,
+                                  x_ts=x_ts, device=device, n_neurons=n_neurons, **kw)
+    return score_recovery(rec, config)
+
+
 # The emitted key for each quantity. Wij/Eij/msg_i are symbol-first; tau and
 # V_rest keep the spelling every consumer already reads.
 _KEY = {"W": "Wij", "tau": "tau", "V_rest": "V_rest",
@@ -3203,17 +3419,21 @@ def metrics_lines(scored):
     return lines
 
 
-def write_recovery_metrics(scored, log_dir, log_file=None, logger=None):
+def write_recovery_metrics(scored, log_dir, log_file=None, logger=None,
+                           name="metrics.txt"):
     """THE writer of recovered-parameter metrics for `-o test_plot`.
 
-    Appends metrics_lines(scored) to results/metrics.txt, to the analysis log
+    Appends metrics_lines(scored) to results/<name>, to the analysis log
     `log_file` when given, and to `logger`. Nothing else writes a `<key>_<stat>`
-    line to either file.
+    line to either file. `name` exists for the template readout, which emits the
+    SAME keys from a different estimator: they cannot share one file without one
+    silently overwriting the other's reading of `Wij_R2`, and they must not get
+    different names or the two could no longer be diffed line by line.
     """
     lines = metrics_lines(scored)
     if not lines:
         return
-    path = os.path.join(log_dir, "results", "metrics.txt")
+    path = os.path.join(log_dir, "results", name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a") as mf:
         mf.write("\n".join(lines) + "\n")
