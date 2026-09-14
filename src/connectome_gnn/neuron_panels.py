@@ -269,6 +269,20 @@ def _update_template():
         variable_names=["v_i", "msg", "stim", "cat"])
 
 
+def _strip_parameter_lists(equation):
+    """The sub-expression of a template equation, without its parameter lists.
+
+    PySR prints `f = #1 * 1.4467; E = [10.940051]`, and the panels already report
+    E as a named number beside the generator's own, so the bracketed list would
+    be the same constant a second time.
+    """
+    import re
+    if not equation:
+        return equation
+    txt = re.sub(r";?\s*\w+\s*=\s*\[[^\]]*\]", "", str(equation)).strip()
+    return txt.strip(";").strip() or str(equation)
+
+
 def _fitted_parameters(equation):
     """The per-category constants out of a template equation, e.g. `E = [-5.17]`."""
     import re
@@ -443,13 +457,10 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axe = fig.add_subplot(gs[0:3, 1])
     axe.axis("off")
     lines = [f"e   the update, neuron {neuron}{('   ' + label) if label else ''}", ""]
-    lines += ["  generator", f"    {fm['update']}", "",
-              f"  recovered{fmt_r2(sr.get('update_r2'))}"]
-    lines += [f"    {sr['update']}" if sr.get("update")
-              else f"    [{sr.get('update_note') or 'not fitted'}]"]
     p = sr.get("update_tmpl_p") or {}
-    lines += ["", f"  recovered inside T * ((V - v_i) + G * msg + f(stim))"
-                  f"{fmt_r2(sr.get('update_tmpl_r2'))}"]
+    lines += ["  generator", f"    {fm['update']}", ""]
+    lines += [f"  template   T * ((V - v_i) + G * msg + f(stim))"
+              f"{fmt_r2(sr.get('update_tmpl_r2'))}"]
     if sr.get("update_tmpl"):
         def _cmp(name, got, want):
             return (f"    {name} = {got:+.4f}   (generator {want:+.4f})"
@@ -457,9 +468,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         lines += [_cmp("T  (1/tau)   ", p.get("T"), 1.0 / fm["tau"]),
                   _cmp("V  (V_rest)  ", p.get("V"), fm["vrest"]),
                   _cmp("G  (msg gain)", p.get("G"), 1.0),
-                  f"    {sr['update_tmpl']}"]
+                  f"    {_strip_parameter_lists(sr['update_tmpl'])}"]
     else:
         lines += [f"    [{sr.get('update_tmpl_note') or 'not fitted'}]"]
+    lines += ["", f"  free{fmt_r2(sr.get('update_r2'))}"]
+    lines += [f"    {sr['update']}" if sr.get("update")
+              else f"    [{sr.get('update_note') or 'not fitted'}]"]
     lines += ["", f"  the message enters the generator's update with coefficient "
                   f"{1.0 / fm['tau']:.4f} = 1/tau, so G = 1 is the target"]
     axe.text(0.0, 1.0, "\n".join(lines), transform=axe.transAxes, va="top", ha="left",
@@ -469,23 +483,24 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axf = fig.add_subplot(gs[3, 1], sharey=axd)
     axf.axis("off")
     fam = ("W * relu(v_j) * (E - v_i)" if fm["conductance"] else "W * relu(v_j)")
-    axf.text(0.0, 1.005, f"f   the synapses: generator, free search, and the same "
-             f"fitted inside {fam}", transform=axf.transAxes, va="bottom", fontsize=11)
+    axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
+             f"{fam}, and a free search", transform=axf.transAxes, va="bottom",
+             fontsize=11)
     for row in range(n_edges):
         idx = int(g["edge_ids"][row])
         txt = [f"generator   {fm['edges'][idx]}"]
-        eq = sr["edges"].get(idx)
-        txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
-                   else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
         if fm["conductance"]:
             teq = sr.get("tmpl", {}).get(idx)
             E = sr.get("tmpl_E", {}).get(idx)
             if teq:
                 etxt = f"E = {E:+.3f}" if E is not None else "E not parsed"
-                txt.append(f"template    {etxt}   {teq}"
+                txt.append(f"template    {etxt}   {_strip_parameter_lists(teq)}"
                            f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
             else:
                 txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
+        eq = sr["edges"].get(idx)
+        txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
+                   else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
         axf.text(0.0, offs[row], "\n".join(txt), transform=axf.get_yaxis_transform(),
                  va="center", ha="left", fontsize=7, family="monospace")
 
