@@ -22,15 +22,20 @@
 #
 #     || (df/dmsg + df/dv) / rms_batch(df/dv) ||_2
 #
-# WHY A SWEEP. The coefficient is unswept. The term is a norm(2) over the batch,
-# exactly like the trajectory loss, so the two are directly comparable: at a
-# 24.8x gauge error the residual is ~24 per neuron, and over a batch of ~55,000
-# that is a norm near 5.6e3 against a trajectory loss of 0.04-0.13. A coefficient
-# of 2e-6 therefore contributes ~1e-2, about a quarter of the data loss, when the
-# gauge is as wrong as it has been measured to be, and falls away as the gauge
-# closes. 2e-7 and 2e-5 bracket that by a decade either side. If every arm at
-# 2e-5 trains but none of them moves tau*df/dmsg, the term is too weak and the
-# sweep should move up, not down.
+# WHY A SWEEP, AND WHY THIS DECADE. The coefficient is sized from a measurement,
+# not an estimate: on the trained sigma=0.05 conductance model the derivatives
+# are df/dv = -26.16 per second and df/dmsg = +1.098, so G = 0.0403 where the ODE
+# requires 1 and the relative residual the term charges is 0.78 per neuron,
+# steady across finite-difference steps from 1e-6 to 1. The term is a norm(2)
+# over the batch exactly like the trajectory loss, so 0.78 over ~13,700 neurons
+# is a norm near 91: 1e-4 contributes ~9e-3 against a trajectory loss of
+# 0.04-0.13, with 1e-5 and 1e-3 a decade either side. The first bracket tried
+# here, 2e-7 to 2e-5, came from an estimate and contributed 3.7e-08 -- four
+# orders of magnitude of nothing, which is what this measurement was for.
+#
+# NOTE ON THE CURRENT ARMS BELOW: the current family has almost no violation to
+# punish -- its gauge error sits in tau rather than in G -- so the gain arm there
+# tests only that the term is harmless, not that it works.
 #
 # WHAT TO READ AFTERWARDS, in this order:
 #   tools/pysr_recovery.py <config>   Wij_gain near 1.0 and tmpl_k_median near
@@ -86,25 +91,25 @@ submit flyvis_current_noise_005_current_nol1silgain
 # ---------------------------------------------------------------- sigma = 0.05
 # The reference conductance winner. If the term helps anywhere it should help
 # here, where the gauge error is measured and the model is otherwise healthy.
-submit flyvis_conductance_noise_005_conductance_gnnsil_g07_cv00
-submit flyvis_conductance_noise_005_conductance_gnnsil_g06_cv00
-submit flyvis_conductance_noise_005_conductance_gnnsil_g05_cv00
+submit flyvis_conductance_noise_005_conductance_gnnsil_g1e5_cv00
+submit flyvis_conductance_noise_005_conductance_gnnsil_g1e4_cv00
+submit flyvis_conductance_noise_005_conductance_gnnsil_g1e3_cv00
 
 # Same, with coeff_W_L1 off: does the elementwise weight penalty still earn its
 # place once the message scale is pinned by something that is not a shrinkage?
-submit flyvis_conductance_noise_005_conductance_nol1sil_g07_cv00
-submit flyvis_conductance_noise_005_conductance_nol1sil_g06_cv00
-submit flyvis_conductance_noise_005_conductance_nol1sil_g05_cv00
+submit flyvis_conductance_noise_005_conductance_nol1sil_g1e5_cv00
+submit flyvis_conductance_noise_005_conductance_nol1sil_g1e4_cv00
+submit flyvis_conductance_noise_005_conductance_nol1sil_g1e3_cv00
 
 # ------------------------------------------------------------------ sigma = 0
 # THE CASE THE TERM EXISTS FOR. Without it the sigma=0 gnnsil run put all 434,112
 # weights below 1e-6 (largest 3.29e-07) and let f_theta amplify by 255; with the
 # gain pinned that route is closed, so "did the weight vector survive" is the
 # first thing to check, before any recovery metric.
-submit flyvis_conductance_noise_free_conductance_gnnsil_g07_cv00
-submit flyvis_conductance_noise_free_conductance_gnnsil_g06_cv00
-submit flyvis_conductance_noise_free_conductance_gnnsil_g05_cv00
+submit flyvis_conductance_noise_free_conductance_gnnsil_g1e5_cv00
+submit flyvis_conductance_noise_free_conductance_gnnsil_g1e4_cv00
+submit flyvis_conductance_noise_free_conductance_gnnsil_g1e3_cv00
 
-submit flyvis_conductance_noise_free_conductance_nol1sil_g07_cv00
-submit flyvis_conductance_noise_free_conductance_nol1sil_g06_cv00
-submit flyvis_conductance_noise_free_conductance_nol1sil_g05_cv00
+submit flyvis_conductance_noise_free_conductance_nol1sil_g1e5_cv00
+submit flyvis_conductance_noise_free_conductance_nol1sil_g1e4_cv00
+submit flyvis_conductance_noise_free_conductance_nol1sil_g1e3_cv00
