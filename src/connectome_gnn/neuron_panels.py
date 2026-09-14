@@ -244,6 +244,31 @@ def _conductance_template(cfg):
                                   variable_names=["v_j", "v_i", "cat"])
 
 
+def _update_template():
+    """T * (V - v_i + G * msg + f(stim)): the generator's update with its three
+    constants left free.
+
+    The generator computes dv/dt = (V_rest - v_i + msg + I) / tau, so the truth is
+    T = 1/tau, V = V_rest and G = 1 exactly. G is the number this readout exists
+    for: it is the coefficient the model applies to its own message, and the whole
+    degeneracy lives there. A free search reports it buried inside an expression
+    like ((3.82 - msg) + (v_i * -11.46)) * 1.65, where the message coefficient is
+    the product of two printed numbers; here it is one fitted constant with a
+    known target. The stimulus is left as a sub-expression rather than a fourth
+    constant because PySR requires at least one, and because f = stim is itself
+    worth seeing: the stimulus is an observed input, so its coefficient is the one
+    the data pin down.
+    """
+    try:
+        from pysr import TemplateExpressionSpec
+    except Exception:
+        return None
+    return TemplateExpressionSpec(
+        combine="T[cat] * ((V[cat] - v_i) + (G[cat] * msg) + f(stim))",
+        expressions=["f"], parameters={"T": 1, "V": 1, "G": 1},
+        variable_names=["v_i", "msg", "stim", "cat"])
+
+
 def _fitted_parameters(equation):
     """The per-category constants out of a template equation, e.g. `E = [-5.17]`."""
     import re
@@ -266,6 +291,8 @@ def symbolic_forms(g, cfg):
     number beside the one the generator used.
     """
     out = {"update": None, "update_r2": float("nan"), "update_note": "disabled",
+           "update_tmpl": None, "update_tmpl_r2": float("nan"),
+           "update_tmpl_note": "disabled", "update_tmpl_p": {},
            "edges": {}, "edge_r2": {}, "edge_notes": {},
            "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_notes": {}}
     if not cfg.sr_enabled:
@@ -275,6 +302,16 @@ def symbolic_forms(g, cfg):
     eq, r2v, note = _sr_fit(np.column_stack([g["v_i"], g["msg_model"], g["stim"]]),
                             g["pred"], ["v_i", "msg", "stim"], cfg, guess=guess)
     out["update"], out["update_r2"], out["update_note"] = eq, r2v, note
+
+    uspec = _update_template()
+    if uspec is not None:
+        ones = np.ones_like(g["v_i"])
+        ueq, ur2, unote = _sr_fit(
+            np.column_stack([g["v_i"], g["msg_model"], g["stim"], ones]),
+            g["pred"], ["v_i", "msg", "stim", "cat"], cfg, spec=uspec)
+        out["update_tmpl"], out["update_tmpl_r2"], out["update_tmpl_note"] = ueq, ur2, unote
+        p = _fitted_parameters(ueq) if ueq else {}
+        out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
 
     spec = _conductance_template(cfg) if f["conductance"] else None
     ones = np.ones_like(g["v_i"])
@@ -397,8 +434,21 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
               f"  recovered{fmt_r2(sr.get('update_r2'))}"]
     lines += [f"    {sr['update']}" if sr.get("update")
               else f"    [{sr.get('update_note') or 'not fitted'}]"]
+    p = sr.get("update_tmpl_p") or {}
+    lines += ["", f"  recovered inside T * ((V - v_i) + G * msg + f(stim))"
+                  f"{fmt_r2(sr.get('update_tmpl_r2'))}"]
+    if sr.get("update_tmpl"):
+        def _cmp(name, got, want):
+            return (f"    {name} = {got:+.4f}   (generator {want:+.4f})"
+                    if got is not None else f"    {name} not parsed")
+        lines += [_cmp("T  (1/tau)   ", p.get("T"), 1.0 / fm["tau"]),
+                  _cmp("V  (V_rest)  ", p.get("V"), fm["vrest"]),
+                  _cmp("G  (msg gain)", p.get("G"), 1.0),
+                  f"    {sr['update_tmpl']}"]
+    else:
+        lines += [f"    [{sr.get('update_tmpl_note') or 'not fitted'}]"]
     lines += ["", f"  the message enters the generator's update with coefficient "
-                  f"{1.0 / fm['tau']:.4f} = 1/tau"]
+                  f"{1.0 / fm['tau']:.4f} = 1/tau, so G = 1 is the target"]
     axe.text(0.0, 1.0, "\n".join(lines), transform=axe.transAxes, va="top", ha="left",
              fontsize=8, family="monospace")
 
