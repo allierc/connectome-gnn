@@ -112,7 +112,7 @@ def test_descending_on_it_drives_the_gain_to_one():
                                         torch.device("cpu"), xnorm=1.0)
         loss.backward()
         opt.step()
-    assert abs(float(model.f_theta.gain) - 1.0) < 0.05
+    assert abs(float(model.f_theta.gain.detach()) - 1.0) < 0.05
 
 
 def test_off_by_default():
