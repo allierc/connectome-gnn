@@ -1,6 +1,6 @@
-dataset: flyvis_noise_005_050_blank50_cv00
+dataset: flyvis_noise_005_010_blank50_cv00
 description: 'GNN (rollout curriculum K=1..10, uniform) blank50 on the measurement-noise ladder:
-  process sigma=0.05, measurement sigma=0.5, fold 00. 10 epochs x 50 augmentation loops. graph_trainer
+  process sigma=0.05, measurement sigma=0.1, fold 00. 10 epochs x 50 augmentation loops. graph_trainer
   divides each epoch''s iteration count by that epoch''s horizon K, so the arm costs 1,599,987
   network evaluations of the 13,741-neuron graph -- the same budget as the K=1 and K=1..5
   arms'' 1.6 M -- and gets 468,633 weight updates, fewer than K=1''s 1.6 M because a deeper
@@ -37,7 +37,7 @@ simulation:
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   delta_t: 0.02
-  measurement_noise_level: 0.5
+  measurement_noise_level: 0.1
   n_edges: 434112
   n_frames: 64000
   n_input_neurons: 1736

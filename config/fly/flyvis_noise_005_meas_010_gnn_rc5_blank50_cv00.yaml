@@ -1,6 +1,6 @@
 description: 'GNN (rollout curriculum K=1..5, uniform) blank50 baseline on the measurement-noise
-  ladder: process sigma=0.05, measurement sigma=0.5, fold 00'
-dataset: flyvis_noise_005_050_blank50_cv00
+  ladder: process sigma=0.05, measurement sigma=0.1, fold 00'
+dataset: flyvis_noise_005_010_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -23,7 +23,7 @@ simulation:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
-  measurement_noise_level: 0.5
+  measurement_noise_level: 0.1
 graph_model:
   signal_model_name: flyvis_current
   prediction: first_derivative

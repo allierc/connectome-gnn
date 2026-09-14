@@ -1,10 +1,10 @@
-dataset: flyvis_noise_005_050_blank50_cv00
-description: 'GNN (rollout curriculum K=1..8, uniform) blank50 on the measurement-noise ladder:
-  process sigma=0.05, measurement sigma=0.5, fold 00. 8 epochs x 63 augmentation loops. graph_trainer
-  divides each epoch''s iteration count by that epoch''s horizon K, so the arm costs 1,612,800
-  network evaluations of the 13,741-neuron graph -- the same budget as the K=1 and K=1..5
-  arms'' 1.6 M -- and gets 547,920 weight updates, fewer than K=1''s 1.6 M because a deeper
-  unroll spends the same compute on longer trajectories.'
+dataset: flyvis_noise_005_010_blank50_cv00
+description: 'GNN (fixed rollout depth K=5, no curriculum) blank50 on the measurement-noise
+  ladder: process sigma=0.05, measurement sigma=0.1, fold 00. 5 epochs x 100 augmentation
+  loops. graph_trainer divides each epoch''s iteration count by that epoch''s horizon K, so
+  the arm costs 1,600,000 network evaluations of the 13,741-neuron graph -- the same budget
+  as the K=1 and K=1..5 arms'' 1.6 M -- and gets 320,000 weight updates, fewer than K=1''s
+  1.6 M because a deeper unroll spends the same compute on longer trajectories.'
 graph_model:
   aggr_type: add
   embedding_dim: 2
@@ -37,7 +37,7 @@ simulation:
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   delta_t: 0.02
-  measurement_noise_level: 0.5
+  measurement_noise_level: 0.1
   n_edges: 434112
   n_frames: 64000
   n_input_neurons: 1736
@@ -64,27 +64,24 @@ training:
   coeff_g_phi_norm: 0.45
   coeff_g_phi_weight_L1: 0.14
   coeff_g_phi_weight_L2: 0
-  data_augmentation_loop: 63
+  data_augmentation_loop: 100
   device: auto
   frame_target_offset: 1
   lr: 0.0018
   lr_W: 0.0009
   lr_embedding: 0.002325
   mlp_precision: bf16
-  n_epochs: 8
+  n_epochs: 5
   n_runs: 1
   recurrent_training: true
   regul_annealing_rate: 0.0
   regul_batch_scaling: sqrt
   rollout_horizon_schedule:
-  - 1
-  - 2
-  - 3
-  - 4
   - 5
-  - 6
-  - 7
-  - 8
+  - 5
+  - 5
+  - 5
+  - 5
   rollout_step_reduction: mean
   rollout_step_weighting: uniform
   seed: 1042
