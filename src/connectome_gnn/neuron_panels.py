@@ -239,9 +239,13 @@ def _effective_W(pred, v_j, v_i, E, C=0.0):
     as though the pedestal were conductance -- inflating W by however much of C
     happens to correlate with relu(v_j) * (E - v_i) over these frames.
     """
-    if pred is None or E is None:
+    if pred is None:
         return None
-    d = np.maximum(np.asarray(v_j, float), 0.0) * (float(E) - np.asarray(v_i, float))
+    d = np.maximum(np.asarray(v_j, float), 0.0)
+    if E is not None:
+        # The conductance family multiplies the release by the driving force;
+        # the current family's synapse is W * act(v_j) and there is none.
+        d = d * (float(E) - np.asarray(v_i, float))
     den = float(d @ d)
     m = np.asarray(pred, float) - float(C or 0.0)
     return float(m @ d) / den if den > 0 else None
@@ -276,6 +280,27 @@ def _conductance_template(cfg):
     return TemplateExpressionSpec(combine="f(v_j) * (E[cat] - v_i) + C[cat]",
                                   expressions=["f"], parameters={"E": 1, "C": 1},
                                   variable_names=["v_j", "v_i", "cat"])
+
+
+def _current_template(cfg):
+    """f(v_j) + C[cat]: the current family with its silent-input offset fitted.
+
+    THE SAME QUESTION AS THE CONDUCTANCE TEMPLATE, minus the driving force. A
+    current generator's synapse is W * act(v_j), zero whenever the sender is
+    silent, and the model's g_phi is under no more obligation to vanish there
+    than in the conductance case -- so C is the same measurement, the per-edge
+    form of the offset the update hands to V_rest. Fitting it was
+    conductance-only until now, which left every current run's panel f with no
+    template row, no offset, and W in the model's own gauge, while the
+    population extractor had been fitting exactly this form for both families.
+    """
+    try:
+        from pysr import TemplateExpressionSpec
+    except Exception:
+        return None
+    return TemplateExpressionSpec(combine="f(v_j) + C[cat]",
+                                  expressions=["f"], parameters={"C": 1},
+                                  variable_names=["v_j", "cat"])
 
 
 def _update_template():
@@ -362,7 +387,8 @@ def symbolic_forms(g, cfg):
         p = _fitted_parameters(ueq) if ueq else {}
         out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
 
-    spec = _conductance_template(cfg) if f["conductance"] else None
+    spec = (_conductance_template(cfg) if f["conductance"]
+            else _current_template(cfg))
     ones = np.ones_like(g["v_i"])
     for row, idx in enumerate(g["edge_ids"][: int(cfg.sr_max_edges)]):
         idx = int(idx)
@@ -370,9 +396,15 @@ def symbolic_forms(g, cfg):
                                    g["m_model"][row], ["v_j", "v_i"], cfg)
         out["edges"][idx], out["edge_r2"][idx], out["edge_notes"][idx] = eq, r2v, note
         if spec is not None:
+            # THE COLUMNS THE TEMPLATE DECLARES, no more: the current family's
+            # form has no v_i in it, and PySR rejects a variable a template
+            # never uses.
+            _cols, _names = ((np.column_stack([g["v_j"][row], g["v_i"], ones]),
+                              ["v_j", "v_i", "cat"]) if f["conductance"]
+                             else (np.column_stack([g["v_j"][row], ones]),
+                                   ["v_j", "cat"]))
             teq, tr2, tnote, tpred = _sr_fit(
-                np.column_stack([g["v_j"][row], g["v_i"], ones]),
-                g["m_model"][row], ["v_j", "v_i", "cat"], cfg, spec=spec)
+                _cols, g["m_model"][row], _names, cfg, spec=spec)
             out["tmpl"][idx], out["tmpl_r2"][idx], out["tmpl_notes"][idx] = teq, tr2, tnote
             _p = _fitted_parameters(teq) if teq else {}
             E = _p.get("E")
@@ -427,10 +459,13 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # the generator's until they are multiplied by k = T * G * tau. Defining it
     # here rather than beside panel f is what lets d use it too.
     kW = None
-    if fm["conductance"]:
-        _pu = sr.get("update_tmpl_p") or {}
-        if _pu.get("T") is not None and _pu.get("G") is not None:
-            kW = float(_pu["T"]) * float(_pu["G"]) * fm["tau"]
+    _pu = sr.get("update_tmpl_p") or {}
+    if _pu.get("T") is not None and _pu.get("G") is not None:
+        # BOTH FAMILIES. k = T * G * tau converts one unit of the model's message
+        # into the generator's, and the derivation -- matching T*G*msg_model
+        # against msg_true/tau -- never mentions the driving force. It was gated
+        # on the conductance family for no reason beyond where it was written.
+        kW = float(_pu["T"]) * float(_pu["G"]) * fm["tau"]
 
     n_edges = g["m_true"].shape[0]
     step = 8.0                      # room for three lines of formula per synapse
@@ -596,12 +631,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axf = fig.add_subplot(gs[3, 1], sharey=axd)
     axf.axis("off")
     fam = ("W * relu(v_j) * (E - v_i) + offset" if fm["conductance"]
-           else "W * relu(v_j)")
+           else "W * relu(v_j) + offset")
     # The model's message carries the global gain that f_theta divides back out,
     # so its conductance is only comparable with the generator's after the same
     # T * G * tau correction the total message gets in panel c.
     _gain_note = (f", W and offset scaled by T*G*tau = {kW:.4f}"
-                  if fm["conductance"] and kW else ", W in the model's own gauge")
+                  if kW else ", W in the model's own gauge")
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
              f"{fam},\n    {_gain_note.lstrip(', ')}, and a free search",
              transform=axf.transAxes,
@@ -628,8 +663,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             txt = [f"generator   W = {fmt_W(fm['W'][idx])}   E = {fm['E'][idx]:+8.3f}"
                    f"   offset =   0.0000"]
         else:
-            txt = [f"generator   W = {fmt_W(fm['W'][idx])}"]
-        if fm["conductance"]:
+            txt = [f"generator   W = {fmt_W(fm['W'][idx])}   offset =   0.0000"]
+        if True:
             teq = sr.get("tmpl", {}).get(idx)
             E = sr.get("tmpl_E", {}).get(idx)
             C = sr.get("tmpl_C", {}).get(idx)
@@ -639,9 +674,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                 Cc = None if (C is None or kW is None) else C * kW
                 wtxt = ("W = " + (fmt_W(Wc) if Wc is not None else
                                   (fmt_W(W) if W is not None else "     n/a")))
-                etxt = f"E = {E:+8.3f}" if E is not None else "E =      n/a"
                 ctxt = ("offset = " + (fmt_W(Cc) if Cc is not None else "     n/a"))
-                txt.append(f"template    {wtxt}   {etxt}   {ctxt}"
+                # The current family has no reversal to print, and a column of
+                # "E = n/a" would only say so once per synapse.
+                etxt = (f"E = {E:+8.3f}   " if E is not None
+                        else ("E =      n/a   " if fm["conductance"] else ""))
+                txt.append(f"template    {wtxt}   {etxt}{ctxt}"
                            f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
             else:
                 txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
