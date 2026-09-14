@@ -37,7 +37,6 @@ class LossRegularizer:
         'g_phi_weight', 'g_phi_input_group',
         'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
-        'f_theta_separable', 'f_theta_silent',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
@@ -165,9 +164,6 @@ class LossRegularizer:
         self._coeffs['g_phi_zero_below'] = getattr(tc, 'coeff_g_phi_zero_below', 0.0)
         self._coeffs['g_phi_silent'] = getattr(tc, 'coeff_g_phi_silent', 0.0)
         self.g_phi_silent_range = tuple(getattr(tc, 'g_phi_silent_range', (-2.0, 0.0)))
-        self._coeffs['f_theta_separable'] = getattr(tc, 'coeff_f_theta_separable', 0.0)
-        self._coeffs['f_theta_silent'] = getattr(tc, 'coeff_f_theta_silent', 0.0)
-        self.f_theta_silent_quantile = float(getattr(tc, 'f_theta_silent_quantile', 0.05))
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
         self._coeffs['f_theta_msg_diff'] = tc.coeff_f_theta_msg_diff
@@ -270,9 +266,7 @@ class LossRegularizer:
         """Check if update regularization is needed (update_diff, update_msg_diff, or update_msg_sign)."""
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
-                self._coeffs['f_theta_msg_sign'] > 0 or
-                self._coeffs['f_theta_separable'] > 0 or
-                self._coeffs['f_theta_silent'] > 0)
+                self._coeffs['f_theta_msg_sign'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -696,68 +690,6 @@ class LossRegularizer:
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
 
-        if self._coeffs['f_theta_separable'] > 0:
-            # Mixed second difference of f_theta in (v, msg): the discrete
-            # d2f/dv.dmsg, zero iff f_theta is additively separable in the two.
-            # The generator's update never multiplies v by msg; see config for
-            # why a free f_theta otherwise absorbs the conductance's v_i term.
-            # Four evaluations on the same detached features, same step sizes
-            # as f_theta_diff / f_theta_msg_diff so the three are comparable.
-            _base = in_features.clone().detach()
-            _dv = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
-            _dm = _dv
-            _v_col, _m_col = 0, embedding_dim + 1
-            _fv = _base.clone(); _fv[:, _v_col] = _fv[:, _v_col] + _dv
-            _fm = _base.clone(); _fm[:, _m_col] = _fm[:, _m_col] + _dm
-            _fvm = _fv.clone(); _fvm[:, _m_col] = _fvm[:, _m_col] + _dm
-            _f00 = model.f_theta(_base)
-            _f10 = model.f_theta(_fv)
-            _f01 = model.f_theta(_fm)
-            _f11 = model.f_theta(_fvm)
-            _cross = (_f11 - _f10 - _f01 + _f00)[ids_batch]
-            regul_term = _cross.norm(2) * _ct['f_theta_separable']
-            total_regul = total_regul + regul_term
-            self._add('f_theta_separable', regul_term)
-
-        if self._coeffs['f_theta_silent'] > 0:
-            # SILENT MESSAGE, HONEST EXTRAPOLATION. V_rest is read off f_theta at
-            # msg = 0, a point the trajectory loss never visits: the model's
-            # messages have a mean far from zero, so whatever f_theta does at
-            # zero message is unconstrained, and a constant there is the same
-            # function as a shift of V_rest by that constant times tau. This
-            # forces f_theta onto a STRAIGHT LINE across the gap between zero
-            # message and the smallest message the batch actually contains, so
-            # the level at msg = 0 follows from the slope where the data is
-            # instead of being free.
-            #
-            # Chord test on the segment [0, m_lo], with m_lo the
-            # f_theta_silent_quantile quantile of the batch's messages (5% by
-            # default) and a fresh s per row: f(s * m_lo) must equal
-            # (1 - s) * f(0) + s * f(m_lo). Zero for every s iff f_theta is
-            # affine there. Three evaluations.
-            #
-            # RESTRICTED TO THE GAP ON PURPOSE. Two earlier versions were wrong
-            # in opposite directions: the chord over the whole segment up to each
-            # row's OWN message also forced f_theta affine where the messages
-            # actually operate, more than the offset needs and overlapping
-            # coeff_f_theta_msg_diff / coeff_f_theta_separable; while a second
-            # difference f(+d) - 2*f(0) + f(-d) at msg = 0 only says
-            # f(0) = (f(+d) + f(-d)) / 2, tying three off-data points to each
-            # other and leaving the level at zero as free as before.
-            _base = in_features.clone().detach()
-            _m_col = embedding_dim + 1
-            _q = float(torch.quantile(_base[:, _m_col], self.f_theta_silent_quantile))
-            _lo = torch.full_like(_base[:, _m_col:_m_col + 1], _q)
-            _s = torch.rand_like(_lo)
-            _at0 = _base.clone(); _at0[:, _m_col:_m_col + 1] = 0.0
-            _atlo = _base.clone(); _atlo[:, _m_col:_m_col + 1] = _lo
-            _mid = _base.clone(); _mid[:, _m_col:_m_col + 1] = _s * _lo
-            _chord = (model.f_theta(_mid)
-                      - ((1.0 - _s) * model.f_theta(_at0)
-                         + _s * model.f_theta(_atlo)))[ids_batch]
-            regul_term = _chord.norm(2) * _ct['f_theta_silent']
-            total_regul = total_regul + regul_term
-            self._add('f_theta_silent', regul_term)
 
         return total_regul
 
