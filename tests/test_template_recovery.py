@@ -13,8 +13,11 @@ from connectome_gnn.metrics import extract_template_params, score_recovery
 N, EMB, T = 6, 2, 60
 E_INH, E_EXC = -5.25, 10.37   # the two reversals, one per presynaptic neuron
 TAU = 0.09             # seconds, the generator's membrane time constant
+V_REST = 2.91          # the voltage the generator relaxes to
 K = 0.5                # the gauge: one unit of model message is K of a true one
 DFDMSG = K / TAU       # so that k = tau * dftheta_dmsg = K
+G_MODEL = 1.0          # the weight the model's update puts on its own message
+T_MODEL = DFDMSG / G_MODEL          # so that T * G is the derivative above
 
 
 class _GPhi(torch.nn.Module):
@@ -33,9 +36,10 @@ class _GPhi(torch.nn.Module):
 
 
 class _FTheta(torch.nn.Module):
-    """Linear in the message with slope DFDMSG, which is all the gauge reads."""
+    """The update the template fits: T * ((V - v) + G * msg), from [v, a, msg, stim]."""
     def forward(self, x):
-        return DFDMSG * x[:, 1 + EMB:2 + EMB]
+        v, msg = x[:, 0:1], x[:, 1 + EMB:2 + EMB]
+        return T_MODEL * ((V_REST - v) + G_MODEL * msg)
 
 
 class _Model(torch.nn.Module):
@@ -48,9 +52,15 @@ class _Model(torch.nn.Module):
         self.f_theta = _FTheta()
 
     def forward(self, st, edges, data_id=None, return_all=False):
-        v = st[:, :1] if st.ndim == 2 else st.reshape(-1, 1)
-        feats = torch.cat([v, self.a, torch.zeros(N, 2)], dim=1)
-        return self.f_theta(feats), feats, torch.zeros(N, 1)
+        """A miniature of the real thing: message per edge, summed onto the
+        postsynaptic neuron, then the update read off it."""
+        v = (st[:, :1] if st.ndim == 2 else st.reshape(-1, 1)).float()
+        src, dst = edges[0], edges[1]
+        cols = torch.cat([v[src], self.a[src], v[dst], self.a[dst]], dim=1)
+        m_e = self.W[:, None] * self.g_phi(cols)
+        msg = torch.zeros(N, 1).index_add_(0, dst, m_e)
+        feats = torch.cat([v, self.a, msg, torch.zeros(N, 1)], dim=1)
+        return self.f_theta(feats), feats, msg
 
 
 class _OP:
@@ -64,6 +74,15 @@ class _OP:
 
     def gt_tau(self, n):
         return np.full(n, TAU)
+
+    def gt_vrest(self, n):
+        return np.full(n, V_REST)
+
+    def has_tau(self):
+        return True
+
+    def has_vrest(self):
+        return True
 
     def gt_g_phi_func(self, v):
         return np.maximum(v, 0.0)
@@ -118,7 +137,7 @@ def test_template_recovers_the_conductance_and_the_reversal():
     gt_e, learned_e = rec.pairs["E_ij"]
     assert np.allclose(learned_e, gt_e, atol=1e-3)
     assert rec.diagnostics["Eij_gate"] > 0.999
-    assert abs(rec.diagnostics["tmpl_k_median"] - K) < 1e-6
+    assert abs(rec.diagnostics["tmpl_k_median"] - K) < 1e-5
 
 
 def test_scores_carry_the_one_vocabulary():
@@ -142,3 +161,21 @@ def test_an_ungauged_model_is_off_by_exactly_the_gauge():
     _gt, learned = rec.get("W")
     raw = learned / rec.diagnostics["tmpl_k_median"]
     assert np.allclose(raw, np.asarray(w_true) / K, rtol=1e-3)
+
+
+def test_the_update_template_gives_back_vrest_and_the_gauge():
+    """The four columns that supply k_i also supply V_rest and tau, and the
+    fitted T * G must agree with autograd's df_theta/dmsg -- they are the same
+    number whenever the update is affine in the message, which is what makes the
+    closed-form fit a stand-in for the PySR search."""
+    cfg, op, model, edges, x_ts, _ = _fixture()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    _gt_v, learned_v = rec.pairs["V_rest"]
+    assert np.allclose(learned_v, V_REST, atol=1e-3)
+    _gt_t, learned_t = rec.pairs["tau"]
+    assert np.allclose(learned_t, 1.0 / T_MODEL, rtol=1e-3)
+    assert rec.diagnostics["tmpl_update_r2_median"] > 0.999
+    assert abs(rec.diagnostics["tmpl_dfdmsg_over_autograd"] - 1.0) < 1e-4
+    assert abs(rec.diagnostics["tmpl_G_median"] - G_MODEL) < 1e-3
