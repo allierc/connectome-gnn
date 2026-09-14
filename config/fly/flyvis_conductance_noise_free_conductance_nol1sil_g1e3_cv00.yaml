@@ -1,5 +1,5 @@
-description: 'Conductance GNN on the rig-2 (ion, E_inh below rest) twin, noise 0.05, fold 0: W enters squared, the synapse sign is learned by g_phi from (a_i, a_j), and the regularisers are the current-GNN paper''''s except the three g_phi priors at 0 and the silent-input anchor coeff_g_phi_silent 5 in place of coeff_g_phi_zero_below. ARM +gain: coeff_f_theta_msg_gain 2.0e-07. The generator''s update puts the message and the neuron''s own voltage in one bracket over one tau, so df/dmsg = -df/dv for every neuron whatever its tau; nothing else in the loss says so, and the message''s scale is otherwise free (msg/c with a gain of c through f_theta is the same trajectory). Measured without it: tau*df/dmsg came to 0.0404 where the ODE requires 1 on the sigma=0.05 conductance run, a message 24.8x too large, and on sigma=0 the whole weight vector fell to 1e-8 with f_theta amplifying it back. The coefficient is UNSWEPT: this arm is one point of a decade sweep, and the term is a norm(2) over the batch exactly like the trajectory loss, so the two are directly comparable in magnitude.'
-dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
+description: 'Conductance GNN on the rig-2 (ion) twin, noise-free, fold 0, W L1 off and the silent-input anchor at 5 in place of coeff_g_phi_zero_below: the run where the anchor annihilated the message also had the L1 ratchet, so the two are separated here. ARM +gain: coeff_f_theta_msg_gain 1.0e-03. The generator puts the message and the neuron''s own voltage in one bracket over one tau, so df/dmsg = -df/dv for every neuron whatever its tau; the term penalises the relative residual of that identity and nothing else in the loss says it. Measured on this model before the term existed: df/dv = -26.16 per second against df/dmsg = +1.098, i.e. G = 0.0403 where the ODE requires 1, so the residual it charges is 0.78 per neuron. COEFFICIENT SIZED, not guessed: the term is a norm(2) over the batch exactly like the trajectory loss, so 0.78 per neuron over ~13,700 of them is a norm near 91, and 1e-4 contributes ~9e-3 against a trajectory loss of 0.04-0.13. 1e-5 and 1e-3 bracket that by a decade. An earlier bracket at 2e-7 to 2e-5 was set from an estimate rather than a measurement and contributed 3.7e-08.'
+dataset: flyvis_conductance_ion_sub_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -16,7 +16,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
+  noise_model_level: 0.0
   seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
@@ -70,8 +70,7 @@ training:
   coeff_f_theta_msg_diff: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_f_theta_weight_L2: 0.0005
-  coeff_f_theta_msg_gain: 2.0e-07
-  coeff_W_L1: 7.5e-05
+  coeff_W_L1: 0
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
@@ -85,17 +84,7 @@ training:
   g_phi_silent_range:
   - -2.0
   - 0.0
-config_file: fly/flyvis_conductance_noise_005_conductance_gnnsil_cv00
-claude:
-  n_parallel: 8
-  n_iter_block: 12
-  n_epochs: 3
-  data_augmentation_loop: 21
-  node_name: a100
-  generate_data: false
-  training_time_target_min: 150
-  hard_runtime_limit_min: 1440
-  claude_call_timeout_min: 20
+config_file: fly/flyvis_conductance_noise_free_conductance_gnn_nol1sil_cv00
 analysis:
   neurons:
   - 2895
