@@ -52,3 +52,20 @@ def test_figure_is_written_with_and_without_a_rollout(tmp_path):
     for roll in (None, (rng.normal(size=n_t), rng.normal(size=n_t))):
         p = plot_neuron_panels(g, sr, 0, str(tmp_path), rollout=roll)
         assert os.path.getsize(p) > 10000
+
+
+def test_panels_never_mix_two_trajectories():
+    """If the test split cannot be matched to the rollout bundle, the free run is
+    dropped rather than drawn from a different split than the other panels."""
+    from connectome_gnn.neuron_panels import _test_split
+
+    class _X:
+        n_frames = 7208
+    class _Data:
+        x_ts = _X()
+    # no bundle -> nothing to align against
+    x, ok = _test_split(None, _Data(), None)
+    assert x is _Data.x_ts and ok is False
+    # a bundle whose length cannot be matched -> falls back, not aligned
+    x, ok = _test_split(None, _Data(), {"activity_true": np.zeros((3, 999))})
+    assert ok is False

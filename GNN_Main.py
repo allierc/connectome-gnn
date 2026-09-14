@@ -398,6 +398,7 @@ if __name__ == "__main__":
             # a config that names no neuron is unaffected.
             try:
                 import logging as _logging
+                import torch
                 from connectome_gnn.neuron_panels import analyse_neurons
                 from connectome_gnn.models.training_utils import (
                     init_training_data as _itd)
