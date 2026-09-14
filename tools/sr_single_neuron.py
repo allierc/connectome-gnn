@@ -150,10 +150,10 @@ def run(log_dir, neuron, n_frames=1024, device="cpu", niterations=30, out=None):
     v_i, msg_i, I_i, pred_i = V[:, neuron], MSG[:, neuron], S[:, neuron], PRED[:, neuron]
     f_true = (vrest - v_i + msg_i + I_i) / tau
     Xf = np.column_stack([v_i, msg_i, I_i]).astype(np.float64)
-    eq_f, pred_f = fit(Xf, pred_i.astype(np.float64), ["v_i", "msg", "I"], niterations,
-                       guess=[f"({vrest:.4f} - v_i + msg + I) * {1.0/tau:.4f}"])
+    eq_f, pred_f = fit(Xf, pred_i.astype(np.float64), ["v_i", "msg", "stim"], niterations,
+                       guess=[f"({vrest:.4f} - v_i + msg + stim) * {1.0/tau:.4f}"])
     lines += ["", "-- f_theta --",
-              f"true      ({vrest:+.4f} - v_i + msg + I) * {1.0 / tau:.4f}",
+              f"true      ({vrest:+.4f} - v_i + msg + stim) * {1.0 / tau:.4f}",
               f"recovered {eq_f}",
               f"R2(recovered, model f_theta) {_r2(pred_i, pred_f):+.4f}",
               f"R2(model f_theta, true f)    {_r2(f_true, pred_i):+.4f}"]
