@@ -1241,6 +1241,30 @@ class TrainingConfig(BaseModel):
     # so at the same curvature it is ~(0.05 * xnorm) ~ 20x smaller than the
     # first-difference terms; sweep upward before concluding it is inert.
     coeff_f_theta_separable: float = 0
+    # AFFINE IN THE MESSAGE ALL THE WAY DOWN TO ZERO MESSAGE. V_rest is read off
+    # f_theta at msg = 0, but the trajectory loss only ever evaluates f_theta at
+    # the messages the model actually produces, whose mean is far from zero. The
+    # value at msg = 0 is therefore a free extrapolation, and any constant the
+    # model puts there is indistinguishable from a shift of V_rest by that
+    # constant times tau -- the offset degeneracy coeff_g_phi_silent attacks from
+    # the g_phi side.
+    #
+    # This penalises the departure of f_theta from a straight line in the msg
+    # column over the segment from 0 to the row's own message: with s drawn
+    # uniformly in [0, 1] per row,
+    #
+    #     f(v, a, s*m, stim) - [(1 - s) * f(v, a, 0, stim) + s * f(v, a, m, stim)]
+    #
+    # is zero for every s iff f_theta is affine in msg on that segment. Three
+    # f_theta evaluations per iteration. Once it holds, f_theta(msg = 0) is fixed
+    # by the slope the data does constrain instead of being free, so V_rest stops
+    # being able to absorb the message's mean.
+    #
+    # Distinct from coeff_f_theta_centering, which pins the zero-crossing to the
+    # observed mean voltage mu and is therefore biased whenever the true V_rest
+    # differs from mu -- which is exactly when the message has a non-zero mean.
+    # UNTUNED: start at the same order as coeff_f_theta_separable and sweep.
+    coeff_f_theta_silent: float = 0
     coeff_func_f_theta: float = 0.0  # Penalize f_theta output at zero input
     coeff_f_theta_weight_L1: float = 0  # L1 penalty on f_theta MLP weights
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights

@@ -76,6 +76,7 @@ def load_run(config_name, device):
 def score_both(cfg, data, model, device, n_frames, gauge_tau):
     """(chain, template) scored dicts for one run, on the same frames."""
     edges = data.edges.to(device)
+    extra = {} if n_frames is None else {"n_frames": n_frames}
     chain = score_recovery(
         extract_recovered_params(model, data.ode_params, config=cfg, edges=edges,
                                  x_ts=data.x_ts, device=device,
@@ -85,7 +86,7 @@ def score_both(cfg, data, model, device, n_frames, gauge_tau):
         extract_template_params(model, data.ode_params, config=cfg, edges=edges,
                                 x_ts=data.x_ts, device=device,
                                 n_neurons=int(data.n_neurons),
-                                n_frames=n_frames, gauge_tau=gauge_tau), cfg)
+                                gauge_tau=gauge_tau, **extra), cfg)
     return chain, tmpl
 
 
@@ -104,7 +105,9 @@ def report(name, chain, tmpl):
         if k not in chain and k not in tmpl:
             continue
         print(f"{k:<22}{_fmt(chain.get(k)):>12}{_fmt(tmpl.get(k)):>12}")
-    for k in ("tmpl_k_median", "tmpl_dfdmsg_median", "tmpl_pct_unfitted",
+    for k in ("tmpl_fit_r2_median", "tmpl_k_median", "tmpl_dfdmsg_median",
+              "tmpl_dfdmsg_absmedian", "tmpl_pct_unfitted",
+              "tmpl_pct_E_unidentified", "tmpl_pct_W_from_slope",
               "tmpl_n_used_median", "tmpl_vj_floor"):
         if k in tmpl:
             print(f"{k:<22}{'':>12}{_fmt(tmpl[k]):>12}")
@@ -113,7 +116,10 @@ def report(name, chain, tmpl):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("configs", nargs="+")
-    ap.add_argument("--frames", type=int, default=64)
+    # None, not a number: the extractor's own default is the tested one, and a
+    # tool default silently overriding it is how the 256-frame fix was measured
+    # at 64 frames and looked like it had not taken effect.
+    ap.add_argument("--frames", type=int, default=None)
     ap.add_argument("--gauge-tau", choices=("model", "true"), default="model")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--no-write", action="store_true")
