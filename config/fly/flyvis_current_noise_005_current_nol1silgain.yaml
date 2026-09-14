@@ -1,4 +1,4 @@
-description: 'Current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, unfolded nominal, with coeff_W_L1 at 0 and the silent-input anchor coeff_g_phi_silent 5. ARM +gain: coeff_f_theta_msg_gain 2.0e-06. The generator''s update puts the message and the neuron''s own voltage in one bracket over one tau, so df/dmsg = -df/dv for every neuron whatever its tau; nothing else in the loss says so, and the message''s scale is otherwise free (msg/c with a gain of c through f_theta is the same trajectory). Measured without it: tau*df/dmsg came to 0.0404 where the ODE requires 1 on the sigma=0.05 conductance run, a message 24.8x too large, and on sigma=0 the whole weight vector fell to 1e-8 with f_theta amplifying it back. The coefficient is UNSWEPT: this arm is one point of a decade sweep, and the term is a norm(2) over the batch exactly like the trajectory loss, so the two are directly comparable in magnitude.'
+description: 'Current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, unfolded nominal, with coeff_W_L1 at 0 and the silent-input anchor coeff_g_phi_silent 5. ARM +gain: coeff_f_theta_msg_gain 1.0e-04, the middle point of the conductance sweep. The generator puts the message and the neuron''s own voltage in one bracket over one tau, so df/dmsg = -df/dv for every neuron whatever its tau, and nothing else in the loss says so: the message scale is otherwise free, since msg/c with a gain of c through f_theta is the same trajectory. WHAT THIS ARM CAN AND CANNOT SAY: measured on the current family the residual the term charges is about 1.6e-04 per neuron, against 0.78 on the sigma=0.05 conductance model, because this family''s gauge error sits in tau rather than in G. So it tests that the term is harmless on a recipe that already works, not that it works. The first run of this arm used 2.0e-06 and contributed 3.7e-08 to a loss of 0.0497.'
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -68,7 +68,7 @@ training:
   coeff_f_theta_msg_diff: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_f_theta_weight_L2: 0.0005
-  coeff_f_theta_msg_gain: 2.0e-06
+  coeff_f_theta_msg_gain: 1.0e-04
   coeff_W_L1: 0
   coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
