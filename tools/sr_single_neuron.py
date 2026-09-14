@@ -123,7 +123,7 @@ def fit(X, y, names, niterations=30, maxsize=15, guess=None):
     m = PySRRegressor(**kw)
     m.fit(X, y, variable_names=names)
     best = m.get_best()
-    return str(best["equation"]), np.asarray(m.predict(X)).ravel()
+    return str(best["equation"]), np.asarray(m.predict(X)).ravel(), m
 
 
 def run(log_dir, neuron, n_frames=1024, device="cpu", niterations=30, out=None):
@@ -150,8 +150,9 @@ def run(log_dir, neuron, n_frames=1024, device="cpu", niterations=30, out=None):
     v_i, msg_i, I_i, pred_i = V[:, neuron], MSG[:, neuron], S[:, neuron], PRED[:, neuron]
     f_true = (vrest - v_i + msg_i + I_i) / tau
     Xf = np.column_stack([v_i, msg_i, I_i]).astype(np.float64)
-    eq_f, pred_f = fit(Xf, pred_i.astype(np.float64), ["v_i", "msg", "stim"], niterations,
-                       guess=[f"({vrest:.4f} - v_i + msg + stim) * {1.0/tau:.4f}"])
+    eq_f, pred_f, sr_f = fit(Xf, pred_i.astype(np.float64), ["v_i", "msg", "stim"],
+                             niterations,
+                             guess=[f"({vrest:.4f} - v_i + msg + stim) * {1.0/tau:.4f}"])
     lines += ["", "-- f_theta --",
               f"true      ({vrest:+.4f} - v_i + msg + stim) * {1.0 / tau:.4f}",
               f"recovered {eq_f}",
@@ -183,7 +184,7 @@ def run(log_dir, neuron, n_frames=1024, device="cpu", niterations=30, out=None):
             w = W_model[idx] ** 2 if getattr(core, "w_squared", False) else W_model[idx]
             m_model = to_numpy(g) * float(w)
         X = np.column_stack([v_j, v_i]).astype(np.float64)
-        eq, pred_e = fit(X, m_model.astype(np.float64), ["v_j", "v_i"], niterations)
+        eq, pred_e, _ = fit(X, m_model.astype(np.float64), ["v_j", "v_i"], niterations)
         sum_rec += pred_e
         sum_true += m_true
         sum_model += m_model
@@ -197,6 +198,26 @@ def run(log_dir, neuron, n_frames=1024, device="cpu", niterations=30, out=None):
               f"R2(sum of recovered, true message)  {_r2(sum_true, sum_rec):+.4f}",
               f"std: true {sum_true.std():.4f}  model {sum_model.std():.4f}  "
               f"recovered {sum_rec.std():.4f}"]
+
+    # ---------------- the composed derivative ----------------
+    # Every term above differs from the truth, one of them by a factor of
+    # twenty, yet the trajectory is reproduced. That is only possible if the
+    # errors cancel when the terms are put back together, so the composition is
+    # SCORED rather than inferred: the recovered f_theta is re-evaluated AT THE
+    # RECOVERED MESSAGE, so the derivative comes entirely from the two symbolic
+    # expressions and owes nothing to the network.
+    dvdt_true = (vrest - v_i + sum_true + I_i) / tau
+    dvdt_model = pred_i
+    Xr = np.column_stack([v_i, sum_rec, I_i]).astype(np.float64)
+    dvdt_rec = np.asarray(sr_f.predict(Xr)).ravel()
+    lines += ["", "-- dv_i/dt --",
+              f"R2(model,     true)  {_r2(dvdt_true, dvdt_model):+.4f}",
+              f"R2(recovered, true)  {_r2(dvdt_true, dvdt_rec):+.4f}",
+              f"R2(recovered, model) {_r2(dvdt_model, dvdt_rec):+.4f}",
+              f"std:  true {dvdt_true.std():.4f}  model {dvdt_model.std():.4f}  "
+              f"recovered {dvdt_rec.std():.4f}",
+              f"mean: true {dvdt_true.mean():+.4f}  model {dvdt_model.mean():+.4f}  "
+              f"recovered {dvdt_rec.mean():+.4f}"]
 
     text = "\n".join(lines)
     print(text)
