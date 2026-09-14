@@ -448,8 +448,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ax.set_ylabel("dv/dt")
 
     ax = fig.add_subplot(gs[2, 0])
+    # ONLY THE CORRECTED LEARNED MESSAGE IS DRAWN. The raw one is 11.7x the
+    # generator's amplitude and sits on a pedestal of -2.3 V, so plotting it sets
+    # the axis range and squashes both curves worth comparing onto the zero line.
+    # Its size and level are in the heading instead, where they can be read
+    # without costing the comparison.
     ax.plot(t, msg_true, color="tab:green", lw=0.9)
-    ax.plot(t, g["msg_model"], color="black", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
     head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
               f"   model {ratio:.1f}x")
@@ -472,8 +476,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # and is what coeff_g_phi_silent drives to zero.
     a_fit, b_fit = np.polyfit(g["msg_model"], msg_true, 1)
     corrected = a_fit * g["msg_model"] + b_fit
-    ax.plot(t, corrected, color="black", lw=0.9, ls="--")
-    head_c += (f"   |   dashed: model x {a_fit:.4f} {b_fit:+.3f} V, residual "
+    ax.plot(t, corrected, color="black", lw=0.9)
+    head_c += (f"   |   model x {a_fit:.4f} {b_fit:+.3f} V, residual "
                f"{(msg_true - corrected).std() / max(msg_true.std(), 1e-12):.2f}x")
     p = sr.get("update_tmpl_p") or {}
     T, G, V = p.get("T"), p.get("G"), p.get("V")
@@ -573,7 +577,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     _gain_note = (f", W and offset scaled by T*G*tau = {kW:.4f}"
                   if fm["conductance"] and kW else ", W in the model's own gauge")
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
-             f"{fam}{_gain_note}, and a free search", transform=axf.transAxes,
+             f"{fam},\n    {_gain_note.lstrip(', ')}, and a free search",
+             transform=axf.transAxes,
              va="bottom", fontsize=11)
     def fmt_W(w):
         """Four decimals, except where that would print a synapse as zero.
