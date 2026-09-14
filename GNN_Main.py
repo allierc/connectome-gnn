@@ -1,5 +1,6 @@
 import sys
 import os
+from connectome_gnn.results_layout import clear_results as _clear_results
 import shutil
 
 # cuBLAS reads this when the CUDA context is created, so it has to be set
@@ -36,7 +37,6 @@ from GNN_PlotFigure import data_plot
 
 import warnings
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
-
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=FutureWarning)
     parser = argparse.ArgumentParser(description="connectome_gnn")
@@ -310,6 +310,13 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_test')
             if os.path.exists(_marker):
                 os.remove(_marker)
+            # THE RESULTS THIS TASK IS ABOUT TO REWRITE, removed first. A stale
+            # rollout png from a previous checkpoint sitting beside a fresh one
+            # is indistinguishable from a fresh one, and the panels that read
+            # rollout_bundle.npz would silently describe the wrong run. `test`
+            # owns the rollout outputs; `plot` owns everything else (see
+            # GNN_PlotFigure.data_plot), so each clears only what it regenerates.
+            _clear_results(run_log_dir, prefixes=('rollout',), keep_extras=True)
             # Release training-phase CUDA memory (incl. CUDA Graphs private pools)
             # before allocating the test model. Without this, large e15 GNN runs
             # OOM at test-time model creation despite total need being modest.
