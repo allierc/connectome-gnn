@@ -49,8 +49,10 @@ COMPARE = ("Wij_R2", "Wij_R2_all", "Wij_pct_outliers", "Wij_n_outliers",
            "Wij_rel_err_median", "Wij_n",
            "Eij_R2", "Eij_rmse", "Eij_slope", "Eij_rel_err_median", "Eij_gate",
            "Eij_pct_wrong_slope", "Eij_n",
-           "tau_R2", "tau_slope", "tau_rel_err_median",
-           "V_rest_R2", "V_rest_slope", "V_rest_rel_err_median",
+           "tau_R2", "tau_R2_all", "tau_pct_outliers", "tau_slope",
+           "tau_rel_err_median", "tau_n",
+           "V_rest_R2", "V_rest_R2_all", "V_rest_pct_outliers", "V_rest_slope",
+           "V_rest_rel_err_median", "V_rest_n",
            "clustering_accuracy", "clustering_ari", "clustering_nmi",
            "clustering_n_features")
 
