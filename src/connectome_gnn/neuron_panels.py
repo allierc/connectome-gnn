@@ -190,7 +190,7 @@ def _r2(y, p):
 
 
 def _sr_fit(X, y, names, cfg, guess=None, spec=None):
-    """One PySR fit. Returns (expression, R2, note).
+    """One PySR fit. Returns (expression, R2, note, prediction).
 
     The R2 is the point: an expression that used the whole complexity budget and
     still explains little is a different statement from one that fits perfectly,
@@ -200,13 +200,13 @@ def _sr_fit(X, y, names, cfg, guess=None, spec=None):
     """
     y = np.asarray(y, dtype=np.float64)
     if not np.isfinite(y).all():
-        return None, float("nan"), "target has non-finite values"
+        return None, float("nan"), "target has non-finite values", None
     if float(np.std(y)) < 1e-12:
-        return None, float("nan"), f"target constant at {float(np.mean(y)):.4g}"
+        return None, float("nan"), f"target constant at {float(np.mean(y)):.4g}", None
     try:
         from pysr import PySRRegressor
     except Exception as exc:           # no Julia runtime, no PySR install
-        return None, float("nan"), f"PySR unavailable ({type(exc).__name__})"
+        return None, float("nan"), f"PySR unavailable ({type(exc).__name__})", None
     kw = dict(niterations=int(cfg.sr_niterations),
               operators={2: list(cfg.sr_binary_operators), 1: list(cfg.sr_unary_operators)},
               maxsize=int(cfg.sr_maxsize), progress=False, temp_equation_file=True,
@@ -219,9 +219,26 @@ def _sr_fit(X, y, names, cfg, guess=None, spec=None):
         m = PySRRegressor(**kw)
         X = np.asarray(X, dtype=np.float64)
         m.fit(X, y, variable_names=list(names))
-        return str(m.get_best()["equation"]), _r2(y, np.asarray(m.predict(X)).ravel()), None
+        pred = np.asarray(m.predict(X)).ravel()
+        return str(m.get_best()["equation"]), _r2(y, pred), None, pred
     except Exception as exc:
-        return None, float("nan"), f"{type(exc).__name__}: {exc}"
+        return None, float("nan"), f"{type(exc).__name__}: {exc}", None
+
+
+def _effective_W(pred, v_j, v_i, E):
+    """The conductance implied by a fitted conductance-family message.
+
+    The generator's synapse is W * relu(v_j) * (E - v_i); given the fitted E and
+    the fitted message, W is the single least-squares scale that maps the driving
+    term onto it, W = <m, d> / <d, d> with d = relu(v_j) * (E - v_i). Reported in
+    the MODEL's gauge: it still carries the global message gain, which the panel
+    divides out with the same T * G * tau it uses for the total message.
+    """
+    if pred is None or E is None:
+        return None
+    d = np.maximum(np.asarray(v_j, float), 0.0) * (float(E) - np.asarray(v_i, float))
+    den = float(d @ d)
+    return float(np.asarray(pred, float) @ d) / den if den > 0 else None
 
 
 def _conductance_template(cfg):
@@ -308,19 +325,20 @@ def symbolic_forms(g, cfg):
            "update_tmpl": None, "update_tmpl_r2": float("nan"),
            "update_tmpl_note": "disabled", "update_tmpl_p": {},
            "edges": {}, "edge_r2": {}, "edge_notes": {},
-           "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_notes": {}}
+           "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_W": {},
+           "tmpl_notes": {}}
     if not cfg.sr_enabled:
         return out
     f = g["forms"]
     guess = [f"({f['vrest']:.4f} - v_i + msg + stim) * {1.0 / f['tau']:.4f}"]
-    eq, r2v, note = _sr_fit(np.column_stack([g["v_i"], g["msg_model"], g["stim"]]),
-                            g["pred"], ["v_i", "msg", "stim"], cfg, guess=guess)
+    eq, r2v, note, _ = _sr_fit(np.column_stack([g["v_i"], g["msg_model"], g["stim"]]),
+                               g["pred"], ["v_i", "msg", "stim"], cfg, guess=guess)
     out["update"], out["update_r2"], out["update_note"] = eq, r2v, note
 
     uspec = _update_template()
     if uspec is not None:
         ones = np.ones_like(g["v_i"])
-        ueq, ur2, unote = _sr_fit(
+        ueq, ur2, unote, _ = _sr_fit(
             np.column_stack([g["v_i"], g["msg_model"], g["stim"], ones]),
             g["pred"], ["v_i", "msg", "stim", "cat"], cfg, spec=uspec)
         out["update_tmpl"], out["update_tmpl_r2"], out["update_tmpl_note"] = ueq, ur2, unote
@@ -331,16 +349,23 @@ def symbolic_forms(g, cfg):
     ones = np.ones_like(g["v_i"])
     for row, idx in enumerate(g["edge_ids"][: int(cfg.sr_max_edges)]):
         idx = int(idx)
-        eq, r2v, note = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"]]),
-                                g["m_model"][row], ["v_j", "v_i"], cfg)
+        eq, r2v, note, _ = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"]]),
+                                   g["m_model"][row], ["v_j", "v_i"], cfg)
         out["edges"][idx], out["edge_r2"][idx], out["edge_notes"][idx] = eq, r2v, note
         if spec is not None:
-            teq, tr2, tnote = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"], ones]),
-                                      g["m_model"][row], ["v_j", "v_i", "cat"], cfg,
-                                      spec=spec)
+            teq, tr2, tnote, tpred = _sr_fit(
+                np.column_stack([g["v_j"][row], g["v_i"], ones]),
+                g["m_model"][row], ["v_j", "v_i", "cat"], cfg, spec=spec)
             out["tmpl"][idx], out["tmpl_r2"][idx], out["tmpl_notes"][idx] = teq, tr2, tnote
             E = _fitted_parameters(teq).get("E") if teq else None
-            out["tmpl_E"][idx] = E[0] if E else None
+            E = E[0] if E else None
+            out["tmpl_E"][idx] = E
+            # W IS NOT PRINTED BY THE TEMPLATE: it lives inside the sub-expression
+            # f, which PySR writes as `f = #1 * 1.4467`. Rather than parse a form
+            # that is only sometimes linear, the conductance is measured from the
+            # fit itself -- the one scale that carries relu(v_j) * (E - v_i) onto
+            # the fitted message. That works whatever shape f took.
+            out["tmpl_W"][idx] = _effective_W(tpred, g["v_j"][row], g["v_i"], E)
     return out
 
 
@@ -483,18 +508,36 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axf = fig.add_subplot(gs[3, 1], sharey=axd)
     axf.axis("off")
     fam = ("W * relu(v_j) * (E - v_i)" if fm["conductance"] else "W * relu(v_j)")
+    # The model's message carries the global gain that f_theta divides back out,
+    # so its conductance is only comparable with the generator's after the same
+    # T * G * tau correction the total message gets in panel c.
+    kW = None
+    if fm["conductance"]:
+        pu = sr.get("update_tmpl_p") or {}
+        if pu.get("T") is not None and pu.get("G") is not None:
+            kW = float(pu["T"]) * float(pu["G"]) * fm["tau"]
+
+    _gain_note = (f", W scaled by T*G*tau = {kW:.4f}" if fm["conductance"] and kW
+                  else ", W in the model's own gauge")
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
-             f"{fam}, and a free search", transform=axf.transAxes, va="bottom",
-             fontsize=11)
+             f"{fam}{_gain_note}, and a free search", transform=axf.transAxes,
+             va="bottom", fontsize=11)
     for row in range(n_edges):
         idx = int(g["edge_ids"][row])
-        txt = [f"generator   {fm['edges'][idx]}"]
+        if fm["conductance"]:
+            txt = [f"generator   W = {fm['W'][idx]:8.4f}   E = {fm['E'][idx]:+8.3f}"]
+        else:
+            txt = [f"generator   W = {fm['W'][idx]:+8.4f}"]
         if fm["conductance"]:
             teq = sr.get("tmpl", {}).get(idx)
             E = sr.get("tmpl_E", {}).get(idx)
+            W = sr.get("tmpl_W", {}).get(idx)
             if teq:
-                etxt = f"E = {E:+.3f}" if E is not None else "E not parsed"
-                txt.append(f"template    {etxt}   {_strip_parameter_lists(teq)}"
+                Wc = None if (W is None or kW is None) else W * kW
+                wtxt = ("W = " + (f"{Wc:8.4f}" if Wc is not None else
+                                  (f"{W:8.4f}" if W is not None else "     n/a")))
+                etxt = f"E = {E:+8.3f}" if E is not None else "E =      n/a"
+                txt.append(f"template    {wtxt}   {etxt}"
                            f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
             else:
                 txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
