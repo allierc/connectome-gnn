@@ -125,7 +125,8 @@ def plot_twin_params(log_dir, ode_params, x_ts=None, out_name="twin_params"):
         ax.text(-0.02, 1.05, lbl, transform=ax.transAxes, fontsize=12,
                 fontweight="bold", ha="right", va="bottom")
 
-    out = os.path.join(log_dir, "results", out_name)
+    from connectome_gnn.results_layout import fig_out
+    out = fig_out(log_dir, out_name if str(out_name).endswith(".png") else f"{out_name}.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.tight_layout()
     fig.savefig(out + ".png", dpi=200, bbox_inches="tight", pad_inches=0.05)

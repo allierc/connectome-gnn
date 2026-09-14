@@ -8,6 +8,7 @@ Contains:
 
 import glob
 import os
+from connectome_gnn.results_layout import fig_out
 import re
 from scipy.stats import pearsonr
 
@@ -909,7 +910,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-        plt.savefig(f"{results_dir}/rollout_{filename_}{_vis_tag}_{fig_name}{test_suffix}.png",
+        plt.savefig(fig_out(results_dir, f"rollout_{filename_}{_vis_tag}_{fig_name}{test_suffix}.png"),
                     dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -1316,7 +1317,8 @@ def data_test_gnn_special(
             noise_p_W = torch.randn_like(pde.ode_params.W) * noise_W
             pde_modified.ode_params.W = pde.ode_params.W.clone() + noise_p_W
 
-        plot_weight_comparison(pde.ode_params.W, pde_modified.ode_params.W, f"{log_dir}/results/weight_comparison_{noise_W}.png")
+        plot_weight_comparison(pde.ode_params.W, pde_modified.ode_params.W,
+                               fig_out(log_dir, f"weight_comparison_{noise_W}.png"))
 
 
     fig_style = dark_style
@@ -1664,7 +1666,7 @@ def data_test_gnn_special(
 
         output_name = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
         src = f"{log_dir}/tmp_recons/Fig_0_000000.png"
-        dst = f"{log_dir}/results/input_{output_name}.png"
+        dst = fig_out(log_dir, f"input_{output_name}.png")
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
             fdst.write(fsrc.read())
 
@@ -1793,7 +1795,7 @@ def data_test_gnn_special(
             plt.tight_layout()
             save_suffix = f"_{fig_suffix}" if fig_suffix else ""
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}{save_suffix}.png", dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout_{filename_}{_vis_tag}{save_suffix}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
     else:
@@ -1890,7 +1892,7 @@ def data_test_gnn_special(
 
             plt.tight_layout()
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}_{fig_name}.png", dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout_{filename_}{_vis_tag}_{fig_name}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         if ('test_ablation' in test_mode) or ('test_inactivity' in test_mode):
