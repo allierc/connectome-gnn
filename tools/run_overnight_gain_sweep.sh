@@ -44,9 +44,14 @@
 #   results/metrics.txt               rollout_r must NOT fall: the term is only
 #                                     worth having if the fit survives it
 #
-# COST: 16 arms x 24 h on a100 (4 current + 12 conductance). Trim before running if that is too much -- the
-# two nol1sil blocks are the ones to drop first, since gnnsil is the current
-# winner and nol1sil only asks whether W_L1 still matters once the gain is pinned.
+# EVERY ARM HAS coeff_W_L1 0 AND coeff_W_L2 0. Nothing shrinks W, so whatever
+# discipline the weights keep comes from the silent anchor and the gain term
+# rather than from shrinkage, and the two control arms say what that base does on
+# its own. The five current-family arms are on gpu_l4 and are not in this file.
+#
+# COST: 12 arms x 24 h on a100. The rc5 pair costs about 3x the network
+# evaluations of the others, since the rollout horizon multiplies the cost per
+# update and the loop count was kept rather than cut.
 
 set -u
 
@@ -76,40 +81,32 @@ submit() {
   fi
 }
 
-# ------------------------------------------------- the reference current run
-# NOT PART OF THE SWEEP: four arms on flyvis_current_noise_005, the recipe that
-# already works, asking only whether each change leaves it working. nol drops
-# f_theta's weight penalties, sil adds the silent anchor, nol1sil does both minus
-# coeff_W_L1, and nol1silgain adds the new term on top at the middle coefficient.
-# Submitted by hand on 2026-09-14 as jobs 154285912-15; kept here so the night's
-# run is one file rather than a file plus a memory.
-submit flyvis_current_noise_005_current_nol
-submit flyvis_current_noise_005_current_sil
-submit flyvis_current_noise_005_current_nol1sil
-submit flyvis_current_noise_005_current_nol1silgain
-
 # ---------------------------------------------------------------- sigma = 0.05
-# The reference conductance winner. If the term helps anywhere it should help
-# here, where the gauge error is measured and the model is otherwise healthy.
-submit flyvis_conductance_noise_005_conductance_gnnsil_g1e5_cv00
-submit flyvis_conductance_noise_005_conductance_gnnsil_g1e4_cv00
-submit flyvis_conductance_noise_005_conductance_gnnsil_g1e3_cv00
+# The control: no weight penalty, no gauge pinning. Read it FIRST -- it is free
+# to inflate or collapse, and it is what the gain arms are measured against.
+submit flyvis_conductance_noise_005_conductance_nol12sil_ctrl_cv00
 
-# Same, with coeff_W_L1 off: does the elementwise weight penalty still earn its
-# place once the message scale is pinned by something that is not a shrinkage?
-submit flyvis_conductance_noise_005_conductance_nol1sil_g1e5_cv00
-submit flyvis_conductance_noise_005_conductance_nol1sil_g1e4_cv00
-submit flyvis_conductance_noise_005_conductance_nol1sil_g1e3_cv00
+# The gain sweep. G is 0.0403 on this model where the ODE requires 1.
+submit flyvis_conductance_noise_005_conductance_nol12sil_g1e5_cv00
+submit flyvis_conductance_noise_005_conductance_nol12sil_g1e4_cv00
+submit flyvis_conductance_noise_005_conductance_nol12sil_g1e3_cv00
+
+# Rollout curriculum, alone and with the gain term. It cannot break the gauge --
+# msg/c with a gain of c reproduces the whole trajectory -- but it can tighten
+# tau, which is what limits the BLIND conductance readout.
+submit flyvis_conductance_noise_005_conductance_nol12sil_rc5_cv00
+submit flyvis_conductance_noise_005_conductance_nol12sil_rc5g1e4_cv00
 
 # ------------------------------------------------------------------ sigma = 0
-# THE CASE THE TERM EXISTS FOR. Without it the sigma=0 gnnsil run put all 434,112
-# weights below 1e-6 (largest 3.29e-07) and let f_theta amplify by 255; with the
-# gain pinned that route is closed, so "did the weight vector survive" is the
-# first thing to check, before any recovery metric.
-submit flyvis_conductance_noise_free_conductance_gnnsil_g1e5_cv00
-submit flyvis_conductance_noise_free_conductance_gnnsil_g1e4_cv00
-submit flyvis_conductance_noise_free_conductance_gnnsil_g1e3_cv00
+# THE CASE THE GAIN TERM EXISTS FOR. Without it this model put all 434,112
+# weights below 1e-6 (largest 3.29e-07) and let f_theta amplify by 255. With no
+# weight penalty at all the control may do worse still, which is the measurement:
+# check max W**2 before any recovery metric.
+submit flyvis_conductance_noise_free_conductance_nol12sil_ctrl_cv00
 
-submit flyvis_conductance_noise_free_conductance_nol1sil_g1e5_cv00
-submit flyvis_conductance_noise_free_conductance_nol1sil_g1e4_cv00
-submit flyvis_conductance_noise_free_conductance_nol1sil_g1e3_cv00
+submit flyvis_conductance_noise_free_conductance_nol12sil_g1e5_cv00
+submit flyvis_conductance_noise_free_conductance_nol12sil_g1e4_cv00
+submit flyvis_conductance_noise_free_conductance_nol12sil_g1e3_cv00
+
+submit flyvis_conductance_noise_free_conductance_nol12sil_rc5_cv00
+submit flyvis_conductance_noise_free_conductance_nol12sil_rc5g1e4_cv00
