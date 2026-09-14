@@ -910,7 +910,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-        plt.savefig(fig_out(results_dir, f"rollout_{filename_}{_vis_tag}_{fig_name}{test_suffix}.png"),
+        plt.savefig(fig_out(results_dir, f"rollout{_vis_tag}_{fig_name}{test_suffix}.png"),
                     dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -1795,7 +1795,7 @@ def data_test_gnn_special(
             plt.tight_layout()
             save_suffix = f"_{fig_suffix}" if fig_suffix else ""
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(fig_out(log_dir, f"rollout_{filename_}{_vis_tag}{save_suffix}.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout{_vis_tag}{save_suffix}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
     else:
@@ -1892,7 +1892,7 @@ def data_test_gnn_special(
 
             plt.tight_layout()
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(fig_out(log_dir, f"rollout_{filename_}{_vis_tag}_{fig_name}.png"), dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout{_vis_tag}_{fig_name}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         if ('test_ablation' in test_mode) or ('test_inactivity' in test_mode):
