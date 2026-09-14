@@ -44,9 +44,10 @@ from connectome_gnn.utils import log_path, migrate_state_dict            # noqa:
 # The keys worth putting side by side. Both readouts emit every `<key>_<stat>`;
 # these are the ones that say whether the synapses came back, rather than how
 # many outliers were dropped on the way.
-COMPARE = ("Wij_R2", "Wij_R2_scaled", "Wij_gain", "Wij_pearson", "Wij_slope",
+COMPARE = ("Wij_R2", "Wij_R2_all", "Wij_pct_outliers", "Wij_n_outliers",
+           "Wij_R2_scaled", "Wij_gain", "Wij_pearson", "Wij_slope",
            "Wij_rel_err_median", "Wij_n",
-           "Eij_R2", "Eij_slope", "Eij_rel_err_median", "Eij_gate",
+           "Eij_R2", "Eij_rmse", "Eij_slope", "Eij_rel_err_median", "Eij_gate",
            "Eij_pct_wrong_slope", "Eij_n",
            "tau_R2", "tau_slope", "tau_rel_err_median",
            "V_rest_R2", "V_rest_slope", "V_rest_rel_err_median",
