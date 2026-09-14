@@ -428,25 +428,26 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
 
     ax = fig.add_subplot(gs[2, 0])
     ax.plot(t, msg_true, color="tab:green", lw=0.9)
-    ax.plot(t, g["msg_model"], color="black", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
     head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
               f"   model {ratio:.1f}x")
-    # THE MODEL'S MESSAGE CORRECTED BY THE SCALE PANEL e FITS. The update
-    # template in e gives T (the model's 1/tau) and G (the weight it puts on its
-    # own message); the model adds T * G * msg to dv/dt where the generator adds
-    # msg / tau, so one unit of the model's message is worth T * G * tau of a
-    # true one. That product is the gain the model absorbs into f_theta and never
-    # shows in the trajectory, and multiplying the learned curve by it is what
-    # puts the two messages on one axis.
+    # ONLY THE CORRECTED MODEL MESSAGE IS DRAWN. The update template in e gives
+    # T (the model's 1/tau) and G (the weight it puts on its own message); the
+    # model adds T * G * msg to dv/dt where the generator adds msg / tau, so one
+    # unit of the model's message is worth T * G * tau of a true one. The raw
+    # learned curve is that factor too large -- here about 11x the generator's
+    # amplitude -- and plotting it would squash both curves worth comparing onto
+    # the zero line, so the panel shows the corrected one alone.
     p = sr.get("update_tmpl_p") or {}
     T, G = p.get("T"), p.get("G")
     if T is not None and G is not None:
         k = float(T) * float(G) * fm["tau"]
         corrected = k * g["msg_model"]
-        ax.plot(t, corrected, color="black", lw=0.9, ls="--")
-        head_c += (f"   |   dashed: model x T*G*tau = {k:.3f} from e, then "
+        ax.plot(t, corrected, color="black", lw=0.9)
+        head_c += (f"   |   model x T*G*tau = {k:.3f} from e, then "
                    f"{corrected.std() / max(msg_true.std(), 1e-12):.2f}x of the generator")
+    else:
+        ax.plot(t, g["msg_model"], color="black", lw=0.9)
     ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
