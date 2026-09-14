@@ -1,13 +1,15 @@
-description: 'Group-lasso sweep on rig-2 (ion) conductance data, coeff_g_phi_input_group_L1 = 0.25, noise-free, fold 0: does the lasso keep g_phi''s v_i and a_i inputs where the data need them?'
+description: 'Group-lasso sweep on rig-2 (ion) conductance data, coeff_g_phi_input_group_L1
+  = 0.25, noise-free, fold 0: does the lasso keep g_phi''s v_i and a_i inputs where
+  the data need them?'
 dataset: flyvis_conductance_ion_sub_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -19,7 +21,7 @@ simulation:
   noise_model_level: 0.0
   seed: 42
   datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -42,11 +44,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   torch_compile: true
   mlp_precision: bf16
@@ -79,3 +81,6 @@ training:
   deterministic: false
   n_epochs: 5
   data_augmentation_loop: 100
+analysis:
+  neurons:
+  - 2895

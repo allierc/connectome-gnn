@@ -84,3 +84,6 @@ training:
   n_epochs: 1
   data_augmentation_loop: 500
 config_file: fly/flyvis_conductance_noise_free_conductance_gnn_nol1_cv00
+analysis:
+  neurons:
+  - 2895

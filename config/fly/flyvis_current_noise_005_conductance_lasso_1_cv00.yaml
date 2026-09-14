@@ -1,13 +1,14 @@
-description: 'Group-lasso sweep on current-generated data, width-6 conductance GNN, coeff_g_phi_input_group_L1 = 1, noise 0.05, fold 0.'
+description: Group-lasso sweep on current-generated data, width-6 conductance GNN,
+  coeff_g_phi_input_group_L1 = 1, noise 0.05, fold 0.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -19,7 +20,7 @@ simulation:
   noise_model_level: 0.05
   seed: 42
   datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -41,11 +42,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   torch_compile: true
   mlp_precision: fp32
@@ -78,3 +79,6 @@ training:
   deterministic: false
   n_epochs: 5
   data_augmentation_loop: 100
+analysis:
+  neurons:
+  - 2895

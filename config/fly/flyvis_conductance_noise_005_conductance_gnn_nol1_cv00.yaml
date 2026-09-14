@@ -93,3 +93,6 @@ claude:
   training_time_target_min: 150
   hard_runtime_limit_min: 1440
   claude_call_timeout_min: 20
+analysis:
+  neurons:
+  - 2895

@@ -1,4 +1,5 @@
-description: 'ROLLOUT pushforward arm, K=1..5 curriculum, flyvis_A noise-free, fold 4.'
+description: ROLLOUT pushforward arm, K=1..5 curriculum, flyvis_A noise-free, fold
+  4.
 dataset: flyvis_noise_free_blank50_cv04
 simulation:
   connectivity_file: to be specified
@@ -76,9 +77,17 @@ training:
   seed: 1046
   n_epochs: 5
   data_augmentation_loop: 100
-  rollout_horizon_schedule: [1, 2, 3, 4, 5]
+  rollout_horizon_schedule:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
   frame_target_offset: 1
   rollout_bptt_window: 1
 config_file: fly/flyvis_current_noise_free_current_rc_pushforward_cv04
+analysis:
+  neurons:
+  - 2895

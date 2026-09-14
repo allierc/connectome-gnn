@@ -88,3 +88,6 @@ claude:
   node_name: l4
   generate_data: false
   training_time_target_min: 150
+analysis:
+  neurons:
+  - 2895
