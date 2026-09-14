@@ -905,8 +905,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
 
-        ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
-                  bbox_transform=fig.transFigure, fontsize=14, frameon=False)
+        # No key on the "all" figure: every one of the n_neuron_types rows is
+        # stacked there, so the legend lands on top of the highest traces, and
+        # the three colours are the same in every rollout figure a run writes
+        # (green = ground truth, black = prediction, red dashed = stimulus).
+        if fig_name != "all":
+            ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+                      bbox_transform=fig.transFigure, fontsize=14, frameon=False)
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
@@ -1888,7 +1893,9 @@ def data_test_gnn_special(
             ax.spines['right'].set_visible(False)
             ax.spines['left'].set_visible(False)
 
-            ax.legend(loc='upper right', fontsize=14, frameon=False)
+            # Same rule as the main rollout figure: no key on "all".
+            if fig_name != "all":
+                ax.legend(loc='upper right', fontsize=14, frameon=False)
 
             plt.tight_layout()
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""

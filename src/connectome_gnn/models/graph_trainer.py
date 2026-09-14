@@ -760,6 +760,30 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # A failed diagnostic must not take the training run with it.
                     logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")
 
+            # THE PER-NEURON READOUT AT THE PANEL CADENCE. config.analysis.neurons
+            # already names the neurons `-o plot` opens up at the end of a run;
+            # the same figure is written here into tmp_training/neuron_panels/,
+            # one neuron<id>_<iteration>.png per checkpoint, so the message and
+            # update traces can be watched converging rather than seen once when
+            # the run is over. Symbolic regression and the free-run panel are off
+            # -- analyse_neurons says why neither is available mid-run -- which
+            # leaves 600 teacher-forced frames, seconds of GPU beside the rollout
+            # eval above.
+            if (save_panels and getattr(config, "analysis", None)
+                    and config.analysis.neurons):
+                from connectome_gnn.neuron_panels import analyse_neurons
+                try:
+                    model.eval()
+                    analyse_neurons(
+                        config, model, data, log_dir, device=device, logger=logger,
+                        out_dir=os.path.join(log_dir, "tmp_training", "neuron_panels"),
+                        tag=f"{regularizer.iter_count:08d}",
+                        sr_enabled=False, use_rollout=False, quiet=True)
+                except Exception as _e:
+                    logger.warning(f"neuron panels skipped: {type(_e).__name__}: {_e}")
+                finally:
+                    model.train()
+
             # ONE EXTRACTION PER CHECKPOINT. Every recovered quantity -- W, tau,
             # V_rest, E_ij, msg_i -- comes out of extract_recovered_params once,
             # score_recovery names the numbers, recovery_log_append writes one
