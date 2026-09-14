@@ -1241,30 +1241,51 @@ class TrainingConfig(BaseModel):
     # so at the same curvature it is ~(0.05 * xnorm) ~ 20x smaller than the
     # first-difference terms; sweep upward before concluding it is inert.
     coeff_f_theta_separable: float = 0
-    # AFFINE IN THE MESSAGE ALL THE WAY DOWN TO ZERO MESSAGE. V_rest is read off
-    # f_theta at msg = 0, but the trajectory loss only ever evaluates f_theta at
-    # the messages the model actually produces, whose mean is far from zero. The
-    # value at msg = 0 is therefore a free extrapolation, and any constant the
-    # model puts there is indistinguishable from a shift of V_rest by that
-    # constant times tau -- the offset degeneracy coeff_g_phi_silent attacks from
-    # the g_phi side.
+    # STRAIGHT ACROSS THE GAP DOWN TO ZERO MESSAGE. V_rest is read off f_theta at
+    # msg = 0, but the trajectory loss only ever evaluates f_theta at the messages
+    # the model actually produces, whose mean is far from zero. The value at
+    # msg = 0 is therefore a free extrapolation, and any constant the model puts
+    # there is indistinguishable from a shift of V_rest by that constant times
+    # tau -- the offset degeneracy coeff_g_phi_silent attacks from the g_phi side.
     #
-    # This penalises the departure of f_theta from a straight line in the msg
-    # column over the segment from 0 to the row's own message: with s drawn
-    # uniformly in [0, 1] per row,
+    # This forces f_theta onto a straight line in the msg column across the gap
+    # between zero and the smallest message the batch contains. With m_lo the
+    # f_theta_silent_quantile quantile of the batch's messages and s drawn
+    # uniformly in [0, 1] per row, it penalises
     #
-    #     f(v, a, s*m, stim) - [(1 - s) * f(v, a, 0, stim) + s * f(v, a, m, stim)]
+    #     f(v, a, s*m_lo, stim) - [(1 - s) * f(v, a, 0, stim) + s * f(v, a, m_lo, stim)]
     #
-    # is zero for every s iff f_theta is affine in msg on that segment. Three
-    # f_theta evaluations per iteration. Once it holds, f_theta(msg = 0) is fixed
-    # by the slope the data does constrain instead of being free, so V_rest stops
-    # being able to absorb the message's mean.
+    # which is zero for every s iff f_theta is affine on [0, m_lo]. Three f_theta
+    # evaluations per iteration. Once it holds, the level at msg = 0 follows from
+    # the slope where the data is instead of being free, so the extracted V_rest
+    # reflects the fit rather than an arbitrary extrapolation.
+    #
+    # RESTRICTED TO THE GAP ON PURPOSE. Two variants were tried and are wrong in
+    # opposite directions. The chord run all the way to each row's OWN message
+    # also forces f_theta affine where the messages actually operate -- more than
+    # the offset needs, and overlapping coeff_f_theta_msg_diff and
+    # coeff_f_theta_separable, which already shape that direction. A second
+    # central difference at msg = 0 is weaker but empty: f(+d) - 2*f(0) + f(-d)
+    # only says f(0) = (f(+d) + f(-d)) / 2, tying three points that are all inside
+    # the silent neighbourhood to each other and leaving the level as free as it
+    # was.
+    #
+    # WHAT IT CANNOT DO: break the V_rest / message-mean degeneracy itself. A
+    # constant in f_theta and a shift of V_rest by that constant times tau are the
+    # same function, so no loss separates them; only pinning the message's own
+    # level does, which is coeff_g_phi_silent's job. This term makes the readout
+    # at msg = 0 faithful to the fit, not the fit identifiable.
     #
     # Distinct from coeff_f_theta_centering, which pins the zero-crossing to the
     # observed mean voltage mu and is therefore biased whenever the true V_rest
     # differs from mu -- which is exactly when the message has a non-zero mean.
-    # UNTUNED: start at the same order as coeff_f_theta_separable and sweep.
+    # UNTUNED: 375 mirrors the sibling hinges; sweep before calling it inert.
     coeff_f_theta_silent: float = 0
+    # Which quantile of the batch's messages counts as the low edge of the
+    # observed range for coeff_f_theta_silent, i.e. where the unconstrained gap
+    # ends. 0.05 keeps the chord clear of the data; raising it walks back toward
+    # constraining the messages the model is actually fitted on.
+    f_theta_silent_quantile: float = 0.05
     coeff_func_f_theta: float = 0.0  # Penalize f_theta output at zero input
     coeff_f_theta_weight_L1: float = 0  # L1 penalty on f_theta MLP weights
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights

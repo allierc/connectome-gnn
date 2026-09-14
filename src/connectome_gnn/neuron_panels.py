@@ -432,21 +432,37 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
     head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
               f"   model {ratio:.1f}x")
-    # THE MODEL'S MESSAGE CORRECTED BY THE SCALE PANEL e FITS. The update
-    # template in e gives T (the model's 1/tau) and G (the weight it puts on its
-    # own message); the model adds T * G * msg to dv/dt where the generator adds
-    # msg / tau, so one unit of the model's message is worth T * G * tau of a
-    # true one. That product is the gain the model absorbs into f_theta and never
-    # shows in the trajectory, and multiplying the learned curve by it is what
-    # puts the two messages on one axis.
+    # THE GAUGE BETWEEN THE TWO MESSAGES IS AFFINE, NOT A PURE SCALE. Writing the
+    # model's message as msg_model = msg_true / k + beta and matching the model's
+    # T * [(V - v_i) + G * msg_model] to the generator's
+    # (V_rest - v_i + msg_true) / tau leaves k = T * G * tau on the message
+    # coefficient and, on the constants,
+    #
+    #     T * V + T * G * beta = V_rest / tau    i.e.   V_rest = tau * T * V + k * beta
+    #
+    # so beta is a level the model carries in its message and the update hands
+    # straight to V_rest. The template fit in e CANNOT see it -- a constant is
+    # absorbed into V by construction, which is why its R2 says nothing about it.
+    # Scaling by k alone therefore matches the amplitude and leaves the level off
+    # by k * beta, so the correction drawn here is the affine one: least squares
+    # of msg_true on msg_model over these frames, msg_true ~ a * msg_model + b.
+    # Inverting the gauge above, a = k and b = -k * beta, so the identity to check
+    # is V_rest = tau * T * V - b. b is in volts, is the offset V_rest absorbs,
+    # and is what coeff_g_phi_silent drives to zero.
+    a_fit, b_fit = np.polyfit(g["msg_model"], msg_true, 1)
+    corrected = a_fit * g["msg_model"] + b_fit
+    ax.plot(t, corrected, color="black", lw=0.9, ls="--")
+    head_c += (f"   |   dashed: model x {a_fit:.4f} {b_fit:+.3f} V, residual "
+               f"{(msg_true - corrected).std() / max(msg_true.std(), 1e-12):.2f}x")
     p = sr.get("update_tmpl_p") or {}
-    T, G = p.get("T"), p.get("G")
-    if T is not None and G is not None:
+    T, G, V = p.get("T"), p.get("G"), p.get("V")
+    if T is not None and G is not None and V is not None:
+        # The same b read back through the update: the template's own V accounts
+        # for tau * T * V of the generator's V_rest, and -b is meant to be the rest.
         k = float(T) * float(G) * fm["tau"]
-        corrected = k * g["msg_model"]
-        ax.plot(t, corrected, color="black", lw=0.9, ls="--")
-        head_c += (f"   |   dashed: model x T*G*tau = {k:.3f} from e, then "
-                   f"{corrected.std() / max(msg_true.std(), 1e-12):.2f}x of the generator")
+        tTV = fm["tau"] * float(T) * float(V)
+        head_c += (f"   |   a vs T*G*tau = {k:.4f}   V_rest: tau*T*V - b = "
+                   f"{tTV:+.3f} {-b_fit:+.3f} = {tTV - b_fit:+.3f} vs {fm['vrest']:+.3f}")
     ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 

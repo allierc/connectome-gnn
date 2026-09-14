@@ -84,6 +84,15 @@ class _OP:
     def has_vrest(self):
         return True
 
+    def derive_tau(self, slopes, n):
+        """The base ode_params inversion: tau = 1 / -slope, clipped."""
+        sl = np.asarray(slopes)[:n]
+        return np.clip(np.where(sl != 0, 1.0 / -sl, 1.0), 0, 10)
+
+    def derive_vrest(self, slopes, offsets, n):
+        sl, off = np.asarray(slopes)[:n], np.asarray(offsets)[:n]
+        return np.where(sl != 0, -off / sl, 0.0)
+
     def gt_g_phi_func(self, v):
         return np.maximum(v, 0.0)
 

@@ -167,6 +167,7 @@ class LossRegularizer:
         self.g_phi_silent_range = tuple(getattr(tc, 'g_phi_silent_range', (-2.0, 0.0)))
         self._coeffs['f_theta_separable'] = getattr(tc, 'coeff_f_theta_separable', 0.0)
         self._coeffs['f_theta_silent'] = getattr(tc, 'coeff_f_theta_silent', 0.0)
+        self.f_theta_silent_quantile = float(getattr(tc, 'f_theta_silent_quantile', 0.05))
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
         self._coeffs['f_theta_msg_diff'] = tc.coeff_f_theta_msg_diff
@@ -724,25 +725,36 @@ class LossRegularizer:
             # messages have a mean far from zero, so whatever f_theta does at
             # zero message is unconstrained, and a constant there is the same
             # function as a shift of V_rest by that constant times tau. This
-            # penalises the departure from a straight line in the msg column
-            # between 0 and the row's own message, so the value at zero follows
-            # from the slope the data does pin down.
+            # forces f_theta onto a STRAIGHT LINE across the gap between zero
+            # message and the smallest message the batch actually contains, so
+            # the level at msg = 0 follows from the slope where the data is
+            # instead of being free.
             #
-            # Chord test with a fresh s per row: f(s*m) must equal
-            # (1 - s) * f(0) + s * f(m). Exactly zero for every s iff f_theta is
-            # affine in msg on that segment. Three evaluations, no step size to
-            # choose -- unlike the sibling finite-difference terms it probes the
-            # whole interval rather than one point.
+            # Chord test on the segment [0, m_lo], with m_lo the
+            # f_theta_silent_quantile quantile of the batch's messages (5% by
+            # default) and a fresh s per row: f(s * m_lo) must equal
+            # (1 - s) * f(0) + s * f(m_lo). Zero for every s iff f_theta is
+            # affine there. Three evaluations.
+            #
+            # RESTRICTED TO THE GAP ON PURPOSE. Two earlier versions were wrong
+            # in opposite directions: the chord over the whole segment up to each
+            # row's OWN message also forced f_theta affine where the messages
+            # actually operate, more than the offset needs and overlapping
+            # coeff_f_theta_msg_diff / coeff_f_theta_separable; while a second
+            # difference f(+d) - 2*f(0) + f(-d) at msg = 0 only says
+            # f(0) = (f(+d) + f(-d)) / 2, tying three off-data points to each
+            # other and leaving the level at zero as free as before.
             _base = in_features.clone().detach()
             _m_col = embedding_dim + 1
-            _m = _base[:, _m_col:_m_col + 1]
-            _s = torch.rand_like(_m)
+            _q = float(torch.quantile(_base[:, _m_col], self.f_theta_silent_quantile))
+            _lo = torch.full_like(_base[:, _m_col:_m_col + 1], _q)
+            _s = torch.rand_like(_lo)
             _at0 = _base.clone(); _at0[:, _m_col:_m_col + 1] = 0.0
-            _mid = _base.clone(); _mid[:, _m_col:_m_col + 1] = _s * _m
-            _f0 = model.f_theta(_at0)
-            _fm = model.f_theta(_base)
-            _fs = model.f_theta(_mid)
-            _chord = (_fs - ((1.0 - _s) * _f0 + _s * _fm))[ids_batch]
+            _atlo = _base.clone(); _atlo[:, _m_col:_m_col + 1] = _lo
+            _mid = _base.clone(); _mid[:, _m_col:_m_col + 1] = _s * _lo
+            _chord = (model.f_theta(_mid)
+                      - ((1.0 - _s) * model.f_theta(_at0)
+                         + _s * model.f_theta(_atlo)))[ids_batch]
             regul_term = _chord.norm(2) * _ct['f_theta_silent']
             total_regul = total_regul + regul_term
             self._add('f_theta_silent', regul_term)
