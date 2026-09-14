@@ -74,6 +74,7 @@ from connectome_gnn.metrics import (
     compute_msg_i_recovery,
     extract_recovered_params,
     extract_template_params,
+    template_readout_enabled,
     score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
@@ -379,23 +380,6 @@ def _finite_range(values, fallback):
     return float(finite.min()), float(finite.max())
 
 
-def _template_readout(config, model):
-    """Whether the template readout should supersede the correction chain here.
-
-    GNNs only: it fits the model's per-edge message, and a linear or known-ODE
-    model has its parameters directly rather than through a message. Off by
-    setting recovery.readout to "chain" on a run that wants the old numbers.
-    """
-    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
-        return False
-    # g_phi IS THE REQUIREMENT, not the family tag. model_family defaults to
-    # "gnn" for anything without a MODEL_FAMILY attribute, and a conductance
-    # known-ODE carries that tag while having no g_phi at all -- there is no
-    # per-edge message to fit a template to, and its parameters are direct.
-    core = getattr(model, "_orig_mod", model)
-    return model_family(model) == "gnn" and hasattr(core, "g_phi")
-
-
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
                             log_dir, logger, log_file, n_neurons=None, extra=None):
     """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
@@ -441,7 +425,7 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         # rollout and clustering lines and not one recovered parameter. A new
         # readout must not be able to delete the old one's numbers.
         try:
-            if _template_readout(config, model):
+            if template_readout_enabled(config, model):
                 rec = extract_template_params(
                     model, ode_params, config=config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons, base=rec)
