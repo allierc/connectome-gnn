@@ -3094,7 +3094,8 @@ def _update_template_fit(model, config, edges, x_ts, n_neurons, device,
 
 
 def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
-                    n_frames=8, seed=0, gauge_tau="model", T=None, G=None):
+                    n_frames=8, seed=0, gauge_tau="model", T=None, G=None,
+                    slope_f=None):
     """Per neuron, the factor carrying its model message into the generator's units.
 
     k_i = tau_i * (d f_theta / d msg)_i, where the derivative comes from the
@@ -3133,6 +3134,18 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 
     if gauge_tau == "true":
         tau = np.asarray(ode_params.gt_tau(n_neurons), dtype=np.float64)
+    elif slope_f is not None:
+        # THE SAME TAU THAT GETS REPORTED, not the raw 1/T. ode_params.derive_tau
+        # inverts this very slope and clips the result to the family's plausible
+        # range; the bare reciprocal does not, and its tail is multiplicative
+        # here -- every neuron's conductances are scaled by its own tau, so one
+        # neuron whose leak the model has not pinned corrupts that neuron's whole
+        # row. Using the clipped inversion keeps the readout blind AND keeps the
+        # tail out: reporting tau at R2 0.92 while gauging W with a different,
+        # unclipped tau was the inconsistency that made the blind path look
+        # hopeless (Wij_R2 0.272 against 0.691 with the generator's tau).
+        tau = np.asarray(ode_params.derive_tau(np.asarray(slope_f), n_neurons),
+                         dtype=np.float64)
     elif T is not None:
         with np.errstate(divide='ignore', invalid='ignore'):
             tau = np.where(T != 0, 1.0 / T, np.nan)
@@ -3146,7 +3159,7 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
-                            vj_quantile=0.5, min_points=8, gauge_tau="true",
+                            vj_quantile=0.5, min_points=8, gauge_tau="model",
                             gauge_frames=8, w_from="pooled_E",
                             t_slope=3.0, update_frames=64) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
@@ -3168,9 +3181,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             say little about W or E while still weighting the least squares.
         min_points: an edge needs this many surviving frames, and a non-singular
             2x2 normal matrix, or its entry is nan.
-        gauge_tau: "true" (default) or "model", see :func:`_template_gauge`.
-            The default is the generator's tau BECAUSE THAT IS THE UNIT W_true
-            IS WRITTEN IN: the generator's conductance is defined by a message
+        gauge_tau: "model" (default) or "true", see :func:`_template_gauge`.
+            The default is BLIND -- a recovery metric cannot use the quantity it
+            is recovering, and tau is one of them. "true" exists to separate the
+            template's own error from tau's, not to be reported as recovery.
+            Note what the unit means: W_true is written in units where the
+            message enters dv/dt as msg/tau_true: the generator's conductance is defined by a message
             entering dv/dt as msg/tau_true, so expressing the model's in those
             units needs that tau. Using the model's own instead makes k_i = G_i
             and folds every per-neuron error in the recovered time constant into
@@ -3321,7 +3337,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         n_frames=min(n_frames, update_frames), seed=seed)
     k, dfdmsg, tau_used, autograd_dfdmsg = _template_gauge(
         core, config, ode_params, edges, x_ts, n_neurons, device,
-        n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit)
+        n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit,
+        slope_f=slope_f)
     W_learned = k[i_ids] * W_used
 
     # Back into the caller's edge order, so every array lines up with ode_params.W.
