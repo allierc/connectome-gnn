@@ -1,6 +1,5 @@
 import sys
 import os
-from connectome_gnn.results_layout import clear_results as _clear_results
 import shutil
 
 # cuBLAS reads this when the CUDA context is created, so it has to be set
@@ -17,6 +16,7 @@ matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 
 from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.results_layout import clear_results as _clear_results
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import (
     data_train, data_test, data_train_INR, data_train_task,
