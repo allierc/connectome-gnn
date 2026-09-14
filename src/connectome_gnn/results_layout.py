@@ -37,6 +37,7 @@ KEEP_EXACT = (
     "Eij_comparison.png",
     "tau_comparison.png",
     "V_rest_comparison.png",
+    "parameter_error.png",
 )
 
 # The embedding kept is the AUGMENTED one -- the UMAP of (a_i, tau, V_rest, and

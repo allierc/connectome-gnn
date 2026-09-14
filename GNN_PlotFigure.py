@@ -392,6 +392,15 @@ def _finite_range(values, fallback):
 # entirely -- and nothing on either said so.
 #
 # axis: (x label, y label, limits or None for data-driven, ticks or None)
+_KEY_FOR = {"W": "Wij", "E_ij": "Eij", "tau": "tau", "V_rest": "V_rest"}
+_LABEL_FOR = {"W": "W_ij", "E_ij": "E_ij", "tau": "tau", "V_rest": "V_rest"}
+# The same names set in math, for the axis labels the scatters already use.
+_TEX_FOR = {"W": r"W_{ij}", "E_ij": r"E_{ij}", "tau": r"\tau", "V_rest": r"V_{rest}"}
+# And with the estimate's hat on the SYMBOL, not on the whole subscripted name:
+# \hat{V_{rest}} draws one accent spanning "V_rest", which is not what it means.
+_HAT_TEX_FOR = {"W": r"\hat{W}_{ij}", "E_ij": r"\hat{E}_{ij}",
+                "tau": r"\hat{\tau}", "V_rest": r"\hat{V}_{rest}"}
+
 _SCATTER_SPEC = {
     "W":      dict(out="Wij_comparison.png",    thresh=W_OUTLIER_THRESH,
                    xlabel=r"true $W_{ij}$",     ylabel=r"learned $W_{ij}$"),
@@ -403,6 +412,87 @@ _SCATTER_SPEC = {
     "E_ij":   dict(out="Eij_comparison.png",    thresh=None,
                    xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$"),
 }
+
+
+def _plot_parameter_error(rec, scored, log_dir, quantities=("tau", "V_rest", "W")):
+    """The distribution of each quantity's ERROR, learned minus true, one panel each.
+
+    WHAT A SCATTER CANNOT SHOW. On 434,112 edges a scatter is a black cloud and
+    the eye reads its outline -- set by the few worst points -- rather than where
+    the mass is. The error distribution says what the cloud and the R2 cannot:
+    whether the residual is centred on zero or biased off it, and whether it is
+    one tight mode or a mode plus a population the model never recovered.
+
+    SIGNED AND IN THE QUANTITY'S OWN UNITS, not a ratio. learned - true keeps the
+    sign, so a systematic under-estimate is visible as a shifted mode instead of
+    being folded into |.|, and it keeps volts and seconds rather than turning
+    every panel into the same dimensionless number -- which on a near-zero true
+    value explodes for a reason that has nothing to do with recovery.
+
+    THE AXIS IS CLIPPED AND SAYS SO. Each panel spans +/- the 90th percentile of
+    |error|, so roughly a tenth of the sample falls outside and is piled into the
+    two edge bins, drawn as the spikes at the ends; the exact share is printed as
+    "N% off-scale" beside the IQR. Without the clip a handful of residuals orders
+    of magnitude out would compress every real one onto the centre line.
+
+    GEOMETRY MATCHES `_plot_recovered_scatter`: one panel is 10 x 9 inches at
+    300 dpi, so the three panels side by side are the same object the three
+    W/tau/V_rest scatters are and the two figures can sit in one row of a paper
+    without either being resized.
+    """
+    panels = [(q, rec.pairs.get(q)) for q in quantities]
+    panels = [(q, p) for q, p in panels if p is not None and len(p[0]) > 1]
+    if not panels:
+        return None
+    fig, axes = plt.subplots(1, len(panels), figsize=(10 * len(panels), 9))
+    if len(panels) == 1:
+        axes = [axes]
+    for col, (ax, (q, pair)) in enumerate(zip(axes, panels)):
+        gt = np.asarray(pair[0], dtype=float).ravel()
+        learned = np.asarray(pair[1], dtype=float).ravel()
+        ok = np.isfinite(gt) & np.isfinite(learned)
+        err = learned[ok] - gt[ok]
+        if err.size < 2:
+            ax.axis("off")
+            continue
+        lim = float(np.percentile(np.abs(err), 90.0))
+        if not np.isfinite(lim) or lim <= 0:
+            lim = float(max(np.max(np.abs(err)), 1e-12))
+        off = 100.0 * np.mean(np.abs(err) > lim)
+        q1, q3 = np.percentile(err, [25.0, 75.0])
+        iqr = float(q3 - q1)
+        # Clipped, not dropped: the out-of-range residuals are the point of the
+        # "off-scale" number, so they are counted in the two edge bins rather
+        # than silently removed from a histogram that reports a fraction.
+        bins = np.linspace(-lim, lim, 61)
+        ax.hist(np.clip(err, -lim, lim), bins=bins,
+                weights=np.full(err.size, 1.0 / err.size),
+                histtype="step", color="k", linewidth=1.8,
+                label=f"IQR {iqr:.1e}   {off:.0f}% off-scale   n = {err.size:,}")
+        ax.axvline(0.0, color="gray", linestyle=":", linewidth=1.5)
+        # Ticks in units of the leading power of ten, which is then named once in
+        # the axis label -- five numbers on the axis instead of five exponents.
+        exp = int(np.floor(np.log10(lim)))
+        scale = 10.0 ** exp
+        _ticks = [-lim, -lim / 2, 0.0, lim / 2, lim]
+        ax.set_xticks(_ticks)
+        ax.set_xticklabels([f"{t / scale:.1f}".rstrip("0").rstrip(".") if t else "0.0"
+                            for t in _ticks], fontsize=30)
+        ax.set_xlim(-lim * 1.02, lim * 1.02)
+        _sym, _hat = _TEX_FOR.get(q, q), _HAT_TEX_FOR.get(q, q)
+        ax.set_xlabel(rf"${_hat} - {_sym}$   ($\times 10^{{{exp}}}$)", fontsize=40)
+        ax.set_ylabel("fraction", fontsize=40)
+        ax.tick_params(axis="y", labelsize=30)
+        ax.legend(loc="upper left", fontsize=22, frameon=False, handlelength=1.2)
+        ax.text(-0.09, 1.02, "abcdefgh"[col], transform=ax.transAxes,
+                fontsize=44, fontweight="bold", va="bottom", ha="left")
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
+    fig.tight_layout()
+    out = _fig_out(log_dir, "parameter_error.png")
+    fig.savefig(out, dpi=300)
+    plt.close(fig)
+    return out
 
 
 def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
@@ -2460,14 +2550,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Embedding
             _maybe('a',                lambda: to_numpy(model.a).astype(np.float32))
             _maybe('cluster_accuracy', lambda: np.float32(cluster_acc))
-            # g_phi (curves + scatter share these arrays)
-            _maybe('g_phi_domain',     lambda: rr_np.astype(np.float32))
-            _maybe('g_phi_learned',    lambda: func_np.astype(np.float32))
-            _maybe('g_phi_true',       lambda: func_true_g_phi.astype(np.float32))
-            # f_theta (curves + scatter share these arrays)
-            _maybe('f_theta_domain',   lambda: rr_domain_phi_np.astype(np.float32))
-            _maybe('f_theta_learned',  lambda: to_numpy(func_domain_phi).astype(np.float32))
-            _maybe('f_theta_true',     lambda: func_true_f_theta.astype(np.float32))
+            # THE SIX f_theta / g_phi CURVE ARRAYS ARE NOT DUMPED. One per
+            # neuron over the sampling domain is 13,741 x 1,000 float32 each, and
+            # the six together were 273 MB of a 277 MB file -- 98% of it -- which
+            # every plotted run wrote and NOTHING read: the only consumers of this
+            # npz are figures/fig_clustering_appendix.py (a, type_ids, tau_*,
+            # V_rest_*, W_*) and figures/fig_ground_truth_distributions.py
+            # (type_ids). The curves themselves are still drawn, into
+            # extras/f_theta_domain.png and extras/g_phi_domain.png; a figure
+            # script that needs the arrays should re-render from the checkpoint
+            # rather than have every run carry a quarter of a gigabyte in case.
             # tau / V_rest
             _maybe('tau_true',         lambda: gt_taus_np.astype(np.float32))
             _maybe('tau_learned',      lambda: learned_tau.astype(np.float32))
@@ -2652,6 +2744,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         logger.info(f"{_q} scatter -> {os.path.basename(_p)}")
                 except Exception as _exc:
                     logger.warning(f"{_q} scatter skipped: {type(_exc).__name__}: {_exc}")
+            try:
+                _p = _plot_parameter_error(_rec_final, _scored_final, log_dir)
+                if _p:
+                    logger.info(f"parameter error distributions -> {os.path.basename(_p)}")
+            except Exception as _exc:
+                logger.warning(f"parameter error panel skipped: {type(_exc).__name__}: {_exc}")
 
             # Plot connectivity matrix comparison (only for small networks)
             if n_neurons < 1000:

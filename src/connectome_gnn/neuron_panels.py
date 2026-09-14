@@ -427,12 +427,16 @@ def symbolic_forms(g, cfg):
 # ------------------------------------------------------------------ #
 
 def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
-                       label=""):
-    """Write results/neuron<id>_panels.png.
+                       label="", out_path=None):
+    """Write results/neuron<id>_panels.png, or `out_path` when one is given.
 
     Panels a to d share one time axis; e carries the update's forms and f carries
     the synapses', ROW BY ROW BESIDE PANEL d so each formula sits next to the
     trace it describes rather than in a list the reader has to re-index.
+
+    `out_path` is what the training-time caller uses to drop a stamped copy into
+    tmp_training/neuron_panels/ instead of overwriting the one figure results/
+    holds for the finished run.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -689,9 +693,13 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         axf.text(0.0, offs[row], "\n".join(txt), transform=axf.get_yaxis_transform(),
                  va="center", ha="left", fontsize=7, family="monospace")
 
-    out_dir = os.path.join(log_dir, "results")
+    if out_path is None:
+        out_dir = os.path.join(log_dir, "results")
+        path = os.path.join(out_dir, f"neuron{neuron}_panels.png")
+    else:
+        out_dir = os.path.dirname(out_path) or "."
+        path = out_path
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"neuron{neuron}_panels.png")
     fig.subplots_adjust(left=0.055, right=0.995, top=0.965, bottom=0.035)
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -702,42 +710,65 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
 #  Entry point
 # ------------------------------------------------------------------ #
 
-def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None):
+def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None,
+                    out_dir=None, tag=None, sr_enabled=None, use_rollout=True,
+                    quiet=False):
     """Write one panel figure per neuron named in config.analysis.
 
     Returns the list of paths written. Never raises: a readout that fails must
     not take down the plotting pass that produced everything else.
+
+    THE TRAINING-TIME CALL passes `out_dir` = <log_dir>/tmp_training/neuron_panels
+    and `tag` = the iteration count, so each checkpoint leaves its own
+    neuron<id>_<iteration>.png beside the other tmp_training diagnostics and the
+    readout can be watched converging. It also passes sr_enabled=False and
+    use_rollout=False, because the two expensive parts of this function are not
+    available mid-run anyway:
+
+      - symbolic regression is 2 PySR fits per synapse plus 2 for the update, so
+        34 fits at sr_max_edges 16 -- minutes per checkpoint, against seconds
+        for the traces the panels are being watched for;
+      - the rollout bundle is written by `-o test` from a FINISHED run, so at
+        training time it is either absent or describes older weights, and
+        reading 1.3 GB of it per checkpoint to draw a free run that is not this
+        model's would be worse than dropping panel a.
     """
     cfg = getattr(config, "analysis", None)
     if cfg is None or not cfg.neurons:
         return []
+    if sr_enabled is not None and bool(sr_enabled) != bool(cfg.sr_enabled):
+        cfg = cfg.model_copy(update={"sr_enabled": bool(sr_enabled)})
     n = int(data.n_neurons)
     dt = float(getattr(config.simulation, "delta_t", _DT_FALLBACK))
-    bundle = _load_rollout(log_dir)
+    bundle = _load_rollout(log_dir) if use_rollout else None
     # The rollout bundle is written by `-o test` from the TEST split, so the
     # panels are computed there too and every one of them shows the same frames.
     # If that split cannot be loaded the panels fall back to whatever was loaded
     # for training and the free run is dropped rather than shown misaligned.
     x_ts_panels, aligned = _test_split(config, data, bundle)
     if bundle is not None and not aligned:
-        _say(logger, "test split unavailable; drawing panels without the free run")
+        _say(logger, "test split unavailable; drawing panels without the free run", quiet)
         bundle = None
     written = []
     for neuron in cfg.neurons:
         if not (0 <= int(neuron) < n):
-            _say(logger, f"neuron {neuron} out of range (0..{n - 1}), skipped")
+            _say(logger, f"neuron {neuron} out of range (0..{n - 1}), skipped", quiet)
             continue
         try:
             g = gather(model, data, int(neuron), cfg.sr_start_frame, cfg.sr_frames,
                        device, x_ts=x_ts_panels)
             sr = symbolic_forms(g, cfg)
             roll = _rollout_slice(bundle, int(neuron), g["frames"])
+            _stem = f"neuron{int(neuron)}_panels" if tag is None else f"neuron{int(neuron)}_{tag}"
+            _out = None if out_dir is None else os.path.join(out_dir, f"{_stem}.png")
+            _label = os.path.basename(log_dir.rstrip("/"))
             path = plot_neuron_panels(g, sr, int(neuron), log_dir, rollout=roll, dt=dt,
-                                      label=os.path.basename(log_dir.rstrip("/")))
+                                      label=_label if tag is None else f"{_label}  iter {tag}",
+                                      out_path=_out)
             written.append(path)
-            _say(logger, f"neuron {neuron}: panels -> {path}")
+            _say(logger, f"neuron {neuron}: panels -> {path}", quiet)
         except Exception as exc:
-            _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}")
+            _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}", quiet)
     return written
 
 
@@ -792,7 +823,14 @@ def _rollout_slice(bundle, neuron, frames):
     return true[neuron, k0:k1].astype(float), pred[neuron, k0:k1].astype(float)
 
 
-def _say(logger, msg):
+def _say(logger, msg, quiet=False):
+    """Log it, and print it only when a human is watching this call.
+
+    `quiet` is what the training-time caller passes: that loop owns stdout with a
+    tqdm bar carrying the live R2 columns, and one print per checkpoint lands in
+    the middle of the bar and breaks it. The line still reaches the run's log.
+    """
     if logger is not None:
         logger.info(msg)
-    print(msg)
+    if not quiet:
+        print(msg)
