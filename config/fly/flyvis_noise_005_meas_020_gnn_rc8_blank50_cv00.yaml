@@ -1,8 +1,10 @@
 dataset: flyvis_noise_005_020_blank50_cv00
 description: 'GNN (rollout curriculum K=1..8, uniform) blank50 on the measurement-noise ladder:
-  process sigma=0.05, measurement sigma=0.2, fold 00. 8 epochs x 63 augmentation loops = 504
-  weight updates, matching the K=1 and K=1..5 arms'' 500 updates so the arms differ in rollout
-  depth and not in gradient count.'
+  process sigma=0.05, measurement sigma=0.2, fold 00. 8 epochs x 63 augmentation loops. graph_trainer
+  divides each epoch''s iteration count by that epoch''s horizon K, so the arm costs 1,612,800
+  network evaluations of the 13,741-neuron graph -- the same budget as the K=1 and K=1..5
+  arms'' 1.6 M -- and gets 547,920 weight updates, fewer than K=1''s 1.6 M because a deeper
+  unroll spends the same compute on longer trajectories.'
 graph_model:
   aggr_type: add
   embedding_dim: 2
