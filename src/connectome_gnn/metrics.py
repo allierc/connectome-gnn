@@ -3412,6 +3412,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
     rec.diagnostics["tmpl_pct_E_unidentified"] = (
         float(100.0 * np.mean(~np.isfinite(E_fit))) if cond else float("nan"))
+    rec.diagnostics["_tmpl_E_full"] = E_learned
+    rec.diagnostics["_tmpl_W_fit"] = _scatter(W_used)
     rec.diagnostics["_tmpl_fit_r2"] = fit_r2_full
     rec.diagnostics["_tmpl_k"] = k
     rec.diagnostics["_tmpl_tau"] = tau_used
