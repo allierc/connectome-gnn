@@ -32,7 +32,8 @@ import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-from connectome_gnn.metrics import (extract_recovered_params,            # noqa: E402
+from connectome_gnn.metrics import (cluster_recovery,                    # noqa: E402
+                                    extract_recovered_params,
                                     extract_template_params, metrics_lines,
                                     score_recovery, write_recovery_metrics)
 from connectome_gnn.models.registry import create_model                  # noqa: E402
@@ -46,7 +47,11 @@ from connectome_gnn.utils import log_path, migrate_state_dict            # noqa:
 COMPARE = ("Wij_R2", "Wij_R2_scaled", "Wij_gain", "Wij_pearson", "Wij_slope",
            "Wij_rel_err_median", "Wij_n",
            "Eij_R2", "Eij_slope", "Eij_rel_err_median", "Eij_gate",
-           "Eij_pct_wrong_slope", "Eij_n")
+           "Eij_pct_wrong_slope", "Eij_n",
+           "tau_R2", "tau_slope", "tau_rel_err_median",
+           "V_rest_R2", "V_rest_slope", "V_rest_rel_err_median",
+           "clustering_accuracy", "clustering_ari", "clustering_nmi",
+           "clustering_n_features")
 
 
 def load_run(config_name, device):
@@ -77,17 +82,46 @@ def score_both(cfg, data, model, device, n_frames, gauge_tau):
     """(chain, template) scored dicts for one run, on the same frames."""
     edges = data.edges.to(device)
     extra = {} if n_frames is None else {"n_frames": n_frames}
-    chain = score_recovery(
-        extract_recovered_params(model, data.ode_params, config=cfg, edges=edges,
-                                 x_ts=data.x_ts, device=device,
-                                 n_neurons=int(data.n_neurons),
-                                 need=("W", "E_ij")), cfg)
-    tmpl = score_recovery(
-        extract_template_params(model, data.ode_params, config=cfg, edges=edges,
-                                x_ts=data.x_ts, device=device,
-                                n_neurons=int(data.n_neurons),
-                                gauge_tau=gauge_tau, **extra), cfg)
+    rec_chain = extract_recovered_params(model, data.ode_params, config=cfg,
+                                         edges=edges, x_ts=data.x_ts, device=device,
+                                         n_neurons=int(data.n_neurons),
+                                         need=("W", "tau", "V_rest", "E_ij"))
+    rec_tmpl = extract_template_params(model, data.ode_params, config=cfg, edges=edges,
+                                       x_ts=data.x_ts, device=device,
+                                       n_neurons=int(data.n_neurons),
+                                       gauge_tau=gauge_tau, **extra)
+    chain, tmpl = score_recovery(rec_chain, cfg), score_recovery(rec_tmpl, cfg)
+    # CLUSTERING IS NOT READOUT-INDEPENDENT. cluster_recovery stacks the learned
+    # embedding with tau, V_rest and eight statistics of the learned weights, so
+    # a different W, tau and V_rest is a different feature stack and a different
+    # cell-type accuracy -- the twin has to be clustered too, not borrowed.
+    for rec, out in ((rec_chain, chain), (rec_tmpl, tmpl)):
+        cl = _cluster(rec, data, model, device)
+        if cl:
+            out.update(cl)
     return chain, tmpl
+
+
+def _cluster(rec, data, model, device):
+    """Cell-type clustering on one readout's own W, tau and V_rest."""
+    core = getattr(model, "_orig_mod", model)
+    w = rec.diagnostics.get("_W_learned_full")
+    if w is None:
+        return None
+    n = int(data.n_neurons)
+    tau = rec.pairs.get("tau")
+    vrest = rec.pairs.get("V_rest")
+    emb = getattr(core, "a", None)
+    try:
+        return cluster_recovery(
+            data.type_list, np.asarray(data.edges.cpu()).reshape(2, -1), w, n,
+            embedding=None if emb is None else emb.detach(),
+            learned_tau=None if tau is None or len(tau[1]) != n else tau[1],
+            learned_vrest=None if vrest is None or len(vrest[1]) != n else vrest[1],
+            n_components=min(100, n - 1))
+    except Exception as exc:
+        print(f"  clustering skipped: {type(exc).__name__}: {exc}")
+        return None
 
 
 def _fmt(v):
@@ -105,7 +139,8 @@ def report(name, chain, tmpl):
         if k not in chain and k not in tmpl:
             continue
         print(f"{k:<22}{_fmt(chain.get(k)):>12}{_fmt(tmpl.get(k)):>12}")
-    for k in ("tmpl_fit_r2_median", "tmpl_k_median", "tmpl_dfdmsg_median",
+    for k in ("tmpl_update_r2_median", "tmpl_G_median",
+              "tmpl_dfdmsg_over_autograd", "tmpl_fit_r2_median", "tmpl_k_median", "tmpl_dfdmsg_median",
               "tmpl_dfdmsg_absmedian", "tmpl_pct_unfitted",
               "tmpl_pct_E_unidentified", "tmpl_pct_W_from_slope",
               "tmpl_n_used_median", "tmpl_vj_floor"):

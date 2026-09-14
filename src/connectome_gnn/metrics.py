@@ -3012,14 +3012,97 @@ def _thresh_for(quantity, config):
 #  function around it is rescaled.
 # --------------------------------------------------------------------------- #
 
+def _update_template_fit(model, config, edges, x_ts, n_neurons, device,
+                         n_frames=64, seed=0):
+    """The model's own update, read as the generator's, per neuron.
+
+    Panel e of the neuron figure fits
+
+        dv_i/dt  =  T_i * ( (V_i - v_i) + G_i * msg_i + f(stim_i) )
+
+    with PySR. Written out, that is linear in (v_i, msg_i, stim_i), so with f
+    taken linear it is a four-column least squares per neuron and needs no
+    search at all:
+
+        pred_i  =  a0 + a1 * v_i + a2 * msg_i + a3 * stim_i
+        T_i = -a1          the model's leak rate, so tau_i = 1 / T_i
+        V_i = a0 / T_i     the voltage it relaxes to
+        G_i = a2 / T_i     the weight it puts on its own message
+
+    THE ONE PLACE THIS CAN BE WRONG is V_i: a constant inside f(stim) is
+    indistinguishable from V_i, since both reach dv/dt as a constant times T.
+    On flyvis the stimulus current is zero for every neuron that is not a
+    photoreceptor, so the confound only touches those; where it bites, V is the
+    quantity to distrust, not T or G.
+
+    Returns (T, V, G, r2), each (N,), r2 being how much of the model's own
+    dv/dt the four columns explain -- a low one means the update is NOT affine
+    in the message and everything read out of it is a linear approximation to
+    something else.
+    """
+    core = getattr(model, "_orig_mod", model)
+    emb_dim = int(core.a.shape[1])
+    rng = np.random.default_rng(seed)
+    n_total = int(x_ts.n_frames)
+    idx = rng.choice(n_total, size=min(n_frames, n_total), replace=False)
+    did = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
+
+    # Normal equations per neuron, accumulated over frames: (N, 4, 4) and (N, 4)
+    # is 13,741 * 20 numbers whatever the frame count, so the frames stream and
+    # nothing of size (N, n_frames) is ever held.
+    XtX = torch.zeros(n_neurons, 4, 4, dtype=torch.float64, device=device)
+    Xty = torch.zeros(n_neurons, 4, dtype=torch.float64, device=device)
+    Syy = torch.zeros(n_neurons, dtype=torch.float64, device=device)
+    Sy = torch.zeros(n_neurons, dtype=torch.float64, device=device)
+    n_obs = 0
+    with torch.no_grad():
+        for k in idx:
+            st = x_ts.frame(int(k)).to(device)
+            pred, feats, _msg = core(st, edges, data_id=did, return_all=True)
+            v = feats[:n_neurons, 0].double()
+            m = feats[:n_neurons, 1 + emb_dim].double()
+            stim = feats[:n_neurons, 2 + emb_dim].double()
+            y = pred.reshape(-1)[:n_neurons].double()
+            X = torch.stack([torch.ones_like(v), v, m, stim], dim=1)   # (N, 4)
+            XtX += X.unsqueeze(2) * X.unsqueeze(1)
+            Xty += X * y.unsqueeze(1)
+            Syy += y * y
+            Sy += y
+            n_obs += 1
+
+    # Ridge of 1e-12 on the diagonal: a neuron whose stimulus never moves has a
+    # singular column, and a singular solve would poison T and V as well as the
+    # coefficient that is genuinely undetermined.
+    eye = torch.eye(4, dtype=torch.float64, device=device) * 1e-12
+    beta = torch.linalg.solve(XtX + eye, Xty.unsqueeze(2)).squeeze(2)   # (N, 4)
+    ss_tot = Syy - Sy ** 2 / max(n_obs, 1)
+    ss_res = Syy - (beta * Xty).sum(1)
+    r2 = to_numpy(torch.where(ss_tot > 0, 1.0 - ss_res / ss_tot,
+                              torch.full_like(ss_tot, float("nan")))).astype(np.float64)
+
+    b = to_numpy(beta).astype(np.float64)
+    T = -b[:, 1]
+    with np.errstate(divide='ignore', invalid='ignore'):
+        V = np.where(T != 0, b[:, 0] / T, np.nan)
+        G = np.where(T != 0, b[:, 2] / T, np.nan)
+    return T, V, G, r2
+
+
 def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
-                    n_frames=8, seed=0, gauge_tau="model"):
+                    n_frames=8, seed=0, gauge_tau="model", T=None, G=None):
     """Per neuron, the factor carrying its model message into the generator's units.
 
+    k_i = tau_i * (d f_theta / d msg)_i, where the derivative comes from the
+    update template's T_i * G_i when that fit is available and from autograd on
+    f_theta otherwise -- the two are the same number whenever the update is
+    affine in the message, and the gap between them is reported as
+    tmpl_dfdmsg_resid so that an update which is NOT affine says so.
+
     `gauge_tau` decides whose time constant closes the conversion: "model" uses
-    the tau this model itself gives up through its f_theta slope, so the readout
-    borrows nothing from the truth; "true" uses the generator's, which isolates
-    the template's own error and is what the neuron panels print.
+    the tau this model itself gives up (1/T from the same fit), so the readout
+    borrows nothing from the truth and k collapses to G; "true" uses the
+    generator's, which is what puts the model's conductances in the units
+    ode_params.W is written in, and is what the neuron panels print.
 
     Returns (k, dfdmsg, tau), each (N,).
     """
@@ -3038,23 +3121,27 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
         # the forward above costs nothing extra by running under no_grad.
         grads.append(np.asarray(to_numpy(compute_grad_msg(core, feats, config))
                                 ).ravel()[:n_neurons])
-    dfdmsg = np.mean(np.stack(grads), axis=0).astype(np.float64)
+    autograd_dfdmsg = np.mean(np.stack(grads), axis=0).astype(np.float64)
+    dfdmsg = autograd_dfdmsg if (T is None or G is None) else T * G
 
     if gauge_tau == "true":
         tau = np.asarray(ode_params.gt_tau(n_neurons), dtype=np.float64)
+    elif T is not None:
+        with np.errstate(divide='ignore', invalid='ignore'):
+            tau = np.where(T != 0, 1.0 / T, np.nan)
     else:
         mu, sigma = compute_activity_stats(x_ts, device)
         slopes, _offsets = extract_f_theta_slopes(core, config, n_neurons, mu, sigma, device)
         tau = np.asarray(ode_params.derive_tau(np.asarray(slopes), n_neurons),
                          dtype=np.float64)
-    return dfdmsg * tau, dfdmsg, tau
+    return dfdmsg * tau, dfdmsg, tau, autograd_dfdmsg
 
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
                             gauge_frames=8, w_from="pooled_E",
-                            t_slope=3.0) -> RecoveredParams:
+                            t_slope=3.0, update_frames=64) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
 
     The twin of :func:`extract_recovered_params` for the two edge quantities; see
@@ -3079,6 +3166,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             -b2 of the fit. Conductance data only; see the pooling comment.
         t_slope: how many standard errors the driving-force coefficient must
             clear before the edge reports a reversal at all.
+        update_frames: frames for the per-neuron update fit that yields tau,
+            V_rest and the gauge. Capped by n_frames.
     """
     core = getattr(model, "_orig_mod", model)
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
@@ -3176,9 +3265,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         pct_slope = 100.0 if cond else float("nan")
         W_used = W_fit
 
-    k, dfdmsg, tau_used = _template_gauge(core, config, ode_params, edges, x_ts,
-                                          n_neurons, device, n_frames=gauge_frames,
-                                          seed=seed, gauge_tau=gauge_tau)
+    T, V_fit, G_fit, update_r2 = _update_template_fit(
+        core, config, edges, x_ts, n_neurons, device,
+        n_frames=min(n_frames, update_frames), seed=seed)
+    k, dfdmsg, tau_used, autograd_dfdmsg = _template_gauge(
+        core, config, ode_params, edges, x_ts, n_neurons, device,
+        n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit)
     W_learned = k[i_ids] * W_used
 
     # Back into the caller's edge order, so every array lines up with ode_params.W.
@@ -3217,6 +3309,30 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.correction["E_ij"] = (f"E_ij = (W*E) / W from the two-column fit, "
                                   f"kept where the slope clears {t_slope} standard errors")
         rec.valid["E_ij"] = r2_med >= gate
+    # TAU AND V_REST OUT OF THE SAME FIT, not out of a second one. The update
+    # template gives the model's leak rate T_i and the voltage it relaxes to in
+    # the same four columns that give the gauge, so reporting them here costs
+    # nothing and keeps one story: if T is wrong, tau, V_rest and every scaled
+    # W are wrong together and the update R2 says why.
+    if ode_params.has_tau():
+        with np.errstate(divide='ignore', invalid='ignore'):
+            tau_learned = np.where(T > 0, 1.0 / T, np.nan)
+        rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons), tau_learned)
+        rec.estimator["tau"] = "update_template"
+        rec.correction["tau"] = "tau_i = 1 / T_i, T from pred ~ a0 + a1*v + a2*msg + a3*stim"
+    if ode_params.has_vrest():
+        rec.pairs["V_rest"] = _pair(ode_params.gt_vrest(n_neurons), V_fit)
+        rec.estimator["V_rest"] = "update_template"
+        rec.correction["V_rest"] = "V_i = a0 / T_i, confounded with a constant in f(stim)"
+    rec.diagnostics["tmpl_update_r2_median"] = float(np.nanmedian(update_r2))
+    rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
+    # The update template's own T*G against autograd's df_theta/dmsg. They agree
+    # exactly when the update is affine in the message; the ratio is how far it
+    # is from affine, and a number far from 1 means the linear read of T, V and
+    # G is an approximation to something curved.
+    with np.errstate(divide='ignore', invalid='ignore'):
+        _ratio = np.where(autograd_dfdmsg != 0, (T * G_fit) / autograd_dfdmsg, np.nan)
+    rec.diagnostics["tmpl_dfdmsg_over_autograd"] = float(np.nanmedian(_ratio))
     rec.diagnostics["tmpl_k_median"] = float(np.nanmedian(k))
     rec.diagnostics["tmpl_dfdmsg_median"] = float(np.nanmedian(dfdmsg))
     # THE MEDIAN OF A SIGNED QUANTITY THAT SPLITS, which df_theta/dmsg does when
