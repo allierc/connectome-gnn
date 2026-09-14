@@ -413,12 +413,23 @@ if __name__ == "__main__":
                              device=device).to(device)
                     _ck = sorted(_glob.glob(os.path.join(
                         run_log_dir, "models", "best_model_with_*_graphs_*.pt")))
-                    if _ck:
+                    if not _ck:
+                        # No checkpoint means the run never reached an epoch end.
+                        # Analysing the freshly built model would describe random
+                        # weights in full detail, which is worse than no figure.
+                        print("neuron panels skipped: no checkpoint in models/")
+                    else:
                         _sd = torch.load(_ck[-1], map_location=device, weights_only=False)
                         _mig(_sd)
-                        _m.load_state_dict(_sd["model_state_dict"], strict=False)
-                    _m.eval()
-                    analyse_neurons(config, _m, _d, run_log_dir, device=device, logger=_log)
+                        _missing, _unexpected = _m.load_state_dict(
+                            _sd["model_state_dict"], strict=False)
+                        _loaded = len(_sd["model_state_dict"]) - len(_unexpected)
+                        if _loaded == 0:
+                            print("neuron panels skipped: checkpoint loaded 0 tensors")
+                        else:
+                            _m.eval()
+                            analyse_neurons(config, _m, _d, run_log_dir,
+                                            device=device, logger=_log)
             except Exception as _e:
                 print(f"neuron panels skipped: {type(_e).__name__}: {_e}")
 
