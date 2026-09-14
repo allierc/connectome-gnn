@@ -473,13 +473,15 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
     plt.ylabel(spec["ylabel"], fontsize=56)
     plt.xlim(*lim)
     plt.ylim(*lim)
+    # Ticks at 30, not the 51 the older paper figures used: at that size three
+    # numbers span the axis and read as a second label.
     ticks = spec.get("ticks")
     if ticks:
-        plt.xticks(ticks[0], ticks[1], fontsize=51)
-        plt.yticks(ticks[0], ticks[1], fontsize=51)
+        plt.xticks(ticks[0], ticks[1], fontsize=30)
+        plt.yticks(ticks[0], ticks[1], fontsize=30)
     else:
-        plt.xticks(fontsize=40)
-        plt.yticks(fontsize=40)
+        plt.xticks(fontsize=30)
+        plt.yticks(fontsize=30)
     plt.tight_layout()
     out = _fig_out(log_dir, spec["out"])
     plt.savefig(out, dpi=300)
