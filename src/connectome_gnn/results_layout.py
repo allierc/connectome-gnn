@@ -15,8 +15,8 @@ WHAT STAYS IN results/, and why each earns it:
     tau_comparison.png        written from, and each states its own filtering:
     V_rest_comparison.png     R2 without outliers, the full-sample R2 beside it
     Wij_scatter_*             in parentheses, and the share that was dropped
-    embedding*                the learned embedding, which the cell-type
-                              clustering is read off
+    embedding_augmented.png   the UMAP the cell-type clustering is read off;
+                              the plain a_i scatter goes to extras
 
 Five writers share this: GNN_PlotFigure, plot, plot_twin, graph_tester and
 tools/wij_scatter. They had five different ideas of where a figure belongs
@@ -39,12 +39,17 @@ KEEP_EXACT = (
     "V_rest_comparison.png",
 )
 
+# The embedding kept is the AUGMENTED one -- the UMAP of (a_i, tau, V_rest, and
+# the weight statistics) that the cell-type clustering is actually read off. The
+# plain a_i scatter is a projection of two of those columns and goes to extras.
+KEEP_EXACT_EMBEDDING = ("embedding_augmented.png",)
+
 # First match wins; checked after EXTRAS_FIRST.
 KEEP_PREFIXES = (
     "neuron",                  # narrowed by EXTRAS_FIRST to the per-neuron panels
     "rollout",
     "Wij_scatter",             # tools/wij_scatter, the log-axis population view
-    "embedding",
+    "embedding_augmented",
     "hidden_inr_traces",
     "metrics",
 )
@@ -63,7 +68,7 @@ KEEP_ALWAYS = ("corrected_W.pt", "learned_ode_params.pt", "test_metrics.npz")
 def is_headline(name) -> bool:
     """Whether this filename belongs in results/ rather than results/extras/."""
     base = os.path.basename(str(name))
-    if base in KEEP_ALWAYS or base in KEEP_EXACT:
+    if base in KEEP_ALWAYS or base in KEEP_EXACT or base in KEEP_EXACT_EMBEDDING:
         return True
     if base.startswith(EXTRAS_FIRST):
         return False
