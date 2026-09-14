@@ -391,9 +391,22 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ax.plot(t, msg_true, color="black", lw=0.9)
     ax.plot(t, g["msg_model"], color="tab:green", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
-    ax.text(0.004, 1.03, f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
-                         f"   model {ratio:.1f}x",
-            transform=ax.transAxes, va="bottom", fontsize=11)
+    head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
+              f"   model {ratio:.1f}x")
+    # THE MESSAGE THE MODEL ACTUALLY INJECTS, in the generator's units. The model
+    # adds T * G * msg to dv/dt while the generator adds msg / tau, so the model's
+    # message is worth T * G * tau of a true one. Scaling by that factor is the
+    # only honest way to put the two on one axis: what is plotted solid differs by
+    # a gain that never reaches the trajectory, and what is dashed does not.
+    p = sr.get("update_tmpl_p") or {}
+    T, G = p.get("T"), p.get("G")
+    if T is not None and G is not None:
+        k = float(T) * float(G) * fm["tau"]
+        corrected = k * g["msg_model"]
+        ax.plot(t, corrected, color="tab:green", lw=0.9, ls="--")
+        head_c += (f"   |   dashed: model x T*G*tau = {k:.3f}, then "
+                   f"{corrected.std() / max(msg_true.std(), 1e-12):.2f}x")
+    ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
     axd = fig.add_subplot(gs[3, 0])
