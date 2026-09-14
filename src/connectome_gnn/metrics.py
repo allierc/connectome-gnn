@@ -3198,40 +3198,74 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     floor = float(np.quantile(pos, vj_quantile)) if pos.size else 0.0
     keep = u > max(floor, 1e-6)
 
+    # THE THIRD COLUMN IS A CONSTANT, and it is a measurement rather than a
+    # nuisance. The generator's per-edge message is W * act(v_j) * (E - v_i),
+    # identically zero whenever the sender is silent, for every edge and whatever
+    # the postsynaptic state; the model's g_phi is under no such obligation. What
+    # it emits at silent input is this constant -- the per-edge form of the
+    # offset the total message carries, which the update hands straight to
+    # V_rest (measured: subtracting it moves V_rest_R2 from -0.224 to +0.911),
+    # and which coeff_g_phi_silent exists to drive to zero. Fitting it also
+    # unbiases the other two: without a constant in the form, a message sitting
+    # on a pedestal is fitted by tilting the driving force instead, which moves
+    # the reversal.
     y = np.where(keep, msg, 0.0)
     x1 = np.where(keep, u, 0.0)
     x2 = np.where(keep, u * vi, 0.0)
+    x3 = keep.astype(np.float64)
     n_used = keep.sum(axis=1).astype(np.float64)
     S11, S12, S22 = (x1 * x1).sum(1), (x1 * x2).sum(1), (x2 * x2).sum(1)
+    S13, S23, S33 = (x1 * x3).sum(1), (x2 * x3).sum(1), n_used
     S1y, S2y, Syy = (x1 * y).sum(1), (x2 * y).sum(1), (y * y).sum(1)
+    S3y = (x3 * y).sum(1)
+
+    def _solve(mats, rhs, good):
+        """Per-edge least squares from stacked normal equations, nan where singular."""
+        out = np.full(rhs.shape, np.nan)
+        if good.any():
+            out[good] = np.linalg.solve(mats[good], rhs[good][:, :, None])[:, :, 0]
+        return out
 
     with np.errstate(divide='ignore', invalid='ignore'):
         if cond:
-            det = S11 * S22 - S12 ** 2
-            ok = (n_used >= min_points) & (det > 0)
-            b1 = np.where(ok, (S22 * S1y - S12 * S2y) / det, np.nan)   # W * E
-            b2 = np.where(ok, (S11 * S2y - S12 * S1y) / det, np.nan)   # -W
+            _M = np.stack([np.stack([S11, S12, S13], -1),
+                           np.stack([S12, S22, S23], -1),
+                           np.stack([S13, S23, S33], -1)], -2)      # (E, 3, 3)
+            _r = np.stack([S1y, S2y, S3y], -1)
+            _det = np.linalg.det(_M)
+            ok = (n_used >= min_points) & np.isfinite(_det) & (np.abs(_det) > 1e-18)
+            _b = _solve(_M, _r, ok)
+            b1, b2, b3 = _b[:, 0], _b[:, 1], _b[:, 2]              # W*E, -W, offset
             W_fit = -b2
-            ss_res = Syy - b1 * S1y - b2 * S2y
+            ss_res = Syy - b1 * S1y - b2 * S2y - b3 * S3y
             # IS THE DRIVING FORCE IDENTIFIED AT ALL? E = (W*E) / W divides by
             # the second coefficient, so on an edge whose postsynaptic voltage
             # barely moved, b2 is a small noisy number and E is its reciprocal:
             # a handful of those produced the |E| in the thousands that dragged
             # Eij_R2 to -5397 while the fit itself sat at R2 0.999. The standard
-            # error of b2 is sigma^2 * (X'X)^-1_22 = ss_res/(n-2) * S11/det, and
-            # an edge whose slope is not `t_slope` of them away from zero reports
-            # no reversal rather than a ratio of two small numbers.
-            sigma2 = np.where(n_used > 2, ss_res / np.maximum(n_used - 2, 1), np.nan)
-            se_b2 = np.sqrt(np.maximum(sigma2 * S11 / det, 0.0))
+            # error of b2 is sigma^2 * (X'X)^-1_22, read off the SAME normal
+            # matrix the fit used -- three columns now, so the two-column
+            # shortcut S11/det no longer describes it -- and an edge whose slope
+            # is not `t_slope` of them away from zero reports no reversal rather
+            # than a ratio of two small numbers.
+            sigma2 = np.where(n_used > 3, ss_res / np.maximum(n_used - 3, 1), np.nan)
+            _v22 = np.full(n_e, np.nan)
+            if ok.any():
+                _v22[ok] = np.linalg.inv(_M[ok])[:, 1, 1]
+            se_b2 = np.sqrt(np.maximum(sigma2 * _v22, 0.0))
             t_b2 = np.where(se_b2 > 0, np.abs(b2) / se_b2, np.nan)
             E_fit = np.where((np.abs(W_fit) > 1e-12) & (t_b2 >= t_slope),
                              b1 / W_fit, np.nan)
         else:
-            ok = (n_used >= min_points) & (S11 > 0)
-            b1 = np.where(ok, S1y / S11, np.nan)
+            # The current family has no driving force, so the form is
+            # W * act(v_j) + offset: two columns, same constant.
+            _den = S11 * S33 - S13 ** 2
+            ok = (n_used >= min_points) & (_den > 0)
+            b1 = np.where(ok, (S33 * S1y - S13 * S3y) / _den, np.nan)
+            b3 = np.where(ok, (S11 * S3y - S13 * S1y) / _den, np.nan)
             b2 = np.zeros(n_e)
             W_fit, E_fit = b1, np.full(n_e, np.nan)
-            ss_res = Syy - b1 * S1y
+            ss_res = Syy - b1 * S1y - b3 * S3y
         # UNCENTRED R2, against zero rather than against the edge's mean message:
         # the template has no intercept, a synapse with no drive must send no
         # message, so zero is the baseline it has to beat. Centring would flatter
@@ -3351,6 +3385,31 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["tmpl_n_used_median"] = float(np.nanmedian(n_used))
     rec.diagnostics["tmpl_pct_unfitted"] = float(100.0 * np.mean(~np.isfinite(W_learned)))
     rec.diagnostics["tmpl_vj_floor"] = floor
+    # THE OFFSET, per edge and summed onto the neuron. Each edge's constant is
+    # what its g_phi emits when the sender is silent, which the generator's form
+    # makes identically zero; the neuron's incoming total is what its V_rest
+    # absorbs. Reported in the generator's units, i.e. through the same gauge k
+    # that carries W, so the number is in volts and comparable with V_rest.
+    _off_scaled = k[i_ids] * b3
+    _off_full = _scatter(_off_scaled)
+    _per_neuron = np.zeros(n_neurons)
+    _good_off = np.isfinite(_off_scaled)
+    if _good_off.any():
+        np.add.at(_per_neuron, i_ids[_good_off], _off_scaled[_good_off])
+    rec.diagnostics["tmpl_offset_median"] = float(np.nanmedian(np.abs(_off_full)))
+    rec.diagnostics["tmpl_offset_per_neuron_median"] = float(np.median(_per_neuron))
+    rec.diagnostics["tmpl_offset_per_neuron_absmedian"] = float(np.median(np.abs(_per_neuron)))
+    rec.diagnostics["_tmpl_offset"] = _off_full
+    rec.diagnostics["_tmpl_offset_per_neuron"] = _per_neuron
+    # V_rest WITH THE OFFSET PUT BACK. The update hands a constant in the message
+    # straight to V_rest, so the level the template reads is short by exactly the
+    # message's own offset; adding the neuron's incoming total back is the test
+    # of whether that is the whole story (it moved V_rest_R2 from -0.224 to
+    # +0.911 when measured against the true message).
+    if "V_rest" in rec.pairs:
+        _vt, _vl = rec.pairs["V_rest"]
+        if _vl.size == n_neurons:
+            rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
     rec.diagnostics["tmpl_pct_E_unidentified"] = (
         float(100.0 * np.mean(~np.isfinite(E_fit))) if cond else float("nan"))
     rec.diagnostics["_tmpl_fit_r2"] = fit_r2_full

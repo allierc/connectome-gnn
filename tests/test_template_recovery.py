@@ -188,3 +188,34 @@ def test_the_update_template_gives_back_vrest_and_the_gauge():
     assert rec.diagnostics["tmpl_update_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_dfdmsg_over_autograd"] - 1.0) < 1e-4
     assert abs(rec.diagnostics["tmpl_G_median"] - G_MODEL) < 1e-3
+
+
+def test_a_pedestal_in_the_message_is_read_as_an_offset_not_as_conductance():
+    """A model whose every edge adds a constant to its message must come back
+    with the same W and E as one that does not, and with that constant reported.
+    Without the third column the pedestal is fitted by tilting the driving force,
+    which moves the reversal -- the failure this term exists to prevent."""
+    cfg, op, model, edges, x_ts, w_true = _fixture()
+    pedestal = 0.35
+
+    class _Shifted(_GPhi):
+        def forward(self, x):
+            return super().forward(x) + pedestal
+
+    model.g_phi = _Shifted()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    gt_w, learned_w = rec.get("W")
+    assert np.allclose(learned_w, gt_w, rtol=2e-2), (gt_w, learned_w)
+    _gt_e, learned_e = rec.pairs["E_ij"]
+    assert np.allclose(learned_e, _gt_e, atol=2e-2)
+    # The message the model sends is W_model * (g_phi + pedestal), so the
+    # constant each edge adds is W_model * pedestal, and the readout reports it
+    # in the generator's units, i.e. times the gauge K.
+    expect = float(np.median(np.abs(K * to_np(model.W) * pedestal)))
+    assert abs(rec.diagnostics["tmpl_offset_median"] - expect) / expect < 0.05
+
+
+def to_np(t):
+    return t.detach().numpy().ravel()
