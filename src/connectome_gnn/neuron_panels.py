@@ -421,6 +421,17 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     def fmt_r2(x):
         return "" if x is None or x != x else f"  (R2 {x:+.3f})"
 
+    # THE GAUGE, ONCE, BEFORE ANY PANEL. The model's message carries the global
+    # gain that f_theta divides back out, so neither its total (panel c), its
+    # per-synapse traces (d) nor its fitted conductances (f) are comparable with
+    # the generator's until they are multiplied by k = T * G * tau. Defining it
+    # here rather than beside panel f is what lets d use it too.
+    kW = None
+    if fm["conductance"]:
+        _pu = sr.get("update_tmpl_p") or {}
+        if _pu.get("T") is not None and _pu.get("G") is not None:
+            kW = float(_pu["T"]) * float(_pu["G"]) * fm["tau"]
+
     n_edges = g["m_true"].shape[0]
     step = 8.0                      # room for three lines of formula per synapse
     fig = plt.figure(figsize=(23, max(13, 5.0 + 1.35 * n_edges)))
@@ -504,29 +515,50 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
+    # PANEL d IN VOLTS, NOT Z-SCORED. Dividing each row by its own standard
+    # deviation drew a synapse carrying 1e-08 of a volt at the same height as one
+    # carrying 1.05, which is the opposite of what the panel is for: the question
+    # is whether the model reconstructs the messages that MATTER, and on a shared
+    # scale a synapse the model dropped simply looks flat, as it should. The mean
+    # is removed per row so the rows stack, and the model's message is carried
+    # into the generator's units by the same k = T*G*tau the other panels use --
+    # without it the two would differ by the gauge alone and nothing could be
+    # read off the comparison.
     axd = fig.add_subplot(gs[3, 0])
+    _kd = kW if kW else 1.0
+    _amp = [float(np.percentile(np.abs(r - r.mean()), 99)) for r in g["m_true"]]
+    _amp += [float(np.percentile(np.abs(_kd * r - (_kd * r).mean()), 99))
+             for r in g["m_model"]]
+    # One step per row, set by the LOUDEST trace drawn, so nothing overlaps and
+    # every row keeps its true relative size.
+    step_v = 2.6 * max(max(_amp), 1e-12)
     offs = []
     for row in range(n_edges):
-        off = -row * step
+        off = -row * step_v
         offs.append(off)
-        a, b = g["m_true"][row], g["m_model"][row]
-        axd.plot(t, 1.6 * (a - a.mean()) / (a.std() + 1e-12) + off, color="tab:green", lw=0.8)
+        a, b = g["m_true"][row], _kd * g["m_model"][row]
+        axd.plot(t, (a - a.mean()) + off, color="tab:green", lw=0.8)
+        axd.plot(t, (b - b.mean()) + off, color="black", lw=0.8)
         rr = b.std() / max(a.std(), 1e-12)
-        if rr < 1e-3:
-            axd.plot(t, np.zeros_like(t) + off, color="black", lw=0.8)
-            note = "model ~ 0"
-        else:
-            axd.plot(t, 1.6 * (b - b.mean()) / (b.std() + 1e-12) + off,
-                     color="black", lw=0.8)
-            note = f"r={pear(a, b):+.2f}  x{rr:.3g}"
+        note = ("model ~ 0" if b.std() < 1e-3 * max(a.std(), 1e-12)
+                else f"r={pear(a, b):+.2f}  x{rr:.3g}")
         sign = ("inh" if fm["is_inh"] is not None and fm["is_inh"][g["edge_ids"][row]]
                 else "exc")
         axd.text(-0.055, off, f"j={int(g['src'][row])}\n{sign}\n{note}",
                  transform=axd.get_yaxis_transform(), va="center", ha="right", fontsize=7.5)
-    axd.set_ylim(-step * max(n_edges, 1) + step * 0.35, step * 0.65)
+    axd.set_ylim(-step_v * max(n_edges, 1) + step_v * 0.35, step_v * 0.65)
     axd.set_yticks([])
-    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, z-scored, "
-             "strongest first", transform=axd.transAxes, va="bottom", fontsize=11)
+    # A scale bar, because the y axis has no ticks and the amplitudes are the
+    # whole point of dropping the z-score.
+    _bar = step_v / 2.6
+    axd.plot([t[0] + 0.01 * (t[-1] - t[0])] * 2, [0.25 * step_v, 0.25 * step_v - _bar],
+             color="0.2", lw=2)
+    axd.text(t[0] + 0.02 * (t[-1] - t[0]), 0.25 * step_v - _bar / 2,
+             f"{_bar:.3g} V", fontsize=7.5, va="center")
+    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, "
+             f"mean removed, one shared scale, strongest first"
+             + (f"   (model x {_kd:.4f})" if kW else ""),
+             transform=axd.transAxes, va="bottom", fontsize=11)
 
     for a_ in (fig.axes[0], fig.axes[1], fig.axes[2], axd):
         a_.set_xlim(t[0], t[-1])
@@ -568,12 +600,6 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # The model's message carries the global gain that f_theta divides back out,
     # so its conductance is only comparable with the generator's after the same
     # T * G * tau correction the total message gets in panel c.
-    kW = None
-    if fm["conductance"]:
-        pu = sr.get("update_tmpl_p") or {}
-        if pu.get("T") is not None and pu.get("G") is not None:
-            kW = float(pu["T"]) * float(pu["G"]) * fm["tau"]
-
     _gain_note = (f", W and offset scaled by T*G*tau = {kW:.4f}"
                   if fm["conductance"] and kW else ", W in the model's own gauge")
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
