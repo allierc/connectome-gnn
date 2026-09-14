@@ -37,6 +37,7 @@ class LossRegularizer:
         'g_phi_weight', 'g_phi_input_group',
         'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
+        'f_theta_msg_gain',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
@@ -168,6 +169,7 @@ class LossRegularizer:
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
         self._coeffs['f_theta_msg_diff'] = tc.coeff_f_theta_msg_diff
         self._coeffs['f_theta_msg_sign'] = tc.coeff_f_theta_msg_sign
+        self._coeffs['f_theta_msg_gain'] = getattr(tc, 'coeff_f_theta_msg_gain', 0.0)
         self._coeffs['missing_activity'] = tc.coeff_missing_activity
         self._coeffs['model_a'] = tc.coeff_model_a
         self._coeffs['model_b'] = tc.coeff_model_b
@@ -266,7 +268,8 @@ class LossRegularizer:
         """Check if update regularization is needed (update_diff, update_msg_diff, or update_msg_sign)."""
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
-                self._coeffs['f_theta_msg_sign'] > 0)
+                self._coeffs['f_theta_msg_sign'] > 0 or
+                self._coeffs['f_theta_msg_gain'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -689,6 +692,59 @@ class LossRegularizer:
             regul_term = (torch.tanh(pred_msg / 0.1) - torch.tanh(msg_col.unsqueeze(-1) / 0.1)).norm(2) * _ct['f_theta_msg_sign']
             total_regul = total_regul + regul_term
             self._add('f_theta_msg_sign', regul_term)
+
+        if self._coeffs['f_theta_msg_gain'] > 0:
+            # THE MESSAGE AND THE LEAK ENTER THE SAME BRACKET. The generator's
+            # update is (V_rest - v_i + msg_i + I_i) / tau_i, so one volt of
+            # incoming message moves dv/dt by exactly as much as one volt of the
+            # neuron's own depolarisation moves it back:
+            #
+            #     df/dmsg = +1/tau_i     df/dv = -1/tau_i     df/dmsg + df/dv = 0
+            #
+            # per neuron, WHATEVER tau_i is -- which is what makes this usable as
+            # a loss at all, since tau is the thing being recovered and cannot
+            # appear in the objective that recovers it.
+            #
+            # IT PINS THE ONE FREE QUANTITY. A GNN's message has no absolute
+            # scale: with msg_model = msg_true / c, an f_theta using
+            # df/dmsg = c/tau reproduces the trajectory exactly. That is the gauge
+            # every readout has had to undo after the fact -- on the sigma=0.05
+            # conductance run tau * df/dmsg came to 0.0404 instead of 1, a message
+            # 24.8x too large, and on the sigma=0 run the whole weight vector fell
+            # to 3e-6 of the truth with f_theta amplifying it back, which left
+            # nothing recoverable. The two derivatives are NOT equally free: df/dv
+            # is the leak rate, which the trajectory loss pins hard because it
+            # sets how fast every neuron relaxes after every stimulus transition
+            # (tau_R2 reaches 0.91-0.99 with no prior saying so). Clamping their
+            # ratio clamps the free one to the pinned one, and shrinking the
+            # message stops being free.
+            #
+            # RELATIVE, NOT ABSOLUTE. The bare residual df/dmsg + df/dv carries
+            # units of 1/tau, so at equal PROPORTIONAL error a fast neuron would
+            # contribute far more loss than a slow one and the term would quietly
+            # become a penalty on short time constants. Dividing by the batch's
+            # own leak scale makes it dimensionless. The batch scale is used
+            # rather than each neuron's own df/dv, whose reciprocal explodes on
+            # any neuron whose leak the model has not learned yet -- early in
+            # training, most of them -- and it is DETACHED, or the model could
+            # satisfy the term by inflating its leak rather than fixing its gain.
+            #
+            # WHAT IT LEAVES ALONE: the offset (a constant in the message shifts
+            # neither derivative, which is coeff_g_phi_silent's job), the split of
+            # the message between W and g_phi, and which edges carry it. One
+            # number per neuron: the scale.
+            _base = in_features.clone().detach()
+            _d = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            _m_col = embedding_dim + 1
+            _fv = _base.clone(); _fv[:, 0] = _fv[:, 0] + _d
+            _fm = _base.clone(); _fm[:, _m_col] = _fm[:, _m_col] + _d
+            _f0 = model.f_theta(_base)
+            _dfdv = (model.f_theta(_fv) - _f0) / _d
+            _dfdmsg = (model.f_theta(_fm) - _f0) / _d
+            _scale = (_dfdv[ids_batch] ** 2).mean().detach().clamp(min=1e-12).sqrt()
+            regul_term = ((_dfdmsg + _dfdv)[ids_batch] / _scale).norm(2) * _ct['f_theta_msg_gain']
+            total_regul = total_regul + regul_term
+            self._add('f_theta_msg_gain', regul_term)
 
 
         return total_regul
