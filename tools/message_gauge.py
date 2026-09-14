@@ -217,8 +217,12 @@ def run_one(config_name, frames, device):
     a, b, r, rel = _fit_per_neuron(msg_true, msg_model)
     a3, b3, c3, rel3 = _fit_per_neuron_vi(msg_true, msg_model, v_i)
 
+    # x_ts IS NOT OPTIONAL HERE. extract_recovered_params gates its whole tau /
+    # V_rest branch on `x_ts is not None`, so leaving it out returns an empty
+    # RecoveredParams and every column below reads nan while the run reports ok.
     rec = extract_recovered_params(model, data.ode_params, cfg, edges=data.edges,
-                                   device=device, n_neurons=int(data.n_neurons),
+                                   x_ts=data.x_ts, device=device,
+                                   n_neurons=int(data.n_neurons),
                                    need=("tau", "V_rest"))
     out = {"config": config_name, "checkpoint": os.path.basename(ck[-1]),
            "n_frames": frames, "n_neurons": int(data.n_neurons)}
@@ -258,8 +262,6 @@ def run_one(config_name, frames, device):
         tau_from_c = np.where(T != 0, one_minus_c / T, np.nan)
     vrest_from_bc = one_minus_c * V_t - b3
     out["upd_r2_median"] = float(np.nanmedian(upd_r2))
-    out["c3_median"] = float(np.nanmedian(c3))
-    out["resid3_median"] = float(np.nanmedian(rel3))
     out["a_over_G_times_1mc_median"] = float(np.nanmedian(
         a3 / np.where(one_minus_c * G_t != 0, one_minus_c * G_t, np.nan)))
     pair = rec.get("tau")
@@ -275,10 +277,13 @@ def run_one(config_name, frames, device):
         out["vrest_R2_from_bc"] = _r2(vt, vrest_from_bc, m)
         out["vrest_R2_tauTV_only"] = _r2(vt, one_minus_c * V_t, m)
 
-    for name, arr in (("a", a), ("b", b), ("r", r), ("resid", rel)):
+    for name, arr in (("a", a), ("b", b), ("r", r), ("resid", rel),
+                      ("a3", a3), ("b3", b3), ("c3", c3), ("resid3", rel3)):
         v = arr[keep]
+        v = v[np.isfinite(v)]
         out[f"{name}_median"] = float(np.median(v)) if v.size else float("nan")
-        out[f"{name}_iqr"] = float(np.subtract(*np.percentile(v, [75, 25]))) if v.size else float("nan")
+        out[f"{name}_iqr"] = (float(np.subtract(*np.percentile(v, [75, 25])))
+                              if v.size else float("nan"))
     out["n_fitted"] = int(keep.sum())
     return out
 
@@ -301,8 +306,11 @@ def main(argv=None):
 
     if not rows:
         return 1
-    cols = ["config", "a_median", "b_median", "r_median", "resid_median",
-            "vrest_R2_raw", "vrest_R2_minus_b", "tau_R2", "tau_ratio_median"]
+    cols = ["config", "a_median", "b_median", "resid_median",
+            "vrest_R2_raw", "vrest_R2_minus_b", "tau_R2",
+            "a3_median", "b3_median", "c3_median", "resid3_median",
+            "vrest_R2_from_bc", "vrest_R2_tauTV_only",
+            "tau_R2_from_c", "tau_ratio_from_c_median", "upd_r2_median"]
     w = [max(len(c), *(len(f"{row.get(c, float('nan')):.4g}")
                        if isinstance(row.get(c), float) else len(str(row.get(c, "")))
                        for row in rows)) for c in cols]
@@ -316,6 +324,9 @@ def main(argv=None):
         print("  ".join(cells))
     print("\nvrest_R2_minus_b > vrest_R2_raw means the V_rest error IS the message's "
           "offset b, which coeff_g_phi_silent is the lever on.")
+    print("c3 is the message's own-voltage slope: the three identities say "
+          "c = 1 - tau*T, tau = (1 - c)/T and V_rest = (1 - c)*V - b, so "
+          "tau_R2_from_c tests whether the leak error is that term.")
 
     if args.json:
         with open(args.json, "w") as f:
