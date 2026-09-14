@@ -540,20 +540,32 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
              f"{fam}{_gain_note}, and a free search", transform=axf.transAxes,
              va="bottom", fontsize=11)
+    def fmt_W(w):
+        """Four decimals, except where that would print a synapse as zero.
+
+        The connectome's conductances run over eight orders of magnitude: an
+        edge at 1.1e-08 and one at 3.6e-13 both print as 0.0000 on a fixed
+        format, and beside panel d -- which z-scores every row, so a synapse
+        carrying 1e-08 of a volt is drawn at the same height as one carrying 1.05
+        -- that reads as "the generator says zero and its trace is not flat".
+        Neither is zero; the format was.
+        """
+        return f"{w:8.4f}" if abs(w) >= 5e-5 or w == 0 else f"{w:8.2e}"
+
     for row in range(n_edges):
         idx = int(g["edge_ids"][row])
         if fm["conductance"]:
-            txt = [f"generator   W = {fm['W'][idx]:8.4f}   E = {fm['E'][idx]:+8.3f}"]
+            txt = [f"generator   W = {fmt_W(fm['W'][idx])}   E = {fm['E'][idx]:+8.3f}"]
         else:
-            txt = [f"generator   W = {fm['W'][idx]:+8.4f}"]
+            txt = [f"generator   W = {fmt_W(fm['W'][idx])}"]
         if fm["conductance"]:
             teq = sr.get("tmpl", {}).get(idx)
             E = sr.get("tmpl_E", {}).get(idx)
             W = sr.get("tmpl_W", {}).get(idx)
             if teq:
                 Wc = None if (W is None or kW is None) else W * kW
-                wtxt = ("W = " + (f"{Wc:8.4f}" if Wc is not None else
-                                  (f"{W:8.4f}" if W is not None else "     n/a")))
+                wtxt = ("W = " + (fmt_W(Wc) if Wc is not None else
+                                  (fmt_W(W) if W is not None else "     n/a")))
                 etxt = f"E = {E:+8.3f}" if E is not None else "E =      n/a"
                 txt.append(f"template    {wtxt}   {etxt}"
                            f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
