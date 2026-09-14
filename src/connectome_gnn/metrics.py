@@ -3051,7 +3051,7 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
-                            device=None, n_neurons=None, n_frames=64, seed=0,
+                            device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
                             gauge_frames=8) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
@@ -3062,7 +3062,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     one vocabulary and the two `results/metrics*.txt` files diff line by line.
 
     Args:
-        n_frames: real frames sampled per edge for the fit.
+        n_frames: real frames sampled per edge for the fit. 256 rather than the
+            64 the correction chain samples, because the v_j floor throws away
+            every frame where the presynaptic cell is quiet: at 64 frames the
+            median edge kept 17 of them and 43% of edges fell below `min_points`
+            and went unmeasured, which is a silent selection of the busiest
+            synapses, not a cheaper measurement.
         vj_quantile: floor on the presynaptic drive, as a quantile of the
             POSITIVE activations. Frames below it carry almost no drive, so they
             say little about W or E while still weighting the least squares.
@@ -3145,15 +3150,20 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.correction["W"] = (f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
                            f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)")
     rec.diagnostics["_W_learned_full"] = W_learned
-    rec.diagnostics["Eij_gate"] = r2_med
-    # Edges whose fitted message RISES with the postsynaptic voltage: no driving
-    # force does that, since E - v_i can only fall as v_i climbs.
-    rec.diagnostics["Eij_pct_wrong_slope"] = (
-        float(100.0 * np.mean(slope_full[np.isfinite(slope_full)] > 0))
-        if cond and np.isfinite(slope_full).any() else float("nan"))
+    # The median per-edge fit R2 under BOTH families, but only the conductance
+    # family may call it Eij_gate: on current data the fit has no reversal in it
+    # at all, and an Eij_ line there would read as a reversal recovered from a
+    # model that never had one.
+    rec.diagnostics["tmpl_fit_r2_median"] = r2_med
     if cond:
-        rec.pairs["E_ij"] = _pair(np.asarray(ode_params.reversal_per_edge()).ravel(),
-                                  E_learned)
+        rec.diagnostics["Eij_gate"] = r2_med
+        # Edges whose fitted message RISES with the postsynaptic voltage: no
+        # driving force does that, since E - v_i can only fall as v_i climbs.
+        rec.diagnostics["Eij_pct_wrong_slope"] = (
+            float(100.0 * np.mean(slope_full[np.isfinite(slope_full)] > 0))
+            if np.isfinite(slope_full).any() else float("nan"))
+        rec.pairs["E_ij"] = _pair(
+            np.asarray(to_numpy(ode_params.reversal_per_edge())).ravel(), E_learned)
         rec.estimator["E_ij"] = "template_fit"
         rec.correction["E_ij"] = "E_ij = (W*E) / W, the same two-column fit as W"
         rec.valid["E_ij"] = r2_med >= gate
