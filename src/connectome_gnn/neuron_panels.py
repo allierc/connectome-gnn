@@ -409,42 +409,44 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
 
     ax = fig.add_subplot(gs[0, 0])
     if rollout is not None:
-        ax.plot(t, rollout[0], color="black", lw=0.9, label="generator")
-        ax.plot(t, rollout[1], color="tab:green", lw=0.9, label="model, free running")
+        ax.plot(t, rollout[0], color="tab:green", lw=0.9, label="generator")
+        ax.plot(t, rollout[1], color="black", lw=0.9, label="model, free running")
         ax.legend(frameon=False, fontsize=9, loc="lower right", ncol=2)
         head = f"a   voltage, free-running rollout   r = {pear(*rollout):.4f}"
     else:
-        ax.plot(t, v_i, color="black", lw=0.9)
+        ax.plot(t, v_i, color="tab:green", lw=0.9)
         head = "a   voltage (no aligned rollout available)"
     ax.text(0.004, 1.03, head, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("voltage")
 
     ax = fig.add_subplot(gs[1, 0])
-    ax.plot(t, dvdt_true, color="black", lw=0.9)
-    ax.plot(t, g["pred"], color="tab:green", lw=0.9)
+    ax.plot(t, dvdt_true, color="tab:green", lw=0.9)
+    ax.plot(t, g["pred"], color="black", lw=0.9)
     ax.text(0.004, 1.03, f"b   dv/dt at the true voltages   R2 = {_r2(dvdt_true, g['pred']):+.3f}",
             transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("dv/dt")
 
     ax = fig.add_subplot(gs[2, 0])
-    ax.plot(t, msg_true, color="black", lw=0.9)
-    ax.plot(t, g["msg_model"], color="tab:green", lw=0.9)
+    ax.plot(t, msg_true, color="tab:green", lw=0.9)
+    ax.plot(t, g["msg_model"], color="black", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
     head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
               f"   model {ratio:.1f}x")
-    # THE MESSAGE THE MODEL ACTUALLY INJECTS, in the generator's units. The model
-    # adds T * G * msg to dv/dt while the generator adds msg / tau, so the model's
-    # message is worth T * G * tau of a true one. Scaling by that factor is the
-    # only honest way to put the two on one axis: what is plotted solid differs by
-    # a gain that never reaches the trajectory, and what is dashed does not.
+    # THE MODEL'S MESSAGE CORRECTED BY THE SCALE PANEL e FITS. The update
+    # template in e gives T (the model's 1/tau) and G (the weight it puts on its
+    # own message); the model adds T * G * msg to dv/dt where the generator adds
+    # msg / tau, so one unit of the model's message is worth T * G * tau of a
+    # true one. That product is the gain the model absorbs into f_theta and never
+    # shows in the trajectory, and multiplying the learned curve by it is what
+    # puts the two messages on one axis.
     p = sr.get("update_tmpl_p") or {}
     T, G = p.get("T"), p.get("G")
     if T is not None and G is not None:
         k = float(T) * float(G) * fm["tau"]
         corrected = k * g["msg_model"]
-        ax.plot(t, corrected, color="tab:green", lw=0.9, ls="--")
-        head_c += (f"   |   dashed: model x T*G*tau = {k:.3f}, then "
-                   f"{corrected.std() / max(msg_true.std(), 1e-12):.2f}x")
+        ax.plot(t, corrected, color="black", lw=0.9, ls="--")
+        head_c += (f"   |   dashed: model x T*G*tau = {k:.3f} from e, then "
+                   f"{corrected.std() / max(msg_true.std(), 1e-12):.2f}x of the generator")
     ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
@@ -454,14 +456,14 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         off = -row * step
         offs.append(off)
         a, b = g["m_true"][row], g["m_model"][row]
-        axd.plot(t, 1.6 * (a - a.mean()) / (a.std() + 1e-12) + off, color="black", lw=0.8)
+        axd.plot(t, 1.6 * (a - a.mean()) / (a.std() + 1e-12) + off, color="tab:green", lw=0.8)
         rr = b.std() / max(a.std(), 1e-12)
         if rr < 1e-3:
-            axd.plot(t, np.zeros_like(t) + off, color="tab:green", lw=0.8)
+            axd.plot(t, np.zeros_like(t) + off, color="black", lw=0.8)
             note = "model ~ 0"
         else:
             axd.plot(t, 1.6 * (b - b.mean()) / (b.std() + 1e-12) + off,
-                     color="tab:green", lw=0.8)
+                     color="black", lw=0.8)
             note = f"r={pear(a, b):+.2f}  x{rr:.3g}"
         sign = ("inh" if fm["is_inh"] is not None and fm["is_inh"][g["edge_ids"][row]]
                 else "exc")
