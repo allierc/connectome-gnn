@@ -137,6 +137,9 @@ def gather(model, data, neuron, start, n_frames, device="cpu"):
     emb = core.a.detach()
     W_model = to_numpy(get_model_W(core)).ravel()
     squared = bool(getattr(core, "w_squared", False))
+    # Matches NeuralGNN._compute_messages: only the conductance family appends
+    # the postsynaptic pair to g_phi's input.
+    wide_g_phi = (getattr(core, "model", "") == "flyvis_conductance")
     m_true, m_model, v_js = [], [], []
     with torch.no_grad():
         for idx in inc:
@@ -144,11 +147,18 @@ def gather(model, data, neuron, start, n_frames, device="cpu"):
             v_j = V[:, j].astype(float)
             v_js.append(v_j)
             m_true.append(_edge_message_true(op, idx, v_j, v_i, forms))
-            feat = torch.cat([
-                torch.as_tensor(v_j, dtype=torch.float32, device=device)[:, None],
-                emb[j].expand(len(v_j), -1),
-                torch.as_tensor(v_i, dtype=torch.float32, device=device)[:, None],
-                emb[neuron].expand(len(v_j), -1)], dim=1)
+            # THE MODEL'S OWN LAYOUT, not a fixed one. A conductance g_phi reads
+            # (v_j, a_j, v_i, a_i) because its message needs the postsynaptic
+            # voltage for the driving force; a current g_phi reads (v_j, a_j)
+            # only, since W * act(v_j) does not. Building the wide row for both
+            # is how the current family failed with "6 columns but the MLP
+            # takes 3".
+            cols = [torch.as_tensor(v_j, dtype=torch.float32, device=device)[:, None],
+                    emb[j].expand(len(v_j), -1)]
+            if wide_g_phi:
+                cols += [torch.as_tensor(v_i, dtype=torch.float32, device=device)[:, None],
+                         emb[neuron].expand(len(v_j), -1)]
+            feat = torch.cat(cols, dim=1)
             g = core.g_phi(pad_g_phi_input(feat, core)).ravel()
             if getattr(core, "g_phi_positive", False):
                 g = g ** 2
