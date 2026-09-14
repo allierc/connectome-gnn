@@ -3053,7 +3053,8 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
-                            gauge_frames=8) -> RecoveredParams:
+                            gauge_frames=8, w_from="pooled_E",
+                            t_slope=3.0) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
 
     The twin of :func:`extract_recovered_params` for the two edge quantities; see
@@ -3074,6 +3075,10 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         min_points: an edge needs this many surviving frames, and a non-singular
             2x2 normal matrix, or its entry is nan.
         gauge_tau: "model" or "true", see :func:`_template_gauge`.
+        w_from: "pooled_E" reads W as (W*E) / E_pooled, "slope" as the raw
+            -b2 of the fit. Conductance data only; see the pooling comment.
+        t_slope: how many standard errors the driving-force coefficient must
+            clear before the edge reports a reversal at all.
     """
     core = getattr(model, "_orig_mod", model)
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
@@ -3113,8 +3118,20 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             b1 = np.where(ok, (S22 * S1y - S12 * S2y) / det, np.nan)   # W * E
             b2 = np.where(ok, (S11 * S2y - S12 * S1y) / det, np.nan)   # -W
             W_fit = -b2
-            E_fit = np.where(np.abs(W_fit) > 1e-12, b1 / W_fit, np.nan)
             ss_res = Syy - b1 * S1y - b2 * S2y
+            # IS THE DRIVING FORCE IDENTIFIED AT ALL? E = (W*E) / W divides by
+            # the second coefficient, so on an edge whose postsynaptic voltage
+            # barely moved, b2 is a small noisy number and E is its reciprocal:
+            # a handful of those produced the |E| in the thousands that dragged
+            # Eij_R2 to -5397 while the fit itself sat at R2 0.999. The standard
+            # error of b2 is sigma^2 * (X'X)^-1_22 = ss_res/(n-2) * S11/det, and
+            # an edge whose slope is not `t_slope` of them away from zero reports
+            # no reversal rather than a ratio of two small numbers.
+            sigma2 = np.where(n_used > 2, ss_res / np.maximum(n_used - 2, 1), np.nan)
+            se_b2 = np.sqrt(np.maximum(sigma2 * S11 / det, 0.0))
+            t_b2 = np.where(se_b2 > 0, np.abs(b2) / se_b2, np.nan)
+            E_fit = np.where((np.abs(W_fit) > 1e-12) & (t_b2 >= t_slope),
+                             b1 / W_fit, np.nan)
         else:
             ok = (n_used >= min_points) & (S11 > 0)
             b1 = np.where(ok, S1y / S11, np.nan)
@@ -3127,10 +3144,42 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         # an edge whose message is a large constant the form cannot produce.
         fit_r2 = np.where(ok & (Syy > 0), 1.0 - ss_res / Syy, np.nan)
 
+    # POOLING THE REVERSAL, AND READING W THROUGH IT. The generator hands every
+    # edge onto neuron i one of exactly two reversals -- one for the excitatory
+    # senders, one for the inhibitory -- so the per-edge estimates of each sign
+    # are repeated measurements of one number, and their median is the estimator
+    # that says so. It is worth taking because W then comes out of the
+    # WELL-DETERMINED coefficient: b1 = W*E multiplies the drive itself, while
+    # b2 = -W multiplies drive * v_i and is only as good as the postsynaptic
+    # voltage's excursion. W = b1 / E_pooled therefore beats W = -b2 on exactly
+    # the quiet synapses where the direct slope is noise.
+    E_pooled = np.full(n_e, np.nan)
+    if cond:
+        good = np.isfinite(E_fit)
+        for sign_mask in (E_fit > 0, E_fit < 0):
+            m = good & sign_mask
+            if not m.any():
+                continue
+            sel_idx = np.where(m)[0]
+            order = np.argsort(i_ids[sel_idx], kind='stable')
+            ids_s, vals_s = i_ids[sel_idx][order], E_fit[sel_idx][order]
+            uniq, start = np.unique(ids_s, return_index=True)
+            med = {int(i): float(np.median(v))
+                   for i, v in zip(uniq, np.split(vals_s, start[1:]))}
+            E_pooled[sel_idx] = np.array([med[int(i)] for i in i_ids[sel_idx]])
+    with np.errstate(divide='ignore', invalid='ignore'):
+        W_pooled = np.where(np.abs(E_pooled) > 1e-9, b1 / E_pooled, np.nan)
+    if cond and w_from == "pooled_E":
+        pct_slope = float(100.0 * np.mean(~np.isfinite(W_pooled) & np.isfinite(W_fit)))
+        W_used = np.where(np.isfinite(W_pooled), W_pooled, W_fit)
+    else:
+        pct_slope = 100.0 if cond else float("nan")
+        W_used = W_fit
+
     k, dfdmsg, tau_used = _template_gauge(core, config, ode_params, edges, x_ts,
                                           n_neurons, device, n_frames=gauge_frames,
                                           seed=seed, gauge_tau=gauge_tau)
-    W_learned = k[i_ids] * W_fit
+    W_learned = k[i_ids] * W_used
 
     # Back into the caller's edge order, so every array lines up with ode_params.W.
     def _scatter(v, fill=np.nan):
@@ -3165,13 +3214,22 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.pairs["E_ij"] = _pair(
             np.asarray(to_numpy(ode_params.reversal_per_edge())).ravel(), E_learned)
         rec.estimator["E_ij"] = "template_fit"
-        rec.correction["E_ij"] = "E_ij = (W*E) / W, the same two-column fit as W"
+        rec.correction["E_ij"] = (f"E_ij = (W*E) / W from the two-column fit, "
+                                  f"kept where the slope clears {t_slope} standard errors")
         rec.valid["E_ij"] = r2_med >= gate
     rec.diagnostics["tmpl_k_median"] = float(np.nanmedian(k))
     rec.diagnostics["tmpl_dfdmsg_median"] = float(np.nanmedian(dfdmsg))
+    # THE MEDIAN OF A SIGNED QUANTITY THAT SPLITS, which df_theta/dmsg does when
+    # half the neurons take their message with one sign and half the other,
+    # lands near zero and says nothing about either group; the median magnitude
+    # is what tells a model that ignores its message from one that does not.
+    rec.diagnostics["tmpl_dfdmsg_absmedian"] = float(np.nanmedian(np.abs(dfdmsg)))
+    rec.diagnostics["tmpl_pct_W_from_slope"] = pct_slope
     rec.diagnostics["tmpl_n_used_median"] = float(np.nanmedian(n_used))
     rec.diagnostics["tmpl_pct_unfitted"] = float(100.0 * np.mean(~np.isfinite(W_learned)))
     rec.diagnostics["tmpl_vj_floor"] = floor
+    rec.diagnostics["tmpl_pct_E_unidentified"] = (
+        float(100.0 * np.mean(~np.isfinite(E_fit))) if cond else float("nan"))
     rec.diagnostics["_tmpl_fit_r2"] = fit_r2_full
     rec.diagnostics["_tmpl_k"] = k
     rec.diagnostics["_tmpl_tau"] = tau_used

@@ -37,7 +37,7 @@ class LossRegularizer:
         'g_phi_weight', 'g_phi_input_group',
         'f_theta_weight',
         'f_theta_zero', 'f_theta_diff', 'f_theta_msg_diff', 'f_theta_msg_sign',
-        'f_theta_separable',
+        'f_theta_separable', 'f_theta_silent',
         'missing_activity', 'model_a', 'model_b',
         'f_theta_linearity', 'f_theta_centering',
         'embedding_cluster',
@@ -166,6 +166,7 @@ class LossRegularizer:
         self._coeffs['g_phi_silent'] = getattr(tc, 'coeff_g_phi_silent', 0.0)
         self.g_phi_silent_range = tuple(getattr(tc, 'g_phi_silent_range', (-2.0, 0.0)))
         self._coeffs['f_theta_separable'] = getattr(tc, 'coeff_f_theta_separable', 0.0)
+        self._coeffs['f_theta_silent'] = getattr(tc, 'coeff_f_theta_silent', 0.0)
         self._coeffs['f_theta_zero'] = tc.coeff_f_theta_zero
         self._coeffs['f_theta_diff'] = tc.coeff_f_theta_diff
         self._coeffs['f_theta_msg_diff'] = tc.coeff_f_theta_msg_diff
@@ -269,7 +270,8 @@ class LossRegularizer:
         return (self._coeffs['f_theta_diff'] > 0 or
                 self._coeffs['f_theta_msg_diff'] > 0 or
                 self._coeffs['f_theta_msg_sign'] > 0 or
-                self._coeffs['f_theta_separable'] > 0)
+                self._coeffs['f_theta_separable'] > 0 or
+                self._coeffs['f_theta_silent'] > 0)
 
     def _add(self, name: str, term):
         """Internal: accumulate a regularization term into a GPU scalar.
@@ -715,6 +717,35 @@ class LossRegularizer:
             regul_term = _cross.norm(2) * _ct['f_theta_separable']
             total_regul = total_regul + regul_term
             self._add('f_theta_separable', regul_term)
+
+        if self._coeffs['f_theta_silent'] > 0:
+            # SILENT MESSAGE, HONEST EXTRAPOLATION. V_rest is read off f_theta at
+            # msg = 0, a point the trajectory loss never visits: the model's
+            # messages have a mean far from zero, so whatever f_theta does at
+            # zero message is unconstrained, and a constant there is the same
+            # function as a shift of V_rest by that constant times tau. This
+            # penalises the departure from a straight line in the msg column
+            # between 0 and the row's own message, so the value at zero follows
+            # from the slope the data does pin down.
+            #
+            # Chord test with a fresh s per row: f(s*m) must equal
+            # (1 - s) * f(0) + s * f(m). Exactly zero for every s iff f_theta is
+            # affine in msg on that segment. Three evaluations, no step size to
+            # choose -- unlike the sibling finite-difference terms it probes the
+            # whole interval rather than one point.
+            _base = in_features.clone().detach()
+            _m_col = embedding_dim + 1
+            _m = _base[:, _m_col:_m_col + 1]
+            _s = torch.rand_like(_m)
+            _at0 = _base.clone(); _at0[:, _m_col:_m_col + 1] = 0.0
+            _mid = _base.clone(); _mid[:, _m_col:_m_col + 1] = _s * _m
+            _f0 = model.f_theta(_at0)
+            _fm = model.f_theta(_base)
+            _fs = model.f_theta(_mid)
+            _chord = (_fs - ((1.0 - _s) * _f0 + _s * _fm))[ids_batch]
+            regul_term = _chord.norm(2) * _ct['f_theta_silent']
+            total_regul = total_regul + regul_term
+            self._add('f_theta_silent', regul_term)
 
         return total_regul
 
