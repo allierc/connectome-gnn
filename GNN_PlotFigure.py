@@ -75,16 +75,16 @@ from connectome_gnn.metrics import (
     extract_recovered_params,
     extract_template_params,
     template_readout_enabled,
-)
-from connectome_gnn.results_layout import (
-    clear_results as _clear_results,
-    fig_out as _fig_out,
     score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
     _batched_mlp_eval,
     _vectorized_linear_fit,
     _build_f_theta_features,
+)
+from connectome_gnn.results_layout import (
+    clear_results as _clear_results,
+    fig_out as _fig_out,
 )
 from connectome_gnn.metrics import (
     RECOVERY_KEYS, cluster_recovery, write_recovery_metrics, score_recovery)
