@@ -2389,6 +2389,15 @@ class RecoveryConfig(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
+    # WHICH READOUT PRODUCES W, E_ij, tau AND V_rest on a GNN. "template" fits
+    # the generator's own closed form to the model's per-edge message,
+    # msg_ij = W * act(v_j) * (E - v_i) + C, and scales each neuron's
+    # conductances by k_i = tau_i * dftheta_dmsg_i; "chain" is the older route
+    # through the g_phi and f_theta corrections. The template is the default
+    # because the neuron panels draw it, and a results/ directory whose figures
+    # disagree about which readout produced them is worse than either.
+    readout: str = "template"
+
     W_mode: WMode = WMode.AUTO
     # Outlier bands from neurips.tex eq:outlier_threshold. Owned here so the
     # trainer and test_plot cannot filter the same quantity differently -- which

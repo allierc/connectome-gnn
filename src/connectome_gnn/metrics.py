@@ -3161,7 +3161,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                             device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
                             gauge_frames=8, w_from="pooled_E",
-                            t_slope=3.0, update_frames=64) -> RecoveredParams:
+                            t_slope=3.0, update_frames=64,
+                            base: RecoveredParams = None) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
 
     The twin of :func:`extract_recovered_params` for the two edge quantities; see
@@ -3201,12 +3202,27 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             clear before the edge reports a reversal at all.
         update_frames: frames for the per-neuron update fit that yields tau,
             V_rest and the gauge. Capped by n_frames.
+        base: a RecoveredParams from :func:`extract_recovered_params` to start
+            from. The template readout produces W, E_ij, tau and V_rest; msg_i,
+            the gain/bias of a linear model and the f_theta diagnostics the
+            panels draw come only from the chain, so handing the chain's result
+            in here returns ONE object carrying both rather than two that
+            disagree about which is authoritative. Everything the template
+            produces overrides.
     """
     core = getattr(model, "_orig_mod", model)
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
     device = core.a.device if device is None else device
     cond = _is_conductance_data(ode_params)
-    rec = RecoveredParams()
+    if base is None:
+        rec = RecoveredParams()
+    else:
+        # A COPY, not the caller's object: the chain's result is still what
+        # results/metrics.txt is written from in some call sites, and silently
+        # mutating it would make the two files differ by call order.
+        rec = RecoveredParams(pairs=dict(base.pairs), estimator=dict(base.estimator),
+                              correction=dict(base.correction), valid=dict(base.valid),
+                              diagnostics=dict(base.diagnostics))
 
     res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
                                       n_edges=int(edges.shape[1]), n_frames=n_frames,

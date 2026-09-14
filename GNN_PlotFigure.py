@@ -73,6 +73,7 @@ from connectome_gnn.metrics import (
     compute_reversal_metrics,
     compute_msg_i_recovery,
     extract_recovered_params,
+    extract_template_params,
     score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
@@ -378,6 +379,19 @@ def _finite_range(values, fallback):
     return float(finite.min()), float(finite.max())
 
 
+def _template_readout(config, model):
+    """Whether the template readout should supersede the correction chain here.
+
+    GNNs only: it fits the model's per-edge message, and a linear or known-ODE
+    model has its parameters directly rather than through a message. Off by
+    setting recovery.readout to "chain" on a run that wants the old numbers.
+    """
+    from connectome_gnn.metrics import model_family
+    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
+        return False
+    return model_family(model) == "gnn"
+
+
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
                             log_dir, logger, log_file, n_neurons=None, extra=None):
     """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
@@ -406,6 +420,24 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     try:
         rec = extract_recovered_params(model, ode_params, config, edges=edges,
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
+        # ONE EXTRACTION FEEDS EVERY FIGURE IN results/. The template readout --
+        # the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
+        # * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i
+        # -- supersedes the correction chain for W, E_ij, tau and V_rest, and the
+        # neuron panels have been drawing it since it existed. Leaving the rest
+        # of results/ on the chain meant weights_comparison_*.png and
+        # metrics.txt described a different readout than neuron*_panels.png in
+        # the same directory. It extends the chain's object rather than
+        # replacing it, because msg_i and the f_theta diagnostics the panels draw
+        # come only from there.
+        if _template_readout(config, model):
+            try:
+                rec = extract_template_params(
+                    model, ode_params, config=config, edges=edges, x_ts=x_ts,
+                    device=device, n_neurons=n_neurons, base=rec)
+            except Exception as _exc:
+                logger.warning(f"template readout unavailable, keeping the "
+                               f"correction chain: {type(_exc).__name__}: {_exc}")
         scored = score_recovery(rec, config)
     except Exception as exc:
         logger.warning(f"recovery metrics unavailable: {type(exc).__name__}: {exc}")
