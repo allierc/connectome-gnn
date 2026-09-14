@@ -1211,6 +1211,22 @@ class TrainingConfig(BaseModel):
     coeff_f_theta_diff: float = 0  # Negative monotonicity of f_theta w.r.t. state v_i (enforces leak: df/dv < 0)
     coeff_f_theta_msg_diff: float = 0  # Monotonicity of f_theta w.r.t. aggregated message input
     coeff_f_theta_msg_sign: float = 0  # Sign consistency: f_theta output should match message sign
+    # EQUAL AND OPPOSITE: the message and the neuron's own voltage enter the
+    # generator's update inside one bracket over one tau,
+    # (V_rest - v_i + msg_i + I_i) / tau_i, so df/dmsg = -df/dv for every neuron
+    # whatever its tau. Penalises the relative residual
+    #
+    #     || (df/dmsg + df/dv) / rms_batch(df/dv) ||_2
+    #
+    # with the normaliser detached. tau does not appear, which is the point: it
+    # is the quantity being recovered and cannot enter the objective recovering
+    # it. This is the only term that pins the message's SCALE, which is otherwise
+    # free -- msg/c with a gain of c through f_theta is the same trajectory -- and
+    # that freedom is what let the sigma=0 conductance run shrink its entire
+    # weight vector to 1e-8 while f_theta amplified the message back. Orthogonal
+    # to coeff_g_phi_silent, which pins the message's LEVEL; the gauge is affine
+    # and needs both. UNTUNED.
+    coeff_f_theta_msg_gain: float = 0
     coeff_func_f_theta: float = 0.0  # Penalize f_theta output at zero input
     coeff_f_theta_weight_L1: float = 0  # L1 penalty on f_theta MLP weights
     coeff_f_theta_weight_L2: float = 0  # L2 penalty on f_theta MLP weights
