@@ -3157,6 +3157,27 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
     return dfdmsg * tau, dfdmsg, tau, autograd_dfdmsg
 
 
+def template_readout_enabled(config, model) -> bool:
+    """Whether the template readout supersedes the correction chain for this run.
+
+    ONE PREDICATE, not one per caller. The trainer reads it at every checkpoint
+    for the progress bar and tmp_training/<key>.log, and GNN_PlotFigure reads it
+    for results/; if the two ever disagreed, a run's trajectory and its final
+    numbers would describe different estimators and only the disagreement would
+    be visible.
+
+    GNNs with a g_phi only. `model_family` defaults to "gnn" for anything without
+    a MODEL_FAMILY tag, and the conductance known-ODE carries that tag while
+    having no g_phi at all -- there is no per-edge message to fit a template to,
+    and its parameters are direct. `recovery.readout: chain` opts a run out.
+    """
+    from connectome_gnn.models.utils import model_family
+    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
+        return False
+    core = getattr(model, "_orig_mod", model)
+    return model_family(model) == "gnn" and hasattr(core, "g_phi")
+
+
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",

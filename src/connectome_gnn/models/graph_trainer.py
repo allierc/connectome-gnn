@@ -819,11 +819,34 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # produces the (gt, learned) pair once, score_recovery scores it,
                 # and the panels consume the same arrays.
                 from connectome_gnn.metrics import (
-                    extract_recovered_params, score_recovery)
+                    extract_recovered_params, extract_template_params,
+                    score_recovery, template_readout_enabled)
                 _rec = extract_recovered_params(
                     model, ode_params, config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons,
                     need=("W", "tau", "V_rest", "E_ij", "msg_i"))
+                # THE SAME READOUT THE FIGURES USE, at every checkpoint. The
+                # template fit -- the generator's own closed form per edge,
+                # msg_ij = W*act(v_j)*(E - v_i) + C, carried into the generator's
+                # units by k_i = tau_i * dftheta_dmsg_i -- supersedes the
+                # correction chain for W, E_ij, tau and V_rest, and it is what
+                # results/ has reported since GNN_PlotFigure switched. A
+                # progress bar and a tmp_training/<key>.log that disagree with
+                # the final metrics.txt of the same run are worse than either,
+                # because the trajectory in the log is what a sweep is read on.
+                # It EXTENDS the chain's object rather than replacing it: msg_i
+                # and the f_theta diagnostics the training panels draw come only
+                # from there.
+                if template_readout_enabled(config, model):
+                    try:
+                        _rec = extract_template_params(
+                            model, ode_params, config=config, edges=edges,
+                            x_ts=x_ts, device=device, n_neurons=n_neurons,
+                            base=_rec)
+                    except Exception as _exc:
+                        logger.warning(
+                            f"template readout unavailable at checkpoint, keeping "
+                            f"the correction chain: {type(_exc).__name__}: {_exc}")
                 _scored = score_recovery(_rec, config)
                 _rec_last = _rec
                 _rec_op = ode_params
