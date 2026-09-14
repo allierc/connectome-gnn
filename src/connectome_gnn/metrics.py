@@ -3085,7 +3085,12 @@ def _update_template_fit(model, config, edges, x_ts, n_neurons, device,
     with np.errstate(divide='ignore', invalid='ignore'):
         V = np.where(T != 0, b[:, 0] / T, np.nan)
         G = np.where(T != 0, b[:, 2] / T, np.nan)
-    return T, V, G, r2
+    # a1 and a0 are handed back raw as well: they are the f_theta SLOPE and
+    # OFFSET that ode_params.derive_tau and derive_vrest invert, and the
+    # inversion is family-specific and clipped. Reading tau as a bare 1/T
+    # instead sent tau_R2 to -11 on a model whose T collapses for some neurons,
+    # where the clipped inversion reported 0.81 for the same weights.
+    return T, V, G, r2, b[:, 1], b[:, 0]
 
 
 def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
@@ -3265,7 +3270,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         pct_slope = 100.0 if cond else float("nan")
         W_used = W_fit
 
-    T, V_fit, G_fit, update_r2 = _update_template_fit(
+    T, V_fit, G_fit, update_r2, slope_f, offset_f = _update_template_fit(
         core, config, edges, x_ts, n_neurons, device,
         n_frames=min(n_frames, update_frames), seed=seed)
     k, dfdmsg, tau_used, autograd_dfdmsg = _template_gauge(
@@ -3315,15 +3320,17 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # nothing and keeps one story: if T is wrong, tau, V_rest and every scaled
     # W are wrong together and the update R2 says why.
     if ode_params.has_tau():
-        with np.errstate(divide='ignore', invalid='ignore'):
-            tau_learned = np.where(T > 0, 1.0 / T, np.nan)
-        rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons), tau_learned)
+        rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
+                                 ode_params.derive_tau(slope_f, n_neurons))
         rec.estimator["tau"] = "update_template"
-        rec.correction["tau"] = "tau_i = 1 / T_i, T from pred ~ a0 + a1*v + a2*msg + a3*stim"
+        rec.correction["tau"] = ("ode_params.derive_tau of a1, from "
+                                 "pred ~ a0 + a1*v + a2*msg + a3*stim on real frames")
     if ode_params.has_vrest():
-        rec.pairs["V_rest"] = _pair(ode_params.gt_vrest(n_neurons), V_fit)
+        rec.pairs["V_rest"] = _pair(ode_params.gt_vrest(n_neurons),
+                                    ode_params.derive_vrest(slope_f, offset_f, n_neurons))
         rec.estimator["V_rest"] = "update_template"
-        rec.correction["V_rest"] = "V_i = a0 / T_i, confounded with a constant in f(stim)"
+        rec.correction["V_rest"] = ("ode_params.derive_vrest of (a1, a0); a0 is "
+                                    "confounded with a constant inside f(stim)")
     rec.diagnostics["tmpl_update_r2_median"] = float(np.nanmedian(update_r2))
     rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
     # The update template's own T*G against autograd's df_theta/dmsg. They agree
