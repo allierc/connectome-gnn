@@ -366,7 +366,7 @@ def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices
     _ax.spines['left'].set_visible(False)
     _ax.legend(loc='upper right', fontsize=12)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'activity_{config_indices}_tau_outliers.png'),
+    plt.savefig(_fig_out(log_dir, f'activity_tau_outliers.png'),
                 dpi=300, bbox_inches='tight')
     plt.close()
 
@@ -384,49 +384,107 @@ def _finite_range(values, fallback):
     return float(finite.min()), float(finite.max())
 
 
-def _plot_Eij_comparison(rec, scored, log_dir, config_indices):
-    """Reversal potential, learned against true, one point per fitted edge.
+# The four headline scatters, and the one thing they all must satisfy: they are
+# drawn from the SAME RecoveredParams that results/metrics.txt is written from.
+# Before this, the tau and V_rest figures came from an earlier f_theta-slope
+# computation and the W figures from the gain-correction chain, so a directory
+# could report Wij_R2 0.942 beside a scatter drawn from a different estimator
+# entirely -- and nothing on either said so.
+#
+# axis: (x label, y label, limits or None for data-driven, ticks or None)
+_SCATTER_SPEC = {
+    "W":      dict(out="Wij_comparison.png",    thresh=W_OUTLIER_THRESH,
+                   xlabel=r"true $W_{ij}$",     ylabel=r"learned $W_{ij}$"),
+    "tau":    dict(out="tau_comparison.png",    thresh=TAU_OUTLIER_THRESH,
+                   xlabel=r"true $\tau$",       ylabel=r"learned $\tau$",
+                   lim=(-0.025, 0.5), ticks=([0.0, 0.25, 0.5], ["0.0", "0.25", "0.5"])),
+    "V_rest": dict(out="V_rest_comparison.png", thresh=VREST_OUTLIER_THRESH,
+                   xlabel=r"true $V_{rest}$",   ylabel=r"learned $V_{rest}$"),
+    "E_ij":   dict(out="Eij_comparison.png",    thresh=None,
+                   xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$"),
+}
 
-    E_ij is the one recovered quantity that needs no gauge -- it is the voltage
-    where a synapse's message vanishes, and a root does not move when the
-    function around it is rescaled -- so this is the figure that says whether the
-    synapse's IDENTITY came back, as opposed to its strength. The truth takes a
-    small number of distinct values (one E_exc, one E_inh per cell type), so the
-    points fall in columns and the spread within a column is the error.
+
+def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
+    """One quantity, learned against true, on the wo-outliers template.
+
+    Outliers -- |learned - true| above the quantity's threshold -- are drawn in
+    red and excluded from the R2 and slope, with the full-sample R2 in
+    parentheses beside it and the share that was dropped underneath, so the
+    figure states its own filtering rather than hiding it. A quantity with no
+    threshold (the reversal) draws every point and reports one R2.
+
+    Returns the path written, or None when the run does not have this quantity.
     """
-    if rec is None:
-        return
-    pair = rec.pairs.get("E_ij")
-    if pair is None or len(pair[0]) < 2:
-        return
-    gt, learned = np.asarray(pair[0], float), np.asarray(pair[1], float)
+    pair = rec.pairs.get(quantity) if rec is not None else None
+    spec = _SCATTER_SPEC.get(quantity)
+    if pair is None or spec is None:
+        return None
+    gt = np.asarray(pair[0], dtype=float).ravel()
+    learned = np.asarray(pair[1], dtype=float).ravel()
     ok = np.isfinite(gt) & np.isfinite(learned)
     gt, learned = gt[ok], learned[ok]
-    fig, ax = plt.subplots(figsize=(6.5, 6.5))
-    ax.plot(gt, learned, ".", ms=1.5, alpha=0.2, color="0.35", rasterized=True)
-    lo = float(min(gt.min(), np.percentile(learned, 1)))
-    hi = float(max(gt.max(), np.percentile(learned, 99)))
-    ax.plot([lo, hi], [lo, hi], color="tab:green", lw=1)
-    # The y range is set from percentiles, not from the data: a handful of edges
-    # whose driving force is barely identified return |E| in the hundreds and
-    # would otherwise flatten every real point onto one line.
-    ax.set_xlim(lo, hi)
-    ax.set_ylim(lo, hi)
-    ax.set_xlabel("true E_ij")
-    ax.set_ylabel("learned E_ij")
-    _r2, _rmse = scored.get("Eij_R2"), scored.get("Eij_rmse")
-    _bits = [f"n = {gt.size}"]
-    if _r2 is not None and _r2 == _r2:
-        _bits.append(f"R2 = {_r2:+.3f}")
-    if _rmse is not None and _rmse == _rmse:
-        _bits.append(f"rmse = {_rmse:.2f} V")
-    ax.text(0.02, 1.02, "E_ij   " + "   ".join(_bits), transform=ax.transAxes,
-            va="bottom", fontsize=11)
-    for sp in ("top", "right"):
-        ax.spines[sp].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(_fig_out(log_dir, f"Eij_comparison_{config_indices}.png"), dpi=300)
+    if gt.size < 2:
+        return None
+
+    thresh = spec.get("thresh")
+    m = recovery_param_metrics(gt, learned, thresh)
+    if thresh is None:
+        out_mask = np.zeros(gt.size, dtype=bool)
+        r2_head, slope = m["r2"], m["slope"]
+        r2_all = None
+    else:
+        out_mask = np.abs(learned - gt) > thresh
+        r2_head, slope, r2_all = m["r2_clean"], m["slope_clean"], m["r2"]
+    pct_out = 100.0 * out_mask.sum() / gt.size
+
+    fig = plt.figure(figsize=(10, 9))
+    plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.3, rasterized=True)
+    if out_mask.any():
+        plt.scatter(gt[out_mask], learned[out_mask], c="red", s=6, alpha=0.7,
+                    rasterized=True)
+    lim = spec.get("lim")
+    if lim is None:
+        # From the TRUE values plus the inlier spread: a handful of learned
+        # values orders of magnitude off would otherwise flatten every real
+        # point onto one line, and they are already counted as outliers.
+        _lo = float(min(gt.min(), np.percentile(learned, 1)))
+        _hi = float(max(gt.max(), np.percentile(learned, 99)))
+        _pad = 0.05 * max(_hi - _lo, 1e-9)
+        lim = (_lo - _pad, _hi + _pad)
+    _line = np.linspace(lim[0], lim[1], 2)
+    plt.plot(_line, _line, "--", color="gray", linewidth=1, alpha=0.6)
+    if thresh is not None:
+        plt.plot(_line, _line + thresh, ":", color="gray", linewidth=1, alpha=0.5)
+        plt.plot(_line, _line - thresh, ":", color="gray", linewidth=1, alpha=0.5)
+
+    ax = plt.gca()
+    if is_degenerate_gt(gt):
+        _txt = r2_scatter_text(gt, learned)
+    elif r2_all is None:
+        _txt = f"R²: {r2_head:.2f}\nslope: {slope:.2f}"
+    else:
+        _txt = f"R²: {r2_head:.2f} ({r2_all:.2f})\nslope: {slope:.2f}"
+    ax.text(0.05, 0.95, _txt, transform=ax.transAxes, verticalalignment="top",
+            fontsize=32)
+    ax.text(0.05, 0.78, f"outliers: {pct_out:.1f}%", transform=ax.transAxes,
+            verticalalignment="top", fontsize=32)
+    plt.xlabel(spec["xlabel"], fontsize=56)
+    plt.ylabel(spec["ylabel"], fontsize=56)
+    plt.xlim(*lim)
+    plt.ylim(*lim)
+    ticks = spec.get("ticks")
+    if ticks:
+        plt.xticks(ticks[0], ticks[1], fontsize=51)
+        plt.yticks(ticks[0], ticks[1], fontsize=51)
+    else:
+        plt.xticks(fontsize=40)
+        plt.yticks(fontsize=40)
+    plt.tight_layout()
+    out = _fig_out(log_dir, spec["out"])
+    plt.savefig(out, dpi=300)
     plt.close(fig)
+    return out
 
 
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
@@ -653,7 +711,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'tau_comparison_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_fslope.png'), dpi=300)
     plt.close()
     if is_degenerate_gt(gt_taus_np):
         _tau_mae = recovery_mae(gt_taus_np, learned_tau)
@@ -715,7 +773,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type.png'), dpi=300)
     plt.close()
 
     # --- Plot 3c: tau comparison with outliers in red, R²/slope on inliers only ---
@@ -745,7 +803,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers.png'), dpi=300)
     plt.close()
     print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean)}{r2_tau_clean:.3f}{_ANSI_RESET}  "
           f"slope: {slope_tau_clean:.2f}  "
@@ -777,7 +835,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_fslope.png'), dpi=300)
     plt.close()
     if is_degenerate_gt(gt_V_rest_np):
         _v_mae = recovery_mae(gt_V_rest_np, learned_V_rest)
@@ -830,7 +888,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type.png'), dpi=300)
     plt.close()
 
     # --- Plot 4c: V_rest comparison with outliers in red, R²/slope on inliers only ---
@@ -860,7 +918,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers.png'), dpi=300)
     plt.close()
     print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean)}{r2_v_clean:.3f}{_ANSI_RESET}  "
           f"slope: {slope_v_clean:.2f}  "
@@ -885,7 +943,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(fontsize=24)
     plt.yticks(fontsize=24)
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f"dynamics_params_{config_indices}.png"), dpi=300)
+    plt.savefig(_fig_out(log_dir, f"dynamics_params.png"), dpi=300)
     plt.close()
 
     # --- Plot 6: Gain comparison (if available) ---
@@ -902,7 +960,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         plt.xticks(fontsize=24)
         plt.yticks(fontsize=24)
         plt.tight_layout()
-        plt.savefig(_fig_out(log_dir, f'gain_comparison_{config_indices}.png'), dpi=300)
+        plt.savefig(_fig_out(log_dir, f'gain_comparison.png'), dpi=300)
         plt.close()
         print(f"gain R²: {_r2_color(r_squared_gain)}{r_squared_gain:.3f}{_ANSI_RESET}  slope: {slope_gain:.2f}")
         logger.info(f"gain R²: {r_squared_gain:.3f}  slope: {slope_gain:.2f}")
@@ -921,7 +979,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         plt.xticks(fontsize=24)
         plt.yticks(fontsize=24)
         plt.tight_layout()
-        plt.savefig(_fig_out(log_dir, f'bias_comparison_{config_indices}.png'), dpi=300)
+        plt.savefig(_fig_out(log_dir, f'bias_comparison.png'), dpi=300)
         plt.close()
         print(f"bias R²: {_r2_color(r_squared_bias)}{r_squared_bias:.3f}{_ANSI_RESET}  slope: {slope_bias:.2f}")
         logger.info(f"bias R²: {r_squared_bias:.3f}  slope: {slope_bias:.2f}")
@@ -1344,7 +1402,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
              transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
     plt.tight_layout()
-    plt.savefig(_fig_out(log_dir, f'embedding_augmented_{config_indices}.png'), dpi=300)
+    plt.savefig(_fig_out(log_dir, f'embedding_augmented.png'), dpi=300)
     plt.close()
 
     # Per-neuron type analysis
@@ -1707,7 +1765,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                            round(_y_hi, 1)])
             ax.tick_params(axis='both', labelsize=51)
             plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f'embedding_{config_indices}.png'), dpi=300)
+            plt.savefig(_fig_out(log_dir, f'embedding.png'), dpi=300)
             plt.close()
 
             n_pts = 1000
@@ -1778,7 +1836,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax2.set_ylim(_gp_ylim(func_np))
 
             plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f"g_phi_{config_indices}_domain.png"), dpi=300)
+            plt.savefig(_fig_out(log_dir, f"g_phi_domain.png"), dpi=300)
             plt.close()
 
             # NEW: scatter plot of learned vs true g_phi outputs.
@@ -1808,7 +1866,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
                 plt.yticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'g_phi_scatter_{config_indices}.png'),
+                plt.savefig(_fig_out(log_dir, f'g_phi_scatter.png'),
                             dpi=300)
                 plt.close()
 
@@ -1840,7 +1898,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.xticks(fontsize=24)
             plt.yticks(fontsize=24)
             plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f"g_phi_slope_{config_indices}.png"), dpi=300)
+            plt.savefig(_fig_out(log_dir, f"g_phi_slope.png"), dpi=300)
             plt.close()
 
             # f_theta domain range: evaluate + slope extraction (vectorized)
@@ -1879,7 +1937,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax2.tick_params(axis='both', which='major', labelsize=24)
 
             plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f"f_theta_{config_indices}_domain.png"), dpi=300)
+            plt.savefig(_fig_out(log_dir, f"f_theta_domain.png"), dpi=300)
             plt.close()
 
             # NEW: scatter plot of learned vs true f_theta outputs.
@@ -1916,7 +1974,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([-_ft_tick, 0, _ft_tick], fontsize=51)
                 plt.yticks([-_ft_tick, 0, _ft_tick], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'f_theta_scatter_{config_indices}.png'),
+                plt.savefig(_fig_out(log_dir, f'f_theta_scatter.png'),
                             dpi=300)
                 plt.close()
 
@@ -1958,7 +2016,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'tau_comparison_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_fslope.png'), dpi=300)
                 plt.close()
 
                 # Outlier mask on |learned - true| > 0.1, shared by both extra plots.
@@ -2006,7 +2064,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type.png'), dpi=300)
                 plt.close()
 
                 # tau_comparison_wo_outliers — outliers in red, R²/slope on inliers.
@@ -2036,7 +2094,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers.png'), dpi=300)
                 plt.close()
 
             gt_vrest_np = ode_params.gt_vrest(n_neurons)
@@ -2063,7 +2121,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_fslope.png'), dpi=300)
                 plt.close()
 
                 # Outlier mask on |learned - true| > 0.2, shared by both extra plots.
@@ -2101,7 +2159,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type.png'), dpi=300)
                 plt.close()
 
                 # V_rest_comparison_wo_outliers — outliers in red, R²/slope on inliers.
@@ -2131,7 +2189,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers_{config_indices}.png'), dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers.png'), dpi=300)
                 plt.close()
 
             # f_theta derived params plot — panels depend on model
@@ -2176,7 +2234,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         plt.xticks(fontsize=24)
                     plt.yticks(fontsize=24)
                 plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f"f_theta_{config_indices}_params.png"), dpi=300)
+                plt.savefig(_fig_out(log_dir, f"f_theta_params.png"), dpi=300)
                 plt.close()
 
 
@@ -2378,6 +2436,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # isn't defined yet at this point of plot_synaptic (some are
             # set later in the function), so the dump degrades gracefully
             # rather than crashing on a NameError or None.attribute.
+            # Keeps the dataset in its name: figures/fig_clustering_appendix.py
+            # and fig_ground_truth_distributions.py read it by that name.
             _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
             _panel_data = {}
 
@@ -2544,7 +2604,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         plt.xticks(fontsize=24)
                         plt.yticks(fontsize=24)
                         plt.tight_layout()
-                        plt.savefig(_fig_out(log_dir, f'g_phi_{pname}_comparison_{config_indices}.png'), dpi=300)
+                        plt.savefig(_fig_out(log_dir, f'g_phi_{pname}_comparison.png'), dpi=300)
                         plt.close()
 
             # Write to analysis log file for Claude
@@ -2575,10 +2635,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # produces the pair -- so the one quantity that is gauge-invariant,
             # and therefore the one recoverable absolutely, was the only one with
             # no picture. Drawn here because this is where the pair exists.
-            try:
-                _plot_Eij_comparison(_rec_final, _scored_final, log_dir, config_indices)
-            except Exception as _exc:
-                logger.warning(f"Eij comparison skipped: {type(_exc).__name__}: {_exc}")
+            # THE FOUR SCATTERS, from the same RecoveredParams the metrics come
+            # from. The older comparison figures are still drawn -- they are in
+            # extras/ under their estimator's name -- but they read the f_theta
+            # slope on a synthetic msg = 0 grid and print the UNFILTERED R2,
+            # while metrics.txt reports the template readout filtered at the
+            # outlier band. Two numbers for one quantity in one directory, with
+            # nothing saying which was which; these four cannot drift, because
+            # the figure and the file now read one array.
+            for _q in ("W", "E_ij", "tau", "V_rest"):
+                try:
+                    _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc)
+                    if _p:
+                        logger.info(f"{_q} scatter -> {os.path.basename(_p)}")
+                except Exception as _exc:
+                    logger.warning(f"{_q} scatter skipped: {type(_exc).__name__}: {_exc}")
 
             # Plot connectivity matrix comparison (only for small networks)
             if n_neurons < 1000:
@@ -3353,7 +3424,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
                     transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
             plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f'embedding_augmented_{config_indices}.png'), dpi=300)
+            plt.savefig(_fig_out(log_dir, f'embedding_augmented.png'), dpi=300)
             plt.close()
 
     # ---- Activity traces: clean vs noisy (measurement noise) ----

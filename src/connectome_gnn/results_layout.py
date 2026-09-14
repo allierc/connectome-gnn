@@ -10,12 +10,11 @@ WHAT STAYS IN results/, and why each earns it:
     neuron<N>_panels.png      one neuron opened up, term by term: the readout
                               that shows whether the synapses came back
     rollout_*                 the free-running trajectory against the generator
-    weights_comparison_*      W_ij learned against true
-    Wij_scatter_*             the same over the whole connectome, log axes
-    Eij_comparison_*          reversal potentials, the one gauge-invariant
-    learned_reversals.png     quantity and so the one recoverable absolutely
-    tau_comparison_<ds>.png   tau and V_rest against truth; their cell_type and
-    V_rest_comparison_<ds>    wo_outliers variants go to extras
+    Wij_comparison.png        the four scatters against truth. All four come
+    Eij_comparison.png        from the same RecoveredParams that metrics.txt is
+    tau_comparison.png        written from, and each states its own filtering:
+    V_rest_comparison.png     R2 without outliers, the full-sample R2 beside it
+    Wij_scatter_*             in parentheses, and the share that was dropped
     embedding*                the learned embedding, which the cell-type
                               clustering is read off
 
@@ -27,32 +26,32 @@ histogram with nothing distinguishing them.
 
 import os
 
-# First match wins; checked after _EXTRAS_FIRST.
-KEEP_PREFIXES = (
-    "neuron",                  # narrowed below: only the per-neuron panels
-    "rollout",
-    "weights_comparison",
-    "weight_comparison",       # graph_tester's singular spelling
-    "Wij_scatter",
-    "Eij_comparison",
-    "learned_reversals",
-    "tau_comparison_",
-    "V_rest_comparison_",
-    "embedding",
-    "hidden_inr_traces",
-    "metrics",                 # metrics.txt / metrics_pysr.txt, if ever routed
+# The four scatters against truth, by EXACT name. Exact rather than prefix
+# because each has demoted siblings -- tau_comparison_cell_type,
+# tau_comparison_fslope, weights_comparison_corrected -- that a prefix would
+# sweep back in, and because only these four are drawn from the same
+# RecoveredParams that results/metrics.txt is written from. The others are
+# earlier estimators, kept for comparison, which is what extras/ is for.
+KEEP_EXACT = (
+    "Wij_comparison.png",
+    "Eij_comparison.png",
+    "tau_comparison.png",
+    "V_rest_comparison.png",
 )
 
-# Checked BEFORE KEEP_PREFIXES, for names a keep-prefix would otherwise capture:
-# the non-headline variants of the tau/V_rest scatters, and the cell-type RMSE
-# bar chart, which begins with "neuron" but is not a neuron panel.
-EXTRAS_FIRST = (
-    "tau_comparison_cell_type",
-    "tau_comparison_wo_outliers",
-    "V_rest_comparison_cell_type",
-    "V_rest_comparison_wo_outliers",
-    "neuron_type_reconstruction",
+# First match wins; checked after EXTRAS_FIRST.
+KEEP_PREFIXES = (
+    "neuron",                  # narrowed by EXTRAS_FIRST to the per-neuron panels
+    "rollout",
+    "Wij_scatter",             # tools/wij_scatter, the log-axis population view
+    "embedding",
+    "hidden_inr_traces",
+    "metrics",
 )
+
+# Checked BEFORE KEEP_PREFIXES, for the one name a keep-prefix would otherwise
+# capture: the cell-type RMSE bar chart begins with "neuron" and is not a panel.
+EXTRAS_FIRST = ("neuron_type_reconstruction",)
 
 # Not figures, and not swept: written by one pass and read by a later one.
 # metrics.txt is deliberately NOT here -- data_plot rewrites it from scratch and
@@ -64,7 +63,7 @@ KEEP_ALWAYS = ("corrected_W.pt", "learned_ode_params.pt", "test_metrics.npz")
 def is_headline(name) -> bool:
     """Whether this filename belongs in results/ rather than results/extras/."""
     base = os.path.basename(str(name))
-    if base in KEEP_ALWAYS:
+    if base in KEEP_ALWAYS or base in KEEP_EXACT:
         return True
     if base.startswith(EXTRAS_FIRST):
         return False
