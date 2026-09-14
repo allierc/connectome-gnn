@@ -2417,6 +2417,55 @@ class RecoveryConfig(BaseModel):
     report_scaled: bool = True
 
 
+class AnalysisConfig(BaseModel):
+    """Per-neuron readout: which neurons to open up, and how hard to search.
+
+    WHAT IT PRODUCES. For each listed neuron, `-o plot` writes
+    results/neuron<id>_panels.png: its free-running voltage against the
+    generator's, the update dv/dt, the total incoming message, every incoming
+    synapse separately, and beside them the closed forms -- the generator's own,
+    with its conductances and reversals substituted in, against the ones
+    symbolic regression reads out of the trained model.
+
+    WHY ONE NEURON AT A TIME. Fixing the postsynaptic neuron makes its embedding
+    a constant and each incoming edge's presynaptic embedding a constant too, so
+    every fit is a two-variable problem in (v_j, v_i) whose answer can be checked
+    against the number the generator used. Fitting across all edges at once mixes
+    edges the model got right with edges it never had information about and
+    returns one aggregate score that hides both.
+
+    The symbolic part needs PySR, which needs a Julia runtime. Where that is
+    missing the panels are still drawn and the equation column says so, rather
+    than the plot step failing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Postsynaptic neurons to open up. Empty means the readout is skipped, which
+    # is the default so that adding this section to a config changes nothing
+    # until a neuron is named.
+    neurons: list[int] = Field(default_factory=list)
+
+    # Symbolic regression. Off gives the panels without the equation column.
+    sr_enabled: bool = True
+    # Frames the fits and the panels use, taken consecutively from the TEST
+    # split so that every panel shares one window and one trajectory. 600 frames
+    # is 12 s at the flyvis timestep.
+    sr_start_frame: int = 500
+    sr_frames: int = 600
+    # PySR's search budget. maxsize is the cap on expression complexity: large
+    # enough to write relu(v_j) * (E - v_i) with its two constants, small enough
+    # that the answer stays readable, which is the point of the exercise.
+    sr_niterations: int = 30
+    sr_maxsize: int = 15
+    # Fits are one per incoming synapse plus one for the update, so a neuron with
+    # a large in-degree is capped rather than left to run for hours. The
+    # strongest conductances are kept.
+    sr_max_edges: int = 16
+    sr_binary_operators: list[str] = Field(default_factory=lambda: ["+", "-", "*"])
+    sr_unary_operators: list[str] = Field(default_factory=lambda: ["relu"])
+
+
 class NeuralGraphConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2438,6 +2487,7 @@ class NeuralGraphConfig(BaseModel):
     task: Optional[TaskConfig] = None
     circuit: Optional[CircuitConfig] = None
     recovery: RecoveryConfig = Field(default_factory=RecoveryConfig)
+    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
 
     @staticmethod
     def from_yaml(file_name: str):

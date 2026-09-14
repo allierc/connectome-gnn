@@ -1,4 +1,4 @@
-description: 'Nominal noise-free t+1 baseline, fold=3 (blank50).'
+description: Nominal noise-free t+1 baseline, fold=3 (blank50).
 dataset: flyvis_noise_free_blank50_cv03
 simulation:
   connectivity_file: to be specified
@@ -77,3 +77,6 @@ training:
   n_epochs: 1
   data_augmentation_loop: 500
 config_file: fly/flyvis_current_noise_free_current_cv03
+analysis:
+  neurons:
+  - 2895

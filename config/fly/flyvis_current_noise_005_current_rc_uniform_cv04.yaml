@@ -1,13 +1,14 @@
-description: 'ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_current_noise_005_current_cv04 on flyvis_A noise-005, fold 4.'
+description: ROLLOUT uniform, K=1..5 curriculum, paired against flyvis_current_noise_005_current_cv04
+  on flyvis_A noise-005, fold 4.
 dataset: flyvis_noise_005_blank50_cv04
 simulation:
   connectivity_file: to be specified
-  adjacency_matrix: ""
+  adjacency_matrix: ''
   params:
-    - - 1.0
-      - 1.0
-      - 1.0
-      - 1.0
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
   n_neurons: 13741
   n_input_neurons: 1736
   n_neuron_types: 65
@@ -19,7 +20,7 @@ simulation:
   noise_model_level: 0.05
   seed: 46
   datavis_roots:
-    - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
@@ -41,11 +42,11 @@ plotting:
   colormap: tab20
   arrow_length: 1
   xlim:
-    - -2.5
-    - 2.5
+  - -2.5
+  - 2.5
   ylim:
-    - -100
-    - 100
+  - -100
+  - 100
 training:
   torch_compile: true
   mlp_precision: bf16
@@ -77,7 +78,15 @@ training:
   deterministic: true
   n_epochs: 5
   data_augmentation_loop: 100
-  rollout_horizon_schedule: [1, 2, 3, 4, 5]
+  rollout_horizon_schedule:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
   frame_target_offset: 1
+analysis:
+  neurons:
+  - 2895

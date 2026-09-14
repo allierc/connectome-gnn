@@ -393,6 +393,34 @@ if __name__ == "__main__":
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
 
+            # Per-neuron readout: trajectory, update, message, every synapse, and
+            # the closed forms beside them. Driven by config.analysis.neurons, so
+            # a config that names no neuron is unaffected.
+            try:
+                import logging as _logging
+                from connectome_gnn.neuron_panels import analyse_neurons
+                from connectome_gnn.models.training_utils import (
+                    init_training_data as _itd)
+                from connectome_gnn.models.registry import create_model as _cm
+                from connectome_gnn.utils import migrate_state_dict as _mig
+                import glob as _glob
+                if getattr(config, "analysis", None) and config.analysis.neurons:
+                    _log = _logging.getLogger(__name__)
+                    _d = _itd(config, device, run_log_dir, _log)
+                    _m = _cm(config.graph_model.signal_model_name,
+                             aggr_type=config.graph_model.aggr_type, config=config,
+                             device=device).to(device)
+                    _ck = sorted(_glob.glob(os.path.join(
+                        run_log_dir, "models", "best_model_with_*_graphs_*.pt")))
+                    if _ck:
+                        _sd = torch.load(_ck[-1], map_location=device, weights_only=False)
+                        _mig(_sd)
+                        _m.load_state_dict(_sd["model_state_dict"], strict=False)
+                    _m.eval()
+                    analyse_neurons(config, _m, _d, run_log_dir, device=device, logger=_log)
+            except Exception as _e:
+                print(f"neuron panels skipped: {type(_e).__name__}: {_e}")
+
             # Conductance-twin parameter panels. No-op for every other model:
             # plot_twin_params returns None unless the checkpoint carries E_exc.
             try:

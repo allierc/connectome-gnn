@@ -88,3 +88,6 @@ training:
   - -2.0
   - 0.0
 config_file: fly/flyvis_conductance_noise_free_conductance_gnnsil_cv00
+analysis:
+  neurons:
+  - 2895

@@ -92,3 +92,6 @@ training:
   student_init: teacher_closed_form
   rollout_frames: 1000
 config_file: fly/flyvis_current_noise_free_conductance_ion_sub_cv00
+analysis:
+  neurons:
+  - 2895

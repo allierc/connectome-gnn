@@ -1,4 +1,5 @@
-description: 'Per-neuron target weighting (the reference schedule s_j) on flyvis_A noise-free, fold 3.'
+description: Per-neuron target weighting (the reference schedule s_j) on flyvis_A
+  noise-free, fold 3.
 dataset: flyvis_noise_free_blank50_cv03
 simulation:
   connectivity_file: to be specified
@@ -79,3 +80,6 @@ training:
   target_weighting: inv_increment_std
   target_weight_floor_pct: 5.0
 config_file: fly/flyvis_current_noise_free_current_tw_cv03
+analysis:
+  neurons:
+  - 2895
