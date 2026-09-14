@@ -3103,11 +3103,13 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
     affine in the message, and the gap between them is reported as
     tmpl_dfdmsg_resid so that an update which is NOT affine says so.
 
-    `gauge_tau` decides whose time constant closes the conversion: "model" uses
-    the tau this model itself gives up (1/T from the same fit), so the readout
-    borrows nothing from the truth and k collapses to G; "true" uses the
-    generator's, which is what puts the model's conductances in the units
-    ode_params.W is written in, and is what the neuron panels print.
+    `gauge_tau` decides whose time constant closes the conversion. "true" is the
+    default and what the neuron panels print: it puts the model's conductances in
+    the units ode_params.W is written in, which is the only way the two can be
+    compared edge by edge. "model" uses the tau this model itself gives up (1/T
+    from the same fit), so the readout borrows nothing from the truth and k
+    collapses to G -- blind, but it charges W with tau's per-neuron error as
+    well as its own.
 
     Returns (k, dfdmsg, tau), each (N,).
     """
@@ -3144,7 +3146,7 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
-                            vj_quantile=0.5, min_points=8, gauge_tau="model",
+                            vj_quantile=0.5, min_points=8, gauge_tau="true",
                             gauge_frames=8, w_from="pooled_E",
                             t_slope=3.0, update_frames=64) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
@@ -3166,7 +3168,17 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             say little about W or E while still weighting the least squares.
         min_points: an edge needs this many surviving frames, and a non-singular
             2x2 normal matrix, or its entry is nan.
-        gauge_tau: "model" or "true", see :func:`_template_gauge`.
+        gauge_tau: "true" (default) or "model", see :func:`_template_gauge`.
+            The default is the generator's tau BECAUSE THAT IS THE UNIT W_true
+            IS WRITTEN IN: the generator's conductance is defined by a message
+            entering dv/dt as msg/tau_true, so expressing the model's in those
+            units needs that tau. Using the model's own instead makes k_i = G_i
+            and folds every per-neuron error in the recovered time constant into
+            that neuron's conductances -- measured on the sigma=0.05 conductance
+            run, Wij_R2 +0.691 -> +0.272 and the median edge error 7.3% -> 25.2%,
+            which is a measurement of tau and W jointly rather than of W. tau is
+            reported separately (R2 0.92); "model" is kept for the fully blind
+            reading.
         w_from: "pooled_E" reads W as (W*E) / E_pooled, "slope" as the raw
             -b2 of the fit. Conductance data only; see the pooling comment.
         t_slope: how many standard errors the driving-force coefficient must
