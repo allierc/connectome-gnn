@@ -62,7 +62,7 @@ OUT=/groups/saalfeld/home/allierc/Graph/.scratch/night
 submit() {
   local cfg="$1"
   local cmd="conda run -n ${ENV} python GNN_Main.py -o train ${cfg}"
-  mkdir -p "${OUT}"
+  mkdir -p "${OUT}" 2>/dev/null || true   # the devcontainer cannot, the cluster can
   if [ "${DRY}" = "1" ]; then
     echo "bsub -n ${NCPU} -gpu \"num=1\" -q ${QUEUE} -W ${WALL} -J ${cfg} -o ${OUT}/${cfg}.out \"${cmd}\""
   else
