@@ -51,14 +51,23 @@ DRY=0
 QUEUE=gpu_a100
 WALL=24:00
 NCPU=2
+ENV=connectome-gnn
+OUT=/groups/saalfeld/home/allierc/Graph/.scratch/night
 
+# conda run, ALWAYS. An interactive bsub -Is inherits the login shell's
+# environment and bare `python` is the right one there; a batch job does not, and
+# the four current arms submitted without it on 2026-09-14 exited in 0.2 s of CPU
+# with no log directory and nothing to read, because bsub without -o keeps the
+# output. Hence also -o: a job that dies must leave its reason on disk.
 submit() {
   local cfg="$1"
-  local cmd="python GNN_Main.py -o train ${cfg}"
+  local cmd="conda run -n ${ENV} python GNN_Main.py -o train ${cfg}"
+  mkdir -p "${OUT}"
   if [ "${DRY}" = "1" ]; then
-    echo "bsub -n ${NCPU} -gpu \"num=1\" -q ${QUEUE} -W ${WALL} -J ${cfg} \"${cmd}\""
+    echo "bsub -n ${NCPU} -gpu \"num=1\" -q ${QUEUE} -W ${WALL} -J ${cfg} -o ${OUT}/${cfg}.out \"${cmd}\""
   else
-    bsub -n "${NCPU}" -gpu "num=1" -q "${QUEUE}" -W "${WALL}" -J "${cfg}" "${cmd}"
+    bsub -n "${NCPU}" -gpu "num=1" -q "${QUEUE}" -W "${WALL}" -J "${cfg}" \
+         -o "${OUT}/${cfg}.out" "${cmd}"
   fi
 }
 
