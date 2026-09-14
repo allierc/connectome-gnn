@@ -48,6 +48,12 @@ import sys
 import numpy as np
 import torch
 
+# THIS REPO'S PACKAGE, not whichever one is installed. The conda env resolves
+# connectome_gnn to the connectome-gnn-cx worktree, whose training_utils has no
+# init_training_data, so without this the tool fails at import on the cluster
+# while running fine in the devcontainer.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+
 
 def _fit_per_neuron(msg_true, msg_model):
     """Least squares msg_true ~ a * msg_model + b, one fit per neuron.
@@ -71,6 +77,51 @@ def _fit_per_neuron(msg_true, msg_model):
     resid = y - (a * x + b)
     rel = resid.std(0) / np.maximum(y.std(0), 1e-12)
     return a, b, r, rel
+
+
+def _fit_per_neuron_vi(msg_true, msg_model, v_i):
+    """Least squares msg_true ~ a * msg_model + b + c * v_i, one fit per neuron.
+
+    THE THIRD TERM IS WHERE THE LEAK ERROR LIVES. The two-term fit above can
+    only move a level into V_rest; it has nothing to say about tau, and the
+    measured tau is wrong by more than the level is. Carrying a v_i term through
+    the same substitution closes that. Writing
+    msg_model = (msg_true - b - c * v_i) / a and matching the model's
+    T * [(V - v_i) + G * msg_model] to the generator's
+    (V_rest - v_i + msg_true) / tau gives THREE identities, one per coefficient:
+
+        a = tau * T * G          the scale, the k the panels already correct
+        b = tau * T * V - V_rest the level, which V_rest absorbs
+        c = 1 - tau * T          the own-voltage slope, which the LEAK absorbs
+
+    so the message's dependence on its own postsynaptic voltage is exactly the
+    amount by which the model's leak rate T departs from the generator's 1/tau,
+    and tau = (1 - c) / T is a reading of the time constant that the update
+    alone cannot give. With tau = 0.0900 and T = 16.73 on the reference neuron
+    the prediction is c = -0.506; a c near zero would mean the message carries no
+    own-voltage term and the tau error is something else.
+
+    Arrays are (n_frames, n_neurons). Returns a, b, c and the residual standard
+    deviation as a fraction of msg_true's own, each (n_neurons,).
+    """
+    n_f, n = msg_true.shape
+    X = np.stack([msg_model, np.ones_like(msg_model), v_i], axis=2)   # (F, N, 3)
+    XtX = np.einsum('fnp,fnq->npq', X, X)
+    Xty = np.einsum('fnp,fn->np', X, msg_true)
+    a = np.full(n, np.nan)
+    b = np.full(n, np.nan)
+    c = np.full(n, np.nan)
+    rel = np.full(n, np.nan)
+    # A singular neuron is one whose model message or voltage never moved; it
+    # reports nan rather than a solution the pseudo-inverse invented.
+    det = np.linalg.det(XtX)
+    ok = np.isfinite(det) & (np.abs(det) > 1e-18)
+    if ok.any():
+        beta = np.linalg.solve(XtX[ok], Xty[ok][:, :, None])[:, :, 0]
+        a[ok], b[ok], c[ok] = beta[:, 0], beta[:, 1], beta[:, 2]
+        pred = np.einsum('fnp,np->fn', X[:, ok], beta)
+        rel[ok] = (msg_true[:, ok] - pred).std(0) / np.maximum(msg_true[:, ok].std(0), 1e-12)
+    return a, b, c, rel
 
 
 def _collect(model, data, device, n_frames):
@@ -97,7 +148,7 @@ def _collect(model, data, device, n_frames):
         E_edge = op.reversal_per_edge().to(device).float().ravel()
     did = torch.zeros((n, 1), dtype=torch.int, device=device)
 
-    TRUE, MODEL = [], []
+    TRUE, MODEL, VOLT = [], [], []
     model.eval()
     with torch.no_grad():
         for k in idx:
@@ -113,7 +164,13 @@ def _collect(model, data, device, n_frames):
             _, _, mm = model(st, edges, data_id=did, return_all=True)
             TRUE.append(to_numpy(mt).ravel()[:n])
             MODEL.append(to_numpy(mm).ravel()[:n])
-    return np.stack(TRUE).astype(float), np.stack(MODEL).astype(float)
+            VOLT.append(to_numpy(v).ravel()[:n])
+    return (np.stack(TRUE).astype(float), np.stack(MODEL).astype(float),
+            np.stack(VOLT).astype(float))
+
+
+def ode_tau(data, n):
+    return data.ode_params.gt_tau(n)
 
 
 def _r2(truth, est, keep):
@@ -156,8 +213,9 @@ def run_one(config_name, frames, device):
         raise RuntimeError("checkpoint loaded 0 tensors")
     model.eval()
 
-    msg_true, msg_model = _collect(model, data, device, frames)
+    msg_true, msg_model, v_i = _collect(model, data, device, frames)
     a, b, r, rel = _fit_per_neuron(msg_true, msg_model)
+    a3, b3, c3, rel3 = _fit_per_neuron_vi(msg_true, msg_model, v_i)
 
     rec = extract_recovered_params(model, data.ode_params, cfg, edges=data.edges,
                                    device=device, n_neurons=int(data.n_neurons),
@@ -179,6 +237,43 @@ def run_one(config_name, frames, device):
         m = np.isfinite(tt) & np.isfinite(tl)
         out["tau_R2"] = _r2(tt, tl, m)
         out["tau_ratio_median"] = float(np.median((tl / tt)[m])) if m.any() else float("nan")
+
+    # THE THREE IDENTITIES, CLOSED IN FITTED QUANTITIES. With the update fit's
+    # T, V, G and the three-term gauge (a, b, c), tau * T = 1 - c, so
+    #
+    #     tau     = (1 - c) / T          the time constant, off the message
+    #     V_rest  = (1 - c) * V - b      the resting potential, level restored
+    #     a       = (1 - c) * G          the scale, as a consistency check
+    #
+    # none of which need the generator's tau. They DO need the generator's
+    # message, so these are an account of what the model got wrong, not a blind
+    # recovery -- the blind lever on b is coeff_g_phi_silent.
+    from connectome_gnn.metrics import _update_template_fit
+    n_neurons = int(data.n_neurons)
+    T, V_t, G_t, upd_r2, _sl, _off = _update_template_fit(
+        model, cfg, data.edges.to(device), data.x_ts, n_neurons, device,
+        n_frames=min(frames, 64))
+    one_minus_c = 1.0 - c3
+    with np.errstate(divide='ignore', invalid='ignore'):
+        tau_from_c = np.where(T != 0, one_minus_c / T, np.nan)
+    vrest_from_bc = one_minus_c * V_t - b3
+    out["upd_r2_median"] = float(np.nanmedian(upd_r2))
+    out["c3_median"] = float(np.nanmedian(c3))
+    out["resid3_median"] = float(np.nanmedian(rel3))
+    out["a_over_G_times_1mc_median"] = float(np.nanmedian(
+        a3 / np.where(one_minus_c * G_t != 0, one_minus_c * G_t, np.nan)))
+    pair = rec.get("tau")
+    if pair is not None:
+        tt = np.asarray(ode_tau(data, n_neurons), float)
+        m = np.isfinite(tt) & np.isfinite(tau_from_c)
+        out["tau_R2_from_c"] = _r2(tt, tau_from_c, m)
+        out["tau_ratio_from_c_median"] = (float(np.median((tau_from_c / tt)[m]))
+                                          if m.any() else float("nan"))
+    if rec.get("V_rest") is not None:
+        vt = np.asarray(data.ode_params.gt_vrest(n_neurons), float)
+        m = np.isfinite(vt) & np.isfinite(vrest_from_bc)
+        out["vrest_R2_from_bc"] = _r2(vt, vrest_from_bc, m)
+        out["vrest_R2_tauTV_only"] = _r2(vt, one_minus_c * V_t, m)
 
     for name, arr in (("a", a), ("b", b), ("r", r), ("resid", rel)):
         v = arr[keep]
