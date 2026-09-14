@@ -386,10 +386,14 @@ def _template_readout(config, model):
     model has its parameters directly rather than through a message. Off by
     setting recovery.readout to "chain" on a run that wants the old numbers.
     """
-    from connectome_gnn.metrics import model_family
     if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
         return False
-    return model_family(model) == "gnn"
+    # g_phi IS THE REQUIREMENT, not the family tag. model_family defaults to
+    # "gnn" for anything without a MODEL_FAMILY attribute, and a conductance
+    # known-ODE carries that tag while having no g_phi at all -- there is no
+    # per-edge message to fit a template to, and its parameters are direct.
+    core = getattr(model, "_orig_mod", model)
+    return model_family(model) == "gnn" and hasattr(core, "g_phi")
 
 
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
@@ -430,14 +434,20 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         # the same directory. It extends the chain's object rather than
         # replacing it, because msg_i and the f_theta diagnostics the panels draw
         # come only from there.
-        if _template_readout(config, model):
-            try:
+        # INSIDE its own try, gate included. The gate raised an ImportError on its
+        # first run -- model_family lives in models.utils, not metrics -- and
+        # because the call sat outside this handler it reached the outer one,
+        # which drops `rec` entirely: ten runs wrote a metrics.txt with the
+        # rollout and clustering lines and not one recovered parameter. A new
+        # readout must not be able to delete the old one's numbers.
+        try:
+            if _template_readout(config, model):
                 rec = extract_template_params(
                     model, ode_params, config=config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons, base=rec)
-            except Exception as _exc:
-                logger.warning(f"template readout unavailable, keeping the "
-                               f"correction chain: {type(_exc).__name__}: {_exc}")
+        except Exception as _exc:
+            logger.warning(f"template readout unavailable, keeping the "
+                           f"correction chain: {type(_exc).__name__}: {_exc}")
         scored = score_recovery(rec, config)
     except Exception as exc:
         logger.warning(f"recovery metrics unavailable: {type(exc).__name__}: {exc}")
