@@ -39,7 +39,7 @@
 #   results/metrics.txt               rollout_r must NOT fall: the term is only
 #                                     worth having if the fit survives it
 #
-# COST: 12 arms x 24 h on a100. Trim before running if that is too much -- the
+# COST: 16 arms x 24 h on a100 (4 current + 12 conductance). Trim before running if that is too much -- the
 # two nol1sil blocks are the ones to drop first, since gnnsil is the current
 # winner and nol1sil only asks whether W_L1 still matters once the gain is pinned.
 
@@ -61,6 +61,18 @@ submit() {
     bsub -n "${NCPU}" -gpu "num=1" -q "${QUEUE}" -W "${WALL}" -J "${cfg}" "${cmd}"
   fi
 }
+
+# ------------------------------------------------- the reference current run
+# NOT PART OF THE SWEEP: four arms on flyvis_current_noise_005, the recipe that
+# already works, asking only whether each change leaves it working. nol drops
+# f_theta's weight penalties, sil adds the silent anchor, nol1sil does both minus
+# coeff_W_L1, and nol1silgain adds the new term on top at the middle coefficient.
+# Submitted by hand on 2026-09-14 as jobs 154285912-15; kept here so the night's
+# run is one file rather than a file plus a memory.
+submit flyvis_current_noise_005_current_nol
+submit flyvis_current_noise_005_current_sil
+submit flyvis_current_noise_005_current_nol1sil
+submit flyvis_current_noise_005_current_nol1silgain
 
 # ---------------------------------------------------------------- sigma = 0.05
 # The reference conductance winner. If the term helps anywhere it should help
