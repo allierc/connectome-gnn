@@ -1397,6 +1397,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     # before writing, and `-o plot` alone is meant to redraw against the rollout
     # already there. results/extras goes, because every extra is redrawn below.
     _clear_results(log_dir, spare=('rollout',), keep_extras=False)
+    # The rollout mirror below appends into this; it used to be defined by the
+    # inline removal this call replaced.
+    _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
 
     # Mirror rollout metrics from results_rollout.log (written by graph_tester)
     # into metrics.txt so downstream consumers (CV runners, LLM exploration,
