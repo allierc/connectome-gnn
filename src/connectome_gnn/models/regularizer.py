@@ -733,8 +733,18 @@ class LossRegularizer:
             # neither derivative, which is coeff_g_phi_silent's job), the split of
             # the message between W and g_phi, and which edges carry it. One
             # number per neuron: the scale.
+            #
+            # THE STEP COMES FROM THE DATA WHEN xnorm DOES NOT. The production
+            # call site passes no xnorm (training_utils.run_nominal_train_step),
+            # and the sibling terms then fall back to 1e-6 -- a step at which two
+            # float32 MLP outputs differ by rounding noise. Those terms only read
+            # the SIGN of the difference and survive it; a ratio of two such
+            # differences would be noise over noise. 5% of the batch's own
+            # voltage spread is the same intent as 0.05 * xnorm, needs nothing
+            # passed in, and stays a tensor so torch.compile can trace it.
             _base = in_features.clone().detach()
-            _d = 0.05 * max(float(xnorm), 1e-6) if xnorm is not None else 1e-6
+            _d = (0.05 * max(float(xnorm), 1e-6) if xnorm is not None
+                  else (0.05 * _base[:, 0].std()).clamp(min=1e-3))
             _m_col = embedding_dim + 1
             _fv = _base.clone(); _fv[:, 0] = _fv[:, 0] + _d
             _fm = _base.clone(); _fm[:, _m_col] = _fm[:, _m_col] + _d

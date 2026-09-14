@@ -75,11 +75,11 @@ def _features(seed=0):
     return torch.cat([v, a, msg, stim], dim=1)
 
 
-def _term(model, coeff=1.0, seed=0):
+def _term(model, coeff=1.0, seed=0, xnorm=1.0):
     reg = _reg(coeff)
     ids = torch.arange(N)
     total = reg.compute_update_regul(model, _features(seed), ids,
-                                     torch.device("cpu"), xnorm=1.0)
+                                     torch.device("cpu"), xnorm=xnorm)
     return float(total.detach())
 
 
@@ -117,3 +117,14 @@ def test_descending_on_it_drives_the_gain_to_one():
 
 def test_off_by_default():
     assert _term(_Model(gain=6.0), coeff=0.0) == 0.0
+
+
+def test_the_step_survives_no_xnorm():
+    """The production call site passes no xnorm. The sibling hinges then step by
+    1e-6, at which two float32 MLP outputs differ by rounding noise -- readable
+    as a sign, not as a ratio. With the step taken from the batch's own voltage
+    spread instead, the term reads the same gauge error with or without xnorm."""
+    with_x = _term(_Model(gain=4.0), xnorm=1.0)
+    without = _term(_Model(gain=4.0), xnorm=None)
+    assert abs(with_x - without) / max(with_x, 1e-12) < 1e-3
+    assert _term(_Model(gain=1.0), xnorm=None) < 1e-4
