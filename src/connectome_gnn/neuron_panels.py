@@ -95,7 +95,7 @@ def _edge_message_true(ode_params, idx, v_j, v_i, forms):
 #  What the model computes
 # ------------------------------------------------------------------ #
 
-def gather(model, data, neuron, start, n_frames, device="cpu"):
+def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
     """Teacher-forced quantities for one neuron over consecutive frames.
 
     Returns the neuron's voltage, stimulus, the model's aggregated message and
@@ -112,7 +112,12 @@ def gather(model, data, neuron, start, n_frames, device="cpu"):
     e = to_numpy(edges).reshape(2, -1)
     src, dst = e[0], e[1]
     n = int(data.n_neurons)
-    n_total = int(data.x_ts.n_frames)
+    # The caller may hand in the TEST split so that these panels and the free
+    # run in panel a describe the same frames of the same trajectory. Showing
+    # one split's rollout above another split's messages, on axes that both
+    # start at zero, is the mistake this argument exists to prevent.
+    x_ts = data.x_ts if x_ts is None else x_ts
+    n_total = int(x_ts.n_frames)
     start = max(0, min(start, max(0, n_total - n_frames)))
     frames = np.arange(start, min(start + n_frames, n_total))
 
@@ -120,7 +125,7 @@ def gather(model, data, neuron, start, n_frames, device="cpu"):
     V, S, MSG, PRED = [], [], [], []
     with torch.no_grad():
         for k in frames:
-            st = data.x_ts.frame(int(k)).to(device)
+            st = x_ts.frame(int(k)).to(device)
             pred, feats, msg = model(st, edges, data_id=did, return_all=True)
             V.append(to_numpy(feats[:, 0]).ravel()[:n])
             S.append(float(to_numpy(feats[:, 2 + int(core.a.shape[1])]).ravel()[neuron]))
@@ -176,51 +181,115 @@ def gather(model, data, neuron, start, n_frames, device="cpu"):
 #  Symbolic regression
 # ------------------------------------------------------------------ #
 
-def _sr_fit(X, y, names, cfg, guess=None):
-    """One PySR fit. Returns the expression string, or a reason it is missing."""
+def _r2(y, p):
+    y, p = np.asarray(y, float).ravel(), np.asarray(p, float).ravel()
+    ok = np.isfinite(y) & np.isfinite(p)
+    y, p = y[ok], p[ok]
+    ss = float(((y - y.mean()) ** 2).sum())
+    return 1.0 - float(((y - p) ** 2).sum()) / ss if ss > 0 else float("nan")
+
+
+def _sr_fit(X, y, names, cfg, guess=None, spec=None):
+    """One PySR fit. Returns (expression, R2, note).
+
+    The R2 is the point: an expression that used the whole complexity budget and
+    still explains little is a different statement from one that fits perfectly,
+    and without it a long formula cannot be told from a good one. A constant
+    target reports ITS VALUE rather than the bare word constant, because on a
+    pruned synapse that value is the finding.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    if not np.isfinite(y).all():
+        return None, float("nan"), "target has non-finite values"
+    if float(np.std(y)) < 1e-12:
+        return None, float("nan"), f"target constant at {float(np.mean(y)):.4g}"
     try:
         from pysr import PySRRegressor
     except Exception as exc:           # no Julia runtime, no PySR install
-        return None, f"PySR unavailable ({type(exc).__name__})"
-    if not np.isfinite(y).all() or float(np.std(y)) < 1e-12:
-        return None, "target is constant"
+        return None, float("nan"), f"PySR unavailable ({type(exc).__name__})"
     kw = dict(niterations=int(cfg.sr_niterations),
               operators={2: list(cfg.sr_binary_operators), 1: list(cfg.sr_unary_operators)},
               maxsize=int(cfg.sr_maxsize), progress=False, temp_equation_file=True,
               verbosity=0)
     if guess:
         kw["guesses"] = guess
+    if spec is not None:
+        kw["expression_spec"] = spec
     try:
         m = PySRRegressor(**kw)
-        m.fit(np.asarray(X, dtype=np.float64), np.asarray(y, dtype=np.float64),
-              variable_names=list(names))
-        return str(m.get_best()["equation"]), None
+        X = np.asarray(X, dtype=np.float64)
+        m.fit(X, y, variable_names=list(names))
+        return str(m.get_best()["equation"]), _r2(y, np.asarray(m.predict(X)).ravel()), None
     except Exception as exc:
-        return None, f"{type(exc).__name__}: {exc}"
+        return None, float("nan"), f"{type(exc).__name__}: {exc}"
+
+
+def _conductance_template(cfg):
+    """f(v_j) * (E[cat] - v_i): the conductance family with its reversal as a
+    fitted constant.
+
+    The free search answers "what did the model learn"; this answers "what is
+    the closest conductance to what the model learned, and with which reversal".
+    Both are kept, because only the free one can show that the model left the
+    family altogether, and only this one gives a number to put beside the
+    generator's. `cat` is a column of ones: PySR 2 indexes per-category
+    constants by a data column, and here there is a single category per fit.
+    """
+    try:
+        from pysr import TemplateExpressionSpec
+    except Exception:
+        return None
+    return TemplateExpressionSpec(combine="f(v_j) * (E[cat] - v_i)",
+                                  expressions=["f"], parameters={"E": 1},
+                                  variable_names=["v_j", "v_i", "cat"])
+
+
+def _fitted_parameters(equation):
+    """The per-category constants out of a template equation, e.g. `E = [-5.17]`."""
+    import re
+    out = {}
+    for name, body in re.findall(r"(\w+)\s*=\s*\[([^\]]*)\]", str(equation)):
+        try:
+            out[name] = [float(x) for x in body.replace(";", ",").split(",") if x.strip()]
+        except ValueError:
+            pass
+    return out
 
 
 def symbolic_forms(g, cfg):
-    """Fit the update and every incoming synapse of one neuron.
+    """Fit the update, and every incoming synapse twice: free, and templated.
 
-    The update is fitted in (v_i, msg, stim) against the model's own output, and
-    each synapse in (v_j, v_i) against that synapse's message. The generator's
-    formula is offered as a starting guess for the update, which costs nothing if
-    the model did not learn it and saves search if it did.
+    The update is fitted in (v_i, msg, stim) against the model's own output, with
+    the generator's formula offered as a starting guess. Each synapse is fitted in
+    (v_j, v_i) against that synapse's message, once with no constraint and once
+    inside the conductance family, so the recovered reversal can be read as a
+    number beside the one the generator used.
     """
-    out = {"update": None, "update_note": "disabled", "edges": {}, "edge_notes": {}}
+    out = {"update": None, "update_r2": float("nan"), "update_note": "disabled",
+           "edges": {}, "edge_r2": {}, "edge_notes": {},
+           "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_notes": {}}
     if not cfg.sr_enabled:
         return out
     f = g["forms"]
     guess = [f"({f['vrest']:.4f} - v_i + msg + stim) * {1.0 / f['tau']:.4f}"]
-    eq, note = _sr_fit(np.column_stack([g["v_i"], g["msg_model"], g["stim"]]),
-                       g["pred"], ["v_i", "msg", "stim"], cfg, guess=guess)
-    out["update"], out["update_note"] = eq, note
+    eq, r2v, note = _sr_fit(np.column_stack([g["v_i"], g["msg_model"], g["stim"]]),
+                            g["pred"], ["v_i", "msg", "stim"], cfg, guess=guess)
+    out["update"], out["update_r2"], out["update_note"] = eq, r2v, note
 
+    spec = _conductance_template(cfg) if f["conductance"] else None
+    ones = np.ones_like(g["v_i"])
     for row, idx in enumerate(g["edge_ids"][: int(cfg.sr_max_edges)]):
-        eq, note = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"]]),
-                           g["m_model"][row], ["v_j", "v_i"], cfg)
-        out["edges"][int(idx)] = eq
-        out["edge_notes"][int(idx)] = note
+        idx = int(idx)
+        eq, r2v, note = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"]]),
+                                g["m_model"][row], ["v_j", "v_i"], cfg)
+        out["edges"][idx], out["edge_r2"][idx], out["edge_notes"][idx] = eq, r2v, note
+        if spec is not None:
+            teq, tr2, tnote = _sr_fit(np.column_stack([g["v_j"][row], g["v_i"], ones]),
+                                      g["m_model"][row], ["v_j", "v_i", "cat"], cfg,
+                                      spec=spec)
+            out["tmpl"][idx], out["tmpl_r2"][idx], out["tmpl_notes"][idx] = teq, tr2, tnote
+            E = _fitted_parameters(teq).get("E") if teq else None
+            out["tmpl_E"][idx] = E[0] if E else None
     return out
 
 
@@ -230,21 +299,21 @@ def symbolic_forms(g, cfg):
 
 def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                        label=""):
-    """Write results/neuron<id>_panels.png."""
+    """Write results/neuron<id>_panels.png.
+
+    Panels a to d share one time axis; e carries the update's forms and f carries
+    the synapses', ROW BY ROW BESIDE PANEL d so each formula sits next to the
+    trace it describes rather than in a list the reader has to re-index.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    f = g["forms"]
+    fm = g["forms"]
     v_i, stim = g["v_i"], g["stim"]
     msg_true = g["m_true"].sum(0) if g["m_true"].size else np.zeros_like(v_i)
-    dvdt_true = (f["vrest"] - v_i + msg_true + stim) / f["tau"]
+    dvdt_true = (fm["vrest"] - v_i + msg_true + stim) / fm["tau"]
     t = np.arange(len(v_i)) * dt
-
-    def r2(y, p):
-        y, p = np.asarray(y, float), np.asarray(p, float)
-        ss = ((y - y.mean()) ** 2).sum()
-        return 1 - ((y - p) ** 2).sum() / ss if ss > 0 else np.nan
 
     def pear(y, p):
         y, p = np.asarray(y, float), np.asarray(p, float)
@@ -252,11 +321,15 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         d = np.sqrt((a * a).sum() * (b * b).sum())
         return float((a * b).sum() / d) if d > 0 else np.nan
 
+    def fmt_r2(x):
+        return "" if x is None or x != x else f"  (R2 {x:+.3f})"
+
     n_edges = g["m_true"].shape[0]
-    fig = plt.figure(figsize=(22, max(11, 3.0 + 1.1 * n_edges)))
-    gs = fig.add_gridspec(4, 2, width_ratios=[1.35, 1],
-                          height_ratios=[1, 1, 1, max(2.5, 0.5 * n_edges)],
-                          hspace=0.45, wspace=0.06)
+    step = 8.0                      # room for three lines of formula per synapse
+    fig = plt.figure(figsize=(23, max(13, 5.0 + 1.35 * n_edges)))
+    gs = fig.add_gridspec(4, 2, width_ratios=[1.15, 1],
+                          height_ratios=[1, 1, 1, max(3.0, 0.62 * n_edges)],
+                          hspace=0.45, wspace=0.05)
 
     ax = fig.add_subplot(gs[0, 0])
     if rollout is not None:
@@ -266,14 +339,14 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         head = f"a   voltage, free-running rollout   r = {pear(*rollout):.4f}"
     else:
         ax.plot(t, v_i, color="black", lw=0.9)
-        head = "a   voltage (no rollout bundle; -o test writes one)"
+        head = "a   voltage (no aligned rollout available)"
     ax.text(0.004, 1.03, head, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("voltage")
 
     ax = fig.add_subplot(gs[1, 0])
     ax.plot(t, dvdt_true, color="black", lw=0.9)
     ax.plot(t, g["pred"], color="tab:green", lw=0.9)
-    ax.text(0.004, 1.03, f"b   dv/dt at the true voltages   R2 = {r2(dvdt_true, g['pred']):+.3f}",
+    ax.text(0.004, 1.03, f"b   dv/dt at the true voltages   R2 = {_r2(dvdt_true, g['pred']):+.3f}",
             transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("dv/dt")
 
@@ -286,61 +359,77 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
-    ax = fig.add_subplot(gs[3, 0])
-    step = 5.0
+    axd = fig.add_subplot(gs[3, 0])
+    offs = []
     for row in range(n_edges):
         off = -row * step
+        offs.append(off)
         a, b = g["m_true"][row], g["m_model"][row]
-        ax.plot(t, (a - a.mean()) / (a.std() + 1e-12) + off, color="black", lw=0.8)
+        axd.plot(t, 1.6 * (a - a.mean()) / (a.std() + 1e-12) + off, color="black", lw=0.8)
         rr = b.std() / max(a.std(), 1e-12)
         if rr < 1e-3:
-            ax.plot(t, np.zeros_like(t) + off, color="tab:green", lw=0.8)
+            axd.plot(t, np.zeros_like(t) + off, color="tab:green", lw=0.8)
             note = "model ~ 0"
         else:
-            ax.plot(t, (b - b.mean()) / (b.std() + 1e-12) + off, color="tab:green", lw=0.8)
+            axd.plot(t, 1.6 * (b - b.mean()) / (b.std() + 1e-12) + off,
+                     color="tab:green", lw=0.8)
             note = f"r={pear(a, b):+.2f}  x{rr:.3g}"
-        sign = ("inh" if f["is_inh"] is not None and f["is_inh"][g["edge_ids"][row]]
+        sign = ("inh" if fm["is_inh"] is not None and fm["is_inh"][g["edge_ids"][row]]
                 else "exc")
-        ax.text(-0.05, off, f"j={int(g['src'][row])}\n{sign}",
-                transform=ax.get_yaxis_transform(), va="center", ha="right", fontsize=8)
-        ax.text(1.004, off, note, transform=ax.get_yaxis_transform(),
-                va="center", ha="left", fontsize=8)
-    ax.set_ylim(-step * max(n_edges, 1), step)
-    ax.set_yticks([])
-    ax.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, z-scored, "
-            "strongest first", transform=ax.transAxes, va="bottom", fontsize=11)
+        axd.text(-0.055, off, f"j={int(g['src'][row])}\n{sign}\n{note}",
+                 transform=axd.get_yaxis_transform(), va="center", ha="right", fontsize=7.5)
+    axd.set_ylim(-step * max(n_edges, 1) + step * 0.35, step * 0.65)
+    axd.set_yticks([])
+    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, z-scored, "
+             "strongest first", transform=axd.transAxes, va="bottom", fontsize=11)
 
-    for a_ in fig.axes:
+    for a_ in (fig.axes[0], fig.axes[1], fig.axes[2], axd):
         a_.set_xlim(t[0], t[-1])
         a_.set_xlabel("time (s)")
         for sp in ("top", "right"):
             a_.spines[sp].set_visible(False)
 
-    # ---- e: the equations ----
-    axe = fig.add_subplot(gs[:, 1])
+    # ---- e: the update ----
+    axe = fig.add_subplot(gs[0:3, 1])
     axe.axis("off")
-    lines = [f"e   closed forms, neuron {neuron}{('   ' + label) if label else ''}", ""]
-    lines += ["THE UPDATE", "  generator", f"    {f['update']}", "  recovered"]
+    lines = [f"e   the update, neuron {neuron}{('   ' + label) if label else ''}", ""]
+    lines += ["  generator", f"    {fm['update']}", "",
+              f"  recovered{fmt_r2(sr.get('update_r2'))}"]
     lines += [f"    {sr['update']}" if sr.get("update")
-              else f"    [{sr.get('update_note') or 'not fitted'}]", ""]
-    lines += [f"THE {n_edges} SYNAPSES   "
-              + ("W * relu(v_j) * (E - v_i)" if f["conductance"] else "W * relu(v_j)"), ""]
+              else f"    [{sr.get('update_note') or 'not fitted'}]"]
+    lines += ["", f"  the message enters the generator's update with coefficient "
+                  f"{1.0 / fm['tau']:.4f} = 1/tau"]
+    axe.text(0.0, 1.0, "\n".join(lines), transform=axe.transAxes, va="top", ha="left",
+             fontsize=8, family="monospace")
+
+    # ---- f: the synapses, aligned with d ----
+    axf = fig.add_subplot(gs[3, 1], sharey=axd)
+    axf.axis("off")
+    fam = ("W * relu(v_j) * (E - v_i)" if fm["conductance"] else "W * relu(v_j)")
+    axf.text(0.0, 1.005, f"f   the synapses: generator, free search, and the same "
+             f"fitted inside {fam}", transform=axf.transAxes, va="bottom", fontsize=11)
     for row in range(n_edges):
         idx = int(g["edge_ids"][row])
-        j = int(g["src"][row])
-        sign = "inh" if f["is_inh"] is not None and f["is_inh"][idx] else "exc"
-        lines.append(f"  j = {j}  ({sign})")
-        lines.append(f"    generator  {f['edges'][idx]}")
+        txt = [f"generator   {fm['edges'][idx]}"]
         eq = sr["edges"].get(idx)
-        lines.append(f"    recovered  {eq}" if eq
-                     else f"    recovered  [{sr['edge_notes'].get(idx) or 'not fitted'}]")
-    axe.text(0.0, 1.0, "\n".join(lines), transform=axe.transAxes, va="top", ha="left",
-             fontsize=7.5, family="monospace")
+        txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
+                   else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
+        if fm["conductance"]:
+            teq = sr.get("tmpl", {}).get(idx)
+            E = sr.get("tmpl_E", {}).get(idx)
+            if teq:
+                etxt = f"E = {E:+.3f}" if E is not None else "E not parsed"
+                txt.append(f"template    {etxt}   {teq}"
+                           f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
+            else:
+                txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
+        axf.text(0.0, offs[row], "\n".join(txt), transform=axf.get_yaxis_transform(),
+                 va="center", ha="left", fontsize=7, family="monospace")
 
     out_dir = os.path.join(log_dir, "results")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"neuron{neuron}_panels.png")
-    fig.subplots_adjust(left=0.05, right=0.985, top=0.965, bottom=0.035)
+    fig.subplots_adjust(left=0.055, right=0.995, top=0.965, bottom=0.035)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path
@@ -362,13 +451,22 @@ def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None):
     n = int(data.n_neurons)
     dt = float(getattr(config.simulation, "delta_t", _DT_FALLBACK))
     bundle = _load_rollout(log_dir)
+    # The rollout bundle is written by `-o test` from the TEST split, so the
+    # panels are computed there too and every one of them shows the same frames.
+    # If that split cannot be loaded the panels fall back to whatever was loaded
+    # for training and the free run is dropped rather than shown misaligned.
+    x_ts_panels, aligned = _test_split(config, data, bundle)
+    if bundle is not None and not aligned:
+        _say(logger, "test split unavailable; drawing panels without the free run")
+        bundle = None
     written = []
     for neuron in cfg.neurons:
         if not (0 <= int(neuron) < n):
             _say(logger, f"neuron {neuron} out of range (0..{n - 1}), skipped")
             continue
         try:
-            g = gather(model, data, int(neuron), cfg.sr_start_frame, cfg.sr_frames, device)
+            g = gather(model, data, int(neuron), cfg.sr_start_frame, cfg.sr_frames,
+                       device, x_ts=x_ts_panels)
             sr = symbolic_forms(g, cfg)
             roll = _rollout_slice(bundle, int(neuron), g["frames"])
             path = plot_neuron_panels(g, sr, int(neuron), log_dir, rollout=roll, dt=dt,
@@ -378,6 +476,28 @@ def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None):
         except Exception as exc:
             _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}")
     return written
+
+
+def _test_split(config, data, bundle):
+    """The test-split time series, when it matches the rollout bundle's length.
+
+    Returns (x_ts, aligned). `aligned` is False when the bundle cannot be
+    indexed by the same frame numbers, in which case panel a is dropped instead
+    of being drawn from a different trajectory than panels b to d.
+    """
+    if bundle is None:
+        return data.x_ts, False
+    try:
+        from connectome_gnn.models.training_utils import (
+            determine_load_fields, load_flyvis_data)
+        x_ts, _, _ = load_flyvis_data(config.dataset, split="test",
+                                      fields=determine_load_fields(config))
+        n_bundle = int(bundle["activity_true"].shape[1])
+        if abs(int(x_ts.n_frames) - n_bundle) <= 1:
+            return x_ts, True
+        return data.x_ts, False
+    except Exception:
+        return data.x_ts, False
 
 
 def _load_rollout(log_dir):
