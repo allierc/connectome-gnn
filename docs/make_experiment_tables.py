@@ -304,10 +304,37 @@ if _ko:
 # ----------------------------------------------------------------- 2026-09-15
 L.append(rf"\section*{{{DATE_15}}}")
 
-L.append(table(pick("D15", "A current/current"),
+def _iteration_now(entries):
+    """How far the blank rows have got, read from their own training logs.
+
+    The footnote used to carry a hand-typed iteration, which went stale the
+    hour after it was written and then said a run was less far along than it
+    was. LOG_ROOT matches tools/collect_exp_rows.py.
+    """
+    best = 0
+    for r_ in entries:
+        p_ = os.path.join(os.environ.get(
+            "GNN_LOG_ROOT", "/groups/saalfeld/home/allierc/GraphData/log/fly"),
+            r_["config"], "tmp_training", "rollout.log")
+        if not os.path.exists(p_):
+            continue
+        lines = [l for l in open(p_).read().splitlines()[1:] if l]
+        if lines:
+            try:
+                best = max(best, int(float(lines[-1].split(",")[0])))
+            except ValueError:
+                pass
+    return best
+
+
+_A = pick("D15", "A current/current")
+_pending = [r_ for r_ in _A if not _clean(r_["Wij"])]
+_iter = _iteration_now(_pending)
+_note = (rf"$^{{*}}$ still training, at iteration {_iter:,} of 1,600,000 when this "
+         rf"table was built." if _iter else None)
+L.append(table(_A,
                rf"{DATE_15} Block A: current model on current data, $\sigma=0.05$.",
-               eij=False,
-               note=r"$^{*}$ still training at iteration 560,001 of 1,600,000; train-split numbers."))
+               eij=False, note=_note))
 
 # Noise-free first everywhere, the run without the complication before the one
 # with it; the reference twin closes the table.
