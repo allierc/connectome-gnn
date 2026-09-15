@@ -1831,7 +1831,7 @@ MSG_N_FRAMES = 10
 
 
 def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
-                           n_frames=MSG_N_FRAMES):
+                           n_frames=MSG_N_FRAMES, scale=None):
     """The aggregated per-neuron message msg_i, true vs learned.
 
     WHY THE AGGREGATED MESSAGE AND NOT THE EDGE ONE. msg_i is what f_theta
@@ -1919,7 +1919,17 @@ def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
 
             pred, in_features, msg_learned = model(state, ei, data_id=data_id,
                                                    return_all=True)
-            if _msg_i_through_f_theta(model):
+            if scale is not None:
+                # THE UPDATE TEMPLATE'S ROUTE. The model's own aggregate carried
+                # into the generator's units by the gauge the update fit
+                # measured, k_i = tau_i*T_i*G_i -- one multiply, no derivative of
+                # f_theta anywhere. The f_theta route below needs df/dmsg and
+                # df/dv per neuron and inherits both of their failures; this one
+                # is wrong only if T and G are.
+                _sc = torch.as_tensor(np.asarray(scale, dtype=np.float32),
+                                      device=msg_learned.device).ravel()
+                msg_learned = msg_learned.ravel()[:n_neurons] * _sc[:n_neurons]
+            elif _msg_i_through_f_theta(model):
                 msg_learned = _msg_through_f_theta(model, pred, in_features, n_neurons,
                                                    tau=tau_fit)
             true_all.append(to_numpy(msg_true).ravel())
@@ -3441,6 +3451,26 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.estimator["V_rest"] = "update_template"
         rec.correction["V_rest"] = ("ode_params.derive_vrest of (a1, a0); a0 is "
                                     "confounded with a constant inside f(stim)")
+    # msg_i THROUGH THE SAME GAUGE AS W. The chain reads the message back out
+    # through f_theta's derivatives; the template already has k_i per neuron from
+    # the update fit, so the model's own aggregate times k_i is the message in
+    # the generator's units with nothing differentiated. Superseding the chain
+    # here keeps one estimator behind every quantity in metrics.txt.
+    if x_ts is not None:
+        try:
+            _mt = compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
+                                         scale=k)
+            if _mt is not None:
+                _mp = _pair(_mt[0], _mt[1])
+                if _mp is not None:
+                    rec.pairs["msg_i"] = _mp
+                    rec.estimator["msg_i"] = "update_template"
+                    rec.correction["msg_i"] = (
+                        "k_i * msg_hat_i, the model's own aggregate scaled by "
+                        "the update fit's gauge k_i = tau_i * T_i * G_i")
+        except Exception as _exc:
+            rec.diagnostics["msg_i_template_error"] = f"{type(_exc).__name__}: {_exc}"
+
     rec.diagnostics["tmpl_update_r2_median"] = float(np.nanmedian(update_r2))
     rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
     # The update template's own T*G against autograd's df_theta/dmsg. They agree
