@@ -515,19 +515,25 @@ def symbolic_forms(g, cfg):
                 out["tmpl_notes"][idx] = tnote or "PySR template"
             elif tnote:
                 out["tmpl_notes"][idx] = f"least squares (PySR: {tnote})"
-            _p = _fitted_parameters(teq) if teq else {}
-            E = _p.get("E")
-            E = E[0] if E else None
-            C = _p.get("C")
-            C = C[0] if C else None
-            out["tmpl_E"][idx] = E
-            out["tmpl_C"][idx] = C
-            # W IS NOT PRINTED BY THE TEMPLATE: it lives inside the sub-expression
-            # f, which PySR writes as `f = #1 * 1.4467`. Rather than parse a form
-            # that is only sometimes linear, the conductance is measured from the
-            # fit itself -- the one scale that carries relu(v_j) * (E - v_i) onto
-            # the fitted message. That works whatever shape f took.
-            out["tmpl_W"][idx] = _effective_W(tpred, g["v_j"][row], g["v_i"], E, C)
+            # AND THE THREE NUMBERS TOO, only when the search returned. These
+            # sat outside the guard above, so a failed PySR call wrote None over
+            # the closed-form W, E and offset while leaving its R2 in place --
+            # which is how a panel came to read "W = n/a  E = n/a  offset = n/a
+            # (R2 +0.996)": a fit good to four decimals, reported as nothing.
+            if teq:
+                _p = _fitted_parameters(teq)
+                E = _p.get("E")
+                E = E[0] if E else None
+                C = _p.get("C")
+                C = C[0] if C else None
+                out["tmpl_E"][idx] = E
+                out["tmpl_C"][idx] = C
+                # W IS NOT PRINTED BY THE TEMPLATE: it lives inside the
+                # sub-expression f, which PySR writes as `f = #1 * 1.4467`.
+                # Rather than parse a form that is only sometimes linear, the
+                # conductance is measured from the fit itself -- the one scale
+                # that carries relu(v_j) * (E - v_i) onto the fitted message.
+                out["tmpl_W"][idx] = _effective_W(tpred, g["v_j"][row], g["v_i"], E, C)
     return out
 
 
