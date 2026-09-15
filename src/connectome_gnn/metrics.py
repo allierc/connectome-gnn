@@ -2873,7 +2873,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                             on the `gain_corrected` path -- note "uncorrected"
                             means before the CORRECTION, not before outlier
                             filtering, two senses the old `raw_W_R2` conflated.
-        Eij_gate            median per-edge R2 of the straight line the
+        tmpl_fit_r2_median  median per-edge R2 of the straight line the
                             `edge_line_fit` extraction assumes. THIS IS A
                             PRECONDITION, not a detail: below roughly 0.9 the
                             message is not affine in v_i, the model has not found
@@ -2915,7 +2915,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
     columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
     `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
-    `gnn_conductance_fit.log`'s `fit_r2_median` -> `Eij_gate`.
+    `gnn_conductance_fit.log`'s `fit_r2_median` -> `tmpl_fit_r2_median`.
     """
     rec = RecoveredParams()
     if ode_params is None:
@@ -3566,10 +3566,21 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # clear the superseded one's veto is not superseding it.
     rec.valid["W"] = r2_med >= gate
     # The median per-edge fit R2 under BOTH families, but only the conductance
-    # family may call it Eij_gate: on current data the fit has no reversal in it
+    # family may call it a reversal gate: on current data the fit has none in it
     # at all, and an Eij_ line there would read as a reversal recovered from a
     # model that never had one.
     rec.diagnostics["tmpl_fit_r2_median"] = r2_med
+    # THE COUNTS, NOT ONLY THE SHARES. `tmpl_pct_unfitted` says 0.37% and leaves
+    # the reader to multiply; two runs with different edge counts cannot be
+    # compared from percentages at all. These are what the scatters print.
+    _n_fitted = int((n_used >= min_points).sum())
+    rec.diagnostics["tmpl_n_edges"] = int(n_e)
+    rec.diagnostics["tmpl_n_edges_fitted"] = _n_fitted
+    rec.diagnostics["tmpl_pct_fitted"] = float(100.0 * _n_fitted / max(n_e, 1))
+    if cond:
+        _n_E = int(np.isfinite(E_fit).sum())
+        rec.diagnostics["tmpl_n_E_identified"] = _n_E
+        rec.diagnostics["tmpl_pct_E_identified"] = float(100.0 * _n_E / max(n_e, 1))
     rec.diagnostics["tmpl_frames_used"] = int(vi.shape[1])
     rec.diagnostics["tmpl_frame_choice"] = frame_choice
     rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
@@ -3577,7 +3588,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["tmpl_pct_rescued_second_pass"] = float(
         100.0 * n_rescued / max(n_e, 1))
     if cond:
-        rec.diagnostics["Eij_gate"] = r2_med
+        rec.diagnostics["tmpl_fit_r2_median"] = r2_med
         # Edges whose fitted message RISES with the postsynaptic voltage: no
         # driving force does that, since E - v_i can only fall as v_i climbs.
         rec.diagnostics["Eij_pct_wrong_slope"] = (
@@ -3842,7 +3853,7 @@ _COMMON_STATS = ("R2", "R2_all", "slope", "rmse", "n", "n_outliers", "pct_outlie
                  "rel_err_median", "rel_err_iqr")
 _EXTRA_STATS = {
     "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
-    "Eij":   ("gate", "pct_wrong_slope"),
+    "Eij":   ("pct_wrong_slope",),
     "msg_i": ("R2_scaled", "gain"),
     "V_rest": ("R2_uncorrected",),
 }
@@ -3933,7 +3944,7 @@ def recovery_log_append(log_dir, iteration, scored):
         # E_ij, and for W the fact that the estimator ran. Those rows are all
         # nan except the gate, which is the number that says WHY.
         present = (f"{key}_R2" in scored
-                   or (key == "Eij" and "Eij_gate" in scored)
+                   or (key == "Eij" and "tmpl_fit_r2_median" in scored)
                    or (key == "Wij" and "Wij_estimator" in scored))
         if not present:
             continue
@@ -4106,7 +4117,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
     if want_W and estimator == "edge_line_fit":
         ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
         fit_r2 = float(np.nanmedian(ext["fit_r2"]))
-        rec.diagnostics["Eij_gate"] = fit_r2
+        rec.diagnostics["tmpl_fit_r2_median"] = fit_r2
         rec.diagnostics["Eij_pct_wrong_slope"] = ext.get("pct_wrong_slope", float("nan"))
         # Below the gate the message is not affine in v_i, so the W and E the
         # line produced describe nothing. Recorded as invalid rather than
@@ -4173,6 +4184,6 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             rec.pairs["E_ij"] = _pair(_rev["true"], _rev["learned"])
             rec.estimator["E_ij"] = "edge_line_fit"
             if "fit_r2_median" in _rev:
-                rec.diagnostics["Eij_gate"] = _rev["fit_r2_median"]
+                rec.diagnostics["tmpl_fit_r2_median"] = _rev["fit_r2_median"]
                 rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
                 rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate

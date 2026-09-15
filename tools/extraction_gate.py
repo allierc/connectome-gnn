@@ -76,6 +76,11 @@ RENAMES = {
     'V_rest_no_outliers_R2':         'V_rest_R2',
     'V_rest_no_outliers_slope':      'V_rest_slope',
     'Eij_n_edges':                   'Eij_n',
+    # Renamed 2026-09-15: the number is the median R2 of the three-column
+    # template fit, which scores W, E and the offset together and is
+    # computed identically on current data where no reversal exists. The
+    # old name described what it gated, not what it measured.
+    'Eij_gate':                      'tmpl_fit_r2_median',
     'raw_W_R2':                      'Wij_R2_uncorrected',
     'rollout_pearson':               'rollout_r',
     'rollout_RMSE':                  'rollout_rmse',
