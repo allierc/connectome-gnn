@@ -1,5 +1,5 @@
-description: 'GNN (one-step, K=1) blank50 baseline on the measurement-noise ladder:
-  process sigma=0.05, measurement sigma=0.2, fold 00'
+description: 'GNN (one-step, K=1) blank50 baseline on the measurement-noise ladder: process sigma=0.05,
+  measurement sigma=0.2, fold 00'
 dataset: flyvis_noise_005_020_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -78,3 +78,6 @@ training:
   seed: 1042
   n_epochs: 1
   data_augmentation_loop: 500
+analysis:
+  neurons:
+  - 2895

@@ -1,5 +1,5 @@
-description: 'GNN (rollout curriculum K=1..5, uniform) blank50 baseline on the measurement-noise
-  ladder: process sigma=0.05, measurement sigma=0.2, fold 00'
+description: 'GNN (rollout curriculum K=1..5, uniform) blank50 baseline on the measurement-noise ladder:
+  process sigma=0.05, measurement sigma=0.2, fold 00'
 dataset: flyvis_noise_005_020_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -87,3 +87,6 @@ training:
   rollout_step_weighting: uniform
   rollout_step_reduction: mean
   frame_target_offset: 1
+analysis:
+  neurons:
+  - 2895
