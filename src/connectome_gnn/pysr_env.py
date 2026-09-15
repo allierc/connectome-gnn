@@ -81,8 +81,20 @@ def safe_cwd():
     return home if os.path.isdir(home) else tempfile.gettempdir()
 
 
-def _probe(timeout=900):
-    """Import pysr in a subprocess. Returns (ok, message)."""
+def _probe(timeout=None):
+    """Import pysr in a subprocess. Returns (ok, message).
+
+    The timeout has to cover a COLD depot: the first import downloads Julia and
+    precompiles SymbolicRegression and PythonCall, which took longer than 15
+    minutes in the devcontainer and reported as a failure when the budget was
+    900 s. Warm, the same import is seconds. Override with PYSR_PROBE_TIMEOUT
+    when a site is slower still.
+    """
+    if timeout is None:
+        try:
+            timeout = float(os.environ.get("PYSR_PROBE_TIMEOUT", 2400))
+        except ValueError:
+            timeout = 2400
     code = ("import pysr, sys; "
             "sys.stdout.write('PYSR_VERSION=' + pysr.__version__)")
     try:
