@@ -3396,6 +3396,16 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.correction["W"] = (f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
                            f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)")
     rec.diagnostics["_W_learned_full"] = W_learned
+    # THE TEMPLATE'S W CARRIES THE TEMPLATE'S OWN GATE, and must say so. On a
+    # conductance run `extract_recovered_params` has already set
+    # rec.valid["W"] = False whenever ITS estimator -- the edge_line_fit, a
+    # straight line in v_i -- fell below `gate`. This function then replaces the
+    # W pair with the template fit and left that False in place, so `rec.get("W")`
+    # returned None, score_recovery wrote no Wij_* key, and a run ended with no
+    # tmp_training/Wij.log and no Wij line in metrics.txt while its template fit
+    # sat at a median per-edge R2 of 0.999. A superseding readout that cannot
+    # clear the superseded one's veto is not superseding it.
+    rec.valid["W"] = r2_med >= gate
     # The median per-edge fit R2 under BOTH families, but only the conductance
     # family may call it Eij_gate: on current data the fit has no reversal in it
     # at all, and an Eij_ line there would read as a reversal recovered from a
