@@ -1,4 +1,4 @@
-description: Current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, unfolded
+description: current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, unfolded
   nominal, plus the silent-input anchor coeff_g_phi_silent 5.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

@@ -1,4 +1,4 @@
-description: 'Conductance GNN on the CURRENT generator''s data, noise 0.05, blank50, fold 0. The model
+description: 'conductance GNN on the CURRENT generator''s data, noise 0.05, blank50, fold 0. The model
   is larger than the circuit that produced the data: the conductance family''s per-edge message is W_ij
   * act(v_j) * (E_ij - v_i), while the generator''s is W_ij * act(v_j) with no driving force, so E_ij
   has nothing to recover and the extra factor is free to absorb scale. ARM FAMILY nol12sil with gain 1e-3:

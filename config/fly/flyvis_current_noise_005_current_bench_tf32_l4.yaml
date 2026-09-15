@@ -1,4 +1,4 @@
-description: Benchmark variant 'tf32_l4' of the noise-0.05 current GNN, LLM-tuned
+description: benchmark variant 'tf32_l4' of the noise-0.05 current GNN, LLM-tuned
   parameters, blank50, unfolded nominal.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

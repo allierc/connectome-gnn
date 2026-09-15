@@ -1,4 +1,4 @@
-description: Per-neuron target weighting (the reference schedule s_j) on flyvis_A
+description: per-neuron target weighting (the reference schedule s_j) on flyvis_A
   noise-free, fold 3.
 dataset: flyvis_noise_free_blank50_cv03
 simulation:

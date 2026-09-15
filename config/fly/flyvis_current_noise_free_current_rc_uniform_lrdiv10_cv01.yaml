@@ -1,4 +1,4 @@
-description: Rollout at a REDUCED learning rate, 10x below peak, on flyvis_A noise-free,
+description: rollout at a REDUCED learning rate, 10x below peak, on flyvis_A noise-free,
   fold 1.
 dataset: flyvis_noise_free_blank50_cv01
 simulation:

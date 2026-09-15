@@ -1,4 +1,4 @@
-description: Current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, fold 1.
+description: current GNN on flyvis_A, LLM-tuned parameters, blank50, noise 0.05, fold 1.
 dataset: flyvis_noise_005_blank50_cv01
 simulation:
   connectivity_file: to be specified

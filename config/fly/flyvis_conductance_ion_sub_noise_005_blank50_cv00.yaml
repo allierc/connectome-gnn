@@ -1,4 +1,4 @@
-description: 'Generation spec: conductance dataset from the rig 2 (ion, E_inh at least
+description: 'generation spec: conductance dataset from the rig 2 (ion, E_inh at least
   half an excursion below rest) twin, noise 0.05, blank-prefix 0.5, fold 0.'
 dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
 simulation:
