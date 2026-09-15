@@ -1,0 +1,119 @@
+Traceback (most recent call last):
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/GNN_Main.py", line 19, in <module>
+    from connectome_gnn.generators.graph_data_generator import data_generate
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/src/connectome_gnn/generators/graph_data_generator.py", line 62, in <module>
+    from connectome_gnn.generators.davis import AugmentedVideoDataset, CombinedVideoDataset
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/src/connectome_gnn/generators/davis.py", line 13, in <module>
+    from flyvis import renderings_dir
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/__init__.py", line 72, in <module>
+    from .datasets import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/__init__.py", line 2, in <module>
+    from .flashes import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/flashes.py", line 17, in <module>
+    from .rendering import BoxEye
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/rendering/__init__.py", line 3, in <module>
+    from .eye import BoxEye, HexEye
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/rendering/eye.py", line 10, in <module>
+    import torchvision.transforms.functional as ttf
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/__init__.py", line 10, in <module>
+    from torchvision import _meta_registrations, datasets, io, models, ops, transforms, utils  # usort:skip
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/models/__init__.py", line 2, in <module>
+    from .convnext import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/models/convnext.py", line 9, in <module>
+    from ..ops.misc import Conv2dNormActivation, Permute
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/__init__.py", line 23, in <module>
+    from .poolers import MultiScaleRoIAlign
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/poolers.py", line 10, in <module>
+    from .roi_align import roi_align
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/roi_align.py", line 7, in <module>
+    from torch._dynamo.utils import is_compile_supported
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/__init__.py", line 13, in <module>
+    from . import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/aot_compile.py", line 15, in <module>
+    from . import convert_frame
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/convert_frame.py", line 57, in <module>
+    from torch._dynamo.symbolic_convert import TensorifyState
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/symbolic_convert.py", line 53, in <module>
+    from torch._dynamo.exc import ObservedException, TensorifyScalarRestartAnalysis
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/exc.py", line 45, in <module>
+    from .utils import counters
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/utils.py", line 2414, in <module>
+    if has_triton_package():
+       ^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/utils/_triton.py", line 9, in has_triton_package
+    import triton  # noqa: F401
+    ^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/__init__.py", line 8, in <module>
+    from .runtime import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/runtime/__init__.py", line 1, in <module>
+    from .autotuner import (Autotuner, Config, Heuristics, autotune, heuristics)
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/runtime/autotuner.py", line 12, in <module>
+    from .jit import KernelInterface, JITFunction
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/runtime/jit.py", line 18, in <module>
+    from .driver import driver
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/runtime/driver.py", line 3, in <module>
+    from ..backends import backends, DriverBase
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/backends/__init__.py", line 47, in <module>
+    backends: dict[str, Backend] = _discover_backends()
+                                   ^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/backends/__init__.py", line 40, in _discover_backends
+    compiler = importlib.import_module(f"{ep.value}.compiler")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/importlib/__init__.py", line 90, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/triton/backends/nvidia/compiler.py", line 105, in <module>
+    @dataclass(frozen=True)
+     ^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/dataclasses.py", line 1265, in wrap
+    return _process_class(cls, init, repr, eq, order, unsafe_hash,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/dataclasses.py", line 1083, in _process_class
+    _set_new_attribute(cls, '__repr__', _repr_fn(flds, globals))
+                                        ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/dataclasses.py", line 628, in _repr_fn
+    fn = _create_fn('__repr__',
+         ^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/dataclasses.py", line 473, in _create_fn
+    exec(txt, globals, ns)
+  File "<string>", line 0, in <module>
+KeyboardInterrupt
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@h10u04>
+Subject: Job 153765202: <python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00> in cluster <Janelia> Exited
+
+Job <python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00> was submitted from host <e02u30> by user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+Job was executed on host(s) <8*h10u04>, in queue <gpu_a100>, as user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+</groups/saalfeld/home/allierc> was used as the home directory.
+</groups/saalfeld/home/allierc/Graph/connectome-gnn> was used as the working directory.
+Started at Fri Aug 28 10:01:48 2026
+Terminated at Fri Aug 28 10:01:59 2026
+Results reported at Fri Aug 28 10:01:59 2026
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00
+------------------------------------------------------------
+
+TERM_OWNER: job killed by owner.
+Exited with exit code 130.
+
+Resource usage summary:
+
+    CPU time :                                   7.45 sec.
+    Max Memory :                                 481 MB
+    Average Memory :                             363.80 MB
+    Total Requested Memory :                     327680.00 MB
+    Delta Memory :                               327199.00 MB
+    Max Swap :                                   -
+    Max Processes :                              3
+    Max Threads :                                52
+    Run time :                                   14 sec.
+    Turnaround time :                            11 sec.
+
+The output (if any) is above this job summary.
+

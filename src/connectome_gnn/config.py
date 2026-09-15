@@ -2424,6 +2424,15 @@ class RecoveryConfig(BaseModel):
     # most edges are fine. 5.0 V is the width of the true spread: an error wider
     # than the entire physiological range is not a measurement.
     Eij_outlier_thresh: float = 5.0
+    # msg_i TOO, for the same reason and with the same convention. The aggregated
+    # message is what the trajectory actually depends on, and on this data it
+    # spans roughly +-4 in the generator's units, so an error of 1 is a quarter
+    # of the full range -- wrong enough that the edge's contribution to dv/dt is
+    # not the generator's. Without a band, msg_i was the last quantity reported
+    # as a single unfiltered R2 while every other one carried
+    # `clean [all] (percent dropped)`, and a reader comparing columns was
+    # comparing two different statistics.
+    msg_i_outlier_thresh: float = 1.0
     # Below this median per-edge R2, the edge_line_fit estimator's W and E_ij
     # describe nothing and are reported as invalid rather than as numbers.
     gate_fit_r2: float = 0.9

@@ -1,0 +1,56 @@
+\contentsline {section}{\numberline {1}What we are building, in words}{2}{section.1}%
+\contentsline {section}{\numberline {2}Part I --- Volumetric data: a state sampled over space and time}{2}{section.2}%
+\contentsline {subsection}{\numberline {2.1}The three operators}{2}{subsection.2.1}%
+\contentsline {paragraph}{Prolongation $I_\ell $ --- going from grid values up to the full domain.}{3}{paragraph*.1}%
+\contentsline {paragraph}{Restriction $P_\ell $ --- going from the full domain down to grid values.}{3}{paragraph*.2}%
+\contentsline {paragraph}{The level operator $\mathrm {GNN}_\ell $.}{3}{paragraph*.3}%
+\contentsline {subsection}{\numberline {2.2}The model}{3}{subsection.2.2}%
+\contentsline {subsection}{\numberline {2.3}The spaces, and the nesting}{4}{subsection.2.3}%
+\contentsline {subsection}{\numberline {2.4}The one-sidedness, stated precisely}{4}{subsection.2.4}%
+\contentsline {paragraph}{Direction that holds: coarse cannot reach fine.}{4}{paragraph*.4}%
+\contentsline {paragraph}{Direction that fails: fine can swallow coarse.}{4}{paragraph*.5}%
+\contentsline {paragraph}{How big is the ambiguity?}{5}{paragraph*.6}%
+\contentsline {paragraph}{Two honest caveats.}{5}{paragraph*.7}%
+\contentsline {subsection}{\numberline {2.5}Why the one-sidedness matters in practice}{5}{subsection.2.5}%
+\contentsline {subsection}{\numberline {2.6}The fix: make every level band-pass}{6}{subsection.2.6}%
+\contentsline {paragraph}{What this buys, precisely --- and what it does not.}{6}{paragraph*.8}%
+\contentsline {paragraph}{Three prerequisites, all violated by the module defaults.}{7}{paragraph*.9}%
+\contentsline {paragraph}{And the cost is not the one the cheap recipe suggests.}{7}{paragraph*.10}%
+\contentsline {paragraph}{The fallback if the ladder cannot be made nested.}{7}{paragraph*.11}%
+\contentsline {paragraph}{What this costs.}{8}{paragraph*.12}%
+\contentsline {paragraph}{The worry, and why it is misplaced.}{8}{paragraph*.13}%
+\contentsline {paragraph}{A correction to the motivation: the sharing comes from quantisation, not from collisions.}{8}{paragraph*.14}%
+\contentsline {subsection}{\numberline {2.7}Time is one-sided in exactly the same way}{8}{subsection.2.7}%
+\contentsline {paragraph}{Where the spatial guarantee actually came from.}{8}{paragraph*.15}%
+\contentsline {paragraph}{The coupling between the two ladders.}{8}{paragraph*.16}%
+\contentsline {paragraph}{And the same one-sidedness.}{9}{paragraph*.17}%
+\contentsline {paragraph}{A tempting alternative that pins the wrong end.}{9}{paragraph*.18}%
+\contentsline {paragraph}{The price.}{9}{paragraph*.19}%
+\contentsline {paragraph}{What the measurements say: build the spatial band-pass, and do not build the temporal one yet.}{9}{paragraph*.20}%
+\contentsline {section}{\numberline {3}Part II --- Connected data: a state on a connectivity matrix $W_{ij}$}{9}{section.3}%
+\contentsline {paragraph}{And on our data the spatial ladder is not merely different --- it is at chance.}{10}{paragraph*.21}%
+\contentsline {subsection}{\numberline {3.1}What replaces the grid: a hierarchy of groups}{10}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}The three operators, again}{10}{subsection.3.2}%
+\contentsline {paragraph}{Prolongation $I_\ell $ --- broadcast a group value to its members.}{10}{paragraph*.22}%
+\contentsline {paragraph}{Restriction $P_\ell $ --- average over each group.}{10}{paragraph*.23}%
+\contentsline {paragraph}{The coarse connectivity.}{11}{paragraph*.24}%
+\contentsline {subsection}{\numberline {3.3}The model on a graph}{11}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}The one-sidedness, on a graph}{11}{subsection.3.4}%
+\contentsline {paragraph}{Coarse cannot reach fine.}{11}{paragraph*.25}%
+\contentsline {paragraph}{Fine can swallow coarse --- and here it is total.}{11}{paragraph*.26}%
+\contentsline {subsection}{\numberline {3.5}The payoff: what the embedding becomes once the levels are band-pass}{12}{subsection.3.5}%
+\contentsline {subsection}{\numberline {3.6}Time on a graph}{12}{subsection.3.6}%
+\contentsline {section}{\numberline {4}Where this sits in the literature}{12}{section.4}%
+\contentsline {section}{\numberline {5}What to measure}{13}{section.5}%
+\contentsline {paragraph}{Leakage.}{13}{paragraph*.27}%
+\contentsline {paragraph}{Slow-band leakage.}{14}{paragraph*.28}%
+\contentsline {paragraph}{Level of first explanation.}{14}{paragraph*.29}%
+\contentsline {section}{\numberline {6}Summary}{14}{section.6}%
+\contentsline {section}{\numberline {A}Workflow evidence behind this note}{15}{appendix.A}%
+\contentsline {subsection}{\numberline {A.1}Blocking objections raised by the completed review}{15}{subsection.A.1}%
+\contentsline {subsection}{\numberline {A.2}The result that changes the design: on flyvis, the spatial reading is dead}{16}{subsection.A.2}%
+\contentsline {subsection}{\numberline {A.3}The correction: sharing comes from quantisation, not from collisions}{17}{subsection.A.3}%
+\contentsline {subsection}{\numberline {A.4}A level-$\ell $ network on a lattice is a convolution}{17}{subsection.A.4}%
+\contentsline {subsection}{\numberline {A.5}Prior art, and what is actually new}{18}{subsection.A.5}%
+\contentsline {subsection}{\numberline {A.6}Standing recommendations from the completed agents}{18}{subsection.A.6}%
+\contentsline {subsection}{\numberline {A.7}Facts pinned by the grounding readers}{18}{subsection.A.7}%

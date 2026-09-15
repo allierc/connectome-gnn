@@ -145,7 +145,7 @@ def test_template_recovers_the_conductance_and_the_reversal():
     assert np.allclose(learned_w, gt_w, rtol=1e-3), (gt_w, learned_w)
     gt_e, learned_e = rec.pairs["E_ij"]
     assert np.allclose(learned_e, gt_e, atol=1e-3)
-    assert rec.diagnostics["tmpl_fit_r2_median"] > 0.999
+    assert rec.diagnostics["msg_form_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_k_median"] - K) < 1e-5
 
 
@@ -185,7 +185,7 @@ def test_the_update_template_gives_back_vrest_and_the_gauge():
     assert np.allclose(learned_v, V_REST, atol=1e-3)
     _gt_t, learned_t = rec.pairs["tau"]
     assert np.allclose(learned_t, 1.0 / T_MODEL, rtol=1e-3)
-    assert rec.diagnostics["tmpl_update_r2_median"] > 0.999
+    assert rec.diagnostics["update_form_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_dfdmsg_over_autograd"] - 1.0) < 1e-4
     assert abs(rec.diagnostics["tmpl_G_median"] - G_MODEL) < 1e-3
 

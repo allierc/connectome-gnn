@@ -2873,7 +2873,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                             on the `gain_corrected` path -- note "uncorrected"
                             means before the CORRECTION, not before outlier
                             filtering, two senses the old `raw_W_R2` conflated.
-        tmpl_fit_r2_median  median per-edge R2 of the straight line the
+        msg_form_r2_median  median per-edge R2 of the straight line the
                             `edge_line_fit` extraction assumes. THIS IS A
                             PRECONDITION, not a detail: below roughly 0.9 the
                             message is not affine in v_i, the model has not found
@@ -2915,7 +2915,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
     columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
     `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
-    `gnn_conductance_fit.log`'s `fit_r2_median` -> `tmpl_fit_r2_median`.
+    `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
     rec = RecoveredParams()
     if ode_params is None:
@@ -2990,7 +2990,8 @@ def _thresh_for(quantity, config):
         "tau": getattr(r, "tau_outlier_thresh", TAU_OUTLIER_THRESH),
         "V_rest": getattr(r, "V_rest_outlier_thresh", VREST_OUTLIER_THRESH),
         "E_ij": getattr(r, "Eij_outlier_thresh", 5.0),
-    }.get(quantity)          # None -> no filtering, which is right for msg_i
+        "msg_i": getattr(r, "msg_i_outlier_thresh", 1.0),
+    }.get(quantity)          # None -> no filtering
 
 
 # --------------------------------------------------------------------------- #
@@ -3570,7 +3571,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # family may call it a reversal gate: on current data the fit has none in it
     # at all, and an Eij_ line there would read as a reversal recovered from a
     # model that never had one.
-    rec.diagnostics["tmpl_fit_r2_median"] = r2_med
+    rec.diagnostics["msg_form_r2_median"] = r2_med
     # THE COUNTS, NOT ONLY THE SHARES. `tmpl_pct_unfitted` says 0.37% and leaves
     # the reader to multiply; two runs with different edge counts cannot be
     # compared from percentages at all. These are what the scatters print.
@@ -3589,7 +3590,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["tmpl_pct_rescued_second_pass"] = float(
         100.0 * n_rescued / max(n_e, 1))
     if cond:
-        rec.diagnostics["tmpl_fit_r2_median"] = r2_med
+        rec.diagnostics["msg_form_r2_median"] = r2_med
         # Edges whose fitted message RISES with the postsynaptic voltage: no
         # driving force does that, since E - v_i can only fall as v_i climbs.
         rec.diagnostics["Eij_pct_wrong_slope"] = (
@@ -3638,7 +3639,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         except Exception as _exc:
             rec.diagnostics["msg_i_template_error"] = f"{type(_exc).__name__}: {_exc}"
 
-    rec.diagnostics["tmpl_update_r2_median"] = float(np.nanmedian(update_r2))
+    rec.diagnostics["update_form_r2_median"] = float(np.nanmedian(update_r2))
     rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
     # The update template's own T*G against autograd's df_theta/dmsg. They agree
     # exactly when the update is affine in the message; the ratio is how far it
@@ -3945,7 +3946,7 @@ def recovery_log_append(log_dir, iteration, scored):
         # E_ij, and for W the fact that the estimator ran. Those rows are all
         # nan except the gate, which is the number that says WHY.
         present = (f"{key}_R2" in scored
-                   or (key == "Eij" and "tmpl_fit_r2_median" in scored)
+                   or (key == "Eij" and "msg_form_r2_median" in scored)
                    or (key == "Wij" and "Wij_estimator" in scored))
         if not present:
             continue
@@ -4118,7 +4119,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
     if want_W and estimator == "edge_line_fit":
         ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
         fit_r2 = float(np.nanmedian(ext["fit_r2"]))
-        rec.diagnostics["tmpl_fit_r2_median"] = fit_r2
+        rec.diagnostics["msg_form_r2_median"] = fit_r2
         rec.diagnostics["Eij_pct_wrong_slope"] = ext.get("pct_wrong_slope", float("nan"))
         # Below the gate the message is not affine in v_i, so the W and E the
         # line produced describe nothing. Recorded as invalid rather than
@@ -4185,6 +4186,6 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             rec.pairs["E_ij"] = _pair(_rev["true"], _rev["learned"])
             rec.estimator["E_ij"] = "edge_line_fit"
             if "fit_r2_median" in _rev:
-                rec.diagnostics["tmpl_fit_r2_median"] = _rev["fit_r2_median"]
+                rec.diagnostics["msg_form_r2_median"] = _rev["fit_r2_median"]
                 rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
                 rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate

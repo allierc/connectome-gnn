@@ -1,0 +1,399 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{parskip}
+\usepackage{titlesec}
+
+\titleformat{\section}{\normalsize\bfseries}{\thesection.}{0.6em}{}
+\allowdisplaybreaks
+
+\newcommand{\Vs}{\mathcal{V}}
+\newcommand{\Ws}{\mathcal{W}}
+\newcommand{\Id}{\mathrm{Id}}
+\newcommand{\cat}{\,\big\Vert\,}
+\newcommand{\where}[1]{\par\nobreak\vspace{-2pt}{\small #1\par}\medskip}
+
+\title{Multi-level NGP\,+\,GNN --- equations}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2.2cm}
+
+\section{The grid: levels, table length, finest cell}
+
+\begin{equation}
+L \;\in\; \mathbb{N} ,
+\qquad
+T \;\in\; \mathbb{N} ,
+\qquad
+p \;\geq\; 1
+\label{eq:knobs}
+\end{equation}
+\where{where these are the three numbers the grid is described by:
+$L$ is the number of levels;
+$T$ sets the table length, $2^{T}$ rows, \emph{one table per level};
+$p$ is the number of \emph{pixels covered by one cell of the finest level} --- $p = 1$ makes
+the finest grid the pixel grid itself, and refining below the pixel spacing costs parameters
+without moving the fit. Only two of $(L, p, b_d)$ are independent; which one is derived is
+the choice made in \eqref{eq:bgiven}--\eqref{eq:bderived}.}
+
+\begin{equation}
+N_{\ell,d} \;=\; \max\Big(1,\; \min\big( \big\lfloor N_{\min,d}\, b_d^{\,\ell} \big\rceil ,\;
+   N_{\max,d} \big)\Big) ,
+\qquad \ell = 0,\dots,L
+\label{eq:ladder}
+\end{equation}
+\where{where
+$\ell \in \{0,\dots,L\}$ is the level index, $\ell = 0$ coarsest;
+$d \in \{1,\dots,D\}$ is the axis index and $D$ the number of input dimensions
+($D = 2$ for an image, $D = 4$ for $x,y,z,t$);
+$N_{\ell,d} \in \mathbb{N}$ is the number of \emph{cells} along axis $d$ at level $\ell$,
+hence $N_{\ell,d}+1$ vertices along that axis;
+$N_{\min,d}$ is the coarsest resolution and $N_{\max,d}$ the cap, both per axis;
+$b_d > 1$ is the per-axis growth factor of the \emph{resolution} per level, so the
+\emph{cell width} is divided by $b_d$ at every step;
+$\lfloor\cdot\rceil$ rounds to the nearest integer.}
+
+\begin{align}
+b_d &= \text{given}, \quad\text{default } 1.5 ,
+&&N_{\max,d} = N_{\min,d}\, b_d^{\,L-1}
+&&\text{(A) module}
+\label{eq:bgiven}\\[4pt]
+b_d &= \left( \frac{N_{\max,d}}{N_{\min,d}} \right)^{\!1/(L-1)} ,
+&&N_{\max,d} = \max\Big( N_{\min,d}+1 ,\; \big\lfloor W_d / p \big\rceil \Big)
+&&\text{(B) \texttt{gui\_image}}
+\label{eq:bderived}
+\end{align}
+\where{where
+$W_d$ is the extent of the data along axis $d$ \emph{in pixels} (or voxels, or microns ---
+whatever unit $p$ is quoted in).}
+
+\begin{align}
+p_{\ell,d} &= W_d / N_{\ell,d}
+&&\text{pixels per cell at level } \ell
+\label{eq:pxlevel}\\[4pt]
+\nu_\ell &= \prod_{d=1}^{D} \big(N_{\ell,d}+1\big)
+&&\text{vertices at level } \ell
+\label{eq:nverts}\\[4pt]
+n_\ell &= \min\big(\nu_\ell,\; 2^{T}\big)
+&&\text{rows level } \ell \text{ actually owns}
+\label{eq:nrows}\\[4pt]
+n_{\mathrm{enc}} &= F \sum_{\ell=0}^{L} \min\big(\nu_\ell,\; 2^{T}\big)
+&&\text{encoder parameters}
+\label{eq:nenc}
+\end{align}
+\where{where
+$p_{\ell,d}$ is the number of pixels one level-$\ell$ cell covers along axis $d$, the number
+worth watching level by level;
+$\nu_\ell$ is how many vertices the level's lattice \emph{wants};
+$2^{T}$ is how many rows it \emph{gets};
+$n_{\mathrm{enc}}$ is the total encoder parameter count.}
+
+\section{Prolongation and restriction}
+
+\begin{align}
+\boldsymbol\xi &= \mathbf{r}\odot \mathbf{N}_\ell - \big\lfloor \mathbf{r}\odot \mathbf{N}_\ell \big\rfloor ,
+&&\mathbf{v} = \big\lfloor \mathbf{r}\odot \mathbf{N}_\ell \big\rfloor + \boldsymbol\sigma ,
+\quad \boldsymbol\sigma \in \{0,1\}^{D}
+\label{eq:cell}
+\end{align}
+\where{where
+$\mathbf{r} \in [0,1]^{D}$ is the query point, normalised so the domain is the unit box;
+$\mathbf{N}_\ell = (N_{\ell,1},\dots,N_{\ell,D})$ collects the level's resolutions;
+$\odot$ is the elementwise product and $\lfloor\cdot\rfloor$ the floor, clamped so the last
+cell of each axis is not overrun;
+$\boldsymbol\xi \in [0,1)^{D}$ is the fractional position of $\mathbf{r}$ \emph{inside its
+own level-$\ell$ cell};
+$\boldsymbol\sigma \in \{0,1\}^{D}$ selects one of the $2^{D}$ corners of that cell;
+$\mathbf{v} \in \mathbb{Z}^{D}$ is that corner's integer lattice coordinate.}
+
+\begin{align}
+w_\ell(\mathbf{v};\mathbf{r}) &= \prod_{d=1}^{D}
+   \Big[\sigma_d\, s(\xi_d) + (1-\sigma_d)\big(1 - s(\xi_d)\big)\Big] ,
+&&\sum_{\boldsymbol\sigma \in \{0,1\}^{D}} w_\ell = 1
+\label{eq:weights}\\[4pt]
+s(\xi) &= \xi
+\quad\text{(linear)} ,
+&& s(\xi) = \xi^2(3-2\xi)
+\quad\text{(smoothstep)}
+\label{eq:sfun}
+\end{align}
+\where{where
+$w_\ell(\mathbf{v};\mathbf{r}) \in [0,1]$ is the interpolation weight of corner $\mathbf{v}$
+for the query $\mathbf{r}$, and the weights of the $2^{D}$ corners sum to $1$ (partition of
+unity), so interpolation reproduces constants exactly;
+$s : [0,1] \to [0,1]$ is the per-axis interpolation profile --- linear makes the encoding
+$C^{0}$, smoothstep makes it $C^{1}$ but destroys the nesting of \eqref{eq:V}, since
+$s'(0) = s'(1) = 0$ forces zero slope at every vertex.}
+
+\begin{align}
+\big(I_\ell\, c\big)(\mathbf{r}) &= \sum_{\boldsymbol\sigma \in \{0,1\}^{D}}
+   w_\ell(\mathbf{v};\mathbf{r})\; c_{\mathbf{v}}
+&&\text{(prolongation)}
+\label{eq:prolong}\\[4pt]
+P_\ell &= I_\ell^{+} = \big(I_\ell^{\!\top} I_\ell\big)^{-1} I_\ell^{\!\top}
+&&\text{(restriction)}
+\label{eq:restrict}\\[4pt]
+P_\ell I_\ell &= \Id_{n_\ell}
+\label{eq:PI}
+\end{align}
+\where{where
+$n_\ell = \min(\nu_\ell, 2^{T})$ of \eqref{eq:nrows} is the number of level-$\ell$ nodes --- grid
+vertices here, or groups of units when the domain is a connectome;
+$c \in \mathbb{R}^{n_\ell}$ holds one value per level-$\ell$ node;
+$I_\ell : \mathbb{R}^{n_\ell} \to \mathbb{R}^{M}$ is the \emph{prolongation}, carrying node
+values to the $M$ query points, and is exactly the encoding's own interpolation;
+$I_\ell^{\!\top}$ is its adjoint, the backward scatter;
+$I_\ell^{+}$ is the Moore--Penrose pseudo-inverse, i.e.\ the least-squares
+\emph{restriction};
+$\Id_{n_\ell}$ is the $n_\ell \times n_\ell$ identity.
+Equation \eqref{eq:PI} is what the whole construction rests on: $P_\ell$ must be a true left
+inverse. The cheaper mass-normalised adjoint $D_\ell^{-1}I_\ell^{\!\top}$ with
+$D_\ell = \mathrm{diag}(I_\ell^{\!\top}\mathbf{1})$ does \emph{not} satisfy it.}
+
+\begin{align}
+R_\ell &= I_\ell P_\ell , & R_\ell^2 &= R_\ell , & R_{-1} &= 0
+\label{eq:R}\\[2pt]
+Q_\ell &= \Id - R_{\ell-1} = \Id - I_{\ell-1} P_{\ell-1} , & Q_0 &= \Id
+\label{eq:Q}
+\end{align}
+\where{where
+$R_\ell$ is the projector \emph{onto} the level-$\ell$ space --- it keeps whatever level
+$\ell$ can represent and discards the rest --- and is idempotent by \eqref{eq:PI};
+$Q_\ell$ is the \emph{band-pass}, which removes everything already representable at level
+$\ell-1$, so that level $\ell$ can only contribute what is new;
+$Q_0 = \Id$ because the coarsest level has nothing below it to subtract.}
+
+\begin{align}
+\Vs_\ell &= \operatorname{range}(I_\ell) ,
+&\Vs_0 &\subset \Vs_1 \subset \cdots \subset \Vs_L
+\label{eq:V}\\[2pt]
+\Ws_\ell &= \Vs_\ell \ominus \Vs_{\ell-1} = Q_\ell \Vs_\ell = \Vs_\ell \cap \ker P_{\ell-1} ,
+&\Vs_L &= \Ws_0 \oplus \Ws_1 \oplus \cdots \oplus \Ws_L
+\label{eq:W}\\[2pt]
+\dim \Ws_\ell &= n_\ell - n_{\ell-1} ,
+&\sum_{\ell=0}^{L} \dim\Ws_\ell &= n_L
+\label{eq:dimW}
+\end{align}
+\where{where
+$\Vs_\ell \subset \mathbb{R}^{M}$ is everything level $\ell$ can express, of dimension
+$n_\ell$;
+the chain of inclusions is the \emph{nesting}, and it is exact only when each grid refines
+the one above it --- integer $b_d$ and integer $N_{\min,d}$, per axis;
+$\Ws_\ell$ is the \emph{detail space}, what level $\ell$ can express that level $\ell-1$
+cannot;
+$\ominus$ is the complement of $\Vs_{\ell-1}$ inside $\Vs_\ell$ taken along $\ker P_{\ell-1}$
+(oblique, not orthogonal, unless $P_{\ell-1}$ is the orthogonal projection);
+$\oplus$ is a direct sum, and it is the direct sum that makes each level's contribution
+recoverable from the total;
+$\dim\Ws_\ell$ telescoping to $n_L$ is the numerical test that the nesting is real.}
+
+\section{The encoder}
+
+\begin{equation}
+\big(u_i,\; a_i\big) \;=\; \mathrm{NGP}\big(x_i,\, y_i,\, z_i,\, t_i\big) ,
+\qquad i = 1,\dots,N
+\label{eq:ngp}
+\end{equation}
+\begin{equation}
+\mathbf{r}_i = (x_i,\,y_i,\,z_i,\,t_i) \in [0,1]^{4}
+\label{eq:coord}
+\end{equation}
+\where{where
+$i$ indexes a sample --- one neuron at one time, or one voxel at one time --- and $N$ is
+their number;
+$(x_i,y_i,z_i) \in \mathbb{R}^{3}$ is a position and $t_i \in \mathbb{R}$ a time, both
+rescaled into the unit box as $\mathbf{r}_i$;
+$u_i \in \mathbb{R}^{d_u}$ is the \emph{state} at that sample --- a voltage, a fluorescence
+$\Delta F/F$ --- with $d_u = 1$ for a scalar recording;
+$a_i \in \mathbb{R}^{d_a}$ is the \emph{embedding} at that sample, the object that replaces
+the free per-neuron parameter, with $d_a$ its width;
+$\mathrm{NGP}$ is the multiresolution hash encoding, expanded next.}
+
+\section{The encoder expanded: hash table and MLP}
+
+\begin{align}
+h_\ell(\mathbf{v}) &=
+\begin{cases}
+\displaystyle \sum_{d=1}^{D} v_d \prod_{e<d} \big(N_{\ell,e}+1\big) ,
+  & \displaystyle \prod_{d}\big(N_{\ell,d}+1\big) \le 2^{T}
+  \quad\text{(dense)} \\[10pt]
+\displaystyle \Big( \bigoplus_{d=1}^{D} v_d\, \pi_d \Big) \bmod 2^{T} ,
+  & \text{otherwise} \quad\text{(hashed)}
+\end{cases}
+\label{eq:hash}\\[6pt]
+\boldsymbol\pi &= \big(1,\; 2654435761,\; 805459861,\; 3674653429\big)
+\label{eq:primes}
+\end{align}
+\where{where
+$h_\ell(\mathbf{v}) \in \{0,\dots,2^{T}-1\}$ is the table row that vertex $\mathbf{v}$ reads at
+level $\ell$;
+$2^{T}$ is the number of rows available to one level, one table per level;
+the top branch applies when the level's lattice fits in the table, so the map is a bijection
+and there are \emph{no} collisions;
+the bottom branch is Instant-NGP's spatial hash, where $\bigoplus$ is bitwise XOR and
+$\pi_d$ are large primes chosen to scatter collisions pseudo-randomly across the domain, so
+that two colliding vertices are typically far apart;
+each level owns a \emph{disjoint} slice of the flat table, so competition for rows is
+strictly within a level.}
+
+\begin{align}
+\mathbf{z}_i^{(\ell)} &= \sum_{\boldsymbol\sigma\in\{0,1\}^{D}}
+   w_\ell(\mathbf{v};\mathbf{r}_i)\;
+   \boldsymbol\theta^{(\ell)}_{\,h_\ell(\mathbf{v})}
+\;\in\; \mathbb{R}^{F} ,
+&&\boldsymbol\theta^{(\ell)} \in \mathbb{R}^{2^{T}\times F}
+\label{eq:lookup}\\[4pt]
+\mathbf{z}_i &= \Big[\, \mathbf{z}_i^{(0)} \cat \mathbf{z}_i^{(1)} \cat \cdots \cat \mathbf{z}_i^{(L)} \,\Big]
+\;\in\; \mathbb{R}^{(L+1)F}
+\label{eq:concat}\\[4pt]
+\big(u_i,\; a_i\big) &= \mathrm{MLP}_{\psi}\big(\mathbf{z}_i\big)
+\label{eq:mlp}\\[4pt]
+a_i^{(\ell)} &\equiv \mathbf{z}_i^{(\ell)}
+\label{eq:aslice}
+\end{align}
+\where{where
+$\boldsymbol\theta^{(\ell)} \in \mathbb{R}^{2^{T} \times F}$ is the level-$\ell$ feature table,
+the only place learned capacity is stored, initialised uniform on
+$[-10^{-4}, 10^{-4}]$;
+$F \in \mathbb{N}$ is the number of features per row (typically $2$ or $4$);
+$\boldsymbol\theta^{(\ell)}_{k}$ is row $k$ of that table;
+$\mathbf{z}_i^{(\ell)} \in \mathbb{R}^{F}$ is the interpolated level-$\ell$ feature at sample
+$i$, i.e.\ $\eqref{eq:prolong}$ applied to the table;
+$\cat$ denotes concatenation, so $\mathbf{z}_i$ stacks all $L+1$ levels;
+$\mathrm{MLP}_{\psi}$ is the decoder with parameters $\psi$, mapping the concatenated
+features to the state and the embedding;
+\eqref{eq:aslice} is the alternative in which the embedding is \emph{not} decoded but is the
+raw per-level slice, which is what makes $a$ multiresolution rather than a single vector.}
+
+\section{Encoder and operator together, multi-level}
+
+\begin{equation}
+\partial_t u \;=\; \mathcal{F}\big[u\big]
+\label{eq:pde}
+\end{equation}
+\where{where
+$\mathcal{F}$ is the true (unknown) evolution operator --- the thing being recovered ---
+mapping a state field to its rate of change.}
+
+\begin{equation}
+\boxed{\;
+\dot u^{*}(\mathbf{r},t) \;=\; \sum_{\ell=0}^{L}
+Q_\ell\, I_\ell \Big[\, \mathrm{GNN}_\ell\big(\, P_\ell u,\; a_\ell \,\big) \Big](\mathbf{r},t)
+\;}
+\label{eq:model}
+\end{equation}
+\where{where
+$\dot u^{*} \in \mathbb{R}^{M \times d_u}$ is the \emph{predicted} rate of change at the
+query points, the model's output;
+$\mathrm{GNN}_\ell$ is the level-$\ell$ operator: it reads the restricted state and the
+level's embedding at every level-$\ell$ node and emits one rate of change per node, so its
+output is band-limited from \emph{above} by the level's own cell size;
+$I_\ell$ carries that back to full resolution and $Q_\ell$ removes the part a coarser level
+could already have produced, band-limiting from \emph{below};
+the sum over $\ell$ is a sum of \emph{contributions}, not of independent predictions.}
+
+\begin{align}
+W^{(\ell)} &= P_\ell\, W\, I_\ell
+\label{eq:coarseW}\\[4pt]
+\mathbf{m}^{(\ell)}_\alpha &= \sum_{\beta} W^{(\ell)}_{\alpha\beta}\;
+   \psi_\ell\big(\, v_\alpha,\, v_\beta,\, a_{\ell,\alpha},\, a_{\ell,\beta} \,\big)
+\label{eq:message}\\[4pt]
+\big[\mathrm{GNN}_\ell(v, a_\ell)\big]_\alpha &=
+   \phi_\ell\big(\, v_\alpha,\; a_{\ell,\alpha},\; \mathbf{m}^{(\ell)}_\alpha \,\big) ,
+\qquad v = P_\ell u
+\label{eq:update}
+\end{align}
+\where{where
+$W \in \mathbb{R}^{N \times N}$ is the connectivity at the finest scale --- the synaptic
+weight from unit $\beta$ to unit $\alpha$, or lattice adjacency in the volumetric case;
+$W^{(\ell)} \in \mathbb{R}^{n_\ell \times n_\ell}$ is its Galerkin coarsening, which for a
+partition by cell type is exactly the type-to-type connectivity matrix;
+$\alpha, \beta \in \{1,\dots,n_\ell\}$ index level-$\ell$ nodes;
+$v = P_\ell u \in \mathbb{R}^{n_\ell \times d_u}$ is the restricted state, and $v_\alpha$ its
+value at node $\alpha$;
+$a_{\ell,\alpha} \in \mathbb{R}^{F}$ is that node's level-$\ell$ embedding;
+$\psi_\ell$ is the message function, a small network evaluated once per edge;
+$\mathbf{m}^{(\ell)}_\alpha$ is the aggregated message at node $\alpha$, a weighted sum over
+its neighbours;
+$\phi_\ell$ is the update function, producing that node's contribution to the rate of change.}
+
+\begin{equation}
+\mathcal{L} \;=\;
+\sum_i \big\| u_i' - u_i \big\|^2
+\;+\; \lambda \sum_i \big\| \dot u_i^{*} - \dot u_i \big\|^2
+\label{eq:loss}
+\end{equation}
+\where{where
+$u_i'$ is the encoder's reconstruction of the state and $u_i$ the observation, so the first
+term is the \emph{data fit};
+$\dot u_i$ is the observed rate of change --- a finite difference of the recording, or a
+leave-one-out local-linear slope --- and the second term is the \emph{model fit};
+$\lambda > 0$ balances them, and carries units of time$^2$ because the two terms differ by
+$1/\text{time}^2$, so it does not transfer between datasets of different frame rate unless
+both terms are non-dimensionalised first.}
+
+\section{Everything expanded}
+
+\begin{align}
+\mathbf{z}_i^{(\ell)} &= \sum_{\boldsymbol\sigma\in\{0,1\}^{D}}
+   w_\ell(\mathbf{v};\mathbf{r}_i)\; \boldsymbol\theta^{(\ell)}_{\,h_\ell(\mathbf{v})}
+&&\text{table}
+\label{eq:f-lookup}\\[4pt]
+u_i' &= \mathrm{MLP}_{\psi}\Big(\big[\, \mathbf{z}_i^{(0)} \cat \cdots \cat \mathbf{z}_i^{(L)} \,\big]\Big)
+&&\text{data head}
+\label{eq:f-decode}\\[4pt]
+a_{\ell,\alpha} &= \mathbf{z}_\alpha^{(\ell)} ,
+\qquad v^{(\ell)} = P_\ell\, u
+&&\text{level inputs}
+\label{eq:f-inputs}\\[4pt]
+\mathbf{m}^{(\ell)}_\alpha &= \sum_{\beta} \big(P_\ell W I_\ell\big)_{\alpha\beta}\,
+   \psi_\ell\big(v^{(\ell)}_\alpha, v^{(\ell)}_\beta, a_{\ell,\alpha}, a_{\ell,\beta}\big)
+&&\text{messages}
+\label{eq:f-msg}\\[4pt]
+g^{(\ell)}_\alpha &= \phi_\ell\big(v^{(\ell)}_\alpha,\; a_{\ell,\alpha},\; \mathbf{m}^{(\ell)}_\alpha\big)
+&&\text{level output}
+\label{eq:f-out}\\[4pt]
+\dot u^{*} &= \sum_{\ell=0}^{L}
+   \big(\Id - I_{\ell-1}P_{\ell-1}\big)\, I_\ell\, g^{(\ell)}
+&&\text{band-pass synthesis}
+\label{eq:f-synth}\\[4pt]
+\mathcal{L} &= \sum_i \big\| u_i' - u_i \big\|^2
+   \;+\; \lambda \sum_i \big\| \dot u_i^{*} - \dot u_i \big\|^2
+&&\text{objective}
+\label{eq:f-loss}
+\end{align}
+\where{where all symbols are as defined above, and
+$g^{(\ell)} \in \mathbb{R}^{n_\ell \times d_u}$ is the level-$\ell$ output vector, one rate
+of change per level-$\ell$ node, before it is carried back to full resolution;
+$v^{(\ell)} = P_\ell u$ is the state restricted to level $\ell$, so the operator reads the
+\emph{state} and the encoder supplies only the \emph{embedding}.}
+
+\begin{equation}
+\Theta \;=\; \Big\{\, \boldsymbol\theta^{(0)},\dots,\boldsymbol\theta^{(L)} ,\;
+\psi ,\; \psi_0,\dots,\psi_L ,\; \phi_0,\dots,\phi_L \,\Big\}
+\label{eq:params}
+\end{equation}
+\where{where
+$\Theta$ is everything learned: the $L+1$ feature tables, the decoder parameters $\psi$, and
+one message and one update network per level. Sharing $\psi_\ell$ and $\phi_\ell$ across
+levels, conditioned on the level's cell size, replaces the last $2(L+1)$ networks by two.}
+
+\begin{equation}
+b_d \in \mathbb{N} ,
+\qquad N_{\min,d} \in \mathbb{N} ,
+\qquad s(\xi) = \xi ,
+\qquad P_\ell I_\ell = \Id
+\label{eq:conditions}
+\end{equation}
+\where{where these are the four conditions under which \eqref{eq:f-synth} is a genuine
+band-pass rather than a relabelling: integer growth factor and integer coarsest resolution
+\emph{per axis}, so the grids are exactly nested; linear interpolation on every band-passed
+axis, since smoothstep breaks the nesting; and a restriction that is a true left inverse,
+which requires solving the level-$\ell$ Gram system rather than scattering.}
+
+\end{document}
