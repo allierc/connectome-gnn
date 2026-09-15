@@ -170,10 +170,18 @@ def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
             w = W_model[idx] ** 2 if squared else W_model[idx]
             m_model.append(to_numpy(g).astype(float) * float(w))
 
+    # act(v_j) per edge, from the GENERATOR's own activation -- relu on this data,
+    # via ode_params.gt_g_phi_func. Kept because it is the column the closed-form
+    # template fit needs: with act given, W * act(v_j) * (E - v_i) + C is linear
+    # in (W*E, -W, C) and the template row needs no symbolic search at all.
+    act_js = [np.asarray(to_numpy(op.gt_g_phi_func(v_j)), dtype=float).ravel()
+              for v_j in v_js]
+
     return {"frames": frames, "v_i": v_i, "stim": np.array(S), "msg_model": np.array(MSG),
             "pred": np.array(PRED), "m_true": np.stack(m_true) if len(inc) else np.zeros((0, len(v_i))),
             "m_model": np.stack(m_model) if len(inc) else np.zeros((0, len(v_i))),
             "edge_ids": inc, "src": src[inc], "forms": forms, "W_model": W_model[inc],
+            "act_j": np.stack(act_js) if len(inc) else np.zeros((0, len(v_i))),
             "v_j": np.stack(v_js) if len(inc) else np.zeros((0, len(v_i)))}
 
 
@@ -359,6 +367,83 @@ def _fitted_parameters(equation):
     return out
 
 
+def closed_form_template(g, out):
+    """The template rows, by least squares -- no search, no Julia.
+
+    THE SAME TWO FITS `metrics.extract_template_params` DOES, on this neuron's
+    sampled frames, so the panel and results/metrics.txt cannot disagree about a
+    synapse. Given act (the generator's own, relu on this data) both are linear:
+
+      per edge, conductance family
+          msg_ij = W*act(v_j)*(E - v_i) + C = (W E)*u + (-W)*(u v_i) + C
+          -> W = -b2,  E = -b1/b2,  C = b3     over columns [u, u*v_i, 1]
+      per edge, current family
+          msg_ij = W*act(v_j) + C             -> W = b1, C = b2, no reversal
+
+      the update
+          pred = T[(V - v_i) + G*msg + F*stim]
+               = T V - T v_i + T G msg + T F stim
+          -> T = -a1,  V = a0/T,  G = a2/T,  F = a3/T   over [1, v_i, msg, stim]
+
+    F is the one approximation: the generator's f(stim) is taken linear, which it
+    is on this data. The R2 printed beside each row says how well that held.
+    """
+    # Every column this needs, or nothing: `gather` supplies them all, but the
+    # panels are also called with hand-built dicts in the tests and a KeyError
+    # inside a figure helper is not worth the two lines it costs to avoid.
+    _need = ("forms", "v_i", "pred", "msg_model", "stim", "edge_ids", "act_j", "m_model")
+    if any(k not in g for k in _need):
+        return out
+    fm = g["forms"]
+    cond = bool(fm["conductance"])
+    ones = np.ones_like(g["v_i"])
+
+    # --- the update -------------------------------------------------------
+    X = np.column_stack([ones, g["v_i"], g["msg_model"], g["stim"]])
+    y = np.asarray(g["pred"], dtype=float)
+    try:
+        a, *_ = np.linalg.lstsq(X, y, rcond=None)
+        T = -float(a[1])
+        if abs(T) > 1e-12:
+            V, G, F = float(a[0]) / T, float(a[2]) / T, float(a[3]) / T
+            out["update_tmpl"] = (f"{T:.4f} * ((({V:+.4f}) - v_i) + {G:.4f} * msg "
+                                  f"+ {F:.4f} * stim)")
+            out["update_tmpl_r2"] = _r2(y, X @ a)
+            out["update_tmpl_note"] = "least squares"
+            out["update_tmpl_p"] = {"T": T, "V": V, "G": G, "F": F}
+    except np.linalg.LinAlgError as exc:
+        out["update_tmpl_note"] = f"least squares failed: {exc}"
+
+    # --- one fit per incoming synapse -------------------------------------
+    for row, idx in enumerate(g["edge_ids"]):
+        idx = int(idx)
+        u = np.asarray(g["act_j"][row], dtype=float)
+        m = np.asarray(g["m_model"][row], dtype=float)
+        cols = [u, u * g["v_i"], ones] if cond else [u, ones]
+        try:
+            b, *_ = np.linalg.lstsq(np.column_stack(cols), m, rcond=None)
+        except np.linalg.LinAlgError as exc:
+            out["tmpl_notes"][idx] = f"least squares failed: {exc}"
+            continue
+        pred = np.column_stack(cols) @ b
+        if cond:
+            W = -float(b[1])
+            E = (-float(b[0]) / float(b[1])) if abs(float(b[1])) > 1e-12 else None
+            C = float(b[2])
+            eq = (f"{W:.4f} * relu(v_j) * ({E:+.3f} - v_i) + {C:.4f}"
+                  if E is not None else None)
+        else:
+            W, E, C = float(b[0]), None, float(b[1])
+            eq = f"{W:+.4f} * relu(v_j) + {C:.4f}"
+        out["tmpl"][idx] = eq
+        out["tmpl_W"][idx] = W
+        out["tmpl_E"][idx] = E
+        out["tmpl_C"][idx] = C
+        out["tmpl_r2"][idx] = _r2(m, pred)
+        out["tmpl_notes"][idx] = "least squares"
+    return out
+
+
 def symbolic_forms(g, cfg):
     """Fit the update, and every incoming synapse twice: free, and templated.
 
@@ -374,6 +459,12 @@ def symbolic_forms(g, cfg):
            "edges": {}, "edge_r2": {}, "edge_notes": {},
            "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_C": {}, "tmpl_W": {},
            "tmpl_notes": {}}
+    # THE TEMPLATE ROWS DO NOT NEED PySR, and used to print "[not fitted]"
+    # whenever Julia could not start -- next to a generator row that was right
+    # there, and next to a metrics.txt reporting the very same fit. With act
+    # given the template is linear in its constants, so it is least squares,
+    # always available, and identical in kind to what `metrics` reports.
+    closed_form_template(g, out)
     if not cfg.sr_enabled:
         return out
     f = g["forms"]
@@ -388,9 +479,13 @@ def symbolic_forms(g, cfg):
         ueq, ur2, unote, _ = _sr_fit(
             np.column_stack([g["v_i"], g["msg_model"], g["stim"], ones]),
             g["pred"], ["v_i", "msg", "stim", "cat"], cfg, spec=uspec)
-        out["update_tmpl"], out["update_tmpl_r2"], out["update_tmpl_note"] = ueq, ur2, unote
-        p = _fitted_parameters(ueq) if ueq else {}
-        out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
+        if ueq:
+            out["update_tmpl"], out["update_tmpl_r2"] = ueq, ur2
+            out["update_tmpl_note"] = unote or "PySR template"
+            p = _fitted_parameters(ueq)
+            out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
+        elif unote:
+            out["update_tmpl_note"] = f"least squares (PySR: {unote})"
 
     spec = (_conductance_template(cfg) if f["conductance"]
             else _current_template(cfg))
@@ -410,7 +505,16 @@ def symbolic_forms(g, cfg):
                                    ["v_j", "cat"]))
             teq, tr2, tnote, tpred = _sr_fit(
                 _cols, g["m_model"][row], _names, cfg, spec=spec)
-            out["tmpl"][idx], out["tmpl_r2"][idx], out["tmpl_notes"][idx] = teq, tr2, tnote
+            # ONLY WHEN THE SEARCH ACTUALLY RETURNED SOMETHING. The closed-form
+            # fit above already filled these three, and a failed PySR call
+            # overwriting them with None put "[not fitted]" on a row that had a
+            # perfectly good least-squares answer.
+            if teq:
+                out["tmpl"][idx] = teq
+                out["tmpl_r2"][idx] = tr2
+                out["tmpl_notes"][idx] = tnote or "PySR template"
+            elif tnote:
+                out["tmpl_notes"][idx] = f"least squares (PySR: {tnote})"
             _p = _fitted_parameters(teq) if teq else {}
             E = _p.get("E")
             E = E[0] if E else None

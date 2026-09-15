@@ -3560,6 +3560,25 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
             recovery_param_metrics(unc[0], unc[1],
                                    _thresh_for("W", config))["r2_clean"])
 
+    # HOW MUCH OF THE V_rest GAP IS THE MESSAGE OFFSET. The affine gauge is
+    # msg_hat_i = msg_i / k_i + beta_i, and the two halves are corrected very
+    # differently: W is divided by the measured k_i, while beta_i is not
+    # identifiable from the update at all -- the update hands a constant in the
+    # message straight to the resting potential, so the level the template reads
+    # is short by exactly the neuron's own incoming offset. Adding that offset
+    # back gives the second number, and the DIFFERENCE between the two is the
+    # answer to "is V_rest wrong, or is it beta_i sitting in V_rest". Reported,
+    # not substituted: the headline V_rest_R2 stays the one a reader gets
+    # without knowing the offset, which is the honest number for a real
+    # recording where the message is not observed.
+    _vro = rec.diagnostics.get("_V_rest_offset_corrected")
+    _vr = rec.get("V_rest")
+    if _vro is not None and _vr is not None and len(_vro) == len(_vr[0]):
+        _m = recovery_param_metrics(_vr[0], np.asarray(_vro, dtype=float),
+                                    _thresh_for("V_rest", config))
+        out["V_rest_R2_offset_corrected"] = float(_m["r2_clean"])
+        out["V_rest_slope_offset_corrected"] = float(_m["slope_clean"])
+
     # SCALE-FREE COMPANIONS for the two quantities a GNN pins down only up to a
     # gain. `<key>_gain` follows the one convention (learned ~= gain * true, see
     # r2_up_to_scale); `<key>_R2_scaled` is the R2 once it is divided out.
@@ -3629,6 +3648,7 @@ _EXTRA_STATS = {
     "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
     "Eij":   ("gate", "pct_wrong_slope"),
     "msg_i": ("R2_scaled", "gain"),
+    "V_rest": ("R2_offset_corrected", "slope_offset_corrected"),
 }
 
 
