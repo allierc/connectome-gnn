@@ -1749,7 +1749,14 @@ class TrainingConfig(BaseModel):
     learn_external_input: bool = False
 
     save_all_checkpoints: bool = False  # True = save iteration-level checkpoints too
-    checkpoint_saves_per_epoch: int = 1  # >1 also saves within-epoch snapshots at a fixed cadence (see graph_trainer.py)
+    # THREE PER EPOCH BY DEFAULT. At one save per epoch a run whose epoch is
+    # 1.6M iterations -- eight hours on an a100 -- has nothing on disk until it
+    # finishes, so an hour-long probe leaves models/ empty and cannot be tested,
+    # plotted or read out at all. Three costs three files an epoch and makes any
+    # run interruptible. Pair it with data_augmentation_loop sized so an epoch is
+    # the time you are willing to wait: Niter = n_frames * loop // batch * 0.2, so
+    # loop 64 at batch 4 on 64,000 frames is ~205k iterations, about an hour.
+    checkpoint_saves_per_epoch: int = 3
 
     test_dataset: str = ""  # dataset for testing; empty = same as training dataset
 
