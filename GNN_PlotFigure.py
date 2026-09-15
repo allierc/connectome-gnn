@@ -711,7 +711,8 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # land in results/metrics.txt beside the R2s they are the consequence of.
     if template_rollout and rec is not None:
         from connectome_gnn import template_rollout as _tr
-        scored.update(_tr.run(rec, config, log_dir, device, logger=logger))
+        scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
+                              edges=edges, x_ts=x_ts))
     write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
