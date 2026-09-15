@@ -555,16 +555,23 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
         plt.plot(_line, _line - thresh, ":", color="gray", linewidth=1, alpha=0.5)
 
     ax = plt.gca()
+    # THREE DECIMALS, because two turn 0.995 into "1.00". The figure and
+    # metrics.txt are drawn from one array and must not disagree on the number:
+    # at two decimals every R2 above 0.995 reads as perfect recovery, which is
+    # the one claim this scatter exists to support or refute.
     if is_degenerate_gt(gt):
         _txt = r2_scatter_text(gt, learned)
     elif r2_all is None:
-        _txt = f"R²: {r2_head:.2f}\nslope: {slope:.2f}"
+        _txt = f"R²: {r2_head:.3f}\nslope: {slope:.3f}"
     else:
-        _txt = f"R²: {r2_head:.2f} ({r2_all:.2f})\nslope: {slope:.2f}"
+        _txt = f"R²: {r2_head:.3f} ({r2_all:.3f})\nslope: {slope:.3f}"
     ax.text(0.05, 0.95, _txt, transform=ax.transAxes, verticalalignment="top",
             fontsize=32)
-    ax.text(0.05, 0.78, f"outliers: {pct_out:.1f}%", transform=ax.transAxes,
-            verticalalignment="top", fontsize=32)
+    # The count beside the share: "0.0%" of 434,112 edges is anything from none
+    # to a few hundred, and which it is changes what the R2 means.
+    ax.text(0.05, 0.78,
+            f"outliers: {int(out_mask.sum()):,} / {gt.size:,} ({pct_out:.3f}%)",
+            transform=ax.transAxes, verticalalignment="top", fontsize=26)
     plt.xlabel(spec["xlabel"], fontsize=56)
     plt.ylabel(spec["ylabel"], fontsize=56)
     plt.xlim(*lim)
