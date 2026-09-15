@@ -57,7 +57,7 @@ training:
   mlp_precision: fp32
   n_runs: 1
   device: auto
-  recurrent_training: false
+  recurrent_training: true
   time_step: 1
   batch_size: 4
   regul_batch_scaling: sqrt
