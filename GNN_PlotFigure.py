@@ -34,6 +34,7 @@ _ANSI_ORANGE = '\033[38;5;208m'
 _ANSI_GREEN = '\033[92m'
 _ANSI_BLUE = '\033[94m'
 _ANSI_WHITE = '\033[97m'
+_ANSI_YELLOW = '\033[93m'
 _ANSI_RESET = '\033[0m'
 
 def _r2_color(val):
@@ -627,7 +628,7 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # Julia process anywhere. Calling it "with PySR" put it one line away from
     # "PySR unavailable", printed by the neuron panels when the actual Julia
     # search cannot start, and the two together read as a contradiction.
-    print(f"{_ANSI_WHITE}extracting parameters with the template readout: "
+    print(f"{_ANSI_YELLOW}extracting parameters with the template readout: "
           f"the generator's own form, constants by least squares "
           f"(no PySR search, no Julia) ...{_ANSI_RESET}")
     try:
@@ -2629,7 +2630,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # slope. The template readout supersedes all four below and
             # metrics.txt reports ITS numbers, so the two blocks disagree by
             # construction and the reader has to be told which is which.
-            print(f"{_ANSI_WHITE}extracting parameters with the gain-correction "
+            print(f"{_ANSI_YELLOW}extracting parameters with the gain-correction "
                   f"chain ...{_ANSI_RESET}")
             print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
