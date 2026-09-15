@@ -22,20 +22,7 @@
 \begin{document}
 \maketitle
 
-\begin{abstract}
-A graph network trained to predict neural dynamics can reproduce every trajectory
-while getting every synapse wrong, because only the sum of a neuron's own
-dynamics and its incoming message is observed. This note writes down the
-transformation that freedom permits --- it is affine, not a pure scale --- and
-gives a closed-form readout that inverts it: fit the generator's own synaptic
-form to the model's per-edge message, then carry the result into the generator's
-units with a factor measured from the model's update. Every step is a least
-squares with an explicit solution, so the whole $434{,}112$-edge connectome is
-read in seconds. On a conductance network trained at process noise $\sigma=0.05$
-the readout recovers the median synaptic conductance to $7.3\%$ and raises
-cell-type clustering accuracy from $0.490$ to $0.583$; it also shows, and
-quantifies, the two failures that remain.
-\end{abstract}
+
 
 \section{What is observed, and what is free}
 
@@ -70,9 +57,9 @@ $\widehat{\msg}$}, and that is the whole difficulty: the message is an internal
 variable, and any transformation of it that $f_\theta$ can undo leaves the
 training objective exactly unchanged.
 
-\subsection{The gauge is affine}
+\subsection{An affine gauge}
 
-Suppose the model's message is related to the truth by
+We suppose that the model's message is related to the truth by
 %
 \begin{equation}
 \widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
@@ -88,8 +75,31 @@ the update fit of \S\ref{sec:update} measures:
 \label{eq:updatetmpl}
 \end{equation}
 %
-Substituting \eqref{eq:gauge} into \eqref{eq:updatetmpl} and matching
-coefficients against \eqref{eq:gen} term by term gives three identities:
+Substituting \eqref{eq:gauge} into \eqref{eq:updatetmpl} and expanding puts the
+model's update in terms of the true message,
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; -\,T_i\,\vi
+   \;+\; \frac{T_i G_i}{k_i}\,\msg_i
+   \;+\; T_i\bigl(V_i + G_i \beta_i\bigr)
+   \;+\; T_i f(I_i),
+\label{eq:updateexpanded}
+\end{equation}
+%
+while the generator \eqref{eq:gen}, divided by $\tau_i$ and grouped the same way,
+reads
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; -\,\frac{1}{\tau_i}\,\vi
+   \;+\; \frac{1}{\tau_i}\,\msg_i
+   \;+\; \frac{V^{\mathrm{rest}}_i}{\tau_i}
+   \;+\; \frac{I_i}{\tau_i}.
+\label{eq:genexpanded}
+\end{equation}
+%
+The two hold for every trajectory the network produces, so the coefficients of
+$\vi$, of $\msg_i$ and the constant must agree one by one. Matching them gives
+three identities:
 %
 \begin{align}
 \text{message:} && T_i G_i \frac{1}{k_i} &= \frac{1}{\tau_i}
@@ -103,158 +113,190 @@ coefficients against \eqref{eq:gen} term by term gives three identities:
    \label{eq:vrestid}
 \end{align}
 %
-Three consequences, and they are the reason this note exists.
+\section{The readout, as least squares}
+\label{sec:readout}
 
-\begin{enumerate}[leftmargin=*]
-\item \textbf{The scale $k_i$ is unobservable.} Equation~\eqref{eq:kid} is
-satisfied for \emph{any} $k_i$, by pairing it with $G_i = k_i/(\tau_i T_i)$. A
-model whose messages are $25\times$ too large and whose $f_\theta$ divides by
-$25$ predicts precisely the same dynamics as the truth.
-\item \textbf{The offset $\beta_i$ is unobservable too, and it is not harmless:}
-by \eqref{eq:vrestid} it is absorbed into the resting potential. A constant in
-the message and a shift of $V^{\mathrm{rest}}$ are the same function.
-\item \textbf{The reversal $\Eij$ is gauge-invariant.} It is the voltage at which
-a synapse's message vanishes --- a root --- and a root does not move when the
-function around it is rescaled or, per edge, shifted by a constant that the fit
-accounts for separately. This is why $\Eij$ can be recovered absolutely while
-$\Wij$ cannot be, without further work.
-\end{enumerate}
+With the identities in hand the question becomes an empirical one: does the
+trained network obey the generator's equation~\eqref{eq:gen} at all, and if so
+with which constants? The two are answered by the same fit. Impose the
+generator's form on what the network computes, ask least squares for the
+constants that fit it best, and read the residual: the coefficients are the
+recovered parameters, and the $R^2$ is how well the hypothesis holds on that edge
+or that neuron. An edge whose message cannot be written as
+$\Wij\,\act(\vj)\,(\Eij-\vi)$ reports a low $R^2$ and its constants mean nothing;
+one that fits at $0.999$ has a message the generator could have produced, and
+then the only question left is whether the constants are the right ones.
 
-\section{The readout}
 
-The readout inverts \eqref{eq:gauge} in three stages: fit the generator's
-synaptic form to each edge (\S\ref{sec:edge}), fit the generator's update form
-to each neuron (\S\ref{sec:update}), and combine them (\S\ref{sec:gauge}).
-
-\subsection{Stage 1: the per-edge template}
+\subsection{Per edge: $\Wij$ and $\Eij$}
 \label{sec:edge}
 
-For every edge $(i,j)$ and every sampled frame $t$ we have the model's own
-per-edge message, which is \eqref{eq:model} before the sum,
+Write $u_t = \act(\vj(t))$. The generator's synaptic form, multiplied out, is
 %
 \begin{equation}
-m_{ij}(t) \;=\; \widehat{W}_{ij}\; g_\phi\bigl(\vj(t), a_j, \vi(t), a_i\bigr).
+\msg_{ij}(t) \;=\; \Wij\,u_t\,\bigl(\Eij - \vi(t)\bigr) + C_{ij}
+  \;=\; \underbrace{(\Wij \Eij)}_{b_1}\,u_t
+  \;+\; \underbrace{(-\Wij)}_{b_2}\,\bigl(u_t\,\vi(t)\bigr)
+  \;+\; \underbrace{C_{ij}}_{b_3},
+\label{eq:edgelin}
 \end{equation}
 %
-We ask what conductance, reversal and offset best explain it inside the
-generator's own form. Writing $u_{ij}(t) = \act\bigl(\vj(t)\bigr)$ --- the
-generator's activation, \emph{given}, not fitted ---
+linear in $(b_1,b_2,b_3)$. The target is the model's OWN per-edge message,
+$\widehat{\msg}_{ij}(t)$, taken from its forward pass, so the fit asks what
+constants the generator would need to produce what the network computes. Stack
+the $n$ usable frames $t_1 \dots t_n$ of this edge into a design matrix $A$ and
+the model's messages into $y$:
 %
 \begin{equation}
-m_{ij} \;\approx\; \Wij\, u_{ij}\,\bigl(\Eij - \vi\bigr) \;+\; C_{ij}
-     \;=\; \underbrace{\Wij \Eij}_{b_1}\, u_{ij}
-       \;+\; \underbrace{(-\Wij)}_{b_2}\, u_{ij}\vi
-       \;+\; \underbrace{C_{ij}}_{b_3}\cdot 1 .
-\label{eq:edgefit}
+A \;=\;
+\begin{pmatrix}
+u_{t_1} & u_{t_1}\vi(t_1) & 1\\
+u_{t_2} & u_{t_2}\vi(t_2) & 1\\
+\vdots  & \vdots          & \vdots\\
+u_{t_n} & u_{t_n}\vi(t_n) & 1
+\end{pmatrix}
+\in \mathbb{R}^{n\times 3},
+\qquad
+b = \begin{pmatrix} b_1\\ b_2\\ b_3\end{pmatrix},
+\qquad
+y = \begin{pmatrix}
+\widehat{\msg}_{ij}(t_1)\\ \vdots\\ \widehat{\msg}_{ij}(t_n)
+\end{pmatrix}.
+\label{eq:design}
 \end{equation}
 %
-With $\act$ given, \eqref{eq:edgefit} is \emph{linear in its three unknowns}:
-a three-column least squares with a closed-form solution, one per edge, solved
-for all edges at once from stacked normal equations. This is the step that would
-otherwise be a symbolic regression --- searching for $\act$ as well costs about
-$300$\,s per \emph{neuron}, against seconds for the entire connectome here.
-
-Three details matter.
-
-\paragraph{The offset $C_{ij}$ is a measurement, not a nuisance.} The generator's
-per-edge message is identically zero whenever the presynaptic cell is silent, for
-every edge and whatever the postsynaptic state; $g_\phi$ is under no such
-obligation. $C_{ij}$ is exactly what it emits there, and by \eqref{eq:vrestid}
-the incoming sum $\sum_j C_{ij}$ is what neuron $i$'s resting potential absorbs.
-Fitting it also unbiases the other two coefficients: without a constant in the
-model, a message sitting on a pedestal is fitted by tilting the driving force
-instead, which moves the reversal.
-
-\paragraph{Frames with no drive carry no information.} Only frames with
-$u_{ij}$ above the median of the positive activations enter the fit; below that
-the driving force is multiplied by almost nothing.
-
-\paragraph{The reversal is reported only where it is identified.} Since
-$\Eij = b_1 / (-b_2)$ divides by the second coefficient, an edge whose
-postsynaptic voltage barely moved returns the reciprocal of a small noisy
-number. The edge reports a reversal only when
+The problem is $\min_b \lVert A b - y\rVert_2^2$, whose normal equations
+$A^{\!\top}\!A\,b = A^{\!\top}y$ give
 %
 \begin{equation}
-\frac{|b_2|}{\mathrm{se}(b_2)} \;\ge\; t^\ast, \qquad
-\mathrm{se}(b_2)^2 = \frac{\mathrm{SS}_{\mathrm{res}}}{n-3}\,
-   \bigl[(X^\top X)^{-1}\bigr]_{22},
+b \;=\; (A^{\!\top}\! A)^{-1} A^{\!\top} y ,
+\qquad
+\Wij = -b_2 , \qquad \Eij = -\,b_1/b_2 , \qquad C_{ij} = b_3 .
+\label{eq:edgesolve}
 \end{equation}
 %
-with $t^\ast = 3$. Before this gate, a handful of such edges drove the reversal
-RMSE to $571$\,V.
+$A^{\!\top}\!A$ is $3\times3$ whatever $n$ is, and its six distinct entries are
+sums over frames --- $\sum u^2$, $\sum u^2 \vi$, $\sum u$, and so on --- so the
+frames stream and nothing of size $n_{\mathrm{edges}} \times n$ is ever held.
+All $434{,}112$ edges are then solved together as a batch of $3\times3$ systems,
+in seconds.
 
-\paragraph{The conductance comes from the better-determined coefficient.} The
-generator gives every edge onto neuron $i$ one of exactly two reversals --- one
-for the excitatory senders, one for the inhibitory --- so the surviving per-edge
-estimates of each sign are repeated measurements of one number and their median
-$\bar{E}_i^{\pm}$ is the estimator that says so. Then
+\paragraph{Which rows are usable.} Three unknowns, so eight rows are ample. A
+row is \emph{usable} when the presynaptic cell is above the activity floor,
+$u_t = \act(\vj(t)) > 0$; below it the row is $[0,\,0,\,1]$ and constrains only
+the offset. Frames are drawn where the presynaptic cells are actually on, and a
+second sample tops up the edges still short, so $99.6\%$ of the $434{,}112$ edges
+are fitted.
+
+\paragraph{Why $\Eij$ is the fragile one.} $\Wij$ is a coefficient; $\Eij$ is a
+ratio of two, so its relative error is
+$(\sigma_E/E)^2 \approx (\sigma_{b_1}/b_1)^2 + (\sigma_{b_2}/b_2)^2$ and diverges
+as $b_2 \to 0$. And $b_2$ is small not when the synapse is weak but when the
+postsynaptic voltage barely moves: if $\vi(t) \approx c$ over the usable frames
+then $u_t \vi(t) \approx c\,u_t$, the two columns are nearly the same vector,
+and only the combination $b_1 + c\,b_2$ is determined. The guard is a $t$-test
+on that coefficient, from the same normal equations:
 %
 \begin{equation}
-\widehat{W}^{\,\mathrm{fit}}_{ij} \;=\; \frac{b_1}{\bar{E}_i^{\pm}}
-\qquad\text{rather than}\qquad
-\widehat{W}^{\,\mathrm{fit}}_{ij} = -b_2 ,
+\mathrm{se}(b_2) = \sqrt{\hat\sigma^2 \bigl[(A^{\!\top}\!A)^{-1}\bigr]_{22}},
+\qquad
+t = \frac{|b_2|}{\mathrm{se}(b_2)},
+\qquad
+\Eij \;\text{kept only where } t \ge 3 .
+\label{eq:gate}
 \end{equation}
 %
-because $b_1$ multiplies the drive itself while $b_2$ multiplies
-$u_{ij}\vi$ and is only as good as the postsynaptic voltage's excursion.
+Everything below it is recorded as unidentified rather than dropped silently. On
+the conductance run used throughout: $432{,}517$ of the $434{,}112$ edges are
+fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversal
+($93.4\%$ of all edges). The two counts differ by arm --- an earlier model
+identified only $29.4\%$ --- so two runs' $E$ scores are comparable only when
+their identified counts are.
 
-\subsection{Stage 2: the per-neuron update}
+\subsection{Per neuron: $T_i$, $V_i$, $G_i$}
 \label{sec:update}
 
-Equation~\eqref{eq:updatetmpl} is likewise linear once $f(I)$ is taken linear:
+The same least-squares approach on the update. Taking $f(I)$ linear, \eqref{eq:updatetmpl}
+expands to a four-column regression of the model's own $d\vi/dt$ on its own
+inputs,
 %
 \begin{equation}
-\frac{d\vi}{dt} \;\approx\; a_0 + a_1 \vi + a_2 \widehat{\msg}_i + a_3 I_i ,
+\widehat{\frac{d\vi}{dt}} \;=\; a_0 + a_1\,\vi + a_2\,\widehat{\msg}_i
+                              + a_3\,I_i ,
 \qquad
-T_i = -a_1, \quad V_i = \frac{a_0}{T_i}, \quad G_i = \frac{a_2}{T_i},
-\label{eq:updatefit}
+T_i = -a_1 ,\quad V_i = a_0/T_i ,\quad G_i = a_2/T_i ,
+\label{eq:updatesolve}
 \end{equation}
 %
-a four-column least squares per neuron, accumulated over frames as
-$(N,4,4)$ normal equations so that nothing of size $(N, n_{\mathrm{frames}})$ is
-ever held. The quality of this linearisation is reported: on the example run the
-median per-neuron $R^2$ of \eqref{eq:updatefit} is $0.9994$, and the fitted
-$T_iG_i$ agrees with an autograd evaluation of $\partial f_\theta/\partial \msg$
-to a median ratio of $0.9994$ --- the two coincide exactly when the update is
-affine in the message, so their ratio is a check that it is.
+again $(A^{\!\top}\!A)^{-1}A^{\!\top}y$, now $4\times4$ per neuron and accumulated
+over frames so nothing of size $N \times n_{\mathrm{frames}}$ is ever held. The
+fit's $R^2$ is reported: it is how far the model's update is from affine in the
+message, and a low value invalidates $T$, $V$ and $G$ together.
 
-One confound must be named: a constant inside $f(I)$ reaches $d\vi/dt$ as a
-constant times $T_i$, exactly as $V_i$ does, so on neurons that receive a
-stimulus the two cannot be separated. On this data that is the photoreceptors
-only.
-
-\subsection{Stage 3: the gauge}
+\subsection{From the fitted coefficients to the circuit}
 \label{sec:gauge}
 
-From \eqref{eq:kid}, each neuron's conductances are carried into the generator's
-units by
+The two fits return numbers about the model: per edge $(b_1,b_2,b_3)$, per neuron
+$(a_0,a_1,a_2,a_3)$, and from them $T_i$, $V_i$, $G_i$, $\Wij^{\mathrm{fit}}$,
+$\Eij$, $C_{ij}$. The identities \eqref{eq:kid}--\eqref{eq:vrestid} are what turn
+those into the generator's parameters, and they are used in this order:
+%
+\begin{align}
+\text{\eqref{eq:tauid}} && \tau_i &= 1/T_i = -1/a_1
+  && \text{the time constant, directly},\\[2pt]
+\text{\eqref{eq:kid}}   && k_i &= \tau_i T_i G_i = G_i = a_2/T_i
+  && \text{the message scale, which $\Wij$ is in units of},\\[2pt]
+\text{\eqref{eq:vrestid}} && V^{\mathrm{rest}}_i &= \tau_i T_i V_i + k_i \beta_i
+  && \text{the resting level, offset included}.
+\end{align}
+%
+So $\tau$ comes straight out of the update fit, $\Wij$ needs the scale from
+\eqref{eq:kid} applied to the edge fit, and $V^{\mathrm{rest}}$ needs the offset
+that \eqref{eq:vrestid} says the update hid in it --- the two corrections below.
+$\Eij$ needs neither.
+
+\paragraph{$\Wij$: divide by the scale.} By \eqref{eq:kid} the message is in
+units of $1/k_i$ with $k_i = \tau_i T_i G_i$, and the fitted $b_2$ inherits that,
+so the weight in the generator's units is
 %
 \begin{equation}
-k_i \;=\; \tau_i\, T_i\, G_i ,
-\qquad
-\Wij^{\,\mathrm{learned}} \;=\; k_i \; \widehat{W}^{\,\mathrm{fit}}_{ij},
-\qquad
-\Eij^{\,\mathrm{learned}} \;=\; \Eij^{\,\mathrm{fit}} .
-\label{eq:apply}
+\Wij^{\mathrm{corrected}} \;=\; k_i \; \Wij^{\mathrm{fit}}
+  \;=\; \tau_i\,T_i\,G_i \; \bigl(-b_2\bigr),
+\qquad \tau_i = 1/T_i \;\Rightarrow\; k_i = G_i ,
+\label{eq:wcorr}
 \end{equation}
 %
-Which $\tau_i$ closes this conversion is a genuine methodological choice and the
-note takes a position on it.
+where $\tau_i$ is the model's own, from \eqref{eq:tauid}. Without this the same
+weights score $R^2 = -2.14$ where the corrected ones score $0.995$ --- the
+uncorrected number is kept as \texttt{Wij\_R2\_uncorrected} so the difference is
+visible rather than assumed.
 
-\begin{itemize}[leftmargin=*]
-\item \textbf{Blind (default).} Use the model's own $\tau_i = 1/T_i$ from
-\eqref{eq:tauid}, whereupon $k_i = G_i$ exactly. Nothing from the generator
-enters, which is required of a recovery metric: $\tau$ is one of the quantities
-being recovered and cannot appear in its own readout.
-\item \textbf{Diagnostic.} Use the generator's $\tau_i$. This is \emph{not} a
-recovery number --- it uses the answer --- but it separates the template's own
-error from $\tau$'s, because $W^{\mathrm{true}}$ is written in units where the
-message enters $d\vi/dt$ as $\msg/\tau^{\mathrm{true}}$.
-\end{itemize}
+\paragraph{$V^{\mathrm{rest}}$: add the offset back.} By \eqref{eq:vrestid} the
+level the update fit reads is short by exactly the neuron's own incoming message
+offset:
+%
+\begin{equation}
+V^{\mathrm{rest},\,\mathrm{corrected}}_i
+  \;=\; \underbrace{\tau_i T_i V_i}_{\text{from the update fit}}
+  \;+\; \underbrace{k_i \beta_i}_{\textstyle \sum_{j} C_{ij}\ \text{from Stage 1}} ,
+\label{eq:vcorr}
+\end{equation}
+%
+the per-neuron sum of the per-edge offsets $C_{ij}$ the edge fits already
+produced. On fold 0 of the noise-$0.05$ current run this moves $V^{\mathrm{rest}}$
+$R^2$ from $0.933$ to $0.958$; the uncorrected value is kept as
+\texttt{V\_rest\_R2\_uncorrected}. Note the asymmetry with $\Wij$: the scale is
+divided out of the weights, the offset is added into the resting potential, and
+both are properties of the message gauge rather than errors of the parameter.
 
-\noindent
-The difference between them is large and is itself a result: see
-\S\ref{sec:population}.
+\paragraph{$\Eij$ needs neither.} A reversal is the voltage at which the message
+vanishes --- a root --- and a root does not move when the function around it is
+rescaled, or shifted by a constant the fit accounts for separately as $b_3$. It
+comes out of \eqref{eq:edgesolve} in absolute units already.
+
+\paragraph{$\msg_i$ follows the same scale.} The aggregated message is reported
+as $k_i \widehat{\msg}_i$, the model's own aggregate through the gauge the update
+fit measured --- one multiplication, no derivative of $f_\theta$ anywhere.
 
 \section{A worked example}
 

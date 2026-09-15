@@ -583,6 +583,18 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
     ax.text(0.05, 0.78,
             f"outliers: {int(out_mask.sum()):,} / {gt.size:,} ({pct_out:.3f}%)",
             transform=ax.transAxes, verticalalignment="top", fontsize=26)
+    # HOW MANY EDGES THE SCATTER IS OF. The per-edge fit leaves some edges
+    # unmeasured -- their presynaptic cell is rarely above the activity floor --
+    # and the cloud shows only the ones that were fitted. A reader comparing two
+    # runs' W scatters is otherwise comparing two different subsets of the
+    # connectome without being told.
+    _full = rec.diagnostics.get("_W_learned_full") if rec is not None else None
+    if quantity in ("W", "E_ij") and _full is not None:
+        _tot = int(np.asarray(_full).size)
+        if _tot:
+            ax.text(0.05, 0.70,
+                    f"fitted: {gt.size:,} / {_tot:,} edges ({100.0 * gt.size / _tot:.1f}%)",
+                    transform=ax.transAxes, verticalalignment="top", fontsize=26)
     plt.xlabel(spec["xlabel"], fontsize=56)
     plt.ylabel(spec["ylabel"], fontsize=56)
     plt.xlim(*lim)
