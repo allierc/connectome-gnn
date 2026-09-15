@@ -1436,6 +1436,24 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             with open(_metrics_path, 'a') as _mf:
                 _mf.writelines(_mirrored)
 
+    # The same mirror for the ONE-STEP numbers, out of results_test.log. Without
+    # it metrics.txt carries the rollout r and not the one-step r beside it, and
+    # the experiment tables had to be filled by grepping cluster job logs -- a
+    # number in a table nobody could re-derive from the run directory.
+    _test_log = os.path.join(log_dir, 'results_test.log')
+    if os.path.exists(_test_log):
+        import re as _re
+        with open(_test_log, 'r') as _tf:
+            _ttext = _tf.read()
+        _one = []
+        for _k, _canonical in (('Pearson r', 'one_step_r'), ('RMSE', 'one_step_rmse')):
+            _m = _re.search(rf'^{_re.escape(_k)}:\s*([-\d.eE+]+)', _ttext, _re.M)
+            if _m:
+                _one.append(f'{_canonical}: {_m.group(1)}\n')
+        if _one:
+            with open(_metrics_path, 'a') as _mf:
+                _mf.writelines(_one)
+
     print(f'experiment description: {config.description}')
     logger.info(f'experiment description: {config.description}')
 
