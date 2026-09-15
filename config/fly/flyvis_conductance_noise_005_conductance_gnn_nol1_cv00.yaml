@@ -1,4 +1,4 @@
-description: 'Conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0, with the
+description: 'conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0, with the
   W L1 off: under W squared the data gradient vanishes at W=0 while the L1 gradient
   does not, so zero is absorbing.'
 dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00

@@ -1,4 +1,4 @@
-description: Rollout curriculum K=1..5 with uniform step weighting on the no-sparsity
+description: rollout curriculum K=1..5 with uniform step weighting on the no-sparsity
   conductance GNN, current-generated data, noise 0.05, fold 3.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

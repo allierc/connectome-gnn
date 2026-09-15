@@ -1,4 +1,4 @@
-description: Conductance GNN on current-generated flyvis_A data, LLM-tuned parameters,
+description: conductance GNN on current-generated flyvis_A data, LLM-tuned parameters,
   blank50, noise 0.05, fold 0.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
