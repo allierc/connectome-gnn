@@ -92,6 +92,22 @@ class KnownODEBase(nn.Module):
         msg.scatter_add_(0, dst.unsqueeze(1).expand_as(edge_msg), edge_msg)
         return msg
 
+    def _node_index(self, particle_id):
+        """Neuron id -> parameter row. Identity, or the cell type when a subclass
+        shares one row per type.
+
+        ON THE BASE, because every family's `_update` indexes its per-neuron
+        parameters through it -- FlyvisKnownODE does, twenty lines into its own
+        update -- while only the conductance subclass defined it. The current
+        family's known-ODE could therefore not run a single forward pass:
+        `AttributeError: 'FlyvisKnownODE' object has no attribute '_node_index'`,
+        raised from inside itself.
+        """
+        if getattr(self, "student_neuron_params", "per_neuron") == "per_type" \
+                and getattr(self, "type_index", None) is not None:
+            return self.type_index[particle_id]
+        return particle_id
+
     def _update(self, v, msg, excitation, particle_id):
         """Compute dv/dt from v, aggregated messages, and excitation. Override in subclass."""
         raise NotImplementedError

@@ -604,7 +604,8 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
 
 
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
-                            log_dir, logger, log_file, n_neurons=None, extra=None):
+                            log_dir, logger, log_file, n_neurons=None, extra=None,
+                            template_rollout=False):
     """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
 
     Extracts every quantity the run can recover (W, tau, V_rest, E_ij, msg_i,
@@ -691,6 +692,14 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         rec, scored = None, {}
     if extra:
         scored.update(extra)
+    # THE RECOVERED PARAMETERS RUN AS A GENERATOR. Everything above says the fit
+    # is consistent with what the network computes; this says the numbers are the
+    # circuit, by loading them into the known-ODE and rolling it out on the
+    # noise-free data. Merged into `scored` before the write, so its r and rmse
+    # land in results/metrics.txt beside the R2s they are the consequence of.
+    if template_rollout and rec is not None:
+        from connectome_gnn import template_rollout as _tr
+        scored.update(_tr.run(rec, config, log_dir, device, logger=logger))
     write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
@@ -2808,7 +2817,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # results/metrics.txt, which exists either way.
             _rec_final, _scored_final = _write_recovery_metrics(
                 model, ode_params, config, edges, x_ts, device,
-                log_dir, logger, log_file, n_neurons=n_neurons)
+                log_dir, logger, log_file, n_neurons=n_neurons,
+                template_rollout=True)
             # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
             # against the truth and E_ij did not, although the template readout
             # produces the pair -- so the one quantity that is gauge-invariant,
