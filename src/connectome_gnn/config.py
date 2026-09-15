@@ -2409,6 +2409,27 @@ class RecoveryConfig(BaseModel):
     # Below this median per-edge R2, the edge_line_fit estimator's W and E_ij
     # describe nothing and are reported as invalid rather than as numbers.
     gate_fit_r2: float = 0.9
+
+    # HOW THE TEMPLATE FIT SPENDS ITS FRAMES. An edge is measurable only on
+    # frames where its presynaptic cell is above the activity floor, and a
+    # uniform draw leaves a quarter of this connectome's edges with fewer than
+    # the eight rows the three-parameter fit needs. Two knobs fix that, measured
+    # on flyvis_conductance_noise_005_conductance_gnnsil_cv00:
+    #
+    #   frame_choice "active" starts from a uniform base and adds frames drawn
+    #   from the active windows of the cells the base left short. At 1,024 frames
+    #   it gives Wij_R2 0.457 against 0.295 for a uniform 1,024 -- same budget,
+    #   better rows.
+    #
+    #   template_second_pass_frames streams that many extra frames and adds their
+    #   rows ONLY to the edges still short, leaving the rest untouched. It takes
+    #   the unfitted share from 25.9% to 0.37%, covering 432,517 of 434,112
+    #   edges, and moves Wij_R2 by 0.002.
+    #
+    # Both cost seconds in a pass measured in tens of minutes. "uniform" and 0
+    # restore the older behaviour for a run that needs to match an archived one.
+    template_frame_choice: str = "active"
+    template_second_pass_frames: int = 768
     report_scaled: bool = True
 
 
