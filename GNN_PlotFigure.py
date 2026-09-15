@@ -627,8 +627,9 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # Julia process anywhere. Calling it "with PySR" put it one line away from
     # "PySR unavailable", printed by the neuron panels when the actual Julia
     # search cannot start, and the two together read as a contradiction.
-    print(f"{_ANSI_WHITE}extracting parameters with the PySR template readout "
-          f"(closed form, no Julia) ...{_ANSI_RESET}")
+    print(f"{_ANSI_WHITE}extracting parameters with the template readout: "
+          f"the generator's own form, constants by least squares "
+          f"(no PySR search, no Julia) ...{_ANSI_RESET}")
     try:
         rec = extract_recovered_params(model, ode_params, config, edges=edges,
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
@@ -2629,8 +2630,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # metrics.txt reports ITS numbers, so the two blocks disagree by
             # construction and the reader has to be told which is which.
             print(f"{_ANSI_WHITE}extracting parameters with the gain-correction "
-                  f"chain (superseded below by the PySR template readout) ..."
-                  f"{_ANSI_RESET}")
+                  f"chain ...{_ANSI_RESET}")
             print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
             # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
