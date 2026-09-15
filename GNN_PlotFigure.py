@@ -1623,7 +1623,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         mc = 'k'
 
     time.sleep(0.5)
-    print('\033[93mextracting parameters...\033[0m')
+    # Says what this stretch does -- load the trajectory and draw the parameter
+    # figures. It used to say "extracting parameters...", one word away from the
+    # line _write_recovery_metrics prints when the readout actually runs, at the
+    # END of this function; two near-identical banners around twenty minutes of
+    # plotting is how a reader concludes the extraction never happened.
+    print('\033[93mdrawing parameter figures...\033[0m')
     x_path = graphs_data_path(config.dataset, 'x_list_train')
     if not os.path.exists(x_path):
         x_path = graphs_data_path(config.dataset, 'x_list_0')
