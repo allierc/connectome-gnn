@@ -614,7 +614,14 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # of seconds on 434,112 edges and the terminal is otherwise silent through
     # them. It names the readout so the figures, the file and the console all
     # say the same thing about where the numbers came from.
-    print(f"{_ANSI_WHITE}extracting parameters with PySR ...{_ANSI_RESET}")
+    # NAMES THE ESTIMATOR, not the library. This readout is PySR's
+    # TemplateExpressionSpec with the presynaptic shape given rather than
+    # searched -- which makes it a two-column least squares, closed form, no
+    # Julia process anywhere. Calling it "with PySR" put it one line away from
+    # "PySR unavailable", printed by the neuron panels when the actual Julia
+    # search cannot start, and the two together read as a contradiction.
+    print(f"{_ANSI_WHITE}extracting parameters with the PySR template readout "
+          f"(closed form, no Julia) ...{_ANSI_RESET}")
     try:
         rec = extract_recovered_params(model, ode_params, config, edges=edges,
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
@@ -1136,7 +1143,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
             _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
         else:
             _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
-        print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
+        logger.info(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
         edges_np = to_numpy(edges)
@@ -2607,6 +2614,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 np.savez_compressed(_panel_npz, **_panel_data)
                 logger.info(f'saved panel data → {_panel_npz} ({len(_panel_data)} arrays)')
 
+            # WHICH ESTIMATOR THIS BLOCK IS. Everything from here down to the
+            # template readout -- weights, tau, V_rest and their relative errors
+            # -- comes from the gain-correction chain: W divided by the
+            # per-neuron gain read off f_theta, tau and V_rest from the f_theta
+            # slope. The template readout supersedes all four below and
+            # metrics.txt reports ITS numbers, so the two blocks disagree by
+            # construction and the reader has to be told which is which.
+            print(f"{_ANSI_WHITE}extracting parameters with the gain-correction "
+                  f"chain (superseded below by the PySR template readout) ..."
+                  f"{_ANSI_RESET}")
             print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
             # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
@@ -3087,7 +3104,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
                 else:
                     _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
-                print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
+                logger.info(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 
