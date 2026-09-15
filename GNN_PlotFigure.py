@@ -481,6 +481,19 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
                               edges=edges, x_ts=x_ts))
     write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
+    # DOES THE NETWORK OBEY THE GENERATOR'S EQUATION AT ALL. Two medians answer
+    # it, one per fit: the per-edge form W*act(v_j)*(E - v_i) + C against the
+    # model's own message, and the per-neuron update T*((V - v_i) + G*msg +
+    # f(stim)) against its own dv/dt. High means the hypothesis holds and the
+    # only question left is whether the constants are the generator's -- which is
+    # what every R2 below answers. Low means those constants describe nothing.
+    _ef, _uf = scored.get("tmpl_fit_r2_median"), scored.get("tmpl_update_r2_median")
+    if _ef is not None or _uf is not None:
+        def _fmt(v):
+            return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
+        print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
+              f"   (does the generator's form describe the model at all)")
+
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
             continue
