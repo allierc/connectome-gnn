@@ -936,6 +936,34 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     _dynamics_dict_from, cluster_recovery, training_log_append)
                 if _rec_last is not None:
                     dynamics = _dynamics_dict_from(_rec_last, config)
+                # THE SAME FIGURES results/ GETS, at every checkpoint. Drawn from
+                # connectome_gnn.recovery_figures, so the scatter in
+                # tmp_training/recovery/ and the one in results/ are one piece of
+                # code reading one threshold -- they used to be two drawings of
+                # the same arrays that disagreed on decimals, on filtering and on
+                # what they annotated.
+                if save_panels and _rec_last is not None and _scored is not None:
+                    from connectome_gnn.recovery_figures import (
+                        _plot_recovered_scatter, _plot_parameter_error)
+                    _fdir = os.path.join(log_dir, "tmp_training", "recovery")
+                    _tag = f"{regularizer.iter_count:08d}"
+                    for _q, _k in (("W", "Wij"), ("E_ij", "Eij"), ("tau", "tau"),
+                                   ("V_rest", "V_rest"), ("msg_i", "msg_i")):
+                        try:
+                            _plot_recovered_scatter(
+                                _rec_last, _scored, _q, log_dir, config=config,
+                                out_path=os.path.join(_fdir, f"{_k}_{_tag}.png"))
+                        except Exception as _exc:
+                            logger.warning(f"{_q} checkpoint scatter skipped: "
+                                           f"{type(_exc).__name__}: {_exc}")
+                    try:
+                        _plot_parameter_error(
+                            _rec_last, _scored, log_dir,
+                            out_path=os.path.join(_fdir, f"parameter_error_{_tag}.png"))
+                    except Exception as _exc:
+                        logger.warning(f"checkpoint error panels skipped: "
+                                       f"{type(_exc).__name__}: {_exc}")
+
                 # E_ij and msg_i panels, same arrays. Absent quantity, no panel.
                 if save_panels and _rec_last is not None:
                     _e = _rec_last.get("E_ij")
@@ -945,7 +973,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         # draw it marked as such (the W panel beside it draws
                         # the gain-corrected W the same way).
                         _e = _rec_last.pairs.get("E_ij")
-                        _e_gate = _rec_last.diagnostics.get("Eij_gate")
+                        _e_gate = _rec_last.diagnostics.get("tmpl_fit_r2_median")
                     if _e is not None:
                         _grp = None
                         try:
