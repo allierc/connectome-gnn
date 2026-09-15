@@ -287,7 +287,15 @@ def _conductance_template(cfg):
     constants by a data column, and here there is a single category per fit.
     """
     try:
-        from pysr import TemplateExpressionSpec
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
     except Exception:
         return None
     return TemplateExpressionSpec(combine="f(v_j) * (E[cat] - v_i) + C[cat]",
@@ -308,7 +316,15 @@ def _current_template(cfg):
     population extractor had been fitting exactly this form for both families.
     """
     try:
-        from pysr import TemplateExpressionSpec
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
     except Exception:
         return None
     return TemplateExpressionSpec(combine="f(v_j) + C[cat]",
@@ -332,7 +348,15 @@ def _update_template():
     the data pin down.
     """
     try:
-        from pysr import TemplateExpressionSpec
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
     except Exception:
         return None
     return TemplateExpressionSpec(
