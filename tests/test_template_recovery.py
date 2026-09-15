@@ -145,7 +145,7 @@ def test_template_recovers_the_conductance_and_the_reversal():
     assert np.allclose(learned_w, gt_w, rtol=1e-3), (gt_w, learned_w)
     gt_e, learned_e = rec.pairs["E_ij"]
     assert np.allclose(learned_e, gt_e, atol=1e-3)
-    assert rec.diagnostics["Eij_gate"] > 0.999
+    assert rec.diagnostics["tmpl_fit_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_k_median"] - K) < 1e-5
 
 

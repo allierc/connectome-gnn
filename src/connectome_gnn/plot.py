@@ -2783,7 +2783,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # as a recovery number.
     _w_gate = None
     if rec is not None and _rec_W is None and not rec.valid.get("W", True):
-        _w_gate = rec.diagnostics.get("Eij_gate")
+        _w_gate = rec.diagnostics.get("tmpl_fit_r2_median")
     if _w_gate is None:
         _w_path, _w_symbol = f"{log_dir}/tmp_training/Wij/comparison_{epoch}_{N}.png", 'W_{ij}'
     else:
@@ -3474,7 +3474,7 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     # A GNN below the line-fit gate still has a per-edge E from that fit; it
     # is drawn, like the gain-corrected W panel beside it, but named and
     # labelled as gated so nobody reads it as a recovery. `gate` is the median
-    # per-edge R2 of the fit (Eij_gate in the logs).
+    # per-edge R2 of the fit (tmpl_fit_r2_median in the logs).
     gate = rev_metrics.get("gate")
     if gate is None:
         path, symbol = f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png", 'E_{ij}'
