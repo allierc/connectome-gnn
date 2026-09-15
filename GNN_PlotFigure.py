@@ -393,8 +393,10 @@ def _finite_range(values, fallback):
 # entirely -- and nothing on either said so.
 #
 # axis: (x label, y label, limits or None for data-driven, ticks or None)
-_KEY_FOR = {"W": "Wij", "E_ij": "Eij", "tau": "tau", "V_rest": "V_rest"}
-_LABEL_FOR = {"W": "W_ij", "E_ij": "E_ij", "tau": "tau", "V_rest": "V_rest"}
+_KEY_FOR = {"W": "Wij", "E_ij": "Eij", "tau": "tau", "V_rest": "V_rest",
+            "msg_i": "msg_i"}
+_LABEL_FOR = {"W": "W_ij", "E_ij": "E_ij", "tau": "tau", "V_rest": "V_rest",
+              "msg_i": "msg_i"}
 # The same names set in math, for the axis labels the scatters already use.
 _TEX_FOR = {"W": r"W_{ij}", "E_ij": r"E_{ij}", "tau": r"\tau", "V_rest": r"V_{rest}"}
 # And with the estimate's hat on the SYMBOL, not on the whole subscripted name:
@@ -412,6 +414,14 @@ _SCATTER_SPEC = {
                    xlabel=r"true $V_{rest}$",   ylabel=r"learned $V_{rest}$"),
     "E_ij":   dict(out="Eij_comparison.png",    thresh=None,
                    xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$"),
+    # THE AGGREGATE THE TRAJECTORY ACTUALLY DEPENDS ON. W and E trade off inside
+    # it -- W wrong by 3x with E wrong by 1/3 lands msg_i on the identity line --
+    # so a run whose W scatter is a mess and whose msg_i scatter is not has a
+    # gauge problem, not a connectivity problem. No outlier threshold: this one
+    # is a population of neuron-frames, not a per-neuron parameter.
+    "msg_i":  dict(out="msg_i_comparison.png",  thresh=None,
+                   xlabel=r"true $\mathrm{msg}_i$",
+                   ylabel=r"learned $\mathrm{msg}_i$"),
 }
 
 
@@ -2812,7 +2822,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # outlier band. Two numbers for one quantity in one directory, with
             # nothing saying which was which; these four cannot drift, because
             # the figure and the file now read one array.
-            for _q in ("W", "E_ij", "tau", "V_rest"):
+            for _q in ("W", "E_ij", "tau", "V_rest", "msg_i"):
                 try:
                     _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc)
                     if _p:

@@ -62,6 +62,7 @@ STAMP_EXACT = (
     "tau_comparison.png",
     "V_rest_comparison.png",
     "parameter_error.png",
+    "msg_i_comparison.png",
     "twin_params.png",
 )
 STAMP_PREFIXES = (
@@ -148,6 +149,7 @@ KEEP_EXACT = (
     "Eij_comparison.png",
     "tau_comparison.png",
     "V_rest_comparison.png",
+    "msg_i_comparison.png",
     "parameter_error.png",
 )
 
