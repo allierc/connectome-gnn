@@ -38,6 +38,8 @@ import re
 import numpy as np
 import torch
 
+from connectome_gnn.utils import to_numpy
+
 # The known-ODE that computes each family's generator form. Keyed by the
 # signal_model_name of the trained model the parameters came out of.
 _KNOWN_ODE_FOR = {
@@ -125,6 +127,16 @@ def build_state_dict(rec, n_neurons, n_edges, model):
             _col = np.asarray(learned[:n_edges], dtype=np.float32)
             _unfitted = int((~np.isfinite(_col)).sum())
             _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
+            # THE CONDUCTANCE CLASS SQUARES W: its message is W^2 * act(v_j) *
+            # (E - v_i), so the parameter is the square root of the conductance
+            # the readout recovered. A negative recovered value has no square
+            # root and no meaning on a conductance edge -- the sign there lives
+            # in the driving force -- so it enters as zero and is counted.
+            if getattr(model, "model", "") == "flyvis_conductance_known_ode" or \
+                    hasattr(model, "edge_is_inh"):
+                _neg = int((_col < 0).sum())
+                _col = np.sqrt(np.clip(_col, 0.0, None))
+                written["W_negative_set_to_zero"] = _neg
             sd["W"] = torch.zeros_like(sd["W"])
             sd["W"][:n_edges] = torch.as_tensor(_col, dtype=torch.float32)[:, None]
             written["W"] = n_edges
@@ -168,11 +180,18 @@ def _verify_round_trip(model, rec, n_neurons, n_edges, written):
             bad.append(f"V_rest: max |read - written| = {err:.3g}")
     if "W" in written:
         got = np.asarray(model.W.detach().cpu(), dtype=np.float64).ravel()[:n_edges]
+        # The conductance class holds the square root, so compare what its
+        # message actually uses, and only over the edges that had a value to
+        # write: a negative recovered conductance was clipped to zero on purpose.
+        if "W_negative_set_to_zero" in written:
+            got = got ** 2
         _src = rec.diagnostics.get("_W_learned_full")
         if _src is None or np.asarray(_src).size < n_edges:
             _src = rec.pairs["W"][1]
         want = np.nan_to_num(np.asarray(_src, dtype=np.float64).ravel()[:n_edges],
                              nan=0.0, posinf=0.0, neginf=0.0)
+        if "W_negative_set_to_zero" in written:
+            want = np.clip(want, 0.0, None)
         err = float(np.nanmax(np.abs(got - want)))
         if not (err < _ROUND_TRIP_TOL):
             bad.append(f"W: max |read - written| = {err:.3g}")
@@ -181,7 +200,89 @@ def _verify_round_trip(model, rec, n_neurons, n_edges, written):
                          + "; ".join(bad))
 
 
-def write_checkpoint(rec, config, log_dir, device, logger=None):
+def _prepare_conductance(model, rec, edges, x_ts, n_neurons, n_edges, notes):
+    """Configure the conductance known-ODE from the readout, and say what was lost.
+
+    THE CLASS DOES NOT TAKE PER-EDGE REVERSALS. It carries E_exc and E_inh per
+    postsynaptic neuron (or per type) with `edge_is_inh` choosing between them,
+    while the readout produces one E per edge. Collapsing the second into the
+    first is the only way to roll these parameters out at all, and it is lossy:
+    the per-edge spread is replaced by a median per neuron per channel. That is
+    recorded rather than hidden, because a rollout of the median is a weaker
+    statement than a rollout of what was measured.
+
+      sign     an edge is inhibitory when its recovered reversal sits below the
+               recovered resting potential of the cell it drives -- the readout's
+               own numbers, never the generator's.
+      E rows   median recovered E over each neuron's excitatory and inhibitory
+               incoming edges, over the edges whose reversal cleared the t-gate.
+      range    set_teacher_voltage_range from the trajectory's own extremes,
+               which the class requires before any forward pass.
+    """
+    E_full = rec.diagnostics.get("_tmpl_E_full")
+    if E_full is None:
+        raise ValueError("no per-edge reversals in the readout: nothing to set E from")
+    E_e = np.asarray(E_full, dtype=np.float64).ravel()[:n_edges]
+    e_np = to_numpy(edges).reshape(2, -1)[:, :n_edges]
+    dst = e_np[1].astype(np.int64)
+
+    vr = rec.pairs.get("V_rest")
+    v_rest = (np.asarray(vr[1], dtype=np.float64).ravel() if vr is not None
+              else np.zeros(n_neurons))
+    if v_rest.size != n_neurons:
+        v_rest = np.zeros(n_neurons)
+
+    finite = np.isfinite(E_e)
+    is_inh = np.zeros(n_edges, dtype=bool)
+    is_inh[finite] = E_e[finite] < v_rest[dst[finite]]
+    notes["E_identified"] = int(finite.sum())
+    notes["edges_inhibitory"] = int(is_inh.sum())
+
+    # The voltage range the class needs, from the trajectory itself.
+    v_lo, v_hi = float("inf"), float("-inf")
+    for k in range(0, int(x_ts.n_frames), max(1, int(x_ts.n_frames) // 64)):
+        fr = x_ts.frame(int(k))
+        v = to_numpy(getattr(fr, "voltage", fr)).ravel()[:n_neurons]
+        v_lo, v_hi = min(v_lo, float(v.min())), max(v_hi, float(v.max()))
+    model.set_teacher_voltage_range(v_lo, v_hi)
+    model.set_presynaptic_sign(torch.as_tensor(
+        np.where(is_inh, -1.0, 1.0), dtype=torch.float32))
+    notes["voltage_range"] = (round(v_lo, 3), round(v_hi, 3))
+
+    # Per-neuron medians, one per channel, over the identified edges only.
+    def _median_by_dst(mask):
+        out = np.full(n_neurons, np.nan)
+        sel = finite & mask
+        if sel.any():
+            order = np.argsort(dst[sel])
+            d_s, e_s = dst[sel][order], E_e[sel][order]
+            bounds = np.searchsorted(d_s, np.arange(n_neurons + 1))
+            for i in range(n_neurons):
+                lo, hi = bounds[i], bounds[i + 1]
+                if hi > lo:
+                    out[i] = np.median(e_s[lo:hi])
+        return out
+
+    E_exc_n, E_inh_n = _median_by_dst(~is_inh), _median_by_dst(is_inh)
+    with torch.no_grad():
+        for name, vals in (("E_exc", E_exc_n), ("E_inh", E_inh_n)):
+            par = getattr(model, name, None)
+            if par is None:
+                continue
+            cur = par.detach().cpu().numpy().ravel()
+            if cur.size == n_neurons:            # per-neuron rows: write directly
+                filled = np.where(np.isfinite(vals), vals, cur)
+            else:                                # a coarser granularity: one median
+                med = np.nanmedian(vals) if np.isfinite(vals).any() else cur.mean()
+                filled = np.full(cur.size, med)
+            par.copy_(torch.as_tensor(filled, dtype=torch.float32, device=par.device))
+        notes["E_exc_median"] = float(np.nanmedian(E_exc_n))
+        notes["E_inh_median"] = float(np.nanmedian(E_inh_n))
+    notes["E_collapsed_to"] = "per-neuron median per channel"
+    return notes
+
+
+def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None, x_ts=None):
     """models/template_fit.pt: the recovered parameters in a known-ODE.
 
     Returns (path, known_ode_name, what_was_written), or None when this run has
@@ -203,6 +304,8 @@ def write_checkpoint(rec, config, log_dir, device, logger=None):
     if not written:
         return None
     model.load_state_dict(sd, strict=False)
+    if name == "flyvis_conductance_known_ode":
+        _prepare_conductance(model, rec, edges, x_ts, n_neurons, n_edges, written)
     _verify_round_trip(model, rec, n_neurons, n_edges, written)
 
     out_dir = os.path.join(log_dir, "models")
@@ -233,7 +336,8 @@ def _parse_rollout_log(path):
     return out
 
 
-def run(rec, config, log_dir, device, logger=None, test_mode="template"):
+def run(rec, config, log_dir, device, logger=None, test_mode="template",
+        edges=None, x_ts=None):
     """Roll the recovered parameters out on noise-free data.
 
     Returns the metrics as a dict with `template_` names, ready to be merged into
@@ -243,7 +347,8 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template"):
     """
     prefix = f"{test_mode}_rollout"
     try:
-        made = write_checkpoint(rec, config, log_dir, device, logger=logger)
+        made = write_checkpoint(rec, config, log_dir, device, logger=logger,
+                                edges=edges, x_ts=x_ts)
         if made is None:
             return {}
         _path, name, written = made
