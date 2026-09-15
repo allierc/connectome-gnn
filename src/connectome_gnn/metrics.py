@@ -2989,7 +2989,8 @@ def _thresh_for(quantity, config):
         "W": getattr(r, "W_outlier_thresh", W_OUTLIER_THRESH),
         "tau": getattr(r, "tau_outlier_thresh", TAU_OUTLIER_THRESH),
         "V_rest": getattr(r, "V_rest_outlier_thresh", VREST_OUTLIER_THRESH),
-    }.get(quantity)          # None -> no filtering, which is right for E_ij/msg_i
+        "E_ij": getattr(r, "Eij_outlier_thresh", 5.0),
+    }.get(quantity)          # None -> no filtering, which is right for msg_i
 
 
 # --------------------------------------------------------------------------- #

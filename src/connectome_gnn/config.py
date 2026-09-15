@@ -2406,6 +2406,17 @@ class RecoveryConfig(BaseModel):
     W_outlier_thresh: float = 1.0
     tau_outlier_thresh: float = 0.1
     V_rest_outlier_thresh: float = 0.2
+    # E_ij HAS ONE TOO, and it was the quantity that needed it most. The reversal
+    # is a ratio, -b1/b2, so an edge whose driving-force coefficient is small but
+    # not small enough to fail the t-gate lands far outside the range the cell
+    # ever visits: on the reference conductance run the true reversals span
+    # -5.9 to 10.4 V while the fitted ones reach -24 to +30 at the 1st and 99th
+    # percentile. Roughly 1% of identified edges carry the whole negative R2
+    # (-0.87 -> -0.08 when they go, +0.28 at 5%), so reporting only the
+    # unfiltered number said "nothing was recovered" about a population where
+    # most edges are fine. 5.0 V is the width of the true spread: an error wider
+    # than the entire physiological range is not a measurement.
+    Eij_outlier_thresh: float = 5.0
     # Below this median per-edge R2, the edge_line_fit estimator's W and E_ij
     # describe nothing and are reported as invalid rather than as numbers.
     gate_fit_r2: float = 0.9

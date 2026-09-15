@@ -412,7 +412,7 @@ _SCATTER_SPEC = {
                    lim=(-0.025, 0.5), ticks=([0.0, 0.25, 0.5], ["0.0", "0.25", "0.5"])),
     "V_rest": dict(out="V_rest_comparison.png", thresh=VREST_OUTLIER_THRESH,
                    xlabel=r"true $V_{rest}$",   ylabel=r"learned $V_{rest}$"),
-    "E_ij":   dict(out="Eij_comparison.png",    thresh=None,
+    "E_ij":   dict(out="Eij_comparison.png",    thresh=5.0,
                    xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$"),
     # THE AGGREGATE THE TRAJECTORY ACTUALLY DEPENDS ON. W and E trade off inside
     # it -- W wrong by 3x with E wrong by 1/3 lands msg_i on the identity line --
@@ -506,7 +506,7 @@ def _plot_parameter_error(rec, scored, log_dir, quantities=("tau", "V_rest", "W"
     return out
 
 
-def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
+def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k", config=None):
     """One quantity, learned against true, on the wo-outliers template.
 
     Outliers -- |learned - true| above the quantity's threshold -- are drawn in
@@ -528,7 +528,13 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
     if gt.size < 2:
         return None
 
-    thresh = spec.get("thresh")
+    # ONE BAND PER QUANTITY, decided by metrics._thresh_for so that the figure and
+    # results/metrics.txt cannot disagree. _SCATTER_SPEC's own value is the
+    # fallback for a caller with no config: before this, a run that overrode
+    # recovery.W_outlier_thresh got one threshold in the file and another on the
+    # picture, and E_ij was filtered in the file and unfiltered on the figure.
+    from connectome_gnn.metrics import _thresh_for
+    thresh = _thresh_for(quantity, config) if config is not None else spec.get("thresh")
     m = recovery_param_metrics(gt, learned, thresh)
     if thresh is None:
         out_mask = np.zeros(gt.size, dtype=bool)
@@ -2847,7 +2853,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # the figure and the file now read one array.
             for _q in ("W", "E_ij", "tau", "V_rest", "msg_i"):
                 try:
-                    _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc)
+                    _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc,
+                                                 config=config)
                     if _p:
                         logger.info(f"{_q} scatter -> {os.path.basename(_p)}")
                 except Exception as _exc:
