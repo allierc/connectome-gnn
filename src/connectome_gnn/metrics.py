@@ -3486,6 +3486,19 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _vt, _vl = rec.pairs["V_rest"]
         if _vl.size == n_neurons:
             rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
+            # THE CORRECTED LEVEL IS THE REPORTED ONE, for the same reason W is
+            # reported divided by k_i: both halves of the affine gauge
+            # msg_hat = msg/k_i + beta_i are properties of the model's message
+            # scale, not errors in the parameter. Leaving beta_i inside V_rest
+            # while dividing k_i out of W scored one half of one gauge and not
+            # the other. The uncorrected level is kept as V_rest_uncorrected and
+            # scored beside it, exactly as W keeps W_uncorrected.
+            rec.pairs["V_rest_uncorrected"] = (_vt, _vl)
+            rec.pairs["V_rest"] = _pair(_vt, _vl + _per_neuron)
+            rec.correction["V_rest"] = (
+                "ode_params.derive_vrest of (a1, a0), plus the neuron's own "
+                "incoming message offset k_i*beta_i, which the update otherwise "
+                "hands straight to the resting level")
     rec.diagnostics["tmpl_pct_E_unidentified"] = (
         float(100.0 * np.mean(~np.isfinite(E_fit))) if cond else float("nan"))
     rec.diagnostics["_tmpl_E_full"] = E_learned
@@ -3571,13 +3584,11 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
     # not substituted: the headline V_rest_R2 stays the one a reader gets
     # without knowing the offset, which is the honest number for a real
     # recording where the message is not observed.
-    _vro = rec.diagnostics.get("_V_rest_offset_corrected")
-    _vr = rec.get("V_rest")
-    if _vro is not None and _vr is not None and len(_vro) == len(_vr[0]):
-        _m = recovery_param_metrics(_vr[0], np.asarray(_vro, dtype=float),
-                                    _thresh_for("V_rest", config))
-        out["V_rest_R2_offset_corrected"] = float(_m["r2_clean"])
-        out["V_rest_slope_offset_corrected"] = float(_m["slope_clean"])
+    _vunc = rec.pairs.get("V_rest_uncorrected")
+    if _vunc is not None:
+        out["V_rest_R2_uncorrected"] = float(
+            recovery_param_metrics(_vunc[0], _vunc[1],
+                                   _thresh_for("V_rest", config))["r2_clean"])
 
     # SCALE-FREE COMPANIONS for the two quantities a GNN pins down only up to a
     # gain. `<key>_gain` follows the one convention (learned ~= gain * true, see
@@ -3648,7 +3659,7 @@ _EXTRA_STATS = {
     "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
     "Eij":   ("gate", "pct_wrong_slope"),
     "msg_i": ("R2_scaled", "gain"),
-    "V_rest": ("R2_offset_corrected", "slope_offset_corrected"),
+    "V_rest": ("R2_uncorrected",),
 }
 
 

@@ -2630,9 +2630,26 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # slope. The template readout supersedes all four below and
             # metrics.txt reports ITS numbers, so the two blocks disagree by
             # construction and the reader has to be told which is which.
-            print(f"{_ANSI_YELLOW}extracting parameters with the gain-correction "
-                  f"chain ...{_ANSI_RESET}")
-            print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
+            # SKIPPED, NOT DELETED, when the template readout supersedes it.
+            # The chain still runs -- weights_comparison_*.png and the f_theta
+            # diagnostics are drawn from it -- but its W, tau and V_rest are the
+            # numbers the template readout replaces, and printing both put two
+            # answers for one quantity twenty lines apart in one log. `_cprint`
+            # is the chain's own print: silent while the readout below owns the
+            # terminal, and the full block again on any run without it.
+            _chain_reports = not template_readout_enabled(config, model)
+
+            def _cprint(*a, **k):
+                if _chain_reports:
+                    print(*a, **k)
+
+            if _chain_reports:
+                print(f"{_ANSI_YELLOW}extracting parameters with the "
+                      f"gain-correction chain ...{_ANSI_RESET}")
+            else:
+                print(f"{_ANSI_YELLOW}gain-correction chain: figures only, its "
+                      f"W / tau / V_rest are superseded below{_ANSI_RESET}")
+            _cprint(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
             # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
             # edges (same set as connectivity_scatter.png). High structure r with a
@@ -2647,7 +2664,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _w_tz = (_w_t - _w_t.mean()) / (_w_t.std() + 1e-12)
             _w_lz = (_w_l - _w_l.mean()) / (_w_l.std() + 1e-12)
             _w_zscored_r2 = recovery_param_metrics(_w_tz, _w_lz)['r2']
-            print(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
+            _cprint(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
                   f"  (z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET})")
             logger.info(f"weights r (structure): {_w_struct_r:.4f}  (z-scored R²: {_w_zscored_r2:.4f})")
             # Relative error |learned - true| / max(|true|, eps), full sample.
@@ -2658,7 +2675,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _rel_err_w_med  = float(np.median(_rel_err_w))
             _q1_w_re, _q3_w_re = np.percentile(_rel_err_w, [25.0, 75.0])
             _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
-            print(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
+            _cprint(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
             logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
             _rel_err_tau_med = _rel_err_tau_iqr = None
             _rel_err_v_med = _rel_err_v_iqr = None
@@ -2670,7 +2687,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 try:
                     r2_real = recovery_param_metrics(true_weights[:n_real], learned_weights[:n_real])['r2']
                     connectivity_r2_real = r2_real
-                    print(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
+                    _cprint(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
                     logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
                 except Exception:
                     pass
@@ -2687,18 +2704,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _tm = recovery_param_metrics(gt_taus_np, learned_tau, DELTA_TAU)
                 _rel_err_tau_med, _rel_err_tau_iqr = _tm['rel_err_median'], _tm['rel_err_iqr']
                 if _tm['degenerate']:
-                    print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
+                    _cprint(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
                     logger.info(f"tau R²: N/A (const GT)  MAE: {_tm['mae']:.4g}")
                 else:
-                    print(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
+                    _cprint(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
                     logger.info(f"tau R²: {_tm['r2']:.3f}  slope: {_tm['slope']:.2f}")
-                print(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
+                _cprint(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
                 if _tm['degenerate']:
-                    print(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    _cprint(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("tau_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
+                    _cprint(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
                           f"slope: {_tm['slope_clean']:.2f}  "
                           f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
                     logger.info(f"tau_wo_outliers R²: {_tm['r2_clean']:.4f}  slope: {_tm['slope_clean']:.4f}  "
@@ -2707,18 +2724,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _vm = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
                 _rel_err_v_med, _rel_err_v_iqr = _vm['rel_err_median'], _vm['rel_err_iqr']
                 if _vm['degenerate']:
-                    print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
+                    _cprint(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
                     logger.info(f"V_rest R²: N/A (const GT)  MAE: {_vm['mae']:.4g}")
                 else:
-                    print(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
+                    _cprint(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
                     logger.info(f"V_rest R²: {_vm['r2']:.3f}  slope: {_vm['slope']:.2f}")
-                print(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
+                _cprint(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
                 if _vm['degenerate']:
-                    print(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    _cprint(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("V_rest_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
+                    _cprint(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
                           f"slope: {_vm['slope_clean']:.2f}  "
                           f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
                     logger.info(f"V_rest_wo_outliers R²: {_vm['r2_clean']:.4f}  slope: {_vm['slope_clean']:.4f}  "
