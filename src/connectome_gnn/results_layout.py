@@ -76,19 +76,34 @@ def wants_stamp(name) -> bool:
     return base in STAMP_EXACT or base.startswith(STAMP_PREFIXES)
 
 
-@functools.lru_cache(maxsize=1)
-def stamp_text():
-    """`PySR <version> template readout`, or the same without a version."""
-    try:
-        from importlib.metadata import version
-        return f"PySR {version('pysr')} template readout"
-    except Exception:
-        return "PySR template readout"
+def stamp_text(name=None):
+    """What produced this figure, and PySR IS NAMED ONLY IF PySR RAN.
+
+    Every stamped figure here is drawn from the template readout, which is a
+    least-squares fit of the generator's own form -- no search, no Julia. Saying
+    "PySR" on those was a false provenance claim, and on a figure whose whole
+    job is to say where a number came from that is the one mistake that matters.
+
+    The single exception is neuron<N>_panels.png: its `free` row IS a PySR
+    search, so when the import succeeded the version is named beside the
+    readout. If PySR did not start, the panel says so in its own equation column
+    and the stamp stays silent about it.
+    """
+    base = "template readout (least squares)"
+    if name and os.path.basename(str(name)).startswith("neuron"):
+        try:
+            from connectome_gnn import pysr_env
+            if pysr_env.available():
+                from importlib.metadata import version
+                return f"{base} + PySR {version('pysr')} free search"
+        except Exception:
+            pass
+    return base
 
 
-def stamp_figure(fig, text=None):
+def stamp_figure(fig, text=None, name=None):
     """The mark, bottom-right, in the figure's own coordinates."""
-    fig.text(0.997, 0.003, text or stamp_text(), ha="right", va="bottom",
+    fig.text(0.997, 0.003, text or stamp_text(name), ha="right", va="bottom",
              fontsize=_STAMP_FONTSIZE, color="0.45", alpha=0.85)
 
 
@@ -111,7 +126,7 @@ def install_savefig_stamp():
         if isinstance(path, str) and path.endswith(".png") and \
                 (os.sep + "results" + os.sep) in path and wants_stamp(path):
             try:
-                stamp_figure(self)
+                stamp_figure(self, name=path)
             except Exception:
                 pass
         return _orig(self, fname, *args, **kwargs)
