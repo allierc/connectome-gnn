@@ -24,7 +24,77 @@ before, which is how results/ came to hold both a headline panel and a debug
 histogram with nothing distinguishing them.
 """
 
+import functools
 import os
+
+# ------------------------------------------------------------------ #
+#  The provenance stamp
+# ------------------------------------------------------------------ #
+# EVERY PNG IN results/ SAYS WHERE ITS NUMBERS CAME FROM. The figures in a run
+# directory outlive the run: they end up in slides and in the paper, separated
+# from the metrics.txt that records the estimator, and a scatter of learned
+# against true weights looks identical whichever readout produced it. A five-
+# point mark in the bottom-right corner costs nothing and keeps the answer
+# attached to the picture.
+#
+# Applied by wrapping Figure.savefig once, at import, rather than by touching
+# the forty-odd savefig call sites across GNN_PlotFigure, plot, plot_twin,
+# graph_tester and neuron_panels -- one of which would have been missed, and a
+# figure without the stamp is worse than no stamp at all because it reads as a
+# figure from somewhere else. The wrapper stamps only paths under results/.
+#
+# The version is read from the installed package METADATA, never by importing
+# pysr: that import starts a Julia process and precompiles, which is seconds at
+# best and, on a node whose TMPDIR does not exist, an abort -- and no figure
+# should be able to take a run down.
+_STAMP_FONTSIZE = 5
+
+
+@functools.lru_cache(maxsize=1)
+def stamp_text():
+    """`PySR <version> template readout`, or the same without a version."""
+    try:
+        from importlib.metadata import version
+        return f"PySR {version('pysr')} template readout"
+    except Exception:
+        return "PySR template readout"
+
+
+def stamp_figure(fig, text=None):
+    """The mark, bottom-right, in the figure's own coordinates."""
+    fig.text(0.997, 0.003, text or stamp_text(), ha="right", va="bottom",
+             fontsize=_STAMP_FONTSIZE, color="0.45", alpha=0.85)
+
+
+def install_savefig_stamp():
+    """Wrap Figure.savefig so results/*.png carry the stamp. Idempotent."""
+    try:
+        from matplotlib.figure import Figure
+    except Exception:
+        return
+    if getattr(Figure.savefig, "_pysr_stamp", False):
+        return
+    _orig = Figure.savefig
+
+    @functools.wraps(_orig)
+    def savefig(self, fname, *args, **kwargs):
+        try:
+            path = fname if isinstance(fname, str) else os.fspath(fname)
+        except TypeError:          # a buffer, not a path
+            path = ""
+        if isinstance(path, str) and path.endswith(".png") and \
+                (os.sep + "results" + os.sep) in path:
+            try:
+                stamp_figure(self)
+            except Exception:
+                pass
+        return _orig(self, fname, *args, **kwargs)
+
+    savefig._pysr_stamp = True
+    Figure.savefig = savefig
+
+
+install_savefig_stamp()
 
 # The four scatters against truth, by EXACT name. Exact rather than prefix
 # because each has demoted siblings -- tau_comparison_cell_type,

@@ -531,7 +531,13 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k"):
     fig = plt.figure(figsize=(10, 9))
     plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.3, rasterized=True)
     if out_mask.any():
-        plt.scatter(gt[out_mask], learned[out_mask], c="red", s=6, alpha=0.7,
+        # SAME SIZE AS THE INLIERS. At s=6 against s=1 each red point covered
+        # about six times the area of a black one, so a population of 4 edges in
+        # 434,112 -- 0.001% -- drew the eye as if it were a visible fraction of
+        # the cloud. The share is stated in the "outliers: N%" text; the marks
+        # only have to be findable, not loud, so colour does the separating and
+        # alpha 0.6 keeps them visible on top of the dense centre.
+        plt.scatter(gt[out_mask], learned[out_mask], c="red", s=1, alpha=0.6,
                     rasterized=True)
     lim = spec.get("lim")
     if lim is None:
@@ -604,6 +610,11 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     may have been strided for plotting, so it is comparable across slots but
     not bit-for-bit the training-time panel's number.
     """
+    # One line, before the slow part: the per-edge and per-neuron fits take tens
+    # of seconds on 434,112 edges and the terminal is otherwise silent through
+    # them. It names the readout so the figures, the file and the console all
+    # say the same thing about where the numbers came from.
+    print(f"{_ANSI_WHITE}extracting parameters with PySR ...{_ANSI_RESET}")
     try:
         rec = extract_recovered_params(model, ode_params, config, edges=edges,
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
@@ -623,12 +634,29 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         # which drops `rec` entirely: ten runs wrote a metrics.txt with the
         # rollout and clustering lines and not one recovered parameter. A new
         # readout must not be able to delete the old one's numbers.
+        # FALLING BACK TO THE OTHER ESTIMATOR IS LOUD. The correction chain and
+        # the template readout produce different numbers under the same names,
+        # and a run that quietly shipped the chain's looked exactly like one that
+        # used the template. Both ways of ending up there -- the gate off, or
+        # the call raising -- say so in red, on the terminal, once.
         try:
             if template_readout_enabled(config, model):
                 rec = extract_template_params(
                     model, ode_params, config=config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons, base=rec)
+            else:
+                _readout = getattr(getattr(config, "recovery", None), "readout", "template")
+                print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. "
+                      f"This run falls back to the gain-correction chain "
+                      f"(recovery.readout={_readout}, model_family="
+                      f"{model_family(model)}). W, E_ij, tau and V_rest below "
+                      f"come from that estimator.{_ANSI_RESET}")
+                logger.warning("template readout disabled: numbers come from "
+                               "the gain-correction chain, not the PySR template")
         except Exception as _exc:
+            print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
+                  f"{type(_exc).__name__}: {_exc} -- falling back to the "
+                  f"gain-correction chain.{_ANSI_RESET}")
             logger.warning(f"template readout unavailable, keeping the "
                            f"correction chain: {type(_exc).__name__}: {_exc}")
         scored = score_recovery(rec, config)

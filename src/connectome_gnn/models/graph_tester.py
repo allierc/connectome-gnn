@@ -912,6 +912,19 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if fig_name != "all":
             ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
                       bbox_transform=fig.transFigure, fontsize=14, frameon=False)
+            # The number the figure is evidence for, on the figure. Fisher-z
+            # pooled over ALL n_neurons -- not over the ten types drawn -- with
+            # the symmetric sd and the 95% interval back-transformed from z,
+            # which is why it can sit at 1.000 without the sd being zero. Same
+            # `_rollout_fz` the analysis log and results/metrics.txt report.
+            try:
+                ax.text(0.0, 1.015,
+                        f"Pearson r (Fisher-z pooled over neurons): "
+                        f"{_rollout_fz['r_mean']:.3f} ± {_rollout_fz['r_sd_sym']:.3f} "
+                        f"[{_rollout_fz['r_lo']:.3f}, {_rollout_fz['r_hi']:.3f}]",
+                        transform=ax.transAxes, va='bottom', ha='left', fontsize=13)
+            except Exception:
+                pass
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""

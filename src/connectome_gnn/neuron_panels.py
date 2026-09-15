@@ -203,10 +203,15 @@ def _sr_fit(X, y, names, cfg, guess=None, spec=None):
         return None, float("nan"), "target has non-finite values", None
     if float(np.std(y)) < 1e-12:
         return None, float("nan"), f"target constant at {float(np.mean(y)):.4g}", None
-    try:
-        from pysr import PySRRegressor
-    except Exception as exc:           # no Julia runtime, no PySR install
-        return None, float("nan"), f"PySR unavailable ({type(exc).__name__})", None
+    # Through pysr_env, never `import pysr` directly: it fixes TMPDIR and the
+    # directory Julia resolves its system image against, and it probes the
+    # import in a subprocess so a Julia abort cannot take the run down. The
+    # reason for any failure ends up in results/README.md.
+    from connectome_gnn import pysr_env
+    pysr = pysr_env.import_pysr()
+    if pysr is None:
+        return None, float("nan"), f"PySR unavailable ({pysr_env.reason()})", None
+    PySRRegressor = pysr.PySRRegressor
     kw = dict(niterations=int(cfg.sr_niterations),
               operators={2: list(cfg.sr_binary_operators), 1: list(cfg.sr_unary_operators)},
               maxsize=int(cfg.sr_maxsize), progress=False, temp_equation_file=True,

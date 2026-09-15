@@ -440,6 +440,19 @@ if __name__ == "__main__":
             except Exception as _e:
                 print(f"neuron panels skipped: {type(_e).__name__}: {_e}")
 
+            # ONE README, AND ONLY WHEN PySR DID NOT RUN. Written after the
+            # panels because that is the only consumer of PySR, and removed
+            # again when PySR did run -- a stale README describing a failure
+            # that no longer happened is worse than none, because the numbers in
+            # this directory would then be disowned by their own results folder.
+            try:
+                from connectome_gnn import pysr_env as _pysr_env
+                _readme = _pysr_env.write_status(run_log_dir)
+                if _readme:
+                    print(f"\033[91mPySR did not run -> {_readme}\033[0m")
+            except Exception as _e:
+                print(f"pysr status note skipped: {type(_e).__name__}: {_e}")
+
             # Conductance-twin parameter panels. No-op for every other model:
             # plot_twin_params returns None unless the checkpoint carries E_exc.
             try:
@@ -482,8 +495,11 @@ if __name__ == "__main__":
 
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
+# Wij=-0.015(0.42%) Vr=0.520(98%) τ=-9.189(93%) msg=-4609.39]
+# Wij=0.962(0.00%) Vr=0.565(19%) τ=0.912(2%) msg=0.92]
+# 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
 # conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 
-# conn=0.950 Vr=0.591(18%) τ=0.902(2%)] 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
+# conn=0.950 Vr=0.591(18%) τ=0.902(2%)]
 # python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
 # python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
