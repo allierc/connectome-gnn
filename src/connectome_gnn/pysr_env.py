@@ -150,8 +150,19 @@ def import_pysr(logger=None):
         import pysr
         _STATE["module"] = pysr
         _STATE["env"]["version"] = getattr(pysr, "__version__", msg)
+        # Said once, out loud: the equation columns further down are only
+        # trustworthy if this line appeared, and its absence is exactly what a
+        # reader of a finished log needs to notice.
+        _ok = (f"PySR {_STATE['env']['version']} init passed "
+               f"(TMPDIR={os.environ.get('TMPDIR', '<unset>')}, "
+               f"imported from {safe_cwd()})")
+        if logger:
+            logger.info(_ok)
+        print(f"\033[92m{_ok}\033[0m")
     except BaseException as exc:
         _STATE["reason"] = f"{type(exc).__name__}: {exc}"
+        print(f"\033[91mPySR init FAILED after the probe passed: "
+              f"{_STATE['reason']}\033[0m")
     finally:
         try:
             os.chdir(old)
