@@ -487,7 +487,7 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # f(stim)) against its own dv/dt. High means the hypothesis holds and the
     # only question left is whether the constants are the generator's -- which is
     # what every R2 below answers. Low means those constants describe nothing.
-    _ef, _uf = scored.get("tmpl_fit_r2_median"), scored.get("tmpl_update_r2_median")
+    _ef, _uf = scored.get("msg_form_r2_median"), scored.get("update_form_r2_median")
     if _ef is not None or _uf is not None:
         def _fmt(v):
             return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"

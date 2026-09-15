@@ -973,7 +973,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         # draw it marked as such (the W panel beside it draws
                         # the gain-corrected W the same way).
                         _e = _rec_last.pairs.get("E_ij")
-                        _e_gate = _rec_last.diagnostics.get("tmpl_fit_r2_median")
+                        _e_gate = _rec_last.diagnostics.get("msg_form_r2_median")
                     if _e is not None:
                         _grp = None
                         try:

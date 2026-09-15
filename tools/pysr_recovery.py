@@ -142,8 +142,8 @@ def report(name, chain, tmpl):
         if k not in chain and k not in tmpl:
             continue
         print(f"{k:<22}{_fmt(chain.get(k)):>12}{_fmt(tmpl.get(k)):>12}")
-    for k in ("tmpl_update_r2_median", "tmpl_G_median",
-              "tmpl_dfdmsg_over_autograd", "tmpl_fit_r2_median", "tmpl_k_median", "tmpl_dfdmsg_median",
+    for k in ("update_form_r2_median", "tmpl_G_median",
+              "tmpl_dfdmsg_over_autograd", "msg_form_r2_median", "tmpl_k_median", "tmpl_dfdmsg_median",
               "tmpl_dfdmsg_absmedian", "tmpl_pct_unfitted",
               "tmpl_pct_E_unidentified", "tmpl_pct_W_from_slope",
               "tmpl_n_used_median", "tmpl_vj_floor"):

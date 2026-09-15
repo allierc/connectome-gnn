@@ -80,7 +80,13 @@ RENAMES = {
     # template fit, which scores W, E and the offset together and is
     # computed identically on current data where no reversal exists. The
     # old name described what it gated, not what it measured.
-    'Eij_gate':                      'tmpl_fit_r2_median',
+    'Eij_gate':                      'msg_form_r2_median',
+    # Renamed again the same day: 'tmpl_fit_r2_median' said which code wrote
+    # it, not what it measures. These two are the median R2 of the
+    # generator's form fitted to the model's own message, per edge, and to
+    # its own dv/dt, per neuron.
+    'tmpl_fit_r2_median':            'msg_form_r2_median',
+    'tmpl_update_r2_median':         'update_form_r2_median',
     'raw_W_R2':                      'Wij_R2_uncorrected',
     'rollout_pearson':               'rollout_r',
     'rollout_RMSE':                  'rollout_rmse',

@@ -55,11 +55,8 @@ where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty: the message is an internal
 variable, and any transformation of it that $f_\theta$ can undo leaves the
-training objective exactly unchanged.
-
-\subsection{An affine gauge}
-
-We suppose that the model's message is related to the truth by
+training objective exactly unchanged. We suppose that the model's message is
+related to the truth by
 %
 \begin{equation}
 \widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
@@ -209,9 +206,7 @@ t = \frac{|b_2|}{\mathrm{se}(b_2)},
 Everything below it is recorded as unidentified rather than dropped silently. On
 the conductance run used throughout: $432{,}517$ of the $434{,}112$ edges are
 fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversal
-($93.4\%$ of all edges). The two counts differ by arm --- an earlier model
-identified only $29.4\%$ --- so two runs' $E$ scores are comparable only when
-their identified counts are.
+($93.4\%$ of all edges).
 
 \subsection{Per neuron: $T_i$, $V_i$, $G_i$}
 \label{sec:update}
@@ -282,21 +277,6 @@ V^{\mathrm{rest},\,\mathrm{corrected}}_i
 \label{eq:vcorr}
 \end{equation}
 %
-the per-neuron sum of the per-edge offsets $C_{ij}$ the edge fits already
-produced. On fold 0 of the noise-$0.05$ current run this moves $V^{\mathrm{rest}}$
-$R^2$ from $0.933$ to $0.958$; the uncorrected value is kept as
-\texttt{V\_rest\_R2\_uncorrected}. Note the asymmetry with $\Wij$: the scale is
-divided out of the weights, the offset is added into the resting potential, and
-both are properties of the message gauge rather than errors of the parameter.
-
-\paragraph{$\Eij$ needs neither.} A reversal is the voltage at which the message
-vanishes --- a root --- and a root does not move when the function around it is
-rescaled, or shifted by a constant the fit accounts for separately as $b_3$. It
-comes out of \eqref{eq:edgesolve} in absolute units already.
-
-\paragraph{$\msg_i$ follows the same scale.} The aggregated message is reported
-as $k_i \widehat{\msg}_i$, the model's own aggregate through the gauge the update
-fit measured --- one multiplication, no derivative of $f_\theta$ anywhere.
 
 \section{A worked example}
 

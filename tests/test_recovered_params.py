@@ -89,11 +89,18 @@ def test_headline_is_outlier_free_and_all_is_not():
     assert out["Wij_estimator"] == "direct"
 
 
-def test_no_threshold_quantities_emit_no_outlier_keys():
-    """E_ij and msg_i have no published tolerance band, so inventing one would
-    decide by fiat which edges count."""
+def test_every_quantity_reports_its_filtering():
+    """Each quantity carries a band, so each reports `clean [all] (percent)`.
+
+    E_ij and msg_i used to have none, and the consequence was worse than an
+    arbitrary band: their single unfiltered R2 sat in a table beside four
+    outlier-filtered ones, so a reader comparing columns was comparing two
+    different statistics. The bands are config, and a run that wants the old
+    behaviour sets recovery.msg_i_outlier_thresh to None.
+    """
     out = score_recovery(
         RecoveredParams(pairs={"msg_i": (np.arange(10.), np.arange(10.))}), _Cfg)
     assert "msg_i_R2" in out
-    assert "msg_i_n_outliers" not in out
-    assert "msg_i_R2_all" not in out
+    assert "msg_i_n_outliers" in out
+    assert "msg_i_R2_all" in out
+    assert "msg_i_pct_outliers" in out
