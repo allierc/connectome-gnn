@@ -49,6 +49,32 @@ import os
 # should be able to take a run down.
 _STAMP_FONTSIZE = 5
 
+# ONLY THE FIGURES THE READOUT PRODUCED. A stamp on a figure the readout had no
+# part in is a false provenance claim, and the rollout traces are the clearest
+# case: rollout_DAVIS_*.png is the model integrated forward against the
+# generator's trajectory, with no fit of any kind in it. What does belong here
+# is everything drawn from the RecoveredParams -- the four scatters against
+# truth, the error distributions, and the per-neuron panels whose equation
+# column is the one place the real PySR search runs.
+STAMP_EXACT = (
+    "Wij_comparison.png",
+    "Eij_comparison.png",
+    "tau_comparison.png",
+    "V_rest_comparison.png",
+    "parameter_error.png",
+    "twin_params.png",
+)
+STAMP_PREFIXES = (
+    "Wij_scatter",
+    "weights_comparison",
+    "neuron",            # neuron<N>_panels.png
+)
+
+
+def wants_stamp(name) -> bool:
+    base = os.path.basename(str(name))
+    return base in STAMP_EXACT or base.startswith(STAMP_PREFIXES)
+
 
 @functools.lru_cache(maxsize=1)
 def stamp_text():
@@ -83,7 +109,7 @@ def install_savefig_stamp():
         except TypeError:          # a buffer, not a path
             path = ""
         if isinstance(path, str) and path.endswith(".png") and \
-                (os.sep + "results" + os.sep) in path:
+                (os.sep + "results" + os.sep) in path and wants_stamp(path):
             try:
                 stamp_figure(self)
             except Exception:
