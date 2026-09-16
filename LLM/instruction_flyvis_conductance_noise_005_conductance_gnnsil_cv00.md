@@ -1,0 +1,532 @@
+# Conductance GNN recovery with the silent anchor — flyvis, sigma = 0.05
+
+## Goal
+
+Fit a `flyvis_conductance` GNN to voltage traces generated **by a conductance model**, and
+recover the generator's parameters from the learned message. Nothing about the synapse is
+assumed: `W_ij` is a free per-edge weight, and the driving force, the rectifier and the
+conductance all live inside one learned surface `g_phi(v_j, a_j, v_i, a_i)`.
+
+This is the first setting in which the GNN is asked to recover a driving force that
+**actually exists in the data** — `(E_i - v_i)` is a real term here, not an artefact of
+fitting a current-based teacher.
+
+**THE WORKING POINT IS `flyvis_conductance_noise_005_conductance_gnnsil_cv00`**, which
+differs from the plain `gnn` exploration in three ways that are already decided and are not
+yours to revisit: `coeff_g_phi_silent: 5` over `g_phi_silent_range: [-2.0, 0.0]` pins the
+message's LEVEL where the presynaptic cell is silent, `coeff_g_phi_diff` and
+`coeff_g_phi_norm` start at 0 rather than 375 and 0.45, and `mlp_precision` is fp32 with
+`deterministic: true`. The silent anchor is what makes the message's affine gauge
+identifiable; without it W and the offset trade off freely and `Wij_R2` measures a
+factorisation the data does not fix.
+
+**Primary metric: `Wij_R2`. Gating metric: `Eij_gate` in the analysis log, the same
+number as the `Eij_gate` column of `tmp_training/Eij.log`. Ungated sanity metric: `msg_i_R2`, in the
+analysis log.** Read "the gate" below before trusting any recovery number — and read
+`msg_i_R2` first when a slot is gated out, because it is the one number that still means
+something there.
+
+---
+
+## The model, exactly
+
+`NeuralGNN` with `signal_model_name: flyvis_conductance`, in
+`src/connectome_gnn/models/neural_gnn.py`:
+
+```
+in_features = [ v_j , a_j , v_i , a_i ]          # column 0 is ALWAYS v_j, in every family
+g_phi_out   = g_phi(in_features)                 # 3-layer MLP, hidden 80, output 1
+if g_phi_positive:  g_phi_out = g_phi_out ** 2
+W_edge      = W[edge] ** 2  if w_squared  else  W[edge]
+msg_i       = sum over incoming edges of  W_edge * g_phi_out
+dv_i/dt     = f_theta(v_i, a_i, msg_i, excitation)
+```
+
+`input_size` is `2 + 2*embedding_dim` = 6 with `embedding_dim: 2`. The prefix ordering
+matters: `[v_j, a_j]` first, so column 0 means `v_j` in this family exactly as it does in
+`flyvis_current`. The group lasso's column slices and the `coeff_g_phi_norm` anchor both
+index against that layout.
+
+### Where the sign of a synapse lives — and why the two squaring flags are exclusive
+
+The generator's message is `W_ij * relu(v_j) * (E_i - v_i)` with `W_ij >= 0`, so the
+polarity of a synapse is carried entirely by the sign of `(E_i - v_i)`.
+
+The GNN has no such factor, so the sign must live in one of its two terms:
+
+| `g_phi_positive` | `w_squared` | Sign carried by | Learned W is |
+| --- | --- | --- | --- |
+| `true` | `false` | `W` (signed) | a signed quantity — compare `abs(W)` to the truth, never `W` |
+| `false` | `true` | `g_phi` (signed) | `W**2`, a non-negative conductance, directly comparable to `ode_params.W` |
+
+**Setting both true raises in the constructor.** `W**2` and `g_phi**2` are each
+non-negative, so every message would be non-negative and no inhibitory synapse could be
+represented at all — the model would fit every dataset with one hand tied. The two flags
+name the two places the sign can live, and exactly one must stay free.
+
+This exploration runs the second row: `g_phi_positive: false`, `w_squared: true`, `w_init_scale: 88`, so
+`get_model_W` returns `W**2` and every panel compares a conductance to a conductance.
+
+Simulation constants, all FROZEN: 13,741 neurons, 1,736 input neurons, 65 cell types,
+434,112 edges, 64,000 frames, `delta_t` 0.02, `noise_model_level` **0.05** (five
+hundredths — the `noise_005` in the name is 0.05, not 0.005).
+
+---
+
+## THE GATE — why a recovery number here can be fiction
+
+`W_ij` and `E_ij` enter the message as a **product**: `g * act(v_j) * (E - v_i)`. Scaling
+the conductance up by c and shrinking the driving force by c leaves every message, and
+every trajectory, unchanged. The data break the tie only through the `v_i`-dependence of
+the driving force, and on flyvis `v_i` (mean +0.416, sd 0.629) modulates a driving force of
+magnitude 14.7-24.4 by only 3-4%.
+
+A conductance known-ODE checkpoint measured at 400k iterations had `g` 3.3x too large and
+the driving force 0.39x too small — reciprocal to within 14% — while its free-run
+trajectory matched at r = 0.95. The GNN sits in the same valley.
+
+`E_ij` and `W_ij` are read back out of the learned message by
+`extract_conductance_params_from_gnn`, which does **not** fit anything. Dividing the
+message by `v_j` leaves a straight line in `v_i`:
+
+```
+msg_ij / v_j  =  W_ij * (E_i - v_i)        slope = -W_ij,  intercept = W_ij * E_i
+```
+
+so one least-squares line per edge gives `W_ij = -slope` and `E_ij = -intercept/slope`.
+Samples below the 25th percentile of the positive `v_j` are dropped, which is what stops a
+small `v_j` from manufacturing an enormous `W`.
+
+**The straight line is also the test.** `Eij_gate` is the median per-edge R2 of that
+line. If it is not near 1 the learned message is not affine in `v_i`, the model has not
+found the conductance form, and the `W` and `E` beside it describe nothing. On a model
+trained on *current* data — where there is no `(E - v_i)` term to find — the extraction
+correctly reports `Eij_gate` 0.079 and a W recovery of -0.009. It declines to
+manufacture structure that is not there, and so must you.
+
+**Rule: do not report or act on `E_ij` or the extracted `W` while the gate is below 0.9** — `Eij_gate` in the analysis log, `Eij_gate` in `Eij.log` / `Wij.log`; they are the same number.
+Early in training it will sit near 0.15-0.5 and the E_ij RMSE will be enormous. That is the
+gate working, not a failure. Say so in the entry and move on.
+
+`Wij_R2_scaled` is the extracted `W` scored after dividing out the one global gain the GNN
+cannot pin down (`W` and the amplitude of `g_phi` trade off exactly). Its slope is 1 by
+construction, so **the slope is not a result** — only the R2 and the gain beside it. Both
+live in `Eij.log` / `Wij.log`; the analysis log's equivalent of that gain is
+`Wij_slope`.
+
+---
+
+## NEVER WRITE A NUMBER YOU DID NOT READ FROM THIS RUN
+
+Every metric you record must come from a file **this run produced**: the per-slot analysis
+log named in your prompt, or `log/fly/<slot>/results/metrics.txt`, or a CSV under
+`log/fly/<slot>/tmp_training/`. If none of them is readable for a slot, the honest entry is
+**no data** — write that, and say which files you checked.
+
+This rule exists because it was broken. A previous run had all 8 slots fail on a missing
+dataset, while `user_input.md` still carried a hand-harvested table from an EARLIER
+exploration together with the instruction "copy them into the batch-1 entries, do not
+attempt to re-derive them". The agent followed it, and a block-1 variance reference was
+recorded — mean, sd and CV per metric, to four decimals — for eight runs that had never
+executed. Nothing in the log said so.
+
+Three consequences that bind you:
+
+1. **A table in `user_input.md` is not a measurement.** Treat any number handed to you
+   there as context, never as a result, and never copy one into the analysis log or the
+   comparison table. If the user wants a historical baseline recorded, they can say so and
+   you label it as such, with its provenance and its date.
+2. **All slots failing is a pipeline fault, not a result.** Do not back-fill it, do not
+   average around it, and do not advance the block plan as if the batch had run. Read
+   `cluster_train_<slot>.err` in the exploration directory — that is where the training
+   subprocess's traceback goes — report the exception verbatim in `user_input.md`, and hold
+   the configs steady until metrics return.
+3. **Numbers carried across a dataset change are wrong even when they are real.** The
+   metric names AND the ground truth both changed with the extraction refactor and the
+   rig-2 twin. A four-decimal number that predates either is not a stricter baseline, it is
+   a false one.
+
+---
+
+## What the truth looks like now
+
+The dataset is generated by the RIG-2 (ion) conductance twin, whose reversals are
+PHYSIOLOGICAL rather than bracketed. That changes what `Eij_R2` measures.
+
+| | excitatory | inhibitory |
+| --- | --- | --- |
+| edges | 282,957 | 151,155 |
+| true `E_ij` | **+10.368**, one value for every edge | **-5.872 … +2.178**, **60 distinct values** |
+| of which positive | — | **4,819 edges (3.2%)** |
+
+1. **The excitatory row carries no information.** All 282,957 excitatory edges share one
+   true `E`, so they form a single vertical stripe and contribute only an offset. Every
+   recoverable degree of freedom is in the 151,155 inhibitory edges.
+2. **"Inhibitory" no longer means "negative reversal".** 3.2% of inhibitory edges have a
+   true `E` above zero — depolarising chloride, which inhibits by shunting. Report the
+   distribution, never a single group mean.
+3. **The reversal belongs to the POSTSYNAPTIC cell type.** The edge type selects only
+   which of the two ions applies; the value comes from the receiving cell. There are 61
+   degrees of freedom in truth against 434,112 per-edge estimates the line fit produces.
+
+Because `E_Cl` now sits INSIDE the operating range, the driving force reverses on about
+18% of (neuron, frame) samples. That makes the message genuinely non-monotonic in `v_i`,
+so **the gate is doing more work than before**: a straight line in `v_i` is still the
+right local model, but a slot that has not found the conductance form will now fail it
+more visibly. Treat a rising `Eij_gate` as the primary evidence that the model is
+learning the form at all.
+
+---
+
+## Metrics — the exact names
+
+**ONE VOCABULARY.** Every recovered quantity is scored by `score_recovery`, and every
+file you read -- `results/metrics.txt`, the per-slot analysis log, the trainer's in-training
+log -- now carries the same names. Keys are `<key>_<stat>` with keys `Wij`, `tau`, `V_rest`,
+`Eij`, `msg_i` and stats `R2` (outlier-filtered headline), `R2_all` (unfiltered), `slope`,
+`rmse`, `n`, `n_outliers`, `pct_outliers`, `rel_err_median`, `rel_err_iqr`, `estimator`,
+`correction`; plus for W only `Wij_R2_scaled` (R2 after dividing out one global gain),
+`Wij_gain` (that gain: learned ~= gain x true, 1.0 is perfect), `Wij_pearson` and
+`Wij_zscored_R2` (scale-free structure). Old names you may meet in files written before
+2026-09-11: `Wij_R2_scaled` -> `Wij_R2_scaled`, `Wij_gain` -> `Wij_gain`,
+`Wij_R2_all` -> `Wij_R2_all`, `W_corrected_no_outliers_R2` -> `Wij_R2`,
+`Wij_pearson` / `W_structure_r` -> `Wij_pearson`, `tau_R2` (old, full) ->
+`tau_R2_all`, `tau_no_outliers_R2` -> `tau_R2`, likewise `V_rest`, `Eij_n` -> `Eij_n`.
+
+
+**From the per-slot analysis log** (the `Metrics:` file named in your prompt):
+
+Every quantity is scored through ONE entry point, `score_recovery`, which emits
+`<key>_R2`, `<key>_slope`, `<key>_rmse` and `<key>_n`, plus `<key>_R2_all`,
+`<key>_n_outliers` and `<key>_pct_outliers` where an outlier threshold applies, plus
+`<key>_estimator` and `<key>_correction` naming how the number was produced. The keys are
+`Wij`, `tau`, `V_rest`, `Eij`, `msg_i`.
+
+| Key | Meaning | Target |
+| --- | --- | --- |
+| `Wij_R2` | R2 of the extracted `W` against the truth, outlier-filtered | > 0.85 — **gated, see the gate** |
+| `Wij_R2_all` | the same without outlier filtering | report beside `Wij_R2` |
+| `Wij_slope` | identity-line slope of that scatter | -> 1.0 |
+| `Wij_estimator` | on conductance data this reads `edge_line_fit`; `gain_corrected` would mean the run is on current data | provenance — check it every entry |
+| `Wij_correction` | `msg_ij / v_j = W_ij * (E_i - v_i); W_ij = -slope` | provenance |
+| `Eij_gate` | **THE GATE.** Median per-edge R2 of the straight line the extraction assumes | `Wij_*` and `Eij_*` mean nothing below ~0.9 |
+| `tau_R2`, `V_rest_R2` | tau and V_rest recovered **out of f_theta**, by fitting its local slope and offset per neuron (`<key>_estimator` reads `f_theta_slope`) | tau > 0.90, V_rest > 0.70 |
+| `Eij_R2` | R2 of the per-edge `E_ij` extracted from the learned message | **gated on `Eij_gate`** |
+| `Eij_slope` | identity-line slope of the same scatter | 1.0 is perfect; well below 1 is the degenerate valley |
+| `Eij_rmse` | RMSE of `E_ij`, in the dataset's voltage units | read it against the spread of the truth, not a fixed bar |
+| `Eij_n` | edges E_ij was scored on | context only, expect 434,112 |
+| `msg_i_R2` | R2 of the aggregated per-neuron message | > 0.80 — **the non-degenerate number, and NOT gated** |
+| `msg_i_slope`, `msg_i_rmse` | slope and RMSE of the message scatter | slope -> 1.0; rmse context only |
+
+**Renamed, see the vocabulary block at the top of this section.**
+
+**`msg_i_R2` is the exception to the gate.** `Eij_*` and the extracted `W` come out
+of the per-edge line fit and are meaningless while `Eij_gate < 0.9`, but `msg_i_R2`
+compares the model's own message against the generator's directly — no line fit, nothing
+to be invalidated — so it is readable from the first checkpoint and is what tells you
+whether a gated-out slot is learning anything at all.
+
+There is **no** `rollout_pearson_r`, no `test_R2`, no `conn_R2`, and no
+`learning_rate_W_start`. A config key that does not exist is silently swallowed, so an
+edit to an invented name costs you a whole slot with no error.
+
+**`tau_R2` and `V_rest_R2` are real for this model.** Older instruction files claim a GNN
+"absorbs tau and V_rest implicitly into f_theta" and that these read 0.00 or N/A. That is
+false: `extract_f_theta_slopes` plus `derive_tau`/`derive_vrest` recover both, and a real
+flyvis GNN slot logs `tau_R2: 0.9927`, `V_rest_R2: 0.5049`. Treat a tau collapse as a
+genuine failure, never as expected behaviour.
+
+**From the run directory**, `log/fly/<slot>/tmp_training/`. Name these paths exactly; do
+not Glob:
+
+| Path | What it carries |
+| --- | --- |
+| `Wij.log` | CSV, header `iteration,Wij_R2,Wij_R2_all,Wij_slope,Wij_rmse,Wij_n,Wij_n_outliers,Wij_pct_outliers,Wij_rel_err_median,Wij_rel_err_iqr,Wij_R2_scaled,Wij_gain,Wij_pearson,Wij_zscored_R2,Wij_R2_uncorrected` — the W TRAJECTORY. Rows are `nan` while the run is below the gate. |
+| `Eij.log` | CSV, header `iteration,Eij_R2,Eij_R2_all,Eij_slope,Eij_rmse,Eij_n,...,Eij_gate` — **`Eij_gate` is the gate** (median per-edge R2 of the line fit); the E_ij columns are valid only once it is ≥ 0.9. Its final row should agree with `Eij_*` in the analysis log. |
+| `msg_i.log` | CSV, header `iteration,msg_i_R2,...,msg_i_R2_scaled,msg_i_gain` — the ungated sanity trajectory. |
+| `tau.log`, `V_rest.log` | CSV, header `iteration,tau_R2,tau_R2_all,tau_slope,tau_rmse,tau_n,tau_n_outliers,tau_pct_outliers,...` (likewise `V_rest_`). `<key>_R2` is outlier-filtered, `<key>_R2_all` is not. |
+| `cluster.log` | CSV: `iteration,clustering_accuracy,clustering_ari,clustering_nmi,clustering_n_components,clustering_n_features` — regular checkpoints only. |
+| `rollout.log` | CSV: `iteration,rollout_r,rollout_rmse,rollout_n_frames,rollout_r_pooled,rollout_n_diverged,rollout_n_scored` |
+| `Wij/raw_*.png`, `Wij/comparison_*.png`, `Wij/connectivity_*.png` | raw `W**2`, the g_phi-corrected `W*`, and the connectivity heatmap |
+| `Eij/`, `tau/`, `vrest/`, `msgi/` | 2x2 recovery panels per quantity |
+| `function/g_phi/`, `function/f_theta/` | learned function shapes against ground truth |
+| `embedding/` | the learned per-neuron embedding |
+| `traces/rollout_*.png` | stacked free-run traces |
+
+`msg_i_R2` scores the aggregated message on 10 fixed frames. It is the one number the
+degeneracy does not touch, and it read +0.78 on a checkpoint whose `Wij_R2` read
+-10.5. **When those two disagree, `msg_i_R2` describes what the trajectory depends on and
+`Wij_R2` describes a factorisation the data cannot resolve.** Record both every
+iteration; `msgi/msgi_*.png` is the same quantity as a scatter.
+
+An empty folder is information: it means the quantity is not recovered for this model, not
+that plotting failed.
+
+---
+
+## Explorable parameters
+
+YOU MAY MODIFY ONLY THE PARAMETERS IN THIS TABLE.
+
+| Parameter | Default | Suggested sweep | Notes |
+| --- | --- | --- | --- |
+| `lr_W` | 0.0009 | {3e-4, 6e-4, 9e-4, 2e-3} | learning rate on `W` |
+| `lr` | 0.0018 | {6e-4, 1.2e-3, 1.8e-3, 4e-3} | learning rate on the g_phi and f_theta MLP weights |
+| `lr_embedding` | 0.002325 | {1e-3, 2.3e-3, 5e-3} | learning rate on the per-neuron embeddings `a` |
+| `w_init_scale` | 1.0 | {1, 5, 20, 60} | **the highest-value knob in this file — see block 2** |
+| `w_init_mode` | `randn_scaled` | `randn_scaled`, `uniform_scaled`, `zeros` | lowercase. bound = `scale / sqrt(434,112)` |
+| `coeff_g_phi_input_group_L1` | 0 | {0, 0.25, 1, 5} | group lasso over g_phi's input columns — see block 5 |
+| `coeff_g_phi_diff` | 375 | {0, 375, 750} | positive-monotonicity prior on `d g_phi / d v_j`, i.e. `ReLU(-dg/dv)`. **Not** a "non-trivial activation" penalty |
+| `coeff_g_phi_norm` | 0.45 | {0, 0.45, 0.9} | normalisation penalty on g_phi at saturation voltage |
+| `coeff_g_phi_weight_L1` | 0 | {0, 0.01, 0.1} | L1 on the g_phi MLP weights. **Values >= 0.1 are known to collapse training at flyvis scale** |
+| `coeff_g_phi_weight_L2` | 0 | {0, 1e-4, 1e-3} | L2 on the g_phi MLP weights |
+| `coeff_f_theta_weight_L1` | 0.025 | {0, 0.025, 0.1} | L1 on the f_theta MLP weights |
+| `coeff_f_theta_weight_L2` | 0.0005 | {0, 5e-4, 5e-3} | L2 on the f_theta MLP weights |
+| `coeff_W_L1` | 7.5e-05 | {0, 1e-5, 7.5e-5, 3e-4} | L1 on `W`. With `w_squared` this acts on the square root of the conductance |
+| `coeff_W_L2` | 7.5e-07 | {0, 7.5e-7, 1e-5} | L2 on `W`, same caveat |
+| `batch_size` | 4 | {2, 4, 8, 16} | INTEGER. Interacts with `regul_batch_scaling: sqrt`, which is what keeps the regulariser/fit ratio independent of it — check that ratio actually held before reading a batch-size result |
+| `recurrent_training` | false | {false, true} | with `recurrent_training_start_epoch` and `rollout_horizon_schedule` |
+| `recurrent_training_start_epoch` | 0 | {0, 1} | epoch at which the rollout begins |
+| `rollout_horizon_schedule` | null | {[1,2,3], [1,2,4], [1,3,5]} | one entry per epoch; epoch e unrolls K = schedule[e] steps and scores EVERY step. K=1 is term-for-term the one-step objective, so the curriculum is a strict extension of it. REQUIRES `time_step: 1` |
+| `coeff_g_phi_silent` | 5 | {0, 1, 5, 20} | the silent anchor. 0 removes it — do that only as a deliberate control, and expect the gauge to drift |
+| `g_phi_silent_range` | [-2.0, 0.0] | {[-2,0], [-3,-0.5], [-1,0]} | the presynaptic voltage window treated as silent |
+| `hidden_dim` | 80 | {64, 80, 128} | g_phi and f_theta width |
+| `data_augmentation_loop` | 100 | 50-400 | retune against the time target your prompt states; do not hard-code a threshold |
+
+**`regul_annealing_rate` MUST STAY 0.0.** The annealed coefficient is
+`coeff * (1 - exp(-rate * epoch))`, which is **exactly zero at epoch 0**. Under the default
+rate of 0.5 every regularisation coefficient you set would be identically zero through the
+first epoch — you would be sweeping a number that never reaches the loss. Note that
+`coeff_W_L1/L2`, both `g_phi_weight` terms, both `f_theta_weight` terms and
+`coeff_g_phi_input_group_L1` are annealed, while `coeff_g_phi_diff` and `coeff_g_phi_norm`
+are not. At rate 0 the distinction disappears, which is why it stays 0.
+
+---
+
+## Frozen — do not touch
+
+- `simulation.seed`, `training.seed` — overwritten every batch with `iteration*1000 + slot`
+  and `iteration*1000 + slot + 500`. Log the values the prompt reports.
+- `training.n_epochs` — overwritten from `claude.n_epochs` every batch. Editing it is a
+  silent no-op, so never dedicate a block to "training volume via n_epochs".
+- `dataset` — must stay `flyvis_conductance_ion_sub_noise_005_blank50_cv00` in every slot.
+- `simulation.*` — `n_neurons`, `n_edges`, `n_frames`, `delta_t`, `noise_model_level`.
+- **`g_phi_positive` and `w_squared`** — this exploration is defined by
+  `g_phi_positive: false`, `w_squared: true`, `w_init_scale: 88`. Flipping either changes what `W` means and
+  makes every earlier iteration incomparable. If you want the other parameterisation, that
+  is a separate exploration; say so in `user_input.md`.
+- `input_size: 6`, `embedding_dim: 2`, `signal_model_name`, `prediction`, `aggr_type`,
+  `update_type`, `use_gt_edges: true`, `mlp_precision: bf16`, `torch_compile: true`.
+
+---
+
+## Block structure
+
+`n_iter_block` comes from the base config's `claude:` block; the block number and a
+`>>> BLOCK END <<<` marker are injected into your prompt. Do not restate an iteration
+count here.
+
+| Block | Mode | Focus | Parameters to scan | Ranges |
+| --- | --- | --- | --- | --- |
+| 1 | Robustness | Baseline variance | none — all slots identical | Establish the CV of `Wij_R2`, `tau_R2`, `V_rest_R2`, `msg_i_R2` and the trajectory of the gate. NOTHING LATER MEANS ANYTHING WITHOUT THIS: a block-2 gain smaller than this spread is not a gain |
+| 2 | Exploration | **Batch size** | `batch_size`, `data_augmentation_loop` | bs {2, 4, 8, 16}. Hold the wall-clock target by moving DAL inversely; report the achieved minutes per epoch beside every result |
+| 3 | Exploration | **Learning rates** | `lr_W`, `lr`, `lr_embedding` | as in the parameter table. Record the `lr_W`/`lr` ratio — it, not either rate alone, is what moved earlier explorations |
+| 4 | Exploration | **Recurrent training** | `recurrent_training`, `rollout_horizon_schedule`, `recurrent_training_start_epoch` | The one structural change in this list: it changes the objective, not a coefficient. K=1 reproduces the one-step loss exactly, so a schedule starting at 1 is safe; `time_step` MUST stay 1 or the intermediate frames it supervises do not exist |
+| 5 | Exploration | **Regularisation I — the silent anchor and g_phi shape** | `coeff_g_phi_silent`, `g_phi_silent_range`, `coeff_g_phi_diff`, `coeff_g_phi_norm` | silent {0, 1, 5, 20}; diff {0, 375, 750}; norm {0, 0.45, 0.9} |
+| 6 | Exploration | **Regularisation II — g_phi weights** | `coeff_g_phi_weight_L1/L2`, `coeff_g_phi_input_group_L1` | keep `g_phi_weight_L1` < 0.1, which is known to collapse training at flyvis scale; group lasso {0, 0.25, 1, 5} |
+| 7 | Exploration | **Regularisation III — f_theta weights** | `coeff_f_theta_weight_L1/L2` | L1 {0, 0.025, 0.1}; L2 {0, 5e-4, 5e-3} |
+| 8 | Exploration | **Regularisation IV — W** | `coeff_W_L1`, `coeff_W_L2` | W_L1 {0, 1e-5, 7.5e-5, 3e-4}; W_L2 {0, 7.5e-7, 1e-5}. With `w_squared` both act on the SQUARE ROOT of the conductance |
+| 9 | Exploration | Free — combine | any of the above | Consolidate the best of blocks 2-8. One change per slot still applies |
+| 10 | Robustness | Final validation | none — all slots at the champion | Confirm the CV and that no seed is catastrophic |
+
+**THE ORDER IS DELIBERATE AND IS NOT YOURS TO REORDER.** Batch size and the learning rates
+come first because they set the optimisation regime every later coefficient is measured
+inside; recurrent training comes next because it changes the objective itself; and the four
+regularisation blocks come last and carry the most weight, because on conductance data the
+question is which penalty makes the message's factorisation identifiable rather than merely
+fitting the trajectory. If a block finds nothing, say so and move on — do not spend a second
+block on it.
+
+**Slot 0 ratchets.** From block 2 onward, slot 0 is the best configuration so far, not the
+original baseline.
+
+Per-block notes:
+
+- **Block 2 is first for a measured reason.** With `w_squared: true` and
+  `w_init_mode: randn_scaled`, `W` starts near `1/sqrt(434,112)` ~ 0.0015, so the effective
+  conductance `W**2` starts at ~2.3e-6 against a true median conductance of ~0.03 — five
+  orders of magnitude low. The gradient is `d(W**2)/dW = 2W` ~ 0.003, so `W` barely moves:
+  an observed run held `Wij_R2` at exactly -0.1326, unchanged to six digits, from
+  iteration 6,401 to 12,801. **A frozen `Wij_R2` is the signature of this
+  vanishing-gradient start.** `w_init_scale` around `sqrt(0.03) * sqrt(434112)` ~ 114 would
+  put `W**2` at the true scale; sweep upward from 1 and watch whether `Wij_R2`
+  starts moving at all before optimising anything else.
+- **Block 5 is the scientific question this dataset was made for.** The group lasso
+  penalises each input column of g_phi's first layer jointly, so it can drop a whole input
+  pathway. On *current*-generated data the true message is `W*relu(v_j)` with no
+  postsynaptic dependence, and the lasso correctly drives the `v_i` and `a_i` columns to
+  zero. Here `(E_i - v_i)` is real, so those inputs **are** needed and the same lasso must
+  **not** discard them. Read `g_phi_discard.log`: `ratio_vi` and `ratio_ai` are the
+  gradient of g_phi with respect to `v_i` and `a_i` divided by its gradient with respect to
+  `v_j`, averaged over real (edge, frame) samples.
+
+  **THE REFERENCE VALUE IS NOT 1, IT IS 0.081.** On this dataset the true message
+  `relu(v_j)·(E_ij − v_i)` has |∂/∂v_i| / |∂/∂v_j| = ⟨relu(v_j)⟩ / ⟨|E − v_i|⟩ ≈ 0.5 / 6.2 =
+  **0.081** (0.058 on excitatory edges, 0.140 on inhibitory), because the driving force is
+  large and the release small. So a `ratio_vi` near 0.05–0.10 is the model being *right*;
+  the discard you are testing for is `ratio_vi` falling **well below** that, toward 0.01
+  and under; and a value far **above** it — 1.3 was measured on one arm — is
+  over-sensitivity to `v_i`, which is a different failure and not a success. A random
+  MLP starts near 1.1, so the trajectory from init *down* to ~0.08 is convergence, not
+  loss. A lasso strength that holds `ratio_vi` near 0.08 here while driving it to zero on
+  current data would be a single specification serving both data families — that is the
+  win condition.
+  (These columns are all-NaN on `flyvis_current`, which has no `v_i`/`a_i` inputs at all.
+  Here they are meaningful.)
+- **Block 6**: `coeff_g_phi_weight_L1 >= 0.1` is known to collapse training at flyvis
+  scale — the L1 gradient dominates the connectivity gradient and `W` goes to zero, showing
+  as `Wij_R2` near 0 and a spike at exactly -1.0 in the relative-error panel. Back
+  off immediately if you see it.
+- **Block 7**: with `w_squared` the L1 acts on the square root, so it is effectively an
+  L1/2 penalty on the conductance. Expect it to bite harder than the same number would in a
+  linear-W run.
+
+---
+
+## Acceptance
+
+| Verdict | Rule |
+| --- | --- |
+| Stable-Robust | all 4 slots `Wij_R2` >= 0.85 and CV < 3% |
+| Stable | mean `Wij_R2` >= 0.80, CV < 10% |
+| Unstable | mean < 0.80 or CV >= 10% |
+| Catastrophic | any slot `Wij_R2` < 0.50 — reject, do not pursue |
+
+Three rules specific to this experiment:
+
+- **Gate first.** A slot whose final `Eij_gate` is below 0.9 has no valid
+  `Eij_*` and no valid extracted `W`. Record `Wij_R2`, `msg_i_R2` and the
+  trajectory metrics for it, mark the `Eij_*` numbers "gated out", and do not rank
+  it on them. `msg_i_R2` is never gated out — it is how you tell a slot that is still
+  learning from one that is stuck.
+- **Frozen-W check.** If `Wij_R2` in `Wij.log` is identical to four decimals
+  across three consecutive checkpoints, the initialisation is the problem, not the
+  regularisation. Return to block 2 rather than continuing the current block.
+- **Trajectory check.** Record the peak of `Wij_R2` and `(final - peak) / peak`;
+  treat `final / peak < 0.95` as disqualified.
+
+---
+
+## Iteration workflow
+
+For each slot, in this order:
+
+1. Read the last row of `Eij.log` / `Wij.log` **first** — it decides whether the
+   `Eij_*` and extracted-`W` numbers mean anything.
+2. Read the analysis log for the slot and extract every metric named in the Metrics
+   table; `Wij_R2`, `Eij_*` and `msg_i_*` are all in there. Then
+   `Wij.log` (last row plus the peak of `Wij_R2`), `Eij.log` for
+   the shape of the E_ij trajectory, and `g_phi_discard.log`.
+3. Compare `Wij_R2` against `msg_i_R2` and say which way they disagree, if they
+   do. `Wij/comparison_*.png` and `msgi/msgi_*.png` show the two as scatters, and
+   `function/g_phi/func_*.png` says whether the learned edge function has the
+   sign-changing shape in `v_i` that `(E_i - v_i)` requires.
+4. Write one entry per slot to the analysis log **and** to memory. The heading must be
+   exactly `## Iter N: <short title>` — the resume mechanism parses that pattern and a
+   different heading breaks `--resume`.
+5. Edit all slot configs for the next batch under the causality rule in your prompt: slot 0
+   is the parent unchanged, every other slot changes exactly one parameter.
+
+Entry template:
+
+```markdown
+## Iter N: <one-line hypothesis>
+- Slot: S | seeds: sim=<value> train=<value>
+- Changed: <parameter> <old> -> <new>   (slot 0: unchanged control)
+- GATE Eij_gate: <value>  -> recovery numbers <valid | gated out>
+- connectivity_R2: <value>  (peak <value> at iter <value>, final/peak <value>)
+- Wij_R2_scaled: <value>  (w_scale <value>; slope is 1 by construction, not a result)
+- Eij_R2: <value>   Eij_slope: <value>   Eij_rmse: <value>   [gated out if Eij_gate < 0.9]
+- msg_i_R2: <value>   msg_i_slope: <value>         [never gated]
+- tau_R2: <value>   V_rest_R2: <value>
+- onestep_pearson: <value>   rollout_pearson: <value>
+- g_phi_discard: cosine_to_keep <value>  ratio_vi <value>  ratio_ai <value>
+- training_time_min: <value>
+- Verdict: <Stable-Robust | Stable | Unstable | Catastrophic | Gated-out | Frozen-W | Disqualified-late-collapse>
+- Reading: <two sentences: what moved, and whether the gate licensed the reading>
+```
+
+---
+
+## Block boundaries
+
+At `>>> BLOCK END <<<`:
+
+1. Write a block summary into `## Previous Block Summaries`.
+2. Promote findings that survived a robustness check to `### Established Principles`; move
+   refuted ones to `### Falsified Hypotheses` with the evidence that killed them.
+3. Update the comparison table with every metric column, including `Eij_gate`.
+4. Write the block's winner to
+   `config/fly/flyvis_conductance_noise_005_conductance_gnn_winner.yaml` with a comment
+   header giving the iteration and the headline metrics. `config/fly/` is the only config
+   directory that exists.
+5. State the next block's hypothesis in `## Current Block`.
+
+---
+
+## Working memory structure
+
+```markdown
+# Working Memory: flyvis_conductance_noise_005_conductance_gnnsil_cv00
+
+## Paper Summary (update at every block boundary)
+
+## Knowledge Base (accumulated across all blocks)
+
+### Results Comparison Table
+| Iter | Config summary | Eij_gate | conn_R2 (mean±std) | CV% | Wij_R2_scaled | Eij_R2 | msg_i_R2 | tau_R2 | V_rest_R2 | rollout_pearson | ratio_vi | Robust? | Hypothesis tested |
+| ---- | -------------- | ------------- | ------------------ | --- | ----------- | ----------- | -------- | ------ | --------- | --------------- | -------- | ------- | ----------------- |
+
+### Established Principles
+### Falsified Hypotheses
+### Open Questions
+
+---
+
+## Previous Block Summaries
+
+RULE: Keep summaries for the last 4 completed blocks, sorted oldest to newest.
+This section MUST appear before ## Current Block.
+
+---
+
+## Current Block (Block N)
+
+### Block Info
+### Current Hypothesis
+### Iterations This Block
+### Emerging Observations
+
+CRITICAL: This section must ALWAYS be at the END of the memory file.
+```
+
+---
+
+## Start call
+
+On the PARALLEL START call there are no results yet. Read this file and the base config,
+set all four slots to the baseline, and state in memory that block 1 measures the variance
+every later block is judged against — and that its second purpose is to see whether
+`Eij_gate` rises at all under the default initialisation, because block 2 exists to
+fix it if not.
+
+Launch:
+
+```bash
+python GNN_LLM.py -o generate_train_test_plot_Claude \
+    flyvis_conductance_noise_005_conductance_gnn_cv00 \
+    iterations=120 --cluster --resume
+```
+
+The base config must carry a `claude:` block; `--cluster` needs `data_paths.json` at the
+repo root with `cluster_root_dir` pointing at the cluster checkout.
