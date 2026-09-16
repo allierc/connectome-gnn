@@ -57,3 +57,58 @@ D15	D meas noise 020	rc8	flyvis_noise_005_meas_020_gnn_rc8_cv00	FINAL
 D15	D meas noise 020	rc10	flyvis_noise_005_meas_020_gnn_rc10_cv00	FINAL
 D15	D meas noise 020	k5fix	flyvis_noise_005_meas_020_gnn_k5fix_cv00	FINAL
 D15	TWIN cond sigma 0	repro	flyvis_conductance_noise_free_conductance_gnn_cv00_repro	FINAL
+D16	KO current data current ODE s0	fold 0	flyvis_current_noise_free_current_knownode_cv00	FINAL
+D16	KO current data current ODE s0	fold 1	flyvis_current_noise_free_current_knownode_cv01	FINAL
+D16	KO current data current ODE s0	fold 2	flyvis_current_noise_free_current_knownode_cv02	FINAL
+D16	KO current data current ODE s0	fold 3	flyvis_current_noise_free_current_knownode_cv03	FINAL
+D16	KO current data current ODE s0	fold 4	flyvis_current_noise_free_current_knownode_cv04	FINAL
+D16	KO current data current ODE s005	fold 0	flyvis_current_noise_005_current_knownode_cv00	FINAL
+D16	KO current data current ODE s005	fold 1	flyvis_current_noise_005_current_knownode_cv01	FINAL
+D16	KO current data current ODE s005	fold 2	flyvis_current_noise_005_current_knownode_cv02	FINAL
+D16	KO current data current ODE s005	fold 3	flyvis_current_noise_005_current_knownode_cv03	FINAL
+D16	KO current data current ODE s005	fold 4	flyvis_current_noise_005_current_knownode_cv04	FINAL
+D16	KO current data conductance ODE s0	fold 0	flyvis_current_noise_free_conductance_knownode_cv00	FINAL
+D16	KO current data conductance ODE s0	fold 1	flyvis_current_noise_free_conductance_knownode_cv01	FINAL
+D16	KO current data conductance ODE s0	fold 2	flyvis_current_noise_free_conductance_knownode_cv02	FINAL
+D16	KO current data conductance ODE s0	fold 3	flyvis_current_noise_free_conductance_knownode_cv03	FINAL
+D16	KO current data conductance ODE s0	fold 4	flyvis_current_noise_free_conductance_knownode_cv04	FINAL
+D16	KO current data conductance ODE s005	fold 0	flyvis_current_noise_005_conductance_knownode_cv00	FINAL
+D16	KO current data conductance ODE s005	fold 1	flyvis_current_noise_005_conductance_knownode_cv01	FINAL
+D16	KO current data conductance ODE s005	fold 2	flyvis_current_noise_005_conductance_knownode_cv02	FINAL
+D16	KO current data conductance ODE s005	fold 3	flyvis_current_noise_005_conductance_knownode_cv03	FINAL
+D16	KO current data conductance ODE s005	fold 4	flyvis_current_noise_005_conductance_knownode_cv04	FINAL
+D16	KO conductance data current ODE s0	fold 0	flyvis_conductance_noise_free_current_knownode_cv00	FINAL
+D16	KO conductance data current ODE s0	fold 1	flyvis_conductance_noise_free_current_knownode_cv01	FINAL
+D16	KO conductance data current ODE s0	fold 2	flyvis_conductance_noise_free_current_knownode_cv02	FINAL
+D16	KO conductance data current ODE s0	fold 3	flyvis_conductance_noise_free_current_knownode_cv03	FINAL
+D16	KO conductance data current ODE s0	fold 4	flyvis_conductance_noise_free_current_knownode_cv04	FINAL
+D16	KO conductance data current ODE s005	fold 0	flyvis_conductance_noise_005_current_knownode_cv00	FINAL
+D16	KO conductance data current ODE s005	fold 1	flyvis_conductance_noise_005_current_knownode_cv01	FINAL
+D16	KO conductance data current ODE s005	fold 2	flyvis_conductance_noise_005_current_knownode_cv02	FINAL
+D16	KO conductance data current ODE s005	fold 3	flyvis_conductance_noise_005_current_knownode_cv03	FINAL
+D16	KO conductance data current ODE s005	fold 4	flyvis_conductance_noise_005_current_knownode_cv04	FINAL
+D16	KO conductance data conductance ODE s0	fold 0	flyvis_conductance_noise_free_conductance_knownode_cv00	FINAL
+D16	KO conductance data conductance ODE s0	fold 1	flyvis_conductance_noise_free_conductance_knownode_cv01	FINAL
+D16	KO conductance data conductance ODE s0	fold 2	flyvis_conductance_noise_free_conductance_knownode_cv02	FINAL
+D16	KO conductance data conductance ODE s0	fold 3	flyvis_conductance_noise_free_conductance_knownode_cv03	FINAL
+D16	KO conductance data conductance ODE s0	fold 4	flyvis_conductance_noise_free_conductance_knownode_cv04	FINAL
+D16	KO conductance data conductance ODE s005	fold 0	flyvis_conductance_noise_005_conductance_knownode_cv00	FINAL
+D16	KO conductance data conductance ODE s005	fold 1	flyvis_conductance_noise_005_conductance_knownode_cv01	FINAL
+D16	KO conductance data conductance ODE s005	fold 2	flyvis_conductance_noise_005_conductance_knownode_cv02	FINAL
+D16	KO conductance data conductance ODE s005	fold 3	flyvis_conductance_noise_005_conductance_knownode_cv03	FINAL
+D16	KO conductance data conductance ODE s005	fold 4	flyvis_conductance_noise_005_conductance_knownode_cv04	FINAL
+D16	probe goal W	noreg	flyvis_conductance_noise_005_conductance_p2w_noreg	RUN
+D16	probe goal W	silg1e3	flyvis_conductance_noise_005_conductance_p2w_silg1e3	RUN
+D16	probe goal W	nol2g1e2	flyvis_conductance_noise_005_conductance_p2w_nol2g1e2	RUN
+D16	probe goal W	l1x3sil	flyvis_conductance_noise_005_conductance_p2w_l1x3sil	RUN
+D16	probe goal roll	rc8	flyvis_conductance_noise_005_conductance_p2r_rc8	RUN
+D16	probe goal roll	rc8bs8	flyvis_conductance_noise_005_conductance_p2r_rc8bs8	RUN
+D16	probe goal roll	lrhalf	flyvis_conductance_noise_005_conductance_p2r_lrhalf	RUN
+D16	probe goal roll	rc8nol2	flyvis_conductance_noise_005_conductance_p2r_rc8nol2	RUN
+D16	probe goal roll	gnnsil twin	flyvis_conductance_noise_005_conductance_gnnsil_cv00_repro	RUN
+D16	lasso conductance data	$\lambda$ = 0	flyvis_conductance_noise_005_conductance_lasso_0_cv00	RUN
+D16	lasso conductance data	$\lambda$ = 0.25	flyvis_conductance_noise_005_conductance_lasso_0p25_cv00	RUN
+D16	lasso conductance data	$\lambda$ = 1	flyvis_conductance_noise_005_conductance_lasso_1_cv00	RUN
+D16	lasso conductance data	$\lambda$ = 5	flyvis_conductance_noise_005_conductance_lasso_5_cv00	RUN
+D16	lasso conductance data	$\lambda$ = 10	flyvis_conductance_noise_005_conductance_lasso_10_cv00	RUN
+D16	lasso conductance data	$\lambda$ = 25	flyvis_conductance_noise_005_conductance_lasso_25_cv00	RUN
