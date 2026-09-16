@@ -262,7 +262,7 @@ def rollout(nv, task, checkpoint, n_sequences=MOVIE_SEQUENCES):
     return cat(lums), cat(targets), cat(preds)
 
 
-def write_movie(lum, target, prediction, path) -> None:
+def write_movie(lum, target, prediction, path, panel_cm=9.0, dpi=200) -> None:
     """input | target | prediction, by flyvis's own Sintel animation.
 
     `SintelSample` is exactly this three-panel figure and already knows the hex
@@ -298,12 +298,25 @@ def write_movie(lum, target, prediction, path) -> None:
                 "render but cannot be assembled. Pass --no-movie, or put one on PATH."
             )
 
-    anim = SintelSample(lum, target, prediction=prediction)
+    # RESOLUTION COMES FROM TWO PLACES, and both of SintelSample's defaults are
+    # small: panels 3.6 cm wide capped at an 18 cm figure, rendered at 100 dpi,
+    # which is the 362x150 mp4 the defaults produce. The panel sizes set the
+    # figure's shape and the dpi sets how many pixels that shape becomes, so
+    # raising one alone either gives a big blurry frame or a small sharp one.
+    anim = SintelSample(
+        lum, target, prediction=prediction,
+        panel_width_cm=panel_cm,
+        panel_height_cm=panel_cm,
+        max_figure_width_cm=3 * panel_cm + 2,
+        max_figure_height_cm=panel_cm + 2,
+        fontsize=9,
+    )
     anim.to_vid(
         os.path.basename(path).replace(".mp4", ""),
         dest_path=os.path.dirname(path),
         type="mp4",
         framerate=10,
+        dpi=dpi,
         delete_if_exists=True,
     )
 
@@ -388,6 +401,11 @@ def build_parser() -> argparse.ArgumentParser:
                    "Must be an int: NetworkView indexes its checkpoint list with "
                    "it, so a string fails deep inside get_checkpoint")
     p.add_argument("--no-movie", action="store_true")
+    p.add_argument("--dpi", type=int, default=200,
+                   help="movie resolution; SintelSample defaults to 100")
+    p.add_argument("--panel-cm", type=float, default=9.0,
+                   help="size of each of the three panels, in cm; "
+                   "SintelSample defaults to 3.6 wide by 3 high")
     p.add_argument(
         "--every", type=int, default=1,
         help="score every Nth checkpoint; the whole set is the default",
@@ -446,7 +464,8 @@ def main(argv=None) -> int:
     lum, target, prediction = rollout(nv, task, chosen)
     print(f"  rollout         lum {lum.shape}, flow {target.shape}")
     if not args.no_movie:
-        write_movie(lum, target, prediction, str(out_dir / "rollout.mp4"))
+        write_movie(lum, target, prediction, str(out_dir / "rollout.mp4"),
+                    panel_cm=args.panel_cm, dpi=args.dpi)
         print(f"  movie           {out_dir / 'rollout.mp4'}")
 
     # The voltage extremes each neuron actually visits, for the reversal figure's
