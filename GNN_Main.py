@@ -495,8 +495,8 @@ if __name__ == "__main__":
 
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
-# Wij=-0.015(0.42%) Vr=0.520(98%) τ=-9.189(93%) msg=-4609.39]
-# Wij=0.962(0.00%) Vr=0.565(19%) τ=0.912(2%) msg=0.92]
+# Wij=-0.021(0.45%) Vr=0.469(98%) τ=-9.189(93%) msg=-12563.45]
+# Wij=0.913(0.06%) Vr=0.714(20%) τ=0.912(2%) msg=0.96]
 # 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
 # conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 
 # conn=0.950 Vr=0.591(18%) τ=0.902(2%)]

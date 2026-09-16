@@ -1,0 +1,119 @@
+description: 'Ten more epochs at K=11..20, forked from the rc10 run''s epoch-9 checkpoint rather than continued in place, so rc10 stays readable as its own row. WATCH THE HORIZON AGAINST TAU: at K=20 and delta_t 0.02 the unrolled window is 0.4 s against a tau near 0.02 s; on the measurement-noise data that was not too far, but this model''s message carries a driving force and may behave differently. On measurement-noise data the curriculum is the only lever in the campaign that never traded one metric for another: K=1,5,8,10,20 gave W_ij 0.746, 0.748, 0.759, 0.765, 0.775 with rollout r rising alongside, 0.964 to 0.994. That data is the current model on current data, where W_ij was already high. Here it is asked of the problem that is stuck: conductance on conductance, where the champion gnnsil_cv00 sits at W_ij 0.42 with rollout 0.86 and the known-ODE on the same data reaches 0.88, and where every other arm trades the two against each other.'
+dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  seed: 42
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_conductance
+  prediction: first_derivative
+  input_size: 6
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: false
+  w_squared: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  torch_compile: true
+  mlp_precision: fp32
+  n_runs: 1
+  device: auto
+  recurrent_training: true
+  time_step: 1
+  batch_size: 4
+  regul_batch_scaling: sqrt
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_g_phi_zero_below: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 88
+  use_gt_edges: true
+  seed: 1042
+  deterministic: true
+  rollout_horizon_schedule:
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  rollout_step_reduction: mean
+  rollout_step_weighting: uniform
+  pretrained_model: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_conductance_noise_005_conductance_gnnsil_rc10_cv00/models/best_model_with_0_graphs_9.pt
+  n_epochs: 10
+  data_augmentation_loop: 50
+  coeff_g_phi_silent: 5
+  g_phi_silent_range:
+  - -2.0
+  - 0.0
+config_file: fly/flyvis_conductance_noise_005_conductance_gnnsil_rc20_cv00
+claude:
+  n_parallel: 8
+  n_iter_block: 12
+  n_epochs: 3
+  data_augmentation_loop: 21
+  node_name: a100
+  generate_data: false
+  training_time_target_min: 150
+  hard_runtime_limit_min: 1440
+  claude_call_timeout_min: 20
+analysis:
+  neurons:
+  - 2895
+  - 5642
+  - 12864
+  - 2779
+  - 2833
+  - 2899
