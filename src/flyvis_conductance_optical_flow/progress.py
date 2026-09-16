@@ -83,9 +83,11 @@ class TrainingProgress:
             # the loop was not paying anyway.
             self._recent.append(float(out.detach()))
             mean = sum(self._recent) / len(self._recent)
+            # The KEY SAYS IT IS AN AVERAGE, and over how many iterations. Named
+            # `smooth` it read like a training hyperparameter beside `lr`, which
+            # is flyvis's real one; this is only how the bar displays the loss.
             self._bar.set_postfix(
-                loss=f"{mean:.4f}",
-                smooth=len(self._recent),
+                **{f"loss_avg{len(self._recent)}": f"{mean:.4f}"},
                 lr=f"{self.solver.optimizer.param_groups[0]['lr']:.2e}",
                 refresh=False,
             )

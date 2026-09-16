@@ -77,6 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="override the iteration count of the regime",
     )
     p.add_argument(
+        "--extent",
+        type=int,
+        default=None,
+        help="retinotopic extent of the connectome. The published protocol is 15 "
+        "(45,669 neurons, 1,513,231 edges); 8 gives 13,741 and 434,112, the network "
+        "the teacher-student twin was fitted on. PARAMETER COUNT IS UNCHANGED -- "
+        "flyvis shares parameters by cell type and filter tap, so a smaller extent "
+        "is the same model on a smaller retina, roughly 3x faster. Departs from the "
+        "published regime, so give such runs their own ensemble id.",
+    )
+    p.add_argument(
         "--ncols", type=int, default=150, help="width of the progress bar, in characters"
     )
     p.add_argument(
@@ -151,6 +162,16 @@ def main(argv=None) -> int:
         extra += scaled_schedule_overrides(
             n_iters, chkpt_every_epoch=SMOKE_CHKPT_EVERY_EPOCH if args.smoke else None
         )
+    if args.extent is not None:
+        # BOTH EXTENTS, ALWAYS. The connectome extent sets how many photoreceptors
+        # the network has; the boxfilter extent sets how many hexals the movie is
+        # rendered onto. Change one alone and `Stimulus.add_input` refuses the
+        # batch -- "input has shape (1, 40, 1, 721) but buffer has shape
+        # (1, 40, 13741)" -- because the rendering still carries extent 15's 721
+        # hexals. Changing the boxfilter also means a NEW RenderedSintel cache,
+        # built once on first use.
+        extra.append(f"network.connectome.extent={args.extent}")
+        extra.append(f"task.dataset.boxfilter.extent={args.extent}")
 
     config = compose_config(
         task_name=args.task_name,
@@ -166,6 +187,7 @@ def main(argv=None) -> int:
     )
 
     print(f"\033[96m{args.dynamics}  ->  {config.network_name}\033[0m")
+    print(f"  connectome        extent {config.network.connectome.extent}")
     print(f"  iterations        {config.task.n_iters}")
     print(f"  original split    {config.task.original_split}")
     print(f"  original sampling {config.task.dataset.original_sampling}")
