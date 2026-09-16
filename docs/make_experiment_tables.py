@@ -91,7 +91,12 @@ for line in open(TSV):
                      fit=f[13] if len(f) > 13 else "",
                      ufit=f[14] if len(f) > 14 else "",
                      cfit=f[15] if len(f) > 15 else "",
-                     curfit=f[16] if len(f) > 16 else ""))
+                     curfit=f[16] if len(f) > 16 else "",
+                     gain=f[17] if len(f) > 17 else "",
+                     gainsd=f[18] if len(f) > 18 else "",
+                     evi=f[19] if len(f) > 19 else "",
+                     roll_own=f[20] if len(f) > 20 else "",
+                     roll_alt=f[21] if len(f) > 21 else ""))
 
 
 def _clean(field):
@@ -126,6 +131,81 @@ def mean_sd(values):
 
 def pick(sec, block):
     return [r for r in rows if r["sec"] == sec and r["block"] == block]
+
+
+def _med(entries, key):
+    """Median over the arms of one table, or None when nothing was measured."""
+    xs = []
+    for r_ in entries:
+        try:
+            v = float(r_[key])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if v == v:
+            xs.append(v)
+    if not xs:
+        return None
+    xs.sort()
+    n = len(xs)
+    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
+
+
+# The reversal has to lie where the voltage goes. A conductance form fitted to a
+# message with no driving force puts E far outside the range the cells ever
+# reach -- 201x on the current GNN against 1.4x on the conductance one -- so the
+# rule reads the ratio, not the R2, and 10x is the round number between those
+# two populations rather than a level anything was tuned to.
+_E_OUTSIDE = 10.0
+
+
+def form_verdict(entries):
+    """One sentence under a table: was the generator's own form the one learned?
+
+    WRITTEN FROM THE ROWS, not by hand. Three measurements decide it and each is
+    quoted with its reference, because every one of them is a ratio or a
+    difference that means nothing on its own:
+
+      the gain    how much R2 per edge the driving-force column buys over the
+                  current form, mean over edges; the two forms are NESTED, so
+                  this is >= 0 by algebra and only its size is informative
+      the reversal the fitted |E| as a multiple of the 99th percentile of |v_i|
+                  in the data; a reversal the voltage never approaches is a
+                  column being used to rescale u, not a driving force
+      the rollout  each reconstruction loaded back into its family's known-ODE
+                  and run on noise-free data; the one test the nested pair
+                  cannot dodge, and readable only when the own-family
+                  reconstruction is itself faithful
+    """
+    g, gsd = _med(entries, "gain"), _med(entries, "gainsd")
+    evi = _med(entries, "evi")
+    ro, ra = _med(entries, "roll_own"), _med(entries, "roll_alt")
+    if g is None and evi is None:
+        return None
+    bits = []
+    if g is not None:
+        bits.append(rf"the driving-force column buys ${g:+.3f}$"
+                    + (rf" $\pm$ {gsd:.3f}" if gsd is not None else "")
+                    + " $R^2$ per edge over the current form")
+    if evi is not None:
+        if evi > _E_OUTSIDE:
+            bits.append(rf"and the reversal it needs sits {evi:.0f}$\times$ outside the "
+                        rf"voltage range the data reaches, so the conductance reading is "
+                        rf"an artefact of the extra column")
+        else:
+            bits.append(rf"and the reversal it needs, {evi:.1f}$\times$ the data's own "
+                        rf"voltage range, is inside the range where it can be identified")
+    if ro is not None and ra is not None:
+        if ro >= ra + 0.05:
+            bits.append(rf"rolled out, the own-family reconstruction reaches $r={ro:.2f}$ "
+                        rf"against {ra:.2f} for the other family")
+        elif ra >= ro + 0.05:
+            bits.append(rf"rolled out, the OTHER family's reconstruction reaches "
+                        rf"$r={ra:.2f}$ against {ro:.2f}, so the trajectory does not "
+                        rf"prefer the form the data was made with")
+        else:
+            bits.append(rf"the two reconstructions roll out alike ($r={ro:.2f}$ and "
+                        rf"{ra:.2f}), so the trajectory does not separate the families")
+    return ("\textbf{Is the right form learned?} " + ", ".join(bits) + ".") if bits else None
 
 
 def table(entries, caption, extra_col=None, eij=True, note=None):
@@ -254,6 +334,9 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
                   mean_sd(_floats("cluster")), ""]
         out += [r"\midrule", " & ".join(cells) + r" \\"]
     out += [r"\bottomrule", r"\end{tabular}"]
+    _verdict = form_verdict(entries)
+    if _verdict:
+        out.append(rf"\\[3pt]{{\scriptsize {_verdict}}}")
     if note:
         out.append(rf"\\[2pt]{{\scriptsize {note}}}")
     out += [r"\end{table}"]

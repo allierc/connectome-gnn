@@ -12,7 +12,8 @@ Usage:
 Manifest columns (tab separated): section, block, label, config, status.
 Output columns, one row per run:
     section block label config status Wij tau V_rest Eij rollout msg onestep
-    cluster msg_form update_form conductance_form current_form
+    cluster msg_form update_form conductance_form current_form gain_mean gain_sd
+    E_over_vi rollout_own rollout_alt
 with each recovery field written `clean|all|pct outliers`, the three numbers
 metrics.txt keeps apart.
 """
@@ -32,7 +33,15 @@ MEDIANS = {"msg_form": ("msg_form_r2_median", "tmpl_fit_r2_median"),
            # Both families' forms fitted to the SAME message, added 2026-09-15.
            # Runs plotted before that carry neither and print one fewer number.
            "conductance_form": ("conductance_form_r2_median",),
-           "current_form": ("current_form_r2_median",)}
+           "current_form": ("current_form_r2_median",),
+           # What the family test reads: how much the driving-force column buys,
+           # how far outside the data's voltage range the reversal it needs
+           # sits, and how each reconstruction rolls out.
+           "gain_mean": ("driving_force_r2_gain_mean",),
+           "gain_sd": ("driving_force_r2_gain_sd",),
+           "E_over_vi": ("conductance_form_E_over_vi",),
+           "roll_own": ("template_rollout_r",),
+           "roll_alt": ("template_alt_rollout_r",)}
 
 
 def read_metrics(config):
@@ -102,7 +111,10 @@ def main():
                triple(m, "Eij"), num(m, "rollout_r"), triple(m, "msg_i"),
                one_step_r(config), num(m, "clustering_accuracy"),
                num(m, *MEDIANS["msg_form"]), num(m, *MEDIANS["update_form"]),
-               num(m, *MEDIANS["conductance_form"]), num(m, *MEDIANS["current_form"])]
+               num(m, *MEDIANS["conductance_form"]), num(m, *MEDIANS["current_form"]),
+               num(m, *MEDIANS["gain_mean"]), num(m, *MEDIANS["gain_sd"]),
+               num(m, *MEDIANS["E_over_vi"]), num(m, *MEDIANS["roll_own"]),
+               num(m, *MEDIANS["roll_alt"])]
         print("\t".join(row))
 
 
