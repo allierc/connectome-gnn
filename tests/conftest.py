@@ -142,3 +142,19 @@ def minimal_config(minimal_config_dict):
     """A NeuralGraphConfig object with small sizes for CPU testing."""
     from connectome_gnn.config import NeuralGraphConfig
     return NeuralGraphConfig(**minimal_config_dict)
+
+@pytest.fixture(autouse=True)
+def _cpu_default_device():
+    """Every test starts on the CPU, whatever the last one imported.
+
+    `flyvis/__init__.py` calls `torch.set_default_device(cuda)` at import, so the
+    first test that transitively imports it flips the global default for every
+    test that follows. The symptom is not a failure in the guilty file: tests
+    that build their own tensors and index them with an `edges` tensor start
+    raising "indices should be either on cpu or on the same device as the
+    indexed tensor", thirteen of them at once, and each passes when run alone.
+    Docstring at the top of this file promises CPU-only; this keeps the promise.
+    """
+    torch.set_default_device("cpu")
+    yield
+    torch.set_default_device("cpu")
