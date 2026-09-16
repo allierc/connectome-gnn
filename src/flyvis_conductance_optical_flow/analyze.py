@@ -268,7 +268,35 @@ def write_movie(lum, target, prediction, path) -> None:
     `SintelSample` is exactly this three-panel figure and already knows the hex
     lattice, so there is no renderer to write here -- only the call.
     """
+    import shutil
+    import sys
+
     from flyvis.analysis.animations.sintel import SintelSample
+
+    # FFMPEG HAS TO BE ON PATH, because `Animation.convert` shells out to it.
+    # Running the interpreter by absolute path -- which is what a bsub command
+    # string does -- leaves the env's own bin/ off PATH, so the binary sitting
+    # right beside python is invisible and the movie step dies after the frames
+    # have already been rendered. Look there first, then at imageio-ffmpeg's
+    # bundled binary.
+    if shutil.which("ffmpeg") is None:
+        env_bin = os.path.dirname(sys.executable)
+        candidates = [env_bin]
+        try:
+            import imageio_ffmpeg
+
+            candidates.append(os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe()))
+        except Exception:
+            pass
+        for d in candidates:
+            if os.path.exists(os.path.join(d, "ffmpeg")):
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                break
+        else:
+            raise SystemExit(
+                "no ffmpeg on PATH and none beside the interpreter; the frames "
+                "render but cannot be assembled. Pass --no-movie, or put one on PATH."
+            )
 
     anim = SintelSample(lum, target, prediction=prediction)
     anim.to_vid(
@@ -355,8 +383,10 @@ def reversal_report(nv, checkpoint, activity_lo, activity_hi, out_dir):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--network-name", required=True, help="e.g. flow/2000/000")
-    p.add_argument("--checkpoint", default=None,
-                   help="which checkpoint to roll out; default is argmin EPE")
+    p.add_argument("--checkpoint", type=int, default=None,
+                   help="which checkpoint to roll out; default is argmin EPE. "
+                   "Must be an int: NetworkView indexes its checkpoint list with "
+                   "it, so a string fails deep inside get_checkpoint")
     p.add_argument("--no-movie", action="store_true")
     p.add_argument(
         "--every", type=int, default=1,
