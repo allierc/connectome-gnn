@@ -61,7 +61,7 @@ def _run_dir(network_name: str):
     return flyvis.results_dir / network_name
 
 
-def evaluate_checkpoints(nv, task, device) -> dict:
+def evaluate_checkpoints(nv, task, device, every: int = 1) -> dict:
     """EPE and l2norm of every checkpoint on the held-out split.
 
     Returns `{indices, epe, l2norm, best_index, best_epe}`. Both metrics come
@@ -72,8 +72,27 @@ def evaluate_checkpoints(nv, task, device) -> dict:
     from flyvis.task.objectives import epe as epe_fn
     from flyvis.task.objectives import l2norm as l2_fn
 
-    indices = list(nv.checkpoints.indices)
+    indices = list(nv.checkpoints.indices)[::every]
     rows = {"index": [], "epe": [], "l2norm": []}
+
+    # THE ZERO-PREDICTION BASELINE, and it is the only number that answers
+    # "did this learn anything". The l2norm of this task barely moves -- a
+    # trained ensemble sits near 1150 against an untrained 1300 -- because most
+    # of it is the intrinsic spread of the flow field rather than anything the
+    # network controls. Predicting a flow of zero everywhere gives the error of
+    # having learned nothing at all, so a model is only doing something if its
+    # EPE is below this.
+    with torch.no_grad(), task.dataset.augmentation(False):
+        z_e, z_l = [], []
+        for data in task.val_data:
+            y = data["flow"]
+            zero = torch.zeros_like(y)
+            z_e.append(float(epe_fn(zero, y)))
+            z_l.append(float(l2_fn(zero, y)))
+    rows["zero_epe"] = float(np.mean(z_e))
+    rows["zero_l2norm"] = float(np.mean(z_l))
+    print(f"  zero-prediction baseline: epe {rows['zero_epe']:.4f}  "
+          f"l2norm {rows['zero_l2norm']:.2f}")
 
     for idx in indices:
         network = nv.init_network(checkpoint=idx)
@@ -125,6 +144,88 @@ def write_epe_file(nv, rows) -> None:
     out.mkdir(parents=True, exist_ok=True)
     with h5py.File(out / "epe.h5", "w") as f:
         f.create_dataset("data", data=np.asarray(rows["epe"], dtype=np.float32))
+
+
+def write_summary_png(nv, rows, out_path) -> None:
+    """Training, validation and EPE against iteration, in one figure.
+
+    flyvis STORES all of this and plots none of it. Per checkpoint it writes four
+    losses -- `validation/`, `validation_batch/`, `training/`, `training_batch/`
+    -- and per iteration it writes `loss.h5`; `chkpt_iter.h5` maps a checkpoint
+    index to the iteration it was taken at, which is what puts the two on one
+    x-axis.
+
+    Three panels, because the quantities do not share a scale: the per-iteration
+    training loss is noisy and huge, the per-checkpoint losses are smooth, and
+    EPE is the one that answers whether the model learned anything -- so it gets
+    its own panel with the zero-prediction baseline drawn across it.
+    """
+    import h5py
+    import matplotlib.pyplot as plt
+
+    d = nv.dir.path
+
+    def read(rel):
+        p = d / rel
+        if not p.exists():
+            return None
+        with h5py.File(p, "r") as f:
+            return np.asarray(f["data"])
+
+    iters = read("chkpt_iter.h5")
+    train_iter = read("loss.h5")
+    curves = {
+        "validation": read("validation/loss.h5"),
+        "training": read("training/loss.h5"),
+    }
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4), constrained_layout=True)
+
+    ax = axes[0]
+    if train_iter is not None:
+        # SMOOTHED OVER A HUNDREDTH OF THE RUN, not over an epoch. The
+        # per-iteration loss swings between about 750 and 1850 from batch to
+        # batch -- the batch is 4 sequences and their intrinsic flow magnitudes
+        # differ more than anything training changes -- so a 12-iteration mean is
+        # still a solid band with no visible trend. The raw trace is kept faintly
+        # behind it so the spread is not hidden.
+        ax.plot(np.arange(train_iter.size), train_iter, lw=0.3, color="0.85")
+        w = max(50, train_iter.size // 100)
+        smooth = np.convolve(train_iter, np.ones(w) / w, mode="valid")
+        ax.plot(np.arange(smooth.size) + w // 2, smooth, lw=1.4, color="0.2",
+                label=f"mean of {w} iterations")
+        ax.legend(frameon=False)
+    ax.set_xlabel("iteration")
+    ax.set_ylabel("training loss (l2norm)")
+    ax.text(0, 1.02, "training loss, per iteration", transform=ax.transAxes)
+
+    ax = axes[1]
+    for name, y in curves.items():
+        if y is None:
+            continue
+        x = iters[: len(y)] if iters is not None else np.arange(len(y))
+        ax.plot(x, y, marker="o", ms=3, lw=1.2, label=name)
+    ax.set_xlabel("iteration")
+    ax.set_ylabel("loss (l2norm)")
+    ax.legend(frameon=False)
+    ax.text(0, 1.02, "loss per checkpoint", transform=ax.transAxes)
+
+    ax = axes[2]
+    x = (iters[rows["index"]] if iters is not None and max(rows["index"]) < len(iters)
+         else rows["index"])
+    ax.plot(x, rows["epe"], marker="o", ms=3, lw=1.2, color="k", label="held-out EPE")
+    ax.axhline(rows["zero_epe"], ls="--", lw=1.0, color="0.5",
+               label=f"zero prediction ({rows['zero_epe']:.3f})")
+    ax.set_xlabel("iteration")
+    ax.set_ylabel("EPE")
+    ax.legend(frameon=False)
+    ax.text(0, 1.02, "endpoint error, the test that it learned", transform=ax.transAxes)
+
+    for ax in axes:
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+    fig.savefig(out_path, dpi=150, facecolor="white")
+    plt.close(fig)
 
 
 def rollout(nv, task, checkpoint, n_sequences=MOVIE_SEQUENCES):
@@ -189,13 +290,20 @@ def reversal_report(nv, checkpoint, activity_lo, activity_hi, out_dir):
 
     Returns the dict written to BRACKET_CROSSINGS.txt.
     """
-    from connectome_gnn.plot import NAME_TO_INDEX, _write_reversal_report
-    from flyvis.utils.type_utils import byte_to_str
-
     network = nv.init_network(checkpoint=checkpoint)
     dynamics = network.dynamics
     if not hasattr(dynamics, "reversal_per_edge"):
         return None  # current-based run: no reversals to report
+
+    # Imported AFTER that check: connectome_gnn is only needed for the reversal
+    # figure, and a current-based run should not fail on it.
+    from connectome_gnn.plot import INDEX_TO_NAME, _write_reversal_report
+    from flyvis.utils.type_utils import byte_to_str
+
+    # connectome_gnn publishes the index -> name direction only; the reversal
+    # report wants a type id per neuron, so invert it here rather than keeping a
+    # second table that could disagree with the first.
+    name_to_index = {v: k for k, v in INDEX_TO_NAME.items()}
 
     network.clamp()
     params = network._param_api()
@@ -203,7 +311,7 @@ def reversal_report(nv, checkpoint, activity_lo, activity_hi, out_dir):
     E_inh = params.nodes.E_inh.detach().cpu().numpy().astype(float)
 
     names = byte_to_str(network.connectome.nodes.type[:])
-    types = np.array([NAME_TO_INDEX.get(str(t), -1) for t in names], dtype=int)
+    types = np.array([name_to_index.get(str(t), -1) for t in names], dtype=int)
 
     targeted = np.zeros(E_exc.size, dtype=bool)
     targeted[np.asarray(network.connectome.edges.target_index[:], dtype=int)] = True
@@ -250,6 +358,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--checkpoint", default=None,
                    help="which checkpoint to roll out; default is argmin EPE")
     p.add_argument("--no-movie", action="store_true")
+    p.add_argument(
+        "--every", type=int, default=1,
+        help="score every Nth checkpoint; the whole set is the default",
+    )
+    p.add_argument(
+        "--no-epe-file", action="store_true",
+        help="skip writing validation/epe.h5. Use while the run is still "
+        "training, so the analysis does not write into a directory the trainer "
+        "is also writing",
+    )
     p.add_argument("--verbose", action="store_true")
     return p
 
@@ -275,11 +393,14 @@ def main(argv=None) -> int:
     print(f"  checkpoints     {len(nv.checkpoints.indices)}")
     print(f"  analysis ->     {out_dir}")
 
-    rows = evaluate_checkpoints(nv, task, device)
-    write_epe_file(nv, rows)
+    rows = evaluate_checkpoints(nv, task, device, every=args.every)
+    if not args.no_epe_file:
+        write_epe_file(nv, rows)
     chosen = args.checkpoint if args.checkpoint is not None else rows["best_index"]
-    print(f"\033[92mbest by EPE: checkpoint {rows['best_index']} "
-          f"at {rows['best_epe']:.4f}\033[0m")
+    gain = 100.0 * (rows["zero_epe"] - rows["best_epe"]) / rows["zero_epe"]
+    print(f"\033[92mbest by EPE: checkpoint {rows['best_index']} at "
+          f"{rows['best_epe']:.4f}, {gain:.1f}% below the zero-prediction "
+          f"baseline of {rows['zero_epe']:.4f}\033[0m")
 
     import csv as _csv
 
@@ -288,6 +409,9 @@ def main(argv=None) -> int:
         w.writerow(["index", "epe", "l2norm"])
         for i, e, l in zip(rows["index"], rows["epe"], rows["l2norm"]):
             w.writerow([i, f"{e:.6f}", f"{l:.6f}"])
+
+    write_summary_png(nv, rows, str(out_dir / "summary.png"))
+    print(f"  summary         {out_dir / 'summary.png'}")
 
     lum, target, prediction = rollout(nv, task, chosen)
     print(f"  rollout         lum {lum.shape}, flow {target.shape}")
