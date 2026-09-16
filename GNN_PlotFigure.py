@@ -3892,7 +3892,16 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
             plot_synaptic(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file, skip_svd=skip_svd)
 
     for handler in logger.handlers[:]:
-        handler.close()
+        # A TEARDOWN MUST NOT FAIL A FINISHED PASS. The log file lives on NFS,
+        # and closing it raised OSError 116, stale file handle, after every
+        # figure and every number had already been written -- the job then
+        # exited non-zero and read as a failed run. Whatever the handle's state,
+        # detaching the handler is what matters here.
+        try:
+            handler.close()
+        except OSError as _e:
+            print(f"\033[93mlog handler close failed ({_e.strerror}); "
+                  f"the pass itself finished\033[0m")
         logger.removeHandler(handler)
 
 
