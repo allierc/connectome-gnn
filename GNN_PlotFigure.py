@@ -1782,39 +1782,47 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 continue  # skip to next epoch in epoch_list
 
             # Plot 2: Embedding using model.a
-            fig = plt.figure(figsize=(10, 9))
-            ax = plt.gca()
-            for spine in ax.spines.values():
-                spine.set_alpha(0.75)
-            for n in range(n_types):
-                pos = torch.argwhere(type_list == n)
-                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]),
-                            s=80, color=colors_65[n],
-                            alpha=0.6, edgecolors='none')
-            plt.xlabel(r'$a_{i0}$', fontsize=56)
-            plt.ylabel(r'$a_{i1}$', fontsize=56)
-            # Per-panel bbox from the 5-95 percentile of each axis to ignore
-            # any outlier embeddings; small relative margin so points aren't
-            # right on the spines.
-            _a0 = to_numpy(model.a[:, 0])
-            _a1 = to_numpy(model.a[:, 1])
-            _x_lo, _x_hi = float(np.percentile(_a0, 5)), float(np.percentile(_a0, 95))
-            _y_lo, _y_hi = float(np.percentile(_a1, 5)), float(np.percentile(_a1, 95))
-            _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
-            _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
-            ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
-            ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
-            # Exactly 3 ticks per axis, rounded to 1 decimal for clean labels.
-            ax.set_xticks([round(_x_lo, 1),
-                           round(0.5 * (_x_lo + _x_hi), 1),
-                           round(_x_hi, 1)])
-            ax.set_yticks([round(_y_lo, 1),
-                           round(0.5 * (_y_lo + _y_hi), 1),
-                           round(_y_hi, 1)])
-            ax.tick_params(axis='both', labelsize=51)
-            plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f'embedding.png'), dpi=300)
-            plt.close()
+            # A KNOWN-ODE HAS NO EMBEDDING. It carries the generator's
+            # parameters directly -- W, tau, V_rest -- and nothing that plays
+            # the part of a_i, so this figure and everything below that reads
+            # model.a is a GNN-only section. Without the guard the whole plot
+            # pass died on AttributeError at the first scatter, which is how
+            # twenty known-ODE runs finished training and produced no results.
+            _has_emb = hasattr(model, 'a')
+            if _has_emb:
+                fig = plt.figure(figsize=(10, 9))
+                ax = plt.gca()
+                for spine in ax.spines.values():
+                    spine.set_alpha(0.75)
+                for n in range(n_types):
+                    pos = torch.argwhere(type_list == n)
+                    plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]),
+                                s=80, color=colors_65[n],
+                                alpha=0.6, edgecolors='none')
+                plt.xlabel(r'$a_{i0}$', fontsize=56)
+                plt.ylabel(r'$a_{i1}$', fontsize=56)
+                # Per-panel bbox from the 5-95 percentile of each axis to ignore
+                # any outlier embeddings; small relative margin so points aren't
+                # right on the spines.
+                _a0 = to_numpy(model.a[:, 0])
+                _a1 = to_numpy(model.a[:, 1])
+                _x_lo, _x_hi = float(np.percentile(_a0, 5)), float(np.percentile(_a0, 95))
+                _y_lo, _y_hi = float(np.percentile(_a1, 5)), float(np.percentile(_a1, 95))
+                _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
+                _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
+                ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
+                ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
+                # Exactly 3 ticks per axis, rounded to 1 decimal for clean labels.
+                ax.set_xticks([round(_x_lo, 1),
+                               round(0.5 * (_x_lo + _x_hi), 1),
+                               round(_x_hi, 1)])
+                ax.set_yticks([round(_y_lo, 1),
+                               round(0.5 * (_y_lo + _y_hi), 1),
+                               round(_y_hi, 1)])
+                ax.tick_params(axis='both', labelsize=51)
+                plt.tight_layout()
+                plt.savefig(_fig_out(log_dir, f'embedding.png'), dpi=300)
+                plt.close()
 
             n_pts = 1000
             type_np = to_numpy(type_list).astype(int).ravel()
@@ -2721,7 +2729,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 n_gmm = min(100, n_neurons - 1)
                 _cl = cluster_recovery(
                     to_numpy(type_list), to_numpy(edges), learned_weights, n_neurons,
-                    embedding=to_numpy(model.a), learned_tau=learned_tau,
+                    embedding=to_numpy(model.a) if _has_emb else None,
+                    learned_tau=learned_tau,
                     learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
                     n_components=n_gmm, return_features=True)
                 a_aug = _cl.pop("_X")
@@ -3492,7 +3501,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             if _cl is None:
                 n_gmm = min(100, n_neurons - 1)
                 _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
-                                       embedding=to_numpy(model.a),
+                                       embedding=to_numpy(model.a) if _has_emb else None,
                                        learned_tau=learned_tau,
                                        learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
                                        n_components=n_gmm, return_features=True)
