@@ -21,6 +21,48 @@ import sys
 # Ensure src/ is on the path so flyvis_conductance_optical_flow is importable
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
 
+# WHERE SINTEL, THE RENDERINGS AND THE RESULTS LIVE. flyvis reads this at import
+# time and falls back to <site-packages>/flyvis/data, which holds none of them --
+# and `download_sintel` then starts a 5.2 GB download rather than failing, so an
+# unset variable costs an hour of a GPU job before anything trains. The env's own
+# activate.d exports it, but only for that env; a job launched from a different
+# conda environment inherits nothing, which is exactly how this was first hit.
+# Set here, loudly, and still overridable from the environment.
+FLYVIS_ROOT_DEFAULT = "/groups/saalfeld/home/allierc/GraphData/flyvis"
+if not os.environ.get("FLYVIS_ROOT_DIR"):
+    os.environ["FLYVIS_ROOT_DIR"] = FLYVIS_ROOT_DEFAULT
+    print(f"FLYVIS_ROOT_DIR unset; using {FLYVIS_ROOT_DEFAULT}")
+
+_sintel = os.path.join(os.environ["FLYVIS_ROOT_DIR"], "SintelDataSet", "training", "flow")
+if not os.path.isdir(_sintel):
+    raise SystemExit(
+        f"no Sintel flow targets at {_sintel}.\n"
+        "flyvis would silently start a 5.2 GB download from files.is.tue.mpg.de "
+        "instead of failing. Point FLYVIS_ROOT_DIR at a root that has "
+        "SintelDataSet/training/{final,flow} in it."
+    )
+
+
+def report_data_root() -> None:
+    """Print the resolved directories and what is actually in them.
+
+    Worth the six lines: a wrong root does not fail, it DOWNLOADS -- 5.2 GB of
+    Sintel and then a re-render, an hour into a GPU job that has not trained
+    anything. Counting the files here means the log says whether the data was
+    found before the first iteration rather than after.
+    """
+    import glob
+
+    root = os.environ["FLYVIS_ROOT_DIR"]
+    final = os.path.join(root, "SintelDataSet", "training", "final")
+    renders = sorted(glob.glob(os.path.join(root, "renderings", "RenderedSintel_*")))
+    n_flow = len(glob.glob(os.path.join(_sintel, "*", "*.flo")))
+    n_final = len(glob.glob(os.path.join(final, "*", "*.png")))
+    print(f"\033[96mFLYVIS_ROOT_DIR   {root}\033[0m")
+    print(f"  SintelDataSet   {n_final} input frames, {n_flow} flow targets")
+    print(f"  renderings      {', '.join(os.path.basename(r) for r in renders) or 'NONE (will render)'}")
+    print(f"  results         {os.path.join(root, 'results')}")
+
 import matplotlib
 
 matplotlib.use('Agg')  # non-interactive backend before other imports
@@ -72,6 +114,7 @@ if __name__ == "__main__":
         )
     option, run_name = args.option[0], args.option[-1]
     dynamics, ensemble, member = parse_run_name(run_name)
+    report_data_root()
 
     argv = ["--dynamics", dynamics, "--ensemble", ensemble, "--member", member]
     if "smoke" in option:

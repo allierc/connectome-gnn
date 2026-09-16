@@ -162,7 +162,21 @@ def main(argv=None) -> int:
     # Imported here so the banner above prints before flyvis spends time on the
     # connectome; `fcof` is already imported at module scope, which is what
     # registers the dynamics and the reversal parameters.
+    from flyvis.network import Network
     from flyvis.solver import MultiTaskSolver
+
+    if args.dry_run:
+        # BUILD THE NETWORK ALONE, not the solver. Constructing MultiTaskSolver
+        # creates the run directory and stores its config, so a dry run left a
+        # half-made directory behind that then refused the real run with
+        # datamate's "incompatible config". A dry run should touch no results.
+        network = Network(**config.network)
+        fcof.assert_registered(network, args.dynamics)
+        n_free = sum(p.numel() for p in network.parameters() if p.requires_grad)
+        print(f"\033[92mdynamics {type(network.dynamics).__name__} registered; "
+              f"{n_free} free network parameters\033[0m")
+        print("--dry-run: nothing written")
+        return 0
 
     solver = MultiTaskSolver(
         name=config.network_name,
@@ -177,10 +191,7 @@ def main(argv=None) -> int:
     n_free = sum(p.numel() for p in solver.network.parameters() if p.requires_grad)
     print(f"\033[92mdynamics {type(solver.network.dynamics).__name__} registered; "
           f"{n_free} free network parameters\033[0m")
-
-    if args.dry_run:
-        print("--dry-run: stopping before training")
-        return 0
+    print(f"\033[96mwriting to        {solver.path}\033[0m")
 
     with TrainingProgress(solver, ncols=args.ncols):
         solver.train()
