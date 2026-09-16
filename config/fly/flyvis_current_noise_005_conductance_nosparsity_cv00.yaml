@@ -1,4 +1,4 @@
-description: Conductance GNN on current-generated data with every g_phi sparsity regulariser
+description: conductance GNN on current-generated data with every g_phi sparsity regulariser
   off, noise 0.05, fold 0.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

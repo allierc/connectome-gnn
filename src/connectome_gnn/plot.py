@@ -8,6 +8,7 @@ Metric computation lives in connectome_gnn.metrics — re-exported here
 for backward compatibility.
 """
 import os
+from connectome_gnn.results_layout import fig_out
 import re
 from collections import deque
 
@@ -2751,7 +2752,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         group_names=INDEX_TO_NAME,
         outlier_threshold=W_OUTLIER_THRESH,
         violin_log_y=True,
-        extra_paths=(f"{log_dir}/results/weights_comparison_raw.png",),
+        extra_paths=(fig_out(log_dir, "weights_comparison_raw.png"),),
         draw=save_panels,
     )
 
@@ -2782,7 +2783,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # as a recovery number.
     _w_gate = None
     if rec is not None and _rec_W is None and not rec.valid.get("W", True):
-        _w_gate = rec.diagnostics.get("Eij_gate")
+        _w_gate = rec.diagnostics.get("msg_form_r2_median")
     if _w_gate is None:
         _w_path, _w_symbol = f"{log_dir}/tmp_training/Wij/comparison_{epoch}_{N}.png", 'W_{ij}'
     else:
@@ -2797,7 +2798,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         group_names=INDEX_TO_NAME,
         outlier_threshold=W_OUTLIER_THRESH,
         violin_log_y=True,
-        extra_paths=(f"{log_dir}/results/weights_comparison_corrected.png",),
+        extra_paths=(fig_out(log_dir, "weights_comparison_corrected.png"),),
         draw=save_panels,
     )
 
@@ -2891,7 +2892,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
 
         plt.tight_layout()
         plt.savefig(f"{log_dir}/tmp_training/Wij/connectivity_{epoch}_{N}.png", dpi=87)
-        plt.savefig(f"{log_dir}/results/connectivity_matrix.png", dpi=87)
+        plt.savefig(fig_out(log_dir, f"connectivity_matrix.png"), dpi=87)
         plt.close()
 
     # Plot 4: Edge function visualization (g_phi)
@@ -2900,7 +2901,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
                gt_curves=gt_g_phi, gt_v_range=gt_v_range, type_names=_type_names, edges=edges)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/g_phi/func_{epoch}_{N}.png", dpi=87)
-    plt.savefig(f"{log_dir}/results/g_phi_func.png", dpi=87)
+    plt.savefig(fig_out(log_dir, f"g_phi_func.png"), dpi=87)
     plt.close()
 
     # Plot 5: Phi function visualization (f_theta)
@@ -2909,7 +2910,7 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
                  gt_curves=gt_f_theta, gt_v_range=gt_v_range, type_names=_type_names)
     plt.tight_layout()
     plt.savefig(f"{log_dir}/tmp_training/function/f_theta/func_{epoch}_{N}.png", dpi=87)
-    plt.savefig(f"{log_dir}/results/f_theta_func.png", dpi=87)
+    plt.savefig(fig_out(log_dir, f"f_theta_func.png"), dpi=87)
     plt.close()
 
     return r_squared, r_squared_visible, hidden_pearson, anchor_pearson
@@ -3473,7 +3474,7 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     # A GNN below the line-fit gate still has a per-edge E from that fit; it
     # is drawn, like the gain-corrected W panel beside it, but named and
     # labelled as gated so nobody reads it as a recovery. `gate` is the median
-    # per-edge R2 of the fit (Eij_gate in the logs).
+    # per-edge R2 of the fit (msg_form_r2_median in the logs).
     gate = rev_metrics.get("gate")
     if gate is None:
         path, symbol = f"{log_dir}/tmp_training/Eij/Eij_{epoch}_{N}.png", 'E_{ij}'
@@ -4009,7 +4010,7 @@ def plot_hidden_siren_traces(model, x_ts, hidden_ids, log_dir, epoch, N, device,
     os.makedirs(results_dir, exist_ok=True)
     plt.tight_layout()
     plt.savefig(os.path.join(out_dir, f'{epoch}_{N}.png'), dpi=87, bbox_inches='tight')
-    plt.savefig(os.path.join(results_dir, 'hidden_inr_traces.png'), dpi=87, bbox_inches='tight')
+    plt.savefig(fig_out(results_dir, 'hidden_inr_traces.png'), dpi=87, bbox_inches='tight')
     plt.close()
 
     return pearson_h, pearson_a

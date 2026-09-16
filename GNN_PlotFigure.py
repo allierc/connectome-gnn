@@ -34,6 +34,7 @@ _ANSI_ORANGE = '\033[38;5;208m'
 _ANSI_GREEN = '\033[92m'
 _ANSI_BLUE = '\033[94m'
 _ANSI_WHITE = '\033[97m'
+_ANSI_YELLOW = '\033[93m'
 _ANSI_RESET = '\033[0m'
 
 def _r2_color(val):
@@ -51,7 +52,8 @@ from connectome_gnn.zarr_io import load_simulation_data, load_raw_array
 from connectome_gnn.sparsify import clustering_gmm
 from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.utils import model_family, restore_edge_sign_lock
+from connectome_gnn.models.utils import (model_family, restore_edge_sign_lock,
+                                        is_conductance_gnn)
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
@@ -73,12 +75,18 @@ from connectome_gnn.metrics import (
     compute_reversal_metrics,
     compute_msg_i_recovery,
     extract_recovered_params,
+    extract_template_params,
+    template_readout_enabled,
     score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
     _batched_mlp_eval,
     _vectorized_linear_fit,
     _build_f_theta_features,
+)
+from connectome_gnn.results_layout import (
+    clear_results as _clear_results,
+    fig_out as _fig_out,
 )
 from connectome_gnn.metrics import (
     RECOVERY_KEYS, cluster_recovery, write_recovery_metrics, score_recovery)
@@ -360,26 +368,24 @@ def _plot_tau_outlier_traces(activity_true, neuron_types, outlier_neuron_indices
     _ax.spines['left'].set_visible(False)
     _ax.legend(loc='upper right', fontsize=12)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/activity_{config_indices}_tau_outliers.png',
+    plt.savefig(_fig_out(log_dir, f'activity_tau_outliers.png'),
                 dpi=300, bbox_inches='tight')
     plt.close()
 
 
-def _finite_range(values, fallback):
-    """min/max over the finite entries, falling back when there are none.
-
-    An all-NaN array means the quantity was never measured; matplotlib rejects
-    NaN axis limits, so the fallback keeps the (empty) panel drawable instead of
-    raising in a plotting path.
-    """
-    finite = np.asarray(values)[np.isfinite(values)]
-    if finite.size == 0:
-        return float(fallback[0]), float(fallback[1])
-    return float(finite.min()), float(finite.max())
-
+# The scatters and the error panels live in connectome_gnn.recovery_figures,
+# so that the trainer draws the same figure from the same code at every
+# checkpoint. Imported under their old names: every call site below is
+# unchanged, and a reader grepping for _plot_recovered_scatter still lands on
+# a definition.
+from connectome_gnn.recovery_figures import (  # noqa: E402
+    _plot_recovered_scatter, _plot_parameter_error, _finite_range,
+    _KEY_FOR, _LABEL_FOR, _TEX_FOR, _SCATTER_SPEC,
+)
 
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
-                            log_dir, logger, log_file, n_neurons=None, extra=None):
+                            log_dir, logger, log_file, n_neurons=None, extra=None,
+                            template_rollout=False):
     """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
 
     Extracts every quantity the run can recover (W, tau, V_rest, E_ij, msg_i,
@@ -403,16 +409,84 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     may have been strided for plotting, so it is comparable across slots but
     not bit-for-bit the training-time panel's number.
     """
+    # One line, before the slow part: the per-edge and per-neuron fits take tens
+    # of seconds on 434,112 edges and the terminal is otherwise silent through
+    # them. It names the readout so the figures, the file and the console all
+    # say the same thing about where the numbers came from.
+    # NAMES THE ESTIMATOR, not the library. This readout is PySR's
+    # TemplateExpressionSpec with the presynaptic shape given rather than
+    # searched -- which makes it a two-column least squares, closed form, no
+    # Julia process anywhere. Calling it "with PySR" put it one line away from
+    # "PySR unavailable", printed by the neuron panels when the actual Julia
+    # search cannot start, and the two together read as a contradiction.
+    print(f"{_ANSI_YELLOW}extracting parameters with the template readout: "
+          f"the generator's own form, constants by least squares "
+          f"(no PySR search, no Julia) ...{_ANSI_RESET}")
     try:
         rec = extract_recovered_params(model, ode_params, config, edges=edges,
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
+        # ONE EXTRACTION FEEDS EVERY FIGURE IN results/. The template readout --
+        # the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
+        # * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i
+        # -- supersedes the correction chain for W, E_ij, tau and V_rest, and the
+        # neuron panels have been drawing it since it existed. Leaving the rest
+        # of results/ on the chain meant weights_comparison_*.png and
+        # metrics.txt described a different readout than neuron*_panels.png in
+        # the same directory. It extends the chain's object rather than
+        # replacing it, because msg_i and the f_theta diagnostics the panels draw
+        # come only from there.
+        # INSIDE its own try, gate included. The gate raised an ImportError on its
+        # first run -- model_family lives in models.utils, not metrics -- and
+        # because the call sat outside this handler it reached the outer one,
+        # which drops `rec` entirely: ten runs wrote a metrics.txt with the
+        # rollout and clustering lines and not one recovered parameter. A new
+        # readout must not be able to delete the old one's numbers.
+        # FALLING BACK TO THE OTHER ESTIMATOR IS LOUD. The correction chain and
+        # the template readout produce different numbers under the same names,
+        # and a run that quietly shipped the chain's looked exactly like one that
+        # used the template. Both ways of ending up there -- the gate off, or
+        # the call raising -- say so in red, on the terminal, once.
+        try:
+            if template_readout_enabled(config, model):
+                rec = extract_template_params(
+                    model, ode_params, config=config, edges=edges, x_ts=x_ts,
+                    device=device, n_neurons=n_neurons, base=rec)
+            else:
+                _readout = getattr(getattr(config, "recovery", None), "readout", "template")
+                print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. "
+                      f"This run falls back to the gain-correction chain "
+                      f"(recovery.readout={_readout}, model_family="
+                      f"{model_family(model)}). W, E_ij, tau and V_rest below "
+                      f"come from that estimator.{_ANSI_RESET}")
+                logger.warning("template readout disabled: numbers come from "
+                               "the gain-correction chain, not the PySR template")
+        except Exception as _exc:
+            print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
+                  f"{type(_exc).__name__}: {_exc} -- falling back to the "
+                  f"gain-correction chain.{_ANSI_RESET}")
+            logger.warning(f"template readout unavailable, keeping the "
+                           f"correction chain: {type(_exc).__name__}: {_exc}")
         scored = score_recovery(rec, config)
     except Exception as exc:
         logger.warning(f"recovery metrics unavailable: {type(exc).__name__}: {exc}")
         rec, scored = None, {}
     if extra:
         scored.update(extra)
-    write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
+    # DOES THE NETWORK OBEY THE GENERATOR'S EQUATION AT ALL. Two medians answer
+    # it, one per fit: the per-edge form W*act(v_j)*(E - v_i) + C against the
+    # model's own message, and the per-neuron update T*((V - v_i) + G*msg +
+    # f(stim)) against its own dv/dt. High means the hypothesis holds and the
+    # only question left is whether the constants are the generator's -- which is
+    # what every R2 below answers. Low means those constants describe nothing.
+    _ef, _uf = scored.get("msg_form_r2_median"), scored.get("update_form_r2_median")
+    _cond = scored.get("conductance_form_r2_median")
+    _cur = scored.get("current_form_r2_median")
+    if _ef is not None or _uf is not None:
+        def _fmt(v):
+            return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
+        print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
+              f"   (does the generator's form describe the model at all)")
+
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
             continue
@@ -425,6 +499,90 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         if f"{key}_estimator" in scored:
             line += f"  [{scored[f'{key}_estimator']}]"
         print(line)
+
+    # ARE THE TWO FAMILIES DISTINGUISHABLE HERE. The test and the figure come
+    # off the same call, so results/form_comparison.png cannot carry a number
+    # the terminal did not print, and the per-edge arrays are kept beside it for
+    # the across-run comparison the tool makes.
+    if rec is not None:
+        try:
+            from connectome_gnn.recovery_figures import (plot_form_comparison,
+                                                         write_form_arrays)
+            _path, _lines = plot_form_comparison(rec, log_dir)
+            for _l in _lines:
+                print(_l)
+            write_form_arrays(rec, log_dir)
+        except Exception as _e:
+            logger.warning(f"form comparison skipped: {type(_e).__name__}: {_e}")
+
+    # THE RECOVERED PARAMETERS RUN AS A GENERATOR. Everything above says the fit
+    # is consistent with what the network computes; this says the numbers are the
+    # circuit, by loading them into the known-ODE and rolling it out on the
+    # noise-free data. Merged into `scored` before the write, so its r and rmse
+    # land in results/metrics.txt beside the R2s they are the consequence of.
+    if template_rollout and rec is not None:
+        from connectome_gnn import template_rollout as _tr
+        scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
+                              edges=edges, x_ts=x_ts))
+        # AND THE SAME MESSAGE READ AS THE OTHER FAMILY, rolled out the same
+        # way. This is the test the R2s cannot do: the two forms are nested, so
+        # the fuller one always fits at least as well, but only one of them can
+        # reproduce eight thousand frames of the circuit's own trajectory. A
+        # current-form reconstruction of a conductance network that rolls out
+        # just as far means this data never constrained the family.
+        scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
+                              edges=edges, x_ts=x_ts, alt=True))
+    write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
+
+    # WHICH FAMILY'S EQUATION IS THIS, asked of the trained network rather than
+    # of the data. Every R2 above assumes the answer: they are the generator's
+    # constants read out through the generator's own form. This paragraph fits
+    # the OTHER family's form to the same message and reports what it gets, so a
+    # reader can see whether the family was doing any work.
+    #
+    # Two numbers, because R2 alone does not decide it. The current form is the
+    # conductance form minus the u*v_i column, so on a current model the
+    # conductance form ties at R2 1.0000 -- and gives itself away by the
+    # reversal it needs, E at hundreds of units where the voltage never leaves
+    # single digits. Large |E| relative to the voltage the cells reach means the
+    # column is being used to rescale u, not as a driving force.
+    _cond = scored.get("conductance_form_r2_median")
+    _cur = scored.get("current_form_r2_median")
+    if _cond is not None or _cur is not None:
+        _is_cond = is_conductance_gnn(config.graph_model.signal_model_name)
+        _own, _other = (("conductance", "current") if _is_cond
+                        else ("current", "conductance"))
+        _g, _gsd = (scored.get("driving_force_r2_gain_mean"),
+                    scored.get("driving_force_r2_gain_sd"))
+        _Eabs, _vi = (scored.get("conductance_form_E_absmedian"),
+                      scored.get("vi_abs_p99"))
+        _ratio = scored.get("conductance_form_E_over_vi")
+
+        def _n(v, fmt="{:.4f}"):
+            return "--" if v is None or v != v else fmt.format(v)
+        print(f"\033[93mwhich family's equation did the network learn?\033[0m"
+              f"  (the model is {_own})")
+        print(f"   per-edge message fitted inside each form: "
+              f"conductance R² {_n(_cond)}   current R² {_n(_cur)}")
+        print(f"   the driving-force column buys {_n(_g, '{:+.4f}')} ± {_n(_gsd)} R² "
+              f"per edge (mean ± SD over edges)")
+        print(f"   the conductance form needs |E| = {_n(_Eabs, '{:.3g}')} "
+              f"against |v_i| ≤ {_n(_vi, '{:.3g}')} in the data "
+              f"({_n(_ratio, '{:.1f}')}×)")
+        # THE ROLLOUT OF EACH RECONSTRUCTION, which is the test that can fail.
+        # Both forms describe the message; running them as generators over eight
+        # thousand frames asks whether they describe the circuit.
+        _ro, _ra = scored.get("template_rollout_r"), scored.get("template_alt_rollout_r")
+        if _ro is not None or _ra is not None:
+            print(f"   rolled out on noise-free data: "
+                  f"{_own} fit r {_n(_ro, '{:.3f}')}   "
+                  f"{_other} fit r {_n(_ra, '{:.3f}')}")
+        # NO RULE YET, and saying so is the point: these are the two statistics a
+        # rule would be built from, not the rule. A threshold on either would be
+        # chosen from the runs it is meant to judge.
+        print(f"   \033[90mno decision rule yet: a current-generated message "
+              f"admits both forms, and telling them apart is what these two "
+              f"numbers are for\033[0m")
     return rec, scored
 
 
@@ -537,7 +695,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(fontsize=24)
     plt.yticks(fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'weights_comparison_raw.png'), dpi=300)
     plt.close()
     print(f"weights R²: {_r2_color(r_squared_W)}{r_squared_W:.4f}{_ANSI_RESET}  slope: {slope_W:.4f}")
     logger.info(f"weights R²: {r_squared_W:.4f}  slope: {slope_W:.4f}")
@@ -578,7 +736,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_fslope.png'), dpi=300)
     plt.close()
     if is_degenerate_gt(gt_taus_np):
         _tau_mae = recovery_mae(gt_taus_np, learned_tau)
@@ -640,7 +798,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/tau_comparison_cell_type_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type.png'), dpi=300)
     plt.close()
 
     # --- Plot 3c: tau comparison with outliers in red, R²/slope on inliers only ---
@@ -670,7 +828,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.yticks(_tau_ticks, _tau_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/tau_comparison_wo_outliers_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers.png'), dpi=300)
     plt.close()
     print(f"tau (wo outliers) R²: {_r2_color(r2_tau_clean)}{r2_tau_clean:.3f}{_ANSI_RESET}  "
           f"slope: {slope_tau_clean:.2f}  "
@@ -702,7 +860,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_fslope.png'), dpi=300)
     plt.close()
     if is_degenerate_gt(gt_V_rest_np):
         _v_mae = recovery_mae(gt_V_rest_np, learned_V_rest)
@@ -755,7 +913,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/V_rest_comparison_cell_type_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type.png'), dpi=300)
     plt.close()
 
     # --- Plot 4c: V_rest comparison with outliers in red, R²/slope on inliers only ---
@@ -785,7 +943,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.yticks(_v_ticks, _v_tick_labels, fontsize=24)
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/V_rest_comparison_wo_outliers_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers.png'), dpi=300)
     plt.close()
     print(f"V_rest (wo outliers) R²: {_r2_color(r2_v_clean)}{r2_v_clean:.3f}{_ANSI_RESET}  "
           f"slope: {slope_v_clean:.2f}  "
@@ -810,7 +968,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.xticks(fontsize=24)
     plt.yticks(fontsize=24)
     plt.tight_layout()
-    plt.savefig(f"{log_dir}/results/dynamics_params_{config_indices}.png", dpi=300)
+    plt.savefig(_fig_out(log_dir, f"dynamics_params.png"), dpi=300)
     plt.close()
 
     # --- Plot 6: Gain comparison (if available) ---
@@ -827,7 +985,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         plt.xticks(fontsize=24)
         plt.yticks(fontsize=24)
         plt.tight_layout()
-        plt.savefig(f'{log_dir}/results/gain_comparison_{config_indices}.png', dpi=300)
+        plt.savefig(_fig_out(log_dir, f'gain_comparison.png'), dpi=300)
         plt.close()
         print(f"gain R²: {_r2_color(r_squared_gain)}{r_squared_gain:.3f}{_ANSI_RESET}  slope: {slope_gain:.2f}")
         logger.info(f"gain R²: {r_squared_gain:.3f}  slope: {slope_gain:.2f}")
@@ -846,7 +1004,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
         plt.xticks(fontsize=24)
         plt.yticks(fontsize=24)
         plt.tight_layout()
-        plt.savefig(f'{log_dir}/results/bias_comparison_{config_indices}.png', dpi=300)
+        plt.savefig(_fig_out(log_dir, f'bias_comparison.png'), dpi=300)
         plt.close()
         print(f"bias R²: {_r2_color(r_squared_bias)}{r_squared_bias:.3f}{_ANSI_RESET}  slope: {slope_bias:.2f}")
         logger.info(f"bias R²: {r_squared_bias:.3f}  slope: {slope_bias:.2f}")
@@ -883,7 +1041,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
             _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
         else:
             _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
-        print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
+        logger.info(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
     if not _skip_eigen:
         print('plot eigenvalue spectrum and eigenvector comparison ...')
         edges_np = to_numpy(edges)
@@ -1131,7 +1289,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
             axes[2, 2].tick_params(labelsize=16)
 
         plt.tight_layout()
-        plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
+        plt.savefig(_fig_out(log_dir, f'eigen_comparison.png'), dpi=87)
         plt.close()
 
         # --- Print and log all spectral/SVD metrics ---
@@ -1269,7 +1427,7 @@ def _plot_synaptic_linear(model, config, config_indices, log_dir, logger, mc,
     plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
              transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
     plt.tight_layout()
-    plt.savefig(f'{log_dir}/results/embedding_augmented_{config_indices}.png', dpi=300)
+    plt.savefig(_fig_out(log_dir, f'embedding_augmented.png'), dpi=300)
     plt.close()
 
     # Per-neuron type analysis
@@ -1317,10 +1475,14 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     # Prevent propagation to root logger (which might have console handlers)
     logger.propagate = False
 
-    # Clear metrics.txt at the start so all subsequent append-writes start fresh
+    # EVERYTHING THIS PASS REGENERATES, REMOVED FIRST -- not just metrics.txt.
+    # The rollout outputs are spared: `-o test` owns them and clears its own
+    # before writing, and `-o plot` alone is meant to redraw against the rollout
+    # already there. results/extras goes, because every extra is redrawn below.
+    _clear_results(log_dir, spare=('rollout',), keep_extras=False)
+    # The rollout mirror below appends into this; it used to be defined by the
+    # inline removal this call replaced.
     _metrics_path = os.path.join(log_dir, 'results', 'metrics.txt')
-    if os.path.exists(_metrics_path):
-        os.remove(_metrics_path)
 
     # Mirror rollout metrics from results_rollout.log (written by graph_tester)
     # into metrics.txt so downstream consumers (CV runners, LLM exploration,
@@ -1351,6 +1513,24 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             with open(_metrics_path, 'a') as _mf:
                 _mf.writelines(_mirrored)
 
+    # The same mirror for the ONE-STEP numbers, out of results_test.log. Without
+    # it metrics.txt carries the rollout r and not the one-step r beside it, and
+    # the experiment tables had to be filled by grepping cluster job logs -- a
+    # number in a table nobody could re-derive from the run directory.
+    _test_log = os.path.join(log_dir, 'results_test.log')
+    if os.path.exists(_test_log):
+        import re as _re
+        with open(_test_log, 'r') as _tf:
+            _ttext = _tf.read()
+        _one = []
+        for _k, _canonical in (('Pearson r', 'one_step_r'), ('RMSE', 'one_step_rmse')):
+            _m = _re.search(rf'^{_re.escape(_k)}:\s*([-\d.eE+]+)', _ttext, _re.M)
+            if _m:
+                _one.append(f'{_canonical}: {_m.group(1)}\n')
+        if _one:
+            with open(_metrics_path, 'a') as _mf:
+                _mf.writelines(_one)
+
     print(f'experiment description: {config.description}')
     logger.info(f'experiment description: {config.description}')
 
@@ -1366,7 +1546,12 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         mc = 'k'
 
     time.sleep(0.5)
-    print('\033[93mextracting parameters...\033[0m')
+    # Says what this stretch does -- load the trajectory and draw the parameter
+    # figures. It used to say "extracting parameters...", one word away from the
+    # line _write_recovery_metrics prints when the readout actually runs, at the
+    # END of this function; two near-identical banners around twenty minutes of
+    # plotting is how a reader concludes the extraction never happened.
+    print('\033[93mdrawing parameter figures...\033[0m')
     x_path = graphs_data_path(config.dataset, 'x_list_train')
     if not os.path.exists(x_path):
         x_path = graphs_data_path(config.dataset, 'x_list_0')
@@ -1557,6 +1742,41 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _write_recovery_metrics(
                     model, ode_params, config, edges, x_ts, device,
                     log_dir, logger, log_file, n_neurons=n_neurons)
+                # WHERE THIS MODEL PUT ITS REVERSALS, against the voltage the
+                # data reaches. A known-ODE runs no template readout -- it IS
+                # the generator's equation, so there is no free message to fit
+                # two forms to and no form_comparison.png -- and the only
+                # ground-truth-free thing left to ask of it is whether the
+                # constants it chose are physically admissible. Written here so
+                # the answer is in results/metrics.txt rather than in whoever
+                # last opened the checkpoint: on current-generated data, which
+                # has no driving force at all, this model still reports
+                # E_exc +6.2 and E_inh -4.1, the same range as on conductance
+                # data. That is the measurement behind "the known-ODE cannot
+                # tell which family generated the data".
+                _E = {k: getattr(model, k, None) for k in ("E_exc", "E_inh")}
+                if any(v is not None for v in _E.values()):
+                    _lines = []
+                    _vi = float(np.percentile(np.abs(to_numpy(activity_true)), 99)) \
+                        if activity_true is not None else float("nan")
+                    _lines.append(f"vi_abs_p99: {_vi:.6f}\n")
+                    _worst = 0.0
+                    for _k, _v in _E.items():
+                        if _v is None:
+                            continue
+                        _m = float(np.median(to_numpy(_v).ravel()))
+                        _lines.append(f"learned_{_k}_median: {_m:.6f}\n")
+                        _worst = max(_worst, abs(_m))
+                    if _vi == _vi and _vi > 0:
+                        _lines.append(f"learned_E_abs_over_vi: {_worst / _vi:.6f}\n")
+                    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                        _mf.writelines(_lines)
+                    def _med_of(_v):
+                        return (float(np.median(to_numpy(_v).ravel()))
+                                if _v is not None else float("nan"))
+                    print(f"learned reversals: E_exc {_med_of(_E['E_exc']):+.2f}  "
+                          f"E_inh {_med_of(_E['E_inh']):+.2f}  against |v_i| ≤ "
+                          f"{_vi:.2f} in the data ({_worst / _vi:.1f}×)")
                 continue
 
             # print learnable parameters table
@@ -1597,39 +1817,47 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 continue  # skip to next epoch in epoch_list
 
             # Plot 2: Embedding using model.a
-            fig = plt.figure(figsize=(10, 9))
-            ax = plt.gca()
-            for spine in ax.spines.values():
-                spine.set_alpha(0.75)
-            for n in range(n_types):
-                pos = torch.argwhere(type_list == n)
-                plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]),
-                            s=80, color=colors_65[n],
-                            alpha=0.6, edgecolors='none')
-            plt.xlabel(r'$a_{i0}$', fontsize=56)
-            plt.ylabel(r'$a_{i1}$', fontsize=56)
-            # Per-panel bbox from the 5-95 percentile of each axis to ignore
-            # any outlier embeddings; small relative margin so points aren't
-            # right on the spines.
-            _a0 = to_numpy(model.a[:, 0])
-            _a1 = to_numpy(model.a[:, 1])
-            _x_lo, _x_hi = float(np.percentile(_a0, 5)), float(np.percentile(_a0, 95))
-            _y_lo, _y_hi = float(np.percentile(_a1, 5)), float(np.percentile(_a1, 95))
-            _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
-            _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
-            ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
-            ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
-            # Exactly 3 ticks per axis, rounded to 1 decimal for clean labels.
-            ax.set_xticks([round(_x_lo, 1),
-                           round(0.5 * (_x_lo + _x_hi), 1),
-                           round(_x_hi, 1)])
-            ax.set_yticks([round(_y_lo, 1),
-                           round(0.5 * (_y_lo + _y_hi), 1),
-                           round(_y_hi, 1)])
-            ax.tick_params(axis='both', labelsize=51)
-            plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/embedding_{config_indices}.png', dpi=300)
-            plt.close()
+            # A KNOWN-ODE HAS NO EMBEDDING. It carries the generator's
+            # parameters directly -- W, tau, V_rest -- and nothing that plays
+            # the part of a_i, so this figure and everything below that reads
+            # model.a is a GNN-only section. Without the guard the whole plot
+            # pass died on AttributeError at the first scatter, which is how
+            # twenty known-ODE runs finished training and produced no results.
+            _has_emb = hasattr(model, 'a')
+            if _has_emb:
+                fig = plt.figure(figsize=(10, 9))
+                ax = plt.gca()
+                for spine in ax.spines.values():
+                    spine.set_alpha(0.75)
+                for n in range(n_types):
+                    pos = torch.argwhere(type_list == n)
+                    plt.scatter(to_numpy(model.a[pos, 0]), to_numpy(model.a[pos, 1]),
+                                s=80, color=colors_65[n],
+                                alpha=0.6, edgecolors='none')
+                plt.xlabel(r'$a_{i0}$', fontsize=56)
+                plt.ylabel(r'$a_{i1}$', fontsize=56)
+                # Per-panel bbox from the 5-95 percentile of each axis to ignore
+                # any outlier embeddings; small relative margin so points aren't
+                # right on the spines.
+                _a0 = to_numpy(model.a[:, 0])
+                _a1 = to_numpy(model.a[:, 1])
+                _x_lo, _x_hi = float(np.percentile(_a0, 5)), float(np.percentile(_a0, 95))
+                _y_lo, _y_hi = float(np.percentile(_a1, 5)), float(np.percentile(_a1, 95))
+                _x_pad = max(0.05 * (_x_hi - _x_lo), 1e-3)
+                _y_pad = max(0.05 * (_y_hi - _y_lo), 1e-3)
+                ax.set_xlim(_x_lo - _x_pad, _x_hi + _x_pad)
+                ax.set_ylim(_y_lo - _y_pad, _y_hi + _y_pad)
+                # Exactly 3 ticks per axis, rounded to 1 decimal for clean labels.
+                ax.set_xticks([round(_x_lo, 1),
+                               round(0.5 * (_x_lo + _x_hi), 1),
+                               round(_x_hi, 1)])
+                ax.set_yticks([round(_y_lo, 1),
+                               round(0.5 * (_y_lo + _y_hi), 1),
+                               round(_y_hi, 1)])
+                ax.tick_params(axis='both', labelsize=51)
+                plt.tight_layout()
+                plt.savefig(_fig_out(log_dir, f'embedding.png'), dpi=300)
+                plt.close()
 
             n_pts = 1000
             type_np = to_numpy(type_list).astype(int).ravel()
@@ -1699,7 +1927,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax2.set_ylim(_gp_ylim(func_np))
 
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/g_phi_{config_indices}_domain.png", dpi=300)
+            plt.savefig(_fig_out(log_dir, f"g_phi_domain.png"), dpi=300)
             plt.close()
 
             # NEW: scatter plot of learned vs true g_phi outputs.
@@ -1729,7 +1957,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
                 plt.yticks([0.5, 3, 5.5], ['0.5', '3', '5.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/g_phi_scatter_{config_indices}.png',
+                plt.savefig(_fig_out(log_dir, f'g_phi_scatter.png'),
                             dpi=300)
                 plt.close()
 
@@ -1761,7 +1989,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.xticks(fontsize=24)
             plt.yticks(fontsize=24)
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/g_phi_slope_{config_indices}.png", dpi=300)
+            plt.savefig(_fig_out(log_dir, f"g_phi_slope.png"), dpi=300)
             plt.close()
 
             # f_theta domain range: evaluate + slope extraction (vectorized)
@@ -1800,7 +2028,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             ax2.tick_params(axis='both', which='major', labelsize=24)
 
             plt.tight_layout()
-            plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_domain.png", dpi=300)
+            plt.savefig(_fig_out(log_dir, f"f_theta_domain.png"), dpi=300)
             plt.close()
 
             # NEW: scatter plot of learned vs true f_theta outputs.
@@ -1837,7 +2065,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([-_ft_tick, 0, _ft_tick], fontsize=51)
                 plt.yticks([-_ft_tick, 0, _ft_tick], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/f_theta_scatter_{config_indices}.png',
+                plt.savefig(_fig_out(log_dir, f'f_theta_scatter.png'),
                             dpi=300)
                 plt.close()
 
@@ -1879,7 +2107,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/tau_comparison_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_fslope.png'), dpi=300)
                 plt.close()
 
                 # Outlier mask on |learned - true| > 0.1, shared by both extra plots.
@@ -1927,7 +2155,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/tau_comparison_cell_type_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_cell_type.png'), dpi=300)
                 plt.close()
 
                 # tau_comparison_wo_outliers — outliers in red, R²/slope on inliers.
@@ -1957,7 +2185,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/tau_comparison_wo_outliers_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'tau_comparison_wo_outliers.png'), dpi=300)
                 plt.close()
 
             gt_vrest_np = ode_params.gt_vrest(n_neurons)
@@ -1984,7 +2212,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/V_rest_comparison_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_fslope.png'), dpi=300)
                 plt.close()
 
                 # Outlier mask on |learned - true| > 0.2, shared by both extra plots.
@@ -2022,7 +2250,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/V_rest_comparison_cell_type_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_cell_type.png'), dpi=300)
                 plt.close()
 
                 # V_rest_comparison_wo_outliers — outliers in red, R²/slope on inliers.
@@ -2052,7 +2280,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/V_rest_comparison_wo_outliers_{config_indices}.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_wo_outliers.png'), dpi=300)
                 plt.close()
 
             # f_theta derived params plot — panels depend on model
@@ -2097,7 +2325,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         plt.xticks(fontsize=24)
                     plt.yticks(fontsize=24)
                 plt.tight_layout()
-                plt.savefig(f"{log_dir}/results/f_theta_{config_indices}_params.png", dpi=300)
+                plt.savefig(_fig_out(log_dir, f"f_theta_params.png"), dpi=300)
                 plt.close()
 
 
@@ -2141,7 +2369,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.xticks(fontsize = 24)
             plt.yticks(fontsize = 24)
             plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/weights_comparison_raw.png', dpi=300)
+            plt.savefig(_fig_out(log_dir, f'weights_comparison_raw.png'), dpi=300)
             plt.close()
             raw_W_r2 = r_squared
             logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
@@ -2219,7 +2447,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks(fontsize = 24)
                 plt.yticks(fontsize = 24)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/weights_comparison_rj.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'weights_comparison_rj.png'), dpi=300)
                 plt.close()
 
             fig = plt.figure(figsize=(10, 9))
@@ -2236,7 +2464,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
             plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
             plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/weights_comparison_corrected.png', dpi=300)
+            plt.savefig(_fig_out(log_dir, f'weights_comparison_corrected.png'), dpi=300)
             plt.close()
 
             # weights_comparison_corrected_true_tau — recompute corrected W
@@ -2288,7 +2516,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
                 plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/weights_comparison_corrected_true_tau.png', dpi=300)
+                plt.savefig(_fig_out(log_dir, f'weights_comparison_corrected_true_tau.png'), dpi=300)
                 plt.close()
                 logger.info(f"corrected W (true τ) R²: {r_squared_tt:.2f}  slope: {np.round(slope_tt, 4)}")
 
@@ -2299,6 +2527,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # isn't defined yet at this point of plot_synaptic (some are
             # set later in the function), so the dump degrades gracefully
             # rather than crashing on a NameError or None.attribute.
+            # Keeps the dataset in its name: figures/fig_clustering_appendix.py
+            # and fig_ground_truth_distributions.py read it by that name.
             _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
             _panel_data = {}
 
@@ -2319,14 +2549,16 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Embedding
             _maybe('a',                lambda: to_numpy(model.a).astype(np.float32))
             _maybe('cluster_accuracy', lambda: np.float32(cluster_acc))
-            # g_phi (curves + scatter share these arrays)
-            _maybe('g_phi_domain',     lambda: rr_np.astype(np.float32))
-            _maybe('g_phi_learned',    lambda: func_np.astype(np.float32))
-            _maybe('g_phi_true',       lambda: func_true_g_phi.astype(np.float32))
-            # f_theta (curves + scatter share these arrays)
-            _maybe('f_theta_domain',   lambda: rr_domain_phi_np.astype(np.float32))
-            _maybe('f_theta_learned',  lambda: to_numpy(func_domain_phi).astype(np.float32))
-            _maybe('f_theta_true',     lambda: func_true_f_theta.astype(np.float32))
+            # THE SIX f_theta / g_phi CURVE ARRAYS ARE NOT DUMPED. One per
+            # neuron over the sampling domain is 13,741 x 1,000 float32 each, and
+            # the six together were 273 MB of a 277 MB file -- 98% of it -- which
+            # every plotted run wrote and NOTHING read: the only consumers of this
+            # npz are figures/fig_clustering_appendix.py (a, type_ids, tau_*,
+            # V_rest_*, W_*) and figures/fig_ground_truth_distributions.py
+            # (type_ids). The curves themselves are still drawn, into
+            # extras/f_theta_domain.png and extras/g_phi_domain.png; a figure
+            # script that needs the arrays should re-render from the checkpoint
+            # rather than have every run carry a quarter of a gigabyte in case.
             # tau / V_rest
             _maybe('tau_true',         lambda: gt_taus_np.astype(np.float32))
             _maybe('tau_learned',      lambda: learned_tau.astype(np.float32))
@@ -2341,7 +2573,33 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 np.savez_compressed(_panel_npz, **_panel_data)
                 logger.info(f'saved panel data → {_panel_npz} ({len(_panel_data)} arrays)')
 
-            print(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
+            # WHICH ESTIMATOR THIS BLOCK IS. Everything from here down to the
+            # template readout -- weights, tau, V_rest and their relative errors
+            # -- comes from the gain-correction chain: W divided by the
+            # per-neuron gain read off f_theta, tau and V_rest from the f_theta
+            # slope. The template readout supersedes all four below and
+            # metrics.txt reports ITS numbers, so the two blocks disagree by
+            # construction and the reader has to be told which is which.
+            # SKIPPED, NOT DELETED, when the template readout supersedes it.
+            # The chain still runs -- weights_comparison_*.png and the f_theta
+            # diagnostics are drawn from it -- but its W, tau and V_rest are the
+            # numbers the template readout replaces, and printing both put two
+            # answers for one quantity twenty lines apart in one log. `_cprint`
+            # is the chain's own print: silent while the readout below owns the
+            # terminal, and the full block again on any run without it.
+            _chain_reports = not template_readout_enabled(config, model)
+
+            def _cprint(*a, **k):
+                if _chain_reports:
+                    print(*a, **k)
+
+            if _chain_reports:
+                print(f"{_ANSI_YELLOW}extracting parameters with the "
+                      f"gain-correction chain ...{_ANSI_RESET}")
+            else:
+                print(f"{_ANSI_YELLOW}gain-correction chain: figures only, its "
+                      f"W / tau / V_rest are superseded below{_ANSI_RESET}")
+            _cprint(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
             logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
             # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
             # edges (same set as connectivity_scatter.png). High structure r with a
@@ -2356,7 +2614,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _w_tz = (_w_t - _w_t.mean()) / (_w_t.std() + 1e-12)
             _w_lz = (_w_l - _w_l.mean()) / (_w_l.std() + 1e-12)
             _w_zscored_r2 = recovery_param_metrics(_w_tz, _w_lz)['r2']
-            print(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
+            _cprint(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
                   f"  (z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET})")
             logger.info(f"weights r (structure): {_w_struct_r:.4f}  (z-scored R²: {_w_zscored_r2:.4f})")
             # Relative error |learned - true| / max(|true|, eps), full sample.
@@ -2367,7 +2625,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _rel_err_w_med  = float(np.median(_rel_err_w))
             _q1_w_re, _q3_w_re = np.percentile(_rel_err_w, [25.0, 75.0])
             _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
-            print(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
+            _cprint(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
             logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
             _rel_err_tau_med = _rel_err_tau_iqr = None
             _rel_err_v_med = _rel_err_v_iqr = None
@@ -2379,7 +2637,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 try:
                     r2_real = recovery_param_metrics(true_weights[:n_real], learned_weights[:n_real])['r2']
                     connectivity_r2_real = r2_real
-                    print(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
+                    _cprint(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
                     logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
                 except Exception:
                     pass
@@ -2396,18 +2654,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _tm = recovery_param_metrics(gt_taus_np, learned_tau, DELTA_TAU)
                 _rel_err_tau_med, _rel_err_tau_iqr = _tm['rel_err_median'], _tm['rel_err_iqr']
                 if _tm['degenerate']:
-                    print(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
+                    _cprint(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
                     logger.info(f"tau R²: N/A (const GT)  MAE: {_tm['mae']:.4g}")
                 else:
-                    print(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
+                    _cprint(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
                     logger.info(f"tau R²: {_tm['r2']:.3f}  slope: {_tm['slope']:.2f}")
-                print(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
+                _cprint(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
                 if _tm['degenerate']:
-                    print(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    _cprint(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("tau_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
+                    _cprint(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
                           f"slope: {_tm['slope_clean']:.2f}  "
                           f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
                     logger.info(f"tau_wo_outliers R²: {_tm['r2_clean']:.4f}  slope: {_tm['slope_clean']:.4f}  "
@@ -2416,18 +2674,18 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _vm = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
                 _rel_err_v_med, _rel_err_v_iqr = _vm['rel_err_median'], _vm['rel_err_iqr']
                 if _vm['degenerate']:
-                    print(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
+                    _cprint(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
                     logger.info(f"V_rest R²: N/A (const GT)  MAE: {_vm['mae']:.4g}")
                 else:
-                    print(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
+                    _cprint(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
                     logger.info(f"V_rest R²: {_vm['r2']:.3f}  slope: {_vm['slope']:.2f}")
-                print(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
+                _cprint(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
                 logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
                 if _vm['degenerate']:
-                    print(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
+                    _cprint(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
                     logger.info("V_rest_wo_outliers R²: N/A (const GT)")
                 else:
-                    print(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
+                    _cprint(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
                           f"slope: {_vm['slope_clean']:.2f}  "
                           f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
                     logger.info(f"V_rest_wo_outliers R²: {_vm['r2_clean']:.4f}  slope: {_vm['slope_clean']:.4f}  "
@@ -2465,7 +2723,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                         plt.xticks(fontsize=24)
                         plt.yticks(fontsize=24)
                         plt.tight_layout()
-                        plt.savefig(f'{log_dir}/results/g_phi_{pname}_comparison_{config_indices}.png', dpi=300)
+                        plt.savefig(_fig_out(log_dir, f'g_phi_{pname}_comparison.png'), dpi=300)
                         plt.close()
 
             # Write to analysis log file for Claude
@@ -2488,9 +2746,67 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Every recovered quantity, scored once and written once. Outside
             # the `if log_file` above because the writer also feeds
             # results/metrics.txt, which exists either way.
-            _write_recovery_metrics(
+            _rec_final, _scored_final = _write_recovery_metrics(
                 model, ode_params, config, edges, x_ts, device,
-                log_dir, logger, log_file, n_neurons=n_neurons)
+                log_dir, logger, log_file, n_neurons=n_neurons,
+                template_rollout=True)
+            # THE CLUSTERING IS A RECOVERED QUANTITY TOO, and belongs with the
+            # others. It used to print at the far end of the pass, after the
+            # stratified analysis and the connectivity statistics, so the one
+            # number that says whether the embedding found the cell types
+            # arrived a screen and a half below the R2s it belongs beside.
+            # Computed here because every input it needs -- the learned weights,
+            # tau, V_rest and the embedding -- has existed since the scatters
+            # were drawn. The site further down reuses this result; it recomputes
+            # only if this failed.
+            _cl = None
+            try:
+                n_gmm = min(100, n_neurons - 1)
+                _cl = cluster_recovery(
+                    to_numpy(type_list), to_numpy(edges), learned_weights, n_neurons,
+                    embedding=to_numpy(model.a) if _has_emb else None,
+                    learned_tau=learned_tau,
+                    learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                    n_components=n_gmm, return_features=True)
+                a_aug = _cl.pop("_X")
+                results = dict(_cl, accuracy=_cl['clustering_accuracy'],
+                               ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+                cluster_acc = _cl['clustering_accuracy']
+                print(f"cluster acc (GMM, {n_gmm} components on the extracted "
+                      f"parameters): {_r2_color(cluster_acc)}{cluster_acc:.3f}"
+                      f"{_ANSI_RESET}  ARI {_cl['clustering_ari']:.3f}  "
+                      f"NMI {_cl['clustering_nmi']:.3f}")
+                write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
+            except Exception as _e:
+                logger.warning(f"clustering deferred: {type(_e).__name__}: {_e}")
+                _cl = None
+            # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
+            # against the truth and E_ij did not, although the template readout
+            # produces the pair -- so the one quantity that is gauge-invariant,
+            # and therefore the one recoverable absolutely, was the only one with
+            # no picture. Drawn here because this is where the pair exists.
+            # THE FOUR SCATTERS, from the same RecoveredParams the metrics come
+            # from. The older comparison figures are still drawn -- they are in
+            # extras/ under their estimator's name -- but they read the f_theta
+            # slope on a synthetic msg = 0 grid and print the UNFILTERED R2,
+            # while metrics.txt reports the template readout filtered at the
+            # outlier band. Two numbers for one quantity in one directory, with
+            # nothing saying which was which; these four cannot drift, because
+            # the figure and the file now read one array.
+            for _q in ("W", "E_ij", "tau", "V_rest", "msg_i"):
+                try:
+                    _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc,
+                                                 config=config)
+                    if _p:
+                        logger.info(f"{_q} scatter -> {os.path.basename(_p)}")
+                except Exception as _exc:
+                    logger.warning(f"{_q} scatter skipped: {type(_exc).__name__}: {_exc}")
+            try:
+                _p = _plot_parameter_error(_rec_final, _scored_final, log_dir)
+                if _p:
+                    logger.info(f"parameter error distributions -> {os.path.basename(_p)}")
+            except Exception as _exc:
+                logger.warning(f"parameter error panel skipped: {type(_exc).__name__}: {_exc}")
 
             # Plot connectivity matrix comparison (only for small networks)
             if n_neurons < 1000:
@@ -2579,7 +2895,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 cb_cz.set_label('z-score')
 
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/connectivity_matrix.png', dpi=200)
+                plt.savefig(_fig_out(log_dir, f'connectivity_matrix.png'), dpi=200)
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
 
@@ -2629,7 +2945,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                             transform=ax_sc2.transAxes, va='top', fontsize=12, family='monospace',
                             bbox=dict(boxstyle='round', facecolor='white', alpha=0.7))
                 fig_sc.tight_layout()
-                fig_sc.savefig(f'{log_dir}/results/connectivity_scatter.png', dpi=150)
+                fig_sc.savefig(_fig_out(log_dir, f'connectivity_scatter.png'), dpi=150)
                 plt.close(fig_sc)
                 logger.info(f"saved connectivity_scatter.png  (raw NSE R²={_r2_raw:.3f}, "
                             f"structure r²={_pear**2:.3f})")
@@ -2721,7 +3037,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     )
                     plt.tight_layout(rect=[0, 0, 1, 0.96])
                     plt.savefig(
-                        f'{log_dir}/results/weight_distribution_by_type.png',
+                        _fig_out(log_dir, f'weight_distribution_by_type.png'),
                         dpi=150,
                     )
                     plt.close(fig_h)
@@ -2762,7 +3078,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     fig_zf.colorbar(im_learned, ax=ax_learned, fraction=0.046, pad=0.04)
 
                     plt.tight_layout()
-                    plt.savefig(f'{log_dir}/results/connectivity_matrix_zebrafish_sorted.png', dpi=200)
+                    plt.savefig(_fig_out(log_dir, f'connectivity_matrix_zebrafish_sorted.png'), dpi=200)
                     plt.close(fig_zf)
                     logger.info("saved connectivity_matrix_zebrafish_sorted.png")
 
@@ -2795,7 +3111,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     _reason = f'n_edges={_n_edges:,} > EIGEN_MAX_EDGES={_max_edges:,}'
                 else:
                     _reason = f'n_neurons={n_neurons:,} > EIGEN_MAX_NEURONS={_max_neurons:,}'
-                print(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
+                logger.info(f'eigen_comparison skipped ({_reason}): {_eigen_path}')
             if not _skip_eigen_existing:
                 print('plot eigenvalue spectrum and eigenvector comparison ...')
 
@@ -3079,7 +3395,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     axes[2, 2].tick_params(labelsize=16)
 
                 plt.tight_layout()
-                plt.savefig(f'{log_dir}/results/eigen_comparison.png', dpi=87)
+                plt.savefig(_fig_out(log_dir, f'eigen_comparison.png'), dpi=87)
                 plt.close()
 
                 # --- Print and log all spectral/SVD metrics ---
@@ -3170,7 +3486,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
 
             # compute connectivity statistics (vectorized via bincount)
-            print('computing connectivity statistics...')
             edges_np = to_numpy(edges)
             src, dst = edges_np[0], edges_np[1]
 
@@ -3216,20 +3531,23 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                     w_in_min_true, w_in_max_true,
                                     w_out_min_true, w_out_max_true])
 
-            n_gmm = min(100, n_neurons - 1)
-
-            # Cell-type clustering on (a_i, tau, V_rest, W stats): the function
-            # the trainer's cluster.log uses, on the same feature stack.
-            _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
-                                   embedding=to_numpy(model.a),
-                                   learned_tau=learned_tau,
-                                   learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
-                                   n_components=n_gmm, return_features=True)
-            a_aug = _cl.pop("_X")
-            results = dict(_cl, accuracy=_cl['clustering_accuracy'], ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
-            cluster_acc = _cl['clustering_accuracy']
-            print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={_cl['clustering_ari']:.3f}, NMI={_cl['clustering_nmi']:.3f}")
-            write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
+            # Already computed and printed with the other recovered quantities;
+            # this recomputes only if that failed.
+            if _cl is None:
+                n_gmm = min(100, n_neurons - 1)
+                _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
+                                       embedding=to_numpy(model.a) if _has_emb else None,
+                                       learned_tau=learned_tau,
+                                       learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                                       n_components=n_gmm, return_features=True)
+                a_aug = _cl.pop("_X")
+                results = dict(_cl, accuracy=_cl['clustering_accuracy'],
+                               ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+                cluster_acc = _cl['clustering_accuracy']
+                print(f"cluster acc (GMM, {n_gmm} components): "
+                      f"{_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}  "
+                      f"ARI {_cl['clustering_ari']:.3f}  NMI {_cl['clustering_nmi']:.3f}")
+                write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
 
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
             a_umap = reducer.fit_transform(a_aug)
@@ -3265,7 +3583,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.text(0.05, 0.95, f"accuracy: {cluster_acc:.2f}",
                     transform=plt.gca().transAxes, fontsize=32, verticalalignment='top')
             plt.tight_layout()
-            plt.savefig(f'{log_dir}/results/embedding_augmented_{config_indices}.png', dpi=300)
+            plt.savefig(_fig_out(log_dir, f'embedding_augmented.png'), dpi=300)
             plt.close()
 
     # ---- Activity traces: clean vs noisy (measurement noise) ----
@@ -3406,7 +3724,7 @@ def analyze_neuron_type_reconstruction(config, model, edges, true_weights, gt_ta
                 tick.set_fontsize(8)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(log_dir, 'results', 'neuron_type_reconstruction.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(_fig_out(log_dir, 'neuron_type_reconstruction.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
     # Log summary statistics
@@ -3476,7 +3794,7 @@ def plot_neuron_activity_analysis(activity, target_type_name_list, type_list, in
    plt.yticks(fontsize=18)
 
    plt.tight_layout()
-   plt.savefig(os.path.join(output_path, 'activity_mu_sigma.png'), dpi=300, bbox_inches='tight')
+   plt.savefig(_fig_out(output_path, 'activity_mu_sigma.png'), dpi=300, bbox_inches='tight')
    plt.close()
 
    # Return per-neuron statistics (NEW)
@@ -3573,7 +3891,7 @@ def plot_ground_truth_distributions(edges, true_weights, gt_taus, gt_V_Rest, typ
     add_type_labels_and_setup_axes(ax4, gt_V_Rest, r'distribution of true $v_{rest}$ by neuron type')
 
     plt.tight_layout()
-    plt.savefig(f'{output_path}/ground_truth_distributions.png', dpi=300, bbox_inches='tight')
+    plt.savefig(_fig_out(output_path, 'ground_truth_distributions.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
     return fig
@@ -3649,7 +3967,16 @@ def data_plot(config, epoch_list, style, extended, device, apply_weight_correcti
             plot_synaptic(config, epoch_list, log_dir, logger, 'viridis', style, extended, device, log_file=log_file, skip_svd=skip_svd)
 
     for handler in logger.handlers[:]:
-        handler.close()
+        # A TEARDOWN MUST NOT FAIL A FINISHED PASS. The log file lives on NFS,
+        # and closing it raised OSError 116, stale file handle, after every
+        # figure and every number had already been written -- the job then
+        # exited non-zero and read as a failed run. Whatever the handle's state,
+        # detaching the handler is what matters here.
+        try:
+            handler.close()
+        except OSError as _e:
+            print(f"\033[93mlog handler close failed ({_e.strerror}); "
+                  f"the pass itself finished\033[0m")
         logger.removeHandler(handler)
 
 

@@ -24,13 +24,19 @@ import os
 import numpy as np
 import torch
 
+from connectome_gnn.utils import to_numpy
+
 COLOR_TRUE, COLOR_PRED = "tab:green", "black"      # repo GT-vs-predicted convention
 COLOR_INH, COLOR_EXC = "tab:blue", "tab:red"       # two distinct sources
 
 
 def _state_dict(log_dir):
     import glob
-    f = sorted(glob.glob(os.path.join(log_dir, "models", "*.pt")))
+    # THE TRAINED CHECKPOINT, BY NAME. A bare *.pt glob took whatever sorted
+    # last, which since the template rollout began writing models/template_fit.pt
+    # is that file -- a known-ODE carrying E_exc, so a current-family run looked
+    # like a conductance twin and the figure tried to draw one.
+    f = sorted(glob.glob(os.path.join(log_dir, "models", "best_model_with_*.pt")))
     if not f:
         return None
     sd = torch.load(f[-1], map_location="cpu", weights_only=False)
@@ -52,7 +58,12 @@ def plot_twin_params(log_dir, ode_params, x_ts=None, out_name="twin_params"):
 
     g = (lambda k: ode_params.get(k) if isinstance(ode_params, dict)
          else getattr(ode_params, k, None))
-    tau_t, vr_t, W_t = g("tau_i"), g("V_i_rest"), g("W")
+    # ode_params holds torch tensors on whatever device the run used, and numpy
+    # refuses a CUDA tensor; to_numpy is the one conversion the codebase uses.
+    def _np(x):
+        return None if x is None else np.asarray(to_numpy(x)) if hasattr(x, "detach") else x
+
+    tau_t, vr_t, W_t = _np(g("tau_i")), _np(g("V_i_rest")), _np(g("W"))
 
     E_inh, E_exc = sd["E_inh"].float().numpy(), sd["E_exc"].float().numpy()
     W_s = (sd["W"].float().squeeze(-1) ** 2).numpy()          # conductance = W^2
@@ -125,7 +136,8 @@ def plot_twin_params(log_dir, ode_params, x_ts=None, out_name="twin_params"):
         ax.text(-0.02, 1.05, lbl, transform=ax.transAxes, fontsize=12,
                 fontweight="bold", ha="right", va="bottom")
 
-    out = os.path.join(log_dir, "results", out_name)
+    from connectome_gnn.results_layout import fig_out
+    out = fig_out(log_dir, out_name if str(out_name).endswith(".png") else f"{out_name}.png")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.tight_layout()
     fig.savefig(out + ".png", dpi=200, bbox_inches="tight", pad_inches=0.05)

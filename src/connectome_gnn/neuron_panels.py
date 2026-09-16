@@ -170,10 +170,18 @@ def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
             w = W_model[idx] ** 2 if squared else W_model[idx]
             m_model.append(to_numpy(g).astype(float) * float(w))
 
+    # act(v_j) per edge, from the GENERATOR's own activation -- relu on this data,
+    # via ode_params.gt_g_phi_func. Kept because it is the column the closed-form
+    # template fit needs: with act given, W * act(v_j) * (E - v_i) + C is linear
+    # in (W*E, -W, C) and the template row needs no symbolic search at all.
+    act_js = [np.asarray(to_numpy(op.gt_g_phi_func(v_j)), dtype=float).ravel()
+              for v_j in v_js]
+
     return {"frames": frames, "v_i": v_i, "stim": np.array(S), "msg_model": np.array(MSG),
             "pred": np.array(PRED), "m_true": np.stack(m_true) if len(inc) else np.zeros((0, len(v_i))),
             "m_model": np.stack(m_model) if len(inc) else np.zeros((0, len(v_i))),
             "edge_ids": inc, "src": src[inc], "forms": forms, "W_model": W_model[inc],
+            "act_j": np.stack(act_js) if len(inc) else np.zeros((0, len(v_i))),
             "v_j": np.stack(v_js) if len(inc) else np.zeros((0, len(v_i)))}
 
 
@@ -203,10 +211,15 @@ def _sr_fit(X, y, names, cfg, guess=None, spec=None):
         return None, float("nan"), "target has non-finite values", None
     if float(np.std(y)) < 1e-12:
         return None, float("nan"), f"target constant at {float(np.mean(y)):.4g}", None
-    try:
-        from pysr import PySRRegressor
-    except Exception as exc:           # no Julia runtime, no PySR install
-        return None, float("nan"), f"PySR unavailable ({type(exc).__name__})", None
+    # Through pysr_env, never `import pysr` directly: it fixes TMPDIR and the
+    # directory Julia resolves its system image against, and it probes the
+    # import in a subprocess so a Julia abort cannot take the run down. The
+    # reason for any failure ends up in results/README.md.
+    from connectome_gnn import pysr_env
+    pysr = pysr_env.import_pysr()
+    if pysr is None:
+        return None, float("nan"), f"PySR unavailable ({pysr_env.reason()})", None
+    PySRRegressor = pysr.PySRRegressor
     kw = dict(niterations=int(cfg.sr_niterations),
               operators={2: list(cfg.sr_binary_operators), 1: list(cfg.sr_unary_operators)},
               maxsize=int(cfg.sr_maxsize), progress=False, temp_equation_file=True,
@@ -239,9 +252,13 @@ def _effective_W(pred, v_j, v_i, E, C=0.0):
     as though the pedestal were conductance -- inflating W by however much of C
     happens to correlate with relu(v_j) * (E - v_i) over these frames.
     """
-    if pred is None or E is None:
+    if pred is None:
         return None
-    d = np.maximum(np.asarray(v_j, float), 0.0) * (float(E) - np.asarray(v_i, float))
+    d = np.maximum(np.asarray(v_j, float), 0.0)
+    if E is not None:
+        # The conductance family multiplies the release by the driving force;
+        # the current family's synapse is W * act(v_j) and there is none.
+        d = d * (float(E) - np.asarray(v_i, float))
     den = float(d @ d)
     m = np.asarray(pred, float) - float(C or 0.0)
     return float(m @ d) / den if den > 0 else None
@@ -270,12 +287,49 @@ def _conductance_template(cfg):
     constants by a data column, and here there is a single category per fit.
     """
     try:
-        from pysr import TemplateExpressionSpec
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
     except Exception:
         return None
     return TemplateExpressionSpec(combine="f(v_j) * (E[cat] - v_i) + C[cat]",
                                   expressions=["f"], parameters={"E": 1, "C": 1},
                                   variable_names=["v_j", "v_i", "cat"])
+
+
+def _current_template(cfg):
+    """f(v_j) + C[cat]: the current family with its silent-input offset fitted.
+
+    THE SAME QUESTION AS THE CONDUCTANCE TEMPLATE, minus the driving force. A
+    current generator's synapse is W * act(v_j), zero whenever the sender is
+    silent, and the model's g_phi is under no more obligation to vanish there
+    than in the conductance case -- so C is the same measurement, the per-edge
+    form of the offset the update hands to V_rest. Fitting it was
+    conductance-only until now, which left every current run's panel f with no
+    template row, no offset, and W in the model's own gauge, while the
+    population extractor had been fitting exactly this form for both families.
+    """
+    try:
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
+    except Exception:
+        return None
+    return TemplateExpressionSpec(combine="f(v_j) + C[cat]",
+                                  expressions=["f"], parameters={"C": 1},
+                                  variable_names=["v_j", "cat"])
 
 
 def _update_template():
@@ -294,7 +348,15 @@ def _update_template():
     the data pin down.
     """
     try:
-        from pysr import TemplateExpressionSpec
+        # THROUGH THE GUARD, never a bare `import pysr`: a direct import here
+        # starts Julia a second time after the probe already failed, and its
+        # precompilation errors land on the terminal AFTER the run has said
+        # PySR is unavailable -- which reads as the failure happening twice.
+        from connectome_gnn import pysr_env
+        _pysr = pysr_env.import_pysr()
+        if _pysr is None:
+            return None
+        TemplateExpressionSpec = _pysr.TemplateExpressionSpec
     except Exception:
         return None
     return TemplateExpressionSpec(
@@ -329,6 +391,112 @@ def _fitted_parameters(equation):
     return out
 
 
+def closed_form_template(g, out):
+    """The template rows, by least squares -- no search, no Julia.
+
+    THE SAME TWO FITS `metrics.extract_template_params` DOES, on this neuron's
+    sampled frames, so the panel and results/metrics.txt cannot disagree about a
+    synapse. Given act (the generator's own, relu on this data) both are linear:
+
+      per edge, conductance family
+          msg_ij = W*act(v_j)*(E - v_i) + C = (W E)*u + (-W)*(u v_i) + C
+          -> W = -b2,  E = -b1/b2,  C = b3     over columns [u, u*v_i, 1]
+      per edge, current family
+          msg_ij = W*act(v_j) + C             -> W = b1, C = b2, no reversal
+
+      the update
+          pred = T[(V - v_i) + G*msg + F*stim]
+               = T V - T v_i + T G msg + T F stim
+          -> T = -a1,  V = a0/T,  G = a2/T,  F = a3/T   over [1, v_i, msg, stim]
+
+    F is the one approximation: the generator's f(stim) is taken linear, which it
+    is on this data. The R2 printed beside each row says how well that held.
+    """
+    # Every column this needs, or nothing: `gather` supplies them all, but the
+    # panels are also called with hand-built dicts in the tests and a KeyError
+    # inside a figure helper is not worth the two lines it costs to avoid.
+    _need = ("forms", "v_i", "pred", "msg_model", "stim", "edge_ids", "act_j", "m_model")
+    if any(k not in g for k in _need):
+        return out
+    fm = g["forms"]
+    cond = bool(fm["conductance"])
+    ones = np.ones_like(g["v_i"])
+
+    # --- the update -------------------------------------------------------
+    X = np.column_stack([ones, g["v_i"], g["msg_model"], g["stim"]])
+    y = np.asarray(g["pred"], dtype=float)
+    try:
+        a, *_ = np.linalg.lstsq(X, y, rcond=None)
+        T = -float(a[1])
+        if abs(T) > 1e-12:
+            V, G, F = float(a[0]) / T, float(a[2]) / T, float(a[3]) / T
+            out["update_tmpl"] = (f"{T:.4f} * ((({V:+.4f}) - v_i) + {G:.4f} * msg "
+                                  f"+ {F:.4f} * stim)")
+            out["update_tmpl_r2"] = _r2(y, X @ a)
+            out["update_tmpl_note"] = "least squares"
+            out["update_tmpl_p"] = {"T": T, "V": V, "G": G, "F": F}
+    except np.linalg.LinAlgError as exc:
+        out["update_tmpl_note"] = f"least squares failed: {exc}"
+
+    # --- one fit per incoming synapse -------------------------------------
+    # BOTH FAMILIES ON EVERY SYNAPSE, not only the model's own. The current form
+    # W*relu(v_j) + C is the conductance form with the u*v_i column deleted, so
+    # it can never fit better; what the panel shows is how much the deleted
+    # column was worth on THIS synapse. A conductance model whose message the
+    # current form reproduces to the same R2 has not shown a driving force --
+    # the same comparison `current_form_r2_median` makes over all edges, here
+    # written out per synapse where the constants can be read.
+    for row, idx in enumerate(g["edge_ids"]):
+        idx = int(idx)
+        u = np.asarray(g["act_j"][row], dtype=float)
+        m = np.asarray(g["m_model"][row], dtype=float)
+        for fam, fcols in (("cond", [u, u * g["v_i"], ones]), ("cur", [u, ones])):
+            try:
+                bb, *_ = np.linalg.lstsq(np.column_stack(fcols), m, rcond=None)
+            except np.linalg.LinAlgError:
+                continue
+            ppred = np.column_stack(fcols) @ bb
+            if fam == "cond":
+                _W = -float(bb[1])
+                _E = (-float(bb[0]) / float(bb[1])) if abs(float(bb[1])) > 1e-12 else None
+                _C = float(bb[2])
+            else:
+                _W, _E, _C = float(bb[0]), None, float(bb[1])
+            # The CONSTANTS, not the equation. Two equations one under the other
+            # are two strings a reader has to parse before they can compare the
+            # only things that differ; W, E and the offset in fixed columns line
+            # up down the panel, and the reversal -- which is what says whether
+            # the conductance reading is physical at all -- lands in the same
+            # place on every row.
+            out[f"tmpl_{fam}_W"][idx] = _W
+            out[f"tmpl_{fam}_E"][idx] = _E
+            out[f"tmpl_{fam}_C"][idx] = _C
+            out[f"tmpl_{fam}_r2"][idx] = _r2(m, ppred)
+        cols = [u, u * g["v_i"], ones] if cond else [u, ones]
+        try:
+            b, *_ = np.linalg.lstsq(np.column_stack(cols), m, rcond=None)
+        except np.linalg.LinAlgError as exc:
+            out["tmpl_notes"][idx] = f"least squares failed: {exc}"
+            continue
+        pred = np.column_stack(cols) @ b
+        if cond:
+            W = -float(b[1])
+            E = (-float(b[0]) / float(b[1])) if abs(float(b[1])) > 1e-12 else None
+            C = float(b[2])
+            eq = (f"{W:.4f} * relu(v_j) * ({E:+.3f} - v_i) + {C:.4f}"
+                  if E is not None else None)
+        else:
+            W, E, C = float(b[0]), None, float(b[1])
+            eq = f"{W:+.4f} * relu(v_j) + {C:.4f}"
+        out["tmpl"][idx] = eq
+        out["tmpl_W"][idx] = W
+        out["tmpl_E"][idx] = E
+        out["tmpl_C"][idx] = C
+        out["tmpl_r2"][idx] = _r2(m, pred)
+        out["tmpl_notes"][idx] = "least squares"
+    return out
+
+
 def symbolic_forms(g, cfg):
     """Fit the update, and every incoming synapse twice: free, and templated.
 
@@ -343,7 +511,17 @@ def symbolic_forms(g, cfg):
            "update_tmpl_note": "disabled", "update_tmpl_p": {},
            "edges": {}, "edge_r2": {}, "edge_notes": {},
            "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_C": {}, "tmpl_W": {},
-           "tmpl_notes": {}}
+           "tmpl_notes": {},
+           # The same message fitted by BOTH families, so the panel can say
+           # whether the driving force was worth its column on this synapse.
+           "tmpl_cond_W": {}, "tmpl_cond_E": {}, "tmpl_cond_C": {}, "tmpl_cond_r2": {},
+           "tmpl_cur_W": {}, "tmpl_cur_E": {}, "tmpl_cur_C": {}, "tmpl_cur_r2": {}}
+    # THE TEMPLATE ROWS DO NOT NEED PySR, and used to print "[not fitted]"
+    # whenever Julia could not start -- next to a generator row that was right
+    # there, and next to a metrics.txt reporting the very same fit. With act
+    # given the template is linear in its constants, so it is least squares,
+    # always available, and identical in kind to what `metrics` reports.
+    closed_form_template(g, out)
     if not cfg.sr_enabled:
         return out
     f = g["forms"]
@@ -358,11 +536,16 @@ def symbolic_forms(g, cfg):
         ueq, ur2, unote, _ = _sr_fit(
             np.column_stack([g["v_i"], g["msg_model"], g["stim"], ones]),
             g["pred"], ["v_i", "msg", "stim", "cat"], cfg, spec=uspec)
-        out["update_tmpl"], out["update_tmpl_r2"], out["update_tmpl_note"] = ueq, ur2, unote
-        p = _fitted_parameters(ueq) if ueq else {}
-        out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
+        if ueq:
+            out["update_tmpl"], out["update_tmpl_r2"] = ueq, ur2
+            out["update_tmpl_note"] = unote or "PySR template"
+            p = _fitted_parameters(ueq)
+            out["update_tmpl_p"] = {k: (v[0] if v else None) for k, v in p.items()}
+        elif unote:
+            out["update_tmpl_note"] = f"least squares (PySR: {unote})"
 
-    spec = _conductance_template(cfg) if f["conductance"] else None
+    spec = (_conductance_template(cfg) if f["conductance"]
+            else _current_template(cfg))
     ones = np.ones_like(g["v_i"])
     for row, idx in enumerate(g["edge_ids"][: int(cfg.sr_max_edges)]):
         idx = int(idx)
@@ -370,23 +553,44 @@ def symbolic_forms(g, cfg):
                                    g["m_model"][row], ["v_j", "v_i"], cfg)
         out["edges"][idx], out["edge_r2"][idx], out["edge_notes"][idx] = eq, r2v, note
         if spec is not None:
+            # THE COLUMNS THE TEMPLATE DECLARES, no more: the current family's
+            # form has no v_i in it, and PySR rejects a variable a template
+            # never uses.
+            _cols, _names = ((np.column_stack([g["v_j"][row], g["v_i"], ones]),
+                              ["v_j", "v_i", "cat"]) if f["conductance"]
+                             else (np.column_stack([g["v_j"][row], ones]),
+                                   ["v_j", "cat"]))
             teq, tr2, tnote, tpred = _sr_fit(
-                np.column_stack([g["v_j"][row], g["v_i"], ones]),
-                g["m_model"][row], ["v_j", "v_i", "cat"], cfg, spec=spec)
-            out["tmpl"][idx], out["tmpl_r2"][idx], out["tmpl_notes"][idx] = teq, tr2, tnote
-            _p = _fitted_parameters(teq) if teq else {}
-            E = _p.get("E")
-            E = E[0] if E else None
-            C = _p.get("C")
-            C = C[0] if C else None
-            out["tmpl_E"][idx] = E
-            out["tmpl_C"][idx] = C
-            # W IS NOT PRINTED BY THE TEMPLATE: it lives inside the sub-expression
-            # f, which PySR writes as `f = #1 * 1.4467`. Rather than parse a form
-            # that is only sometimes linear, the conductance is measured from the
-            # fit itself -- the one scale that carries relu(v_j) * (E - v_i) onto
-            # the fitted message. That works whatever shape f took.
-            out["tmpl_W"][idx] = _effective_W(tpred, g["v_j"][row], g["v_i"], E, C)
+                _cols, g["m_model"][row], _names, cfg, spec=spec)
+            # ONLY WHEN THE SEARCH ACTUALLY RETURNED SOMETHING. The closed-form
+            # fit above already filled these three, and a failed PySR call
+            # overwriting them with None put "[not fitted]" on a row that had a
+            # perfectly good least-squares answer.
+            if teq:
+                out["tmpl"][idx] = teq
+                out["tmpl_r2"][idx] = tr2
+                out["tmpl_notes"][idx] = tnote or "PySR template"
+            elif tnote:
+                out["tmpl_notes"][idx] = f"least squares (PySR: {tnote})"
+            # AND THE THREE NUMBERS TOO, only when the search returned. These
+            # sat outside the guard above, so a failed PySR call wrote None over
+            # the closed-form W, E and offset while leaving its R2 in place --
+            # which is how a panel came to read "W = n/a  E = n/a  offset = n/a
+            # (R2 +0.996)": a fit good to four decimals, reported as nothing.
+            if teq:
+                _p = _fitted_parameters(teq)
+                E = _p.get("E")
+                E = E[0] if E else None
+                C = _p.get("C")
+                C = C[0] if C else None
+                out["tmpl_E"][idx] = E
+                out["tmpl_C"][idx] = C
+                # W IS NOT PRINTED BY THE TEMPLATE: it lives inside the
+                # sub-expression f, which PySR writes as `f = #1 * 1.4467`.
+                # Rather than parse a form that is only sometimes linear, the
+                # conductance is measured from the fit itself -- the one scale
+                # that carries relu(v_j) * (E - v_i) onto the fitted message.
+                out["tmpl_W"][idx] = _effective_W(tpred, g["v_j"][row], g["v_i"], E, C)
     return out
 
 
@@ -395,12 +599,16 @@ def symbolic_forms(g, cfg):
 # ------------------------------------------------------------------ #
 
 def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
-                       label=""):
-    """Write results/neuron<id>_panels.png.
+                       label="", out_path=None):
+    """Write results/neuron<id>_panels.png, or `out_path` when one is given.
 
     Panels a to d share one time axis; e carries the update's forms and f carries
     the synapses', ROW BY ROW BESIDE PANEL d so each formula sits next to the
     trace it describes rather than in a list the reader has to re-index.
+
+    `out_path` is what the training-time caller uses to drop a stamped copy into
+    tmp_training/neuron_panels/ instead of overwriting the one figure results/
+    holds for the finished run.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -420,6 +628,20 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
 
     def fmt_r2(x):
         return "" if x is None or x != x else f"  (R2 {x:+.3f})"
+
+    # THE GAUGE, ONCE, BEFORE ANY PANEL. The model's message carries the global
+    # gain that f_theta divides back out, so neither its total (panel c), its
+    # per-synapse traces (d) nor its fitted conductances (f) are comparable with
+    # the generator's until they are multiplied by k = T * G * tau. Defining it
+    # here rather than beside panel f is what lets d use it too.
+    kW = None
+    _pu = sr.get("update_tmpl_p") or {}
+    if _pu.get("T") is not None and _pu.get("G") is not None:
+        # BOTH FAMILIES. k = T * G * tau converts one unit of the model's message
+        # into the generator's, and the derivation -- matching T*G*msg_model
+        # against msg_true/tau -- never mentions the driving force. It was gated
+        # on the conductance family for no reason beyond where it was written.
+        kW = float(_pu["T"]) * float(_pu["G"]) * fm["tau"]
 
     n_edges = g["m_true"].shape[0]
     step = 8.0                      # room for three lines of formula per synapse
@@ -448,8 +670,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ax.set_ylabel("dv/dt")
 
     ax = fig.add_subplot(gs[2, 0])
+    # ONLY THE CORRECTED LEARNED MESSAGE IS DRAWN. The raw one is 11.7x the
+    # generator's amplitude and sits on a pedestal of -2.3 V, so plotting it sets
+    # the axis range and squashes both curves worth comparing onto the zero line.
+    # Its size and level are in the heading instead, where they can be read
+    # without costing the comparison.
     ax.plot(t, msg_true, color="tab:green", lw=0.9)
-    ax.plot(t, g["msg_model"], color="black", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
     head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
               f"   model {ratio:.1f}x")
@@ -472,8 +698,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # and is what coeff_g_phi_silent drives to zero.
     a_fit, b_fit = np.polyfit(g["msg_model"], msg_true, 1)
     corrected = a_fit * g["msg_model"] + b_fit
-    ax.plot(t, corrected, color="black", lw=0.9, ls="--")
-    head_c += (f"   |   dashed: model x {a_fit:.4f} {b_fit:+.3f} V, residual "
+    ax.plot(t, corrected, color="black", lw=0.9)
+    head_c += (f"   |   model x {a_fit:.4f} {b_fit:+.3f} V, residual "
                f"{(msg_true - corrected).std() / max(msg_true.std(), 1e-12):.2f}x")
     p = sr.get("update_tmpl_p") or {}
     T, G, V = p.get("T"), p.get("G"), p.get("V")
@@ -500,29 +726,50 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
     ax.set_ylabel("message")
 
+    # PANEL d IN VOLTS, NOT Z-SCORED. Dividing each row by its own standard
+    # deviation drew a synapse carrying 1e-08 of a volt at the same height as one
+    # carrying 1.05, which is the opposite of what the panel is for: the question
+    # is whether the model reconstructs the messages that MATTER, and on a shared
+    # scale a synapse the model dropped simply looks flat, as it should. The mean
+    # is removed per row so the rows stack, and the model's message is carried
+    # into the generator's units by the same k = T*G*tau the other panels use --
+    # without it the two would differ by the gauge alone and nothing could be
+    # read off the comparison.
     axd = fig.add_subplot(gs[3, 0])
+    _kd = kW if kW else 1.0
+    _amp = [float(np.percentile(np.abs(r - r.mean()), 99)) for r in g["m_true"]]
+    _amp += [float(np.percentile(np.abs(_kd * r - (_kd * r).mean()), 99))
+             for r in g["m_model"]]
+    # One step per row, set by the LOUDEST trace drawn, so nothing overlaps and
+    # every row keeps its true relative size.
+    step_v = 2.6 * max(max(_amp), 1e-12)
     offs = []
     for row in range(n_edges):
-        off = -row * step
+        off = -row * step_v
         offs.append(off)
-        a, b = g["m_true"][row], g["m_model"][row]
-        axd.plot(t, 1.6 * (a - a.mean()) / (a.std() + 1e-12) + off, color="tab:green", lw=0.8)
+        a, b = g["m_true"][row], _kd * g["m_model"][row]
+        axd.plot(t, (a - a.mean()) + off, color="tab:green", lw=0.8)
+        axd.plot(t, (b - b.mean()) + off, color="black", lw=0.8)
         rr = b.std() / max(a.std(), 1e-12)
-        if rr < 1e-3:
-            axd.plot(t, np.zeros_like(t) + off, color="black", lw=0.8)
-            note = "model ~ 0"
-        else:
-            axd.plot(t, 1.6 * (b - b.mean()) / (b.std() + 1e-12) + off,
-                     color="black", lw=0.8)
-            note = f"r={pear(a, b):+.2f}  x{rr:.3g}"
+        note = ("model ~ 0" if b.std() < 1e-3 * max(a.std(), 1e-12)
+                else f"r={pear(a, b):+.2f}  x{rr:.3g}")
         sign = ("inh" if fm["is_inh"] is not None and fm["is_inh"][g["edge_ids"][row]]
                 else "exc")
         axd.text(-0.055, off, f"j={int(g['src'][row])}\n{sign}\n{note}",
                  transform=axd.get_yaxis_transform(), va="center", ha="right", fontsize=7.5)
-    axd.set_ylim(-step * max(n_edges, 1) + step * 0.35, step * 0.65)
+    axd.set_ylim(-step_v * max(n_edges, 1) + step_v * 0.35, step_v * 0.65)
     axd.set_yticks([])
-    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, z-scored, "
-             "strongest first", transform=axd.transAxes, va="bottom", fontsize=11)
+    # A scale bar, because the y axis has no ticks and the amplitudes are the
+    # whole point of dropping the z-score.
+    _bar = step_v / 2.6
+    axd.plot([t[0] + 0.01 * (t[-1] - t[0])] * 2, [0.25 * step_v, 0.25 * step_v - _bar],
+             color="0.2", lw=2)
+    axd.text(t[0] + 0.02 * (t[-1] - t[0]), 0.25 * step_v - _bar / 2,
+             f"{_bar:.3g} V", fontsize=7.5, va="center")
+    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, "
+             f"mean removed, one shared scale, strongest first"
+             + (f"   (model x {_kd:.4f})" if kW else ""),
+             transform=axd.transAxes, va="bottom", fontsize=11)
 
     for a_ in (fig.axes[0], fig.axes[1], fig.axes[2], axd):
         a_.set_xlim(t[0], t[-1])
@@ -560,20 +807,18 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     axf = fig.add_subplot(gs[3, 1], sharey=axd)
     axf.axis("off")
     fam = ("W * relu(v_j) * (E - v_i) + offset" if fm["conductance"]
-           else "W * relu(v_j)")
+           else "W * relu(v_j) + offset")
     # The model's message carries the global gain that f_theta divides back out,
     # so its conductance is only comparable with the generator's after the same
     # T * G * tau correction the total message gets in panel c.
-    kW = None
-    if fm["conductance"]:
-        pu = sr.get("update_tmpl_p") or {}
-        if pu.get("T") is not None and pu.get("G") is not None:
-            kW = float(pu["T"]) * float(pu["G"]) * fm["tau"]
-
     _gain_note = (f", W and offset scaled by T*G*tau = {kW:.4f}"
-                  if fm["conductance"] and kW else ", W in the model's own gauge")
-    axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
-             f"{fam}{_gain_note}, and a free search", transform=axf.transAxes,
+                  if kW else ", W in the model's own gauge")
+    _other = ("W * relu(v_j) + offset" if fm["conductance"]
+              else "W * relu(v_j) * (E - v_i) + offset")
+    axf.text(0.0, 1.005, f"f   the synapses: generator, then the same message fitted "
+             f"inside {fam}\n    and inside the other family's {_other}"
+             f"{_gain_note}, and a free search",
+             transform=axf.transAxes,
              va="bottom", fontsize=11)
     def fmt_W(w):
         """Four decimals, except where that would print a synapse as zero.
@@ -597,32 +842,50 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             txt = [f"generator   W = {fmt_W(fm['W'][idx])}   E = {fm['E'][idx]:+8.3f}"
                    f"   offset =   0.0000"]
         else:
-            txt = [f"generator   W = {fmt_W(fm['W'][idx])}"]
-        if fm["conductance"]:
-            teq = sr.get("tmpl", {}).get(idx)
-            E = sr.get("tmpl_E", {}).get(idx)
-            C = sr.get("tmpl_C", {}).get(idx)
-            W = sr.get("tmpl_W", {}).get(idx)
-            if teq:
-                Wc = None if (W is None or kW is None) else W * kW
-                Cc = None if (C is None or kW is None) else C * kW
-                wtxt = ("W = " + (fmt_W(Wc) if Wc is not None else
-                                  (fmt_W(W) if W is not None else "     n/a")))
-                etxt = f"E = {E:+8.3f}" if E is not None else "E =      n/a"
-                ctxt = ("offset = " + (fmt_W(Cc) if Cc is not None else "     n/a"))
-                txt.append(f"template    {wtxt}   {etxt}   {ctxt}"
-                           f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
-            else:
-                txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
+            txt = [f"generator   W = {fmt_W(fm['W'][idx])}   offset =   0.0000"]
+        # BOTH TEMPLATES, THE GENERATOR'S FAMILY FIRST. Same constants, same
+        # columns, so the rows can be read down: the family this data was made
+        # with, then the other family fitted to the same message. The second row
+        # is the control -- on a current model the conductance form also reaches
+        # R2 1.000, and the only thing that gives it away is the E it needs,
+        # hundreds of units from any voltage the cell ever takes.
+        _own = "cond" if fm["conductance"] else "cur"
+        _alt = "cur" if fm["conductance"] else "cond"
+        _label = {"cond": "conductance template", "cur": "current template"}
+
+        def _row(famkey, tag):
+            W = sr.get(f"tmpl_{famkey}_W", {}).get(idx)
+            E = sr.get(f"tmpl_{famkey}_E", {}).get(idx)
+            C = sr.get(f"tmpl_{famkey}_C", {}).get(idx)
+            if W is None and C is None:
+                note = sr.get("tmpl_notes", {}).get(idx) or "not fitted"
+                return f"{tag:<28}[{note}]"
+            Wc = W if (W is None or kW is None) else W * kW
+            Cc = C if (C is None or kW is None) else C * kW
+            wtxt = "W = " + (fmt_W(Wc) if Wc is not None else "     n/a")
+            ctxt = "offset = " + (fmt_W(Cc) if Cc is not None else "     n/a")
+            # Only the conductance form has a reversal; the current form's row
+            # leaves the column blank rather than printing n/a on every synapse.
+            etxt = (("E = " + (f"{E:+8.3f}" if E is not None else "     n/a") + "   ")
+                    if famkey == "cond" else " " * 15)
+            return (f"{tag:<28}{wtxt}   {etxt}{ctxt}"
+                    f"{fmt_r2(sr.get(f'tmpl_{famkey}_r2', {}).get(idx))}")
+
+        txt.append(_row(_own, _label[_own]))
+        txt.append(_row(_alt, _label[_alt] + " (other form)"))
         eq = sr["edges"].get(idx)
         txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
                    else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
         axf.text(0.0, offs[row], "\n".join(txt), transform=axf.get_yaxis_transform(),
                  va="center", ha="left", fontsize=7, family="monospace")
 
-    out_dir = os.path.join(log_dir, "results")
+    if out_path is None:
+        out_dir = os.path.join(log_dir, "results")
+        path = os.path.join(out_dir, f"neuron{neuron}_panels.png")
+    else:
+        out_dir = os.path.dirname(out_path) or "."
+        path = out_path
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, f"neuron{neuron}_panels.png")
     fig.subplots_adjust(left=0.055, right=0.995, top=0.965, bottom=0.035)
     fig.savefig(path, dpi=150)
     plt.close(fig)
@@ -633,42 +896,68 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
 #  Entry point
 # ------------------------------------------------------------------ #
 
-def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None):
+def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None,
+                    out_dir=None, tag=None, sr_enabled=None, use_rollout=True,
+                    quiet=False):
     """Write one panel figure per neuron named in config.analysis.
 
     Returns the list of paths written. Never raises: a readout that fails must
     not take down the plotting pass that produced everything else.
+
+    THE TRAINING-TIME CALL passes `out_dir` = <log_dir>/tmp_training/neuron_panels
+    and `tag` = the iteration count, so each checkpoint leaves its own
+    neuron<id>_<iteration>.png beside the other tmp_training diagnostics and the
+    readout can be watched converging. It also passes sr_enabled=False and
+    use_rollout=False, because the two expensive parts of this function are not
+    available mid-run anyway:
+
+      - symbolic regression is 2 PySR fits per synapse plus 2 for the update, so
+        34 fits at sr_max_edges 16 -- minutes per checkpoint, against seconds
+        for the traces the panels are being watched for;
+      - the rollout bundle is written by `-o test` from a FINISHED run, so at
+        training time it is either absent or describes older weights, and
+        reading 1.3 GB of it per checkpoint to draw a free run that is not this
+        model's would be worse than dropping panel a.
     """
     cfg = getattr(config, "analysis", None)
     if cfg is None or not cfg.neurons:
         return []
+    if sr_enabled is not None and bool(sr_enabled) != bool(cfg.sr_enabled):
+        cfg = cfg.model_copy(update={"sr_enabled": bool(sr_enabled)})
     n = int(data.n_neurons)
     dt = float(getattr(config.simulation, "delta_t", _DT_FALLBACK))
-    bundle = _load_rollout(log_dir)
+    bundle = _load_rollout(log_dir) if use_rollout else None
     # The rollout bundle is written by `-o test` from the TEST split, so the
     # panels are computed there too and every one of them shows the same frames.
     # If that split cannot be loaded the panels fall back to whatever was loaded
     # for training and the free run is dropped rather than shown misaligned.
     x_ts_panels, aligned = _test_split(config, data, bundle)
     if bundle is not None and not aligned:
-        _say(logger, "test split unavailable; drawing panels without the free run")
+        _say(logger, "test split unavailable; drawing panels without the free run", quiet)
         bundle = None
     written = []
     for neuron in cfg.neurons:
         if not (0 <= int(neuron) < n):
-            _say(logger, f"neuron {neuron} out of range (0..{n - 1}), skipped")
+            _say(logger, f"neuron {neuron} out of range (0..{n - 1}), skipped", quiet)
             continue
         try:
             g = gather(model, data, int(neuron), cfg.sr_start_frame, cfg.sr_frames,
                        device, x_ts=x_ts_panels)
             sr = symbolic_forms(g, cfg)
             roll = _rollout_slice(bundle, int(neuron), g["frames"])
+            _stem = f"neuron{int(neuron)}_panels" if tag is None else f"neuron{int(neuron)}_{tag}"
+            _out = None if out_dir is None else os.path.join(out_dir, f"{_stem}.png")
+            _label = os.path.basename(log_dir.rstrip("/"))
             path = plot_neuron_panels(g, sr, int(neuron), log_dir, rollout=roll, dt=dt,
-                                      label=os.path.basename(log_dir.rstrip("/")))
+                                      label=_label if tag is None else f"{_label}  iter {tag}",
+                                      out_path=_out)
+            # No line per panel. They land in results/ beside every other figure
+            # the pass writes, none of which announce themselves, and six
+            # identical paths pushed the numbers above them off the screen. The
+            # caller gets the list back; failures below still speak.
             written.append(path)
-            _say(logger, f"neuron {neuron}: panels -> {path}")
         except Exception as exc:
-            _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}")
+            _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}", quiet)
     return written
 
 
@@ -723,7 +1012,14 @@ def _rollout_slice(bundle, neuron, frames):
     return true[neuron, k0:k1].astype(float), pred[neuron, k0:k1].astype(float)
 
 
-def _say(logger, msg):
+def _say(logger, msg, quiet=False):
+    """Log it, and print it only when a human is watching this call.
+
+    `quiet` is what the training-time caller passes: that loop owns stdout with a
+    tqdm bar carrying the live R2 columns, and one print per checkpoint lands in
+    the middle of the bar and breaks it. The line still reaches the run's log.
+    """
     if logger is not None:
         logger.info(msg)
-    print(msg)
+    if not quiet:
+        print(msg)

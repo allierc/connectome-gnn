@@ -145,7 +145,7 @@ def test_template_recovers_the_conductance_and_the_reversal():
     assert np.allclose(learned_w, gt_w, rtol=1e-3), (gt_w, learned_w)
     gt_e, learned_e = rec.pairs["E_ij"]
     assert np.allclose(learned_e, gt_e, atol=1e-3)
-    assert rec.diagnostics["Eij_gate"] > 0.999
+    assert rec.diagnostics["msg_form_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_k_median"] - K) < 1e-5
 
 
@@ -185,7 +185,7 @@ def test_the_update_template_gives_back_vrest_and_the_gauge():
     assert np.allclose(learned_v, V_REST, atol=1e-3)
     _gt_t, learned_t = rec.pairs["tau"]
     assert np.allclose(learned_t, 1.0 / T_MODEL, rtol=1e-3)
-    assert rec.diagnostics["tmpl_update_r2_median"] > 0.999
+    assert rec.diagnostics["update_form_r2_median"] > 0.999
     assert abs(rec.diagnostics["tmpl_dfdmsg_over_autograd"] - 1.0) < 1e-4
     assert abs(rec.diagnostics["tmpl_G_median"] - G_MODEL) < 1e-3
 
@@ -219,3 +219,55 @@ def test_a_pedestal_in_the_message_is_read_as_an_offset_not_as_conductance():
 
 def to_np(t):
     return t.detach().numpy().ravel()
+
+
+def test_both_families_forms_are_fitted_to_the_same_message():
+    """A conductance message needs the driving-force column; a current one does not.
+
+    The comparison the two medians exist for. `current_form_r2_median` fits
+    W*relu(v_j) + C -- the conductance form with the u*v_i column deleted -- to
+    the same per-edge message, so a model whose message the CURRENT form already
+    explains has not demonstrated a learned driving force however well the
+    conductance form fits it. Here the model really is conductance, so the
+    deleted column has to cost R2.
+    """
+    cfg, op, model, edges, x_ts, _ = _fixture()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    d = rec.diagnostics
+    assert d["conductance_form_r2_median"] > 0.999
+    assert d["current_form_r2_median"] < 0.99
+    assert d["driving_force_r2_gain_mean"] > 0.001
+    # The reversal it needs sits where the generator put it, a few units from
+    # the voltages the cells take -- not hundreds, which is the signature of a
+    # driving-force column fitted to a message that has none.
+    assert d["conductance_form_E_over_vi"] < 10.0
+
+
+def test_a_current_message_costs_nothing_to_drop_the_driving_force():
+    """The same model with relu(v_j) alone: both forms fit, the gain is ~0.
+
+    The nested pair means the conductance form can never fit WORSE, so the test
+    of 'is there a driving force here' is whether the extra column BUYS
+    anything, not whether the fuller form fits.
+    """
+    cfg, op, model, edges, x_ts, _ = _fixture()
+
+    class _CurrentGPhi(_GPhi):
+        def forward(self, x):
+            return torch.relu(x[:, 0]).unsqueeze(1)
+
+    model.g_phi = _CurrentGPhi()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    d = rec.diagnostics
+    assert d["current_form_r2_median"] > 0.999
+    assert abs(d["driving_force_r2_gain_mean"]) < 1e-6
+    # R2 CANNOT TELL THEM APART HERE -- the conductance form contains the
+    # current one, so it ties -- and the reversal is what gives it away: to
+    # explain a message with no driving force the fit pushes E far outside
+    # every voltage in the data.
+    assert d["conductance_form_r2_median"] > 0.999
+    assert d["conductance_form_E_over_vi"] > 20.0

@@ -1749,7 +1749,14 @@ class TrainingConfig(BaseModel):
     learn_external_input: bool = False
 
     save_all_checkpoints: bool = False  # True = save iteration-level checkpoints too
-    checkpoint_saves_per_epoch: int = 1  # >1 also saves within-epoch snapshots at a fixed cadence (see graph_trainer.py)
+    # THREE PER EPOCH BY DEFAULT. At one save per epoch a run whose epoch is
+    # 1.6M iterations -- eight hours on an a100 -- has nothing on disk until it
+    # finishes, so an hour-long probe leaves models/ empty and cannot be tested,
+    # plotted or read out at all. Three costs three files an epoch and makes any
+    # run interruptible. Pair it with data_augmentation_loop sized so an epoch is
+    # the time you are willing to wait: Niter = n_frames * loop // batch * 0.2, so
+    # loop 64 at batch 4 on 64,000 frames is ~205k iterations, about an hour.
+    checkpoint_saves_per_epoch: int = 3
 
     test_dataset: str = ""  # dataset for testing; empty = same as training dataset
 
@@ -2389,6 +2396,15 @@ class RecoveryConfig(BaseModel):
     """
     model_config = ConfigDict(extra="forbid")
 
+    # WHICH READOUT PRODUCES W, E_ij, tau AND V_rest on a GNN. "template" fits
+    # the generator's own closed form to the model's per-edge message,
+    # msg_ij = W * act(v_j) * (E - v_i) + C, and scales each neuron's
+    # conductances by k_i = tau_i * dftheta_dmsg_i; "chain" is the older route
+    # through the g_phi and f_theta corrections. The template is the default
+    # because the neuron panels draw it, and a results/ directory whose figures
+    # disagree about which readout produced them is worse than either.
+    readout: str = "template"
+
     W_mode: WMode = WMode.AUTO
     # Outlier bands from neurips.tex eq:outlier_threshold. Owned here so the
     # trainer and test_plot cannot filter the same quantity differently -- which
@@ -2397,9 +2413,50 @@ class RecoveryConfig(BaseModel):
     W_outlier_thresh: float = 1.0
     tau_outlier_thresh: float = 0.1
     V_rest_outlier_thresh: float = 0.2
+    # E_ij HAS ONE TOO, and it was the quantity that needed it most. The reversal
+    # is a ratio, -b1/b2, so an edge whose driving-force coefficient is small but
+    # not small enough to fail the t-gate lands far outside the range the cell
+    # ever visits: on the reference conductance run the true reversals span
+    # -5.9 to 10.4 V while the fitted ones reach -24 to +30 at the 1st and 99th
+    # percentile. Roughly 1% of identified edges carry the whole negative R2
+    # (-0.87 -> -0.08 when they go, +0.28 at 5%), so reporting only the
+    # unfiltered number said "nothing was recovered" about a population where
+    # most edges are fine. 5.0 V is the width of the true spread: an error wider
+    # than the entire physiological range is not a measurement.
+    Eij_outlier_thresh: float = 5.0
+    # msg_i TOO, for the same reason and with the same convention. The aggregated
+    # message is what the trajectory actually depends on, and on this data it
+    # spans roughly +-4 in the generator's units, so an error of 1 is a quarter
+    # of the full range -- wrong enough that the edge's contribution to dv/dt is
+    # not the generator's. Without a band, msg_i was the last quantity reported
+    # as a single unfiltered R2 while every other one carried
+    # `clean [all] (percent dropped)`, and a reader comparing columns was
+    # comparing two different statistics.
+    msg_i_outlier_thresh: float = 1.0
     # Below this median per-edge R2, the edge_line_fit estimator's W and E_ij
     # describe nothing and are reported as invalid rather than as numbers.
     gate_fit_r2: float = 0.9
+
+    # HOW THE TEMPLATE FIT SPENDS ITS FRAMES. An edge is measurable only on
+    # frames where its presynaptic cell is above the activity floor, and a
+    # uniform draw leaves a quarter of this connectome's edges with fewer than
+    # the eight rows the three-parameter fit needs. Two knobs fix that, measured
+    # on flyvis_conductance_noise_005_conductance_gnnsil_cv00:
+    #
+    #   frame_choice "active" starts from a uniform base and adds frames drawn
+    #   from the active windows of the cells the base left short. At 1,024 frames
+    #   it gives Wij_R2 0.457 against 0.295 for a uniform 1,024 -- same budget,
+    #   better rows.
+    #
+    #   template_second_pass_frames streams that many extra frames and adds their
+    #   rows ONLY to the edges still short, leaving the rest untouched. It takes
+    #   the unfitted share from 25.9% to 0.37%, covering 432,517 of 434,112
+    #   edges, and moves Wij_R2 by 0.002.
+    #
+    # Both cost seconds in a pass measured in tens of minutes. "uniform" and 0
+    # restore the older behaviour for a run that needs to match an archived one.
+    template_frame_choice: str = "active"
+    template_second_pass_frames: int = 768
     report_scaled: bool = True
 
 

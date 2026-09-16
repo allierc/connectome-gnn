@@ -1,4 +1,4 @@
-description: Group-lasso sweep on current-generated data, width-6 conductance GNN,
+description: group-lasso sweep on current-generated data, width-6 conductance GNN,
   coeff_g_phi_input_group_L1 = 25, noise 0.05, fold 0.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

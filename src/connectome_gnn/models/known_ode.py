@@ -27,6 +27,15 @@ class KnownODEBase(nn.Module):
     # `model.NNR_hidden is not None` to decide between fill-in and zero-silencing.
     NNR_hidden = None
 
+    # WHICH PLOT PATH SCORES THESE MODELS. W, tau and V_rest are direct
+    # parameters here, which is what 'linear' means; the default 'gnn' routes to
+    # a plotter that reads model.a and model.f_theta, and a known-ODE has
+    # neither. The conductance subclass overrides this PER INSTANCE because its
+    # answer depends on train_on_teacher; every other subclass is linear always.
+    # Without the tag twenty current known-ODE runs trained to completion and
+    # died in the plot pass on AttributeError: no attribute 'a'.
+    MODEL_FAMILY = "linear"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 
@@ -91,6 +100,22 @@ class KnownODEBase(nn.Module):
         msg = torch.zeros(v.shape[0], 1, device=self.device, dtype=v.dtype)
         msg.scatter_add_(0, dst.unsqueeze(1).expand_as(edge_msg), edge_msg)
         return msg
+
+    def _node_index(self, particle_id):
+        """Neuron id -> parameter row. Identity, or the cell type when a subclass
+        shares one row per type.
+
+        ON THE BASE, because every family's `_update` indexes its per-neuron
+        parameters through it -- FlyvisKnownODE does, twenty lines into its own
+        update -- while only the conductance subclass defined it. The current
+        family's known-ODE could therefore not run a single forward pass:
+        `AttributeError: 'FlyvisKnownODE' object has no attribute '_node_index'`,
+        raised from inside itself.
+        """
+        if getattr(self, "student_neuron_params", "per_neuron") == "per_type" \
+                and getattr(self, "type_index", None) is not None:
+            return self.type_index[particle_id]
+        return particle_id
 
     def _update(self, v, msg, excitation, particle_id):
         """Compute dv/dt from v, aggregated messages, and excitation. Override in subclass."""
