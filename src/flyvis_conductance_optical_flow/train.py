@@ -88,6 +88,16 @@ def build_parser() -> argparse.ArgumentParser:
         "published regime, so give such runs their own ensemble id.",
     )
     p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="seed of the resting-potential draw, which is the ONLY sampled "
+        "initialisation flyvis has -- Normal(0.5, 0.05) per cell type. Every other "
+        "parameter starts at a fixed value, so this is what separates one ensemble "
+        "member from another. Default leaves flyvis's own 0. Give each member both "
+        "its own --seed and its own member id, or the two runs collide on disk.",
+    )
+    p.add_argument(
         "--ncols", type=int, default=150, help="width of the progress bar, in characters"
     )
     p.add_argument(
@@ -198,6 +208,15 @@ def main(argv=None) -> int:
         # built once on first use.
         extra.append(f"network.connectome.extent={args.extent}")
         extra.append(f"task.dataset.boxfilter.extent={args.extent}")
+    if args.seed is not None:
+        # THE ONLY SEEDED PARAMETER IN THE WHOLE NETWORK. Every other initial
+        # distribution is a `Value`: syn_strength is scale/<N> per edge type, the
+        # time constant is 0.05 s, both reversal variables start at 0.0 and the
+        # Dale sign comes from the connectome. The resting potential alone is
+        # SAMPLED, Normal(0.5, 0.05) per cell type, through a generator seeded by
+        # this key (initialization.py:166), so it is what makes one ensemble member
+        # differ from another at iteration 0.
+        extra.append(f"network.node_config.bias.seed={args.seed}")
 
     config = compose_config(
         task_name=args.task_name,
@@ -218,6 +237,8 @@ def main(argv=None) -> int:
     print(f"  original split    {config.task.original_split}")
     print(f"  original sampling {config.task.dataset.original_sampling}")
     print(f"  sched_stop_iter   {config.scheduler.sched_stop_iter}")
+    print(f"  bias seed         {config.network.node_config.bias.seed} "
+          f"(resting potential, the only sampled initialisation)")
     if rig is not None:
         print(f"  reversals         {rig.n_learnable_reversals} "
               f"(exc band {rig.exc_band}, inh band {rig.inh_band}, "
