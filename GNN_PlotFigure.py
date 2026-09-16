@@ -472,6 +472,34 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         rec, scored = None, {}
     if extra:
         scored.update(extra)
+    # DOES THE NETWORK OBEY THE GENERATOR'S EQUATION AT ALL. Two medians answer
+    # it, one per fit: the per-edge form W*act(v_j)*(E - v_i) + C against the
+    # model's own message, and the per-neuron update T*((V - v_i) + G*msg +
+    # f(stim)) against its own dv/dt. High means the hypothesis holds and the
+    # only question left is whether the constants are the generator's -- which is
+    # what every R2 below answers. Low means those constants describe nothing.
+    _ef, _uf = scored.get("msg_form_r2_median"), scored.get("update_form_r2_median")
+    _cond = scored.get("conductance_form_r2_median")
+    _cur = scored.get("current_form_r2_median")
+    if _ef is not None or _uf is not None:
+        def _fmt(v):
+            return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
+        print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
+              f"   (does the generator's form describe the model at all)")
+
+    for key in RECOVERY_KEYS:
+        if f"{key}_R2" not in scored:
+            continue
+        r2 = scored[f"{key}_R2"]
+        line = f"{key} R²: {_r2_color(r2)}{r2:.3f}{_ANSI_RESET}"
+        if f"{key}_R2_all" in scored:
+            line += f"  (all {scored[f'{key}_R2_all']:.3f}, outliers {scored.get(f'{key}_pct_outliers', 0.0):.2f}%)"
+        if f"{key}_gain" in scored:
+            line += f"  gain {scored[f'{key}_gain']:.3f}  R² scaled {scored[f'{key}_R2_scaled']:.3f}"
+        if f"{key}_estimator" in scored:
+            line += f"  [{scored[f'{key}_estimator']}]"
+        print(line)
+
     # THE RECOVERED PARAMETERS RUN AS A GENERATOR. Everything above says the fit
     # is consistent with what the network computes; this says the numbers are the
     # circuit, by loading them into the known-ODE and rolling it out on the
@@ -490,34 +518,6 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
                               edges=edges, x_ts=x_ts, alt=True))
     write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
-    # DOES THE NETWORK OBEY THE GENERATOR'S EQUATION AT ALL. Two medians answer
-    # it, one per fit: the per-edge form W*act(v_j)*(E - v_i) + C against the
-    # model's own message, and the per-neuron update T*((V - v_i) + G*msg +
-    # f(stim)) against its own dv/dt. High means the hypothesis holds and the
-    # only question left is whether the constants are the generator's -- which is
-    # what every R2 below answers. Low means those constants describe nothing.
-    _ef, _uf = scored.get("msg_form_r2_median"), scored.get("update_form_r2_median")
-    _cond = scored.get("conductance_form_r2_median")
-    _cur = scored.get("current_form_r2_median")
-    if _ef is not None or _uf is not None:
-        def _fmt(v):
-            return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
-        print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
-              f"   (does the generator's form describe the model at all)")
-
-
-    for key in RECOVERY_KEYS:
-        if f"{key}_R2" not in scored:
-            continue
-        r2 = scored[f"{key}_R2"]
-        line = f"{key} R²: {_r2_color(r2)}{r2:.3f}{_ANSI_RESET}"
-        if f"{key}_R2_all" in scored:
-            line += f"  (all {scored[f'{key}_R2_all']:.3f}, outliers {scored.get(f'{key}_pct_outliers', 0.0):.2f}%)"
-        if f"{key}_gain" in scored:
-            line += f"  gain {scored[f'{key}_gain']:.3f}  R² scaled {scored[f'{key}_R2_scaled']:.3f}"
-        if f"{key}_estimator" in scored:
-            line += f"  [{scored[f'{key}_estimator']}]"
-        print(line)
 
     # WHICH FAMILY'S EQUATION IS THIS, asked of the trained network rather than
     # of the data. Every R2 above assumes the answer: they are the generator's
