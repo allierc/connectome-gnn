@@ -32,8 +32,35 @@ EXPANDING THE MESSAGE SHOWS WHAT IS ACTUALLY NEW. Writing the sum out,
                                         - v_i [sum_j g_ij relu(v_j)]
 
 the second term adds to the leak, so the effective membrane time constant
-SHORTENS with drive. That is shunting, it is the dynamical content of the change,
-and it makes the model more stable under strong input rather than less.
+SHORTENS with drive. That is shunting, and it is the dynamical content of the
+change.
+
+SHUNTING STABILISES THE ODE AND DESTABILISES ITS EXPLICIT DISCRETISATION -- the
+two are opposite statements and only the second one kills a run. flyvis
+integrates with forward Euler at a FIXED dt of 20 ms (network.py:426,
+`state + vel * dt`), so with
+
+    G_i = sum_j g_ij relu(v_j)     the total synaptic conductance onto neuron i,
+                                   in the same units as the unit leak conductance
+
+one forward-Euler step multiplies the deviation of v_i by
+[1 - (dt / tau_i) (1 + G_i)], which is a contraction only while
+
+    (dt / tau_i) (1 + G_i) < 2.
+
+The current-based model has no G_i inside that bracket: its factor is dt / tau_i,
+which the `max(tau_i, dt)` floor below holds at or under 1, so it cannot diverge
+whatever the weights do. The conductance model can, and did -- run flow/2000/000
+died with a NaN at iteration 16,368 after 16,000 iterations of a perfectly flat
+loss, and at its last checkpoint 2,690 of the 45,669 neurons were already past
+the factor of 2 at a presynaptic relu(v_j) of 1, against a recorded activity
+maximum of 2.7.
+
+THE STEP IS THEREFORE EXPONENTIAL EULER, not forward Euler. Over one step the
+equation is linear in v_i, so it can be solved exactly at frozen coefficients;
+see `write_state_velocity` for the three lines that do it. It is stable for any
+G_i >= 0, it has the same fixed point and the same continuous-time limit, and it
+costs one `expm1` per neuron per step.
 """
 
 from __future__ import annotations
@@ -154,29 +181,67 @@ class ConductanceSynapses(NetworkDynamics):
         dt: float,
         **kwargs,
     ) -> None:
-        """dv/dt with the driving force in the message."""
+        """The exponential-Euler step, written as the velocity flyvis will scale by dt.
+
+        SPLITTING THE MESSAGE IS WHAT MAKES THIS POSSIBLE. The chemical current
+
+            sum_j g_ij relu(v_j) (E_ij - v_i)  =  S_i - v_i G_i
+
+        is affine in the postsynaptic voltage v_i, with
+
+            G_i = sum_j g_ij relu(v_j)         total conductance onto neuron i,
+                                               in units of its leak conductance
+            S_i = sum_j g_ij relu(v_j) E_ij    that conductance weighted by the
+                                               reversal each edge drives toward
+
+        so over one step, holding the presynaptic activity and the input fixed,
+
+            tau_i dv_i/dt = a_i (v_inf_i - v_i),
+            a_i = 1 + G_i,   v_inf_i = (bias_i + S_i + x_t_i) / a_i
+
+        whose exact solution is v_i(t+dt) = v_inf_i + (v_i(t) - v_inf_i) e^(-z_i)
+        with z_i = a_i dt / tau_i. flyvis's integrator only ever writes
+        `state + vel * dt` (network.py:426), so returning
+
+            vel_i = (v_inf_i - v_i) (1 - e^(-z_i)) / dt
+
+        REPRODUCES THAT EXACT SOLUTION through it. No division by zero is possible:
+        the conductance is non-negative by construction, so G_i >= 0 and a_i >= 1.
+        As dt -> 0 the factor (1 - e^(-z))/dt -> a_i / tau_i and this is the
+        forward-Euler velocity again, so the continuous model is unchanged -- only
+        its discretisation is, and only in the direction of being correct for a
+        step that forward Euler could not take at all.
+        """
         # state.targets.activity is the POSTSYNAPTIC voltage seen per edge. Every
         # other NetworkDynamics subclass reads state.sources.activity only; this
-        # one needs both ends, which is the whole of the structural difference.
-        driving_force = self.reversal_per_edge(params) - state.targets.activity
-        chemical_current = target_sum(
-            params.edges.conductance
-            * self.activation(state.sources.activity)
-            * driving_force
+        # one needs both ends -- here through the split above rather than through a
+        # per-edge driving force, which is the whole of the structural difference.
+        released = params.edges.conductance * self.activation(state.sources.activity)
+
+        # ONE SCATTER FOR BOTH SUMS. `target_sum` scatters over the LAST dimension
+        # and expands its index over every leading one (network.py:366), so stacking
+        # the two edge quantities sums them in a single kernel over the 1,513,231
+        # edges rather than two, at every one of the unrolled timesteps.
+        summed = target_sum(
+            torch.stack((released, released * self.reversal_per_edge(params)))
         )
-        vel.nodes.activity = (
-            1
-            / torch.max(
-                params.nodes.time_const,
-                params.nodes.time_const.new_tensor(dt),
-            )
-            * (
-                -state.nodes.activity
-                + params.nodes.bias
-                + chemical_current
-                + x_t
-            )
+        total_conductance, weighted_reversal = summed[0], summed[1]
+
+        # The floor is flyvis's own, kept for the reason it was written -- tau is a
+        # free parameter with no non-negativity clamp, so a step could otherwise
+        # divide by zero or by a negative number. It is NO LONGER load-bearing for
+        # stability: the run that exploded had a cell type at tau = 19.4 ms, under
+        # the 20 ms floor, and exponential Euler is stable there anyway.
+        tau = torch.max(
+            params.nodes.time_const, params.nodes.time_const.new_tensor(dt)
         )
+        a = 1.0 + total_conductance
+        v_inf = (params.nodes.bias + weighted_reversal + x_t) / a
+        # -expm1(-z) is 1 - e^(-z) computed without cancellation at small z, which
+        # is the regime every weakly driven neuron sits in (z = a dt / tau is 0.4
+        # at the initial tau of 50 ms with no synaptic drive at all).
+        decayed = -torch.expm1(-a * dt / tau)
+        vel.nodes.activity = (v_inf - state.nodes.activity) * decayed / dt
 
     def currents(
         self,
