@@ -27,6 +27,16 @@ FOUR THINGS, ALL WRITTEN INTO `<run_dir>/analysis/`:
                              run and a twin are read on one pair of axes rather
                              than two that merely look alike.
 
+  STABILITY.txt              conductance runs only: the forward-Euler
+                             amplification factor (dt/tau_i)(1 + G_i) of every
+                             neuron on that same rollout, where G_i is its total
+                             synaptic conductance in units of its own leak. Not a
+                             survival test -- the model integrates with
+                             exponential Euler and is stable at any value -- but a
+                             measure of how much of the fitted behaviour is
+                             shunting, and of how much of the run the forward
+                             Euler that killed flow/2000/000 would have lost.
+
   BRACKET_CROSSINGS.txt      how far, and for which cell types, the driving force
                              (E_inh - v_i) changes sign. On a generated dataset
                              that check can abort generation; here there is no
@@ -393,6 +403,71 @@ def reversal_report(nv, checkpoint, activity_lo, activity_hi, out_dir):
     return report, csv_path
 
 
+def stability_report(network, activity, dt, out_dir):
+    """`STABILITY.txt`: how stiff the fitted network is, on the rollout it just ran.
+
+    THE NUMBER IS THE FORWARD-EULER AMPLIFICATION FACTOR
+
+        f_i(t) = (dt / max(tau_i, dt)) * (1 + G_i(t)),
+        G_i(t) = sum_j g_ij relu(v_j(t))
+
+    with dt the integration step in seconds (20 ms here), tau_i the membrane time
+    constant of neuron i in seconds and G_i its total synaptic conductance in units
+    of its own leak conductance. A forward-Euler step contracts only while f_i < 2;
+    the model does not use forward Euler any more (see dynamics.py), so this is no
+    longer a survival test but a measure of HOW FAR INTO THE STIFF REGIME the fit
+    has gone -- that is, how much of the network's behaviour is shunting rather than
+    plain summation, and how much of the run the old integrator would have lost.
+
+    `activity` is the (..., n_nodes) rollout the movie and the reversal figure are
+    drawn from, so all three describe one pass of the network.
+
+    Returns None for a current-based run, which has no conductance to sum.
+    """
+    params = network._param_api()
+    if not hasattr(params.edges, "conductance"):
+        return None
+
+    dev = params.nodes.time_const.device
+    g = params.edges.conductance.detach().reshape(-1)
+    src = network._source_indices.to(dev).long()
+    dst = network._target_indices.to(dev).long()
+    tau = torch.clamp(params.nodes.time_const.detach().reshape(-1), min=dt)
+    ratio = dt / tau
+    n_nodes = tau.numel()
+
+    v = torch.as_tensor(activity).to(dev).reshape(-1, n_nodes)
+    worst = torch.zeros(n_nodes, device=dev)
+    # FRAME BY FRAME, keeping only the per-neuron MAXIMUM over the rollout: the
+    # per-edge product is 1,513,231 numbers and there are a few hundred frames, so
+    # materialising all of them at once is a gigabyte for a statistic that is one
+    # max away.
+    for k in range(v.shape[0]):
+        r = torch.relu(v[k])[src]
+        G = torch.zeros(n_nodes, device=dev).index_add_(0, dst, g * r)
+        torch.maximum(worst, ratio * (1.0 + G), out=worst)
+
+    w = worst.cpu().numpy()
+    report = dict(
+        dt=float(dt),
+        n_frames=int(v.shape[0]),
+        tau_min=float(tau.min()),
+        factor_mean=float(w.mean()),
+        factor_p99=float(np.percentile(w, 99)),
+        factor_max=float(w.max()),
+        n_unstable=int((w > 2.0).sum()),
+        n_nodes=int(n_nodes),
+    )
+    with open(os.path.join(out_dir, "STABILITY.txt"), "w") as f:
+        f.write("forward-Euler amplification factor (dt/tau_i)(1 + G_i), per neuron, "
+                "maximised over the rollout.\n")
+        f.write("A forward-Euler step contracts only while this is below 2; "
+                "exponential Euler is stable at any value.\n")
+        for k, val in report.items():
+            f.write(f"{k}: {val}\n")
+    return report
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--network-name", required=True, help="e.g. flow/2000/000")
@@ -416,6 +491,23 @@ def build_parser() -> argparse.ArgumentParser:
         "training, so the analysis does not write into a directory the trainer "
         "is also writing",
     )
+    p.add_argument(
+        "--no-stability", action="store_true",
+        help="skip STABILITY.txt. It reuses the rollout that is computed anyway "
+        "and costs a scatter per frame, so it is on by default for a conductance "
+        "run -- it is the quantity that killed flow/2000/000",
+    )
+    p.add_argument(
+        "--original-split", action="store_true",
+        help="force task.original_split=True when building the dataloaders. "
+        "THE PUBLISHED MODELS NEED THIS: their stored config predates the key, "
+        "so building a Task from it falls back to get_random_data_split, a "
+        "different algorithm that shares only 6 of 16 validation sequences with "
+        "the split they actually trained on -- ten of the original split's "
+        "validation sequences are TRAINING data under it. Comparing a published "
+        "model scored on that against ours scored on the real split is not a "
+        "comparison.",
+    )
     p.add_argument("--verbose", action="store_true")
     return p
 
@@ -435,7 +527,14 @@ def main(argv=None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    task = Task(**nv.dir.config.task)
+    task_config = dict(nv.dir.config.task)
+    # `type: Task` is stored by the PUBLISHED models' config and is not a
+    # constructor argument; a run trained by this repo has no such key. Dropped
+    # rather than special-cased on the run, so one code path reads both.
+    task_config.pop("type", None)
+    if args.original_split:
+        task_config["original_split"] = True
+    task = Task(**task_config)
     print(f"\033[96m{args.network_name}\033[0m")
     print(f"  dynamics        {nv.dir.config.network.dynamics.type}")
     print(f"  checkpoints     {len(nv.checkpoints.indices)}")
@@ -482,6 +581,17 @@ def main(argv=None) -> int:
         act = network(network.stimulus(), task.dataset.dt, state=state)
     a = act.detach().cpu().numpy().reshape(-1, act.shape[-1])
     v_lo, v_hi = a.min(axis=0).astype(float), a.max(axis=0).astype(float)
+
+    if not args.no_stability:
+        stab = stability_report(network, act.detach(), float(task.dataset.dt),
+                                str(out_dir))
+        if stab is None:
+            print("  stability       (current-based run: no conductance to sum)")
+        else:
+            print(f"  stability       forward-Euler factor (dt/tau)(1+G): max "
+                  f"{stab['factor_max']:.2f}, p99 {stab['factor_p99']:.2f}, "
+                  f"{stab['n_unstable']} of {stab['n_nodes']} neurons above 2 "
+                  f"(where forward Euler would have diverged)")
 
     out = reversal_report(nv, chosen, v_lo, v_hi, str(out_dir))
     if out is None:
