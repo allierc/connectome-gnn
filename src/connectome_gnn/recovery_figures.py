@@ -322,28 +322,86 @@ def plot_form_comparison(rec, log_dir, out_path=None, reference=None,
                 f"KS D = {ks.statistic:.3f}, p = {ks.pvalue:.3g} "
                 f"({gain.size:,} vs {ref.size:,} edges)")
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig, axes = plt.subplots(1, 3, figsize=(21, 6),
+                             gridspec_kw={"width_ratios": [1.0, 1.25, 1.0]})
+
+    # PANEL A, ON 1 - R2 AND NOT ON R2. Every edge of a network that obeys its
+    # own form sits between 0.98 and 1.0000, which is one bin: on the R2 axis
+    # the two families are one spike and the picture says nothing. The
+    # unexplained fraction on a log axis separates 0.99 from 0.9999 by two
+    # decades, and that is where the families differ.
     ax = axes[0]
-    bins = np.linspace(min(np.nanmin(cur), 0.0), 1.0, 120)
-    ax.hist(cond[np.isfinite(cond)], bins=bins, color="tab:blue", alpha=0.65,
-            label="conductance form   $b_1 u + b_2\\,u v_i + b_3$")
-    ax.hist(cur[np.isfinite(cur)], bins=bins, color="tab:red", alpha=0.55,
+    ra = 1.0 - cond[np.isfinite(cond)]
+    rb = 1.0 - cur[np.isfinite(cur)]
+    _floor = 1e-8
+    bins = np.logspace(np.log10(_floor), 0, 90)
+    ax.hist(np.clip(rb, _floor, 1.0), bins=bins, color="tab:red", alpha=0.6,
             label="current form   $W u + C$")
+    ax.hist(np.clip(ra, _floor, 1.0), bins=bins, color="tab:blue", alpha=0.6,
+            label="conductance form   $b_1 u + b_2\\,u v_i + b_3$")
+    ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("per-edge fit $R^2$", fontsize=14)
-    ax.set_ylabel("edges", fontsize=14)
-    ax.legend(loc="upper left", fontsize=11, frameon=False)
-    ax.text(0.004, 1.02, "a   the same messages, fitted inside each family",
+    ax.set_xlabel("unexplained fraction of the message, $1 - R^2$", fontsize=13)
+    ax.set_ylabel("edges", fontsize=13)
+    ax.legend(loc="upper left", fontsize=10, frameon=False)
+    ax.text(0.0, 1.02, "a   the same messages, fitted inside each family",
             transform=ax.transAxes, va="bottom", fontsize=12, fontweight="bold")
 
     ax = axes[1]
     ax.axis("off")
-    ax.text(0.004, 1.02, "b   is the difference more than one column buys by chance",
+    ax.text(0.0, 1.02, "b   is the gap more than an extra column buys by chance?",
             transform=ax.transAxes, va="bottom", fontsize=12, fontweight="bold")
-    # The terminal's own lines, verbatim, minus the indentation they carry there.
-    body = "\n".join(l.strip() if l.startswith("   ") else l for l in lines)
-    ax.text(0.0, 0.95, body, transform=ax.transAxes, va="top", ha="left",
-            fontsize=10.5, family="monospace", wrap=True)
+    # Wrapped to the panel rather than trusting the lines to fit: they carry run
+    # numbers whose width is not known when they are written, and an unwrapped
+    # line ran across the panel beside it.
+    import textwrap
+    body = []
+    for l in lines:
+        ind = "   " if l.startswith("   ") else ""
+        body += textwrap.wrap(l.strip(), 74, subsequent_indent=ind + "  ",
+                              initial_indent=ind) or [""]
+    ax.text(0.0, 0.94, "\n".join(body), transform=ax.transAxes, va="top",
+            ha="left", fontsize=9.5, family="monospace")
+
+    # PANEL C, WHERE THE FITTED REVERSAL LANDS. The ratio quoted in panel b is a
+    # median of this, and a median cannot show that the population has two
+    # modes: edges whose reversal sits within the voltage the cells reach, and
+    # edges where the slope the reversal divides by is noise, which send |E| off
+    # to hundreds or thousands. Log axis for that reason -- the modes are orders
+    # apart. The data's own |v_i| is the line that decides which is which: a
+    # reversal beyond it was never visited, so nothing in the data constrains it.
+    E = np.abs(np.asarray(d.get("_form_E_cond_full", []), dtype=np.float64))
+    E = E[np.isfinite(E) & (E > 0)]
+    ax = axes[2]
+    if E.size:
+        _hi = float(np.quantile(E, 0.999))
+        bins = np.logspace(np.log10(max(E.min(), 1e-3)), np.log10(max(_hi, 10.0)), 90)
+        ax.hist(np.clip(E, bins[0], bins[-1]), bins=bins, color="tab:purple", alpha=0.75)
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        vi = float(d.get("vi_abs_p99", float("nan")))
+        _leg = []
+        if vi == vi:
+            ax.axvline(vi, color="k", lw=2)
+            _leg.append(f"black: the voltage the data reaches, $|v_i| = {vi:.2f}$")
+        gt = rec.pairs.get("E_ij", (None, None))[0] if hasattr(rec, "pairs") else None
+        if gt is not None:
+            g = np.unique(np.round(np.abs(np.asarray(gt, dtype=np.float64)), 3))
+            g = g[np.isfinite(g) & (g > 0)][:4]
+            for v in g:
+                ax.axvline(v, color="tab:green", lw=1.5, ls="--")
+            if g.size:
+                _leg.append("green: the generator's own $|E|$")
+        if _leg:
+            ax.text(0.98, 0.96, "\n".join(_leg), transform=ax.transAxes, ha="right",
+                    va="top", fontsize=9.5)
+        ax.set_xlabel("$|E|$ the conductance form asks for, per edge", fontsize=13)
+        ax.set_ylabel("edges", fontsize=13)
+    else:
+        ax.axis("off")
+    ax.text(0.0, 1.02, "c   where the fitted reversal lands",
+            transform=ax.transAxes, va="bottom", fontsize=12, fontweight="bold")
+
     fig.tight_layout()
     out = out_path or _fig_out(log_dir, "form_comparison.png")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
