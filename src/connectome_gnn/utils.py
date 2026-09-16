@@ -287,11 +287,22 @@ def legacy_g_phi_column_permutation(width: int, emb_dim: int) -> list[int]:
 def sort_key(filename: str) -> tuple[int, int, int]:
     """Sort checkpoint filenames numerically by (run, epoch, sub).
 
-    Handles both naming conventions in the repo:
-      - best_model_with_<run>_graphs_<epoch>.pt   -> (run, epoch, 0)
-      - best_model_with_<run>_<epoch>_<sub>.pt    -> (run, epoch, sub)
+    Handles the three naming conventions in the repo:
+      - best_model_with_<run>_graphs_<epoch>.pt        -> (run, epoch, 0)
+      - best_model_with_<run>_<epoch>_<sub>.pt         -> (run, epoch, sub)
+      - best_model_with_<run>_graphs_<epoch>_<iter>.pt -> (run, epoch, iter)
+
+    THE THIRD IS THE INTRA-EPOCH CHECKPOINT, written since
+    `checkpoint_saves_per_epoch` made a long run readable while it runs. It went
+    unrecognised, and because the sort happens in the PLOT phase, forty
+    known-ODE jobs trained to completion and then died on their own filenames
+    without writing a single result. The sub-number is the iteration, which
+    orders within an epoch exactly as the older sub-index did.
     """
     base = os.path.basename(filename).removesuffix('.pt')
+    m = re.match(r'^best_model_with_(\d+)_graphs_(\d+)_(\d+)$', base)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
     m = re.match(r'^best_model_with_(\d+)_graphs_(\d+)$', base)
     if m:
         return (int(m.group(1)), int(m.group(2)), 0)
