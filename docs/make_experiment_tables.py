@@ -264,27 +264,27 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     # column starts at the same place in every table.
     # Wide enough that "0.805 [-1.527] (18.6)" does not wrap: a wrapped cell
     # breaks the row alignment the fixed widths are for.
-    _R = r">{\raggedleft\arraybackslash}p{2.2cm}"        # an R2 cell
-    _P = r">{\raggedleft\arraybackslash}p{1.0cm}"        # a prediction r
-    ncols = ((r"p{0.75cm}p{1.45cm}" if extra_col else r"p{2.2cm}")
-             + _P * 2 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.3cm}" + _P
-             + r">{\raggedright\arraybackslash}p{6.4cm}")
+    _R = r">{\raggedleft\arraybackslash}p{2.6cm}"        # an R2 cell
+    _P = r">{\raggedleft\arraybackslash}p{1.15cm}"       # a prediction r
+    ncols = ((r"p{0.8cm}p{2.0cm}" if extra_col else r"p{2.8cm}")
+             + _P * 4 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.4cm}" + _P)
     head = ["arm"]
     if extra_col:
         head.insert(0, extra_col[0])
-    head += ["one-step $r$", "rollout $r$",
+    head += [r"fit roll $r$ \tiny same form", r"fit roll $r$ \tiny other form",
+             "one-step $r$", "rollout $r$",
              r"$W_{ij}$ $R^2$", r"$\tau$ $R^2$", r"$V_{rest}$ $R^2$",
              r"$\mathrm{msg}_i$ $R^2$"]
     if eij:
         head += [r"$E_{ij}$ $R^2$"]
-    head += [r"fit $R^2$ \tiny upd/cond/cur", "cluster acc.", r"\tiny config"]
+    head += [r"fit $R^2$ \tiny upd/cond/cur", "cluster acc."]
     # Flush left, not centred: the tables differ in width by several columns and
     # centring made each one start at a different indent down the page.
     # Caption ABOVE the table: read top to bottom, the name of the thing comes
     # before the thing. \caption placed before \begin{tabular} is what puts it
     # there; the float would otherwise number it after the rules.
     out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
-           r"\setlength{\tabcolsep}{2pt}",
+           r"\setlength{\tabcolsep}{1.5pt}",
            rf"\caption{{{caption}}}",
            r"\setlength{\tabcolsep}{3pt}",
            rf"\begin{{tabular}}{{{ncols}}}", r"\toprule",
@@ -325,7 +325,8 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
                 except (TypeError, ValueError):
                     return "--"
                 return green(num(x), x)
-            cells += [_pred(r_["onestep"]), _pred(r_["roll"]),
+            cells += [_pred(r_["roll_own"]), _pred(r_["roll_alt"]),
+                      _pred(r_["onestep"]), _pred(r_["roll"]),
                       r2(r_["Wij"]), r2(r_["tau"]), r2(r_["V_rest"]), r2(r_["msg"])]
             if eij:
                 cells += [r2(r_["Eij"])]
@@ -354,10 +355,12 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
             if not _c and not _cur:
                 _c = r_["fit"]
             cells += [_triple_fit(r_["ufit"], _c, _cur), _pred(r_["cluster"])]
-        cells += [r"\tiny\texttt{" + esc(r_["config"]) + "}"]
         if _best is not None and r_ is _best:
             cells = [(r"\textbf{" + c + "}") if c else c for c in cells]
+        _ncol = len(cells)
         out.append(" & ".join(cells) + r" \\")
+        out.append(r"\multicolumn{" + str(_ncol) + r"}{@{}l@{}}{\tiny\texttt{"
+                   + esc(r_["config"]) + r"}} \\[1pt]")
     # The summary row, over the finished arms only -- a mean that quietly
     # included a pending run's train-split number would be the one number in the
     # table nobody could trace back to a row.
@@ -374,13 +377,14 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
                 except (TypeError, ValueError):
                     pass
             return out_
-        cells += [mean_sd(_floats("onestep")), mean_sd(_floats("roll"))]
+        cells += [mean_sd(_floats("roll_own")), mean_sd(_floats("roll_alt")),
+                  mean_sd(_floats("onestep")), mean_sd(_floats("roll"))]
         for q in ["Wij", "tau", "V_rest", "msg"]:
             cells.append(mean_sd([_clean(r_[q]) for r_ in done]))
         if eij:
             cells.append(mean_sd([_clean(r_["Eij"]) for r_ in done]))
         cells += [mean_sd(_floats("cfit") or _floats("fit")),
-                  mean_sd(_floats("cluster")), ""]
+                  mean_sd(_floats("cluster"))]
         out += [r"\midrule", " & ".join(cells) + r" \\"]
     out += [r"\bottomrule", r"\end{tabular}"]
     _verdict = form_verdict(entries)
@@ -397,7 +401,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
 
 L = []
 L.append(r"""\documentclass[10pt,a4paper]{article}
-\usepackage[margin=1.2cm,landscape]{geometry}
+\usepackage[margin=0.8cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,xcolor,array}
 \usepackage[T1]{fontenc}
 \setlength{\parskip}{4pt}

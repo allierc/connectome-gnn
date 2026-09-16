@@ -1,5 +1,5 @@
 \documentclass[10pt,a4paper]{article}
-\usepackage[margin=1.2cm,landscape]{geometry}
+\usepackage[margin=0.8cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,xcolor,array}
 \usepackage[T1]{fontenc}
 \setlength{\parskip}{4pt}
@@ -15,22 +15,29 @@ held-out numbers yet.}\end{center}
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-08-30: group-lasso sweep, conductance model on current data, $\sigma=0.05$; $\lambda$ is \texttt{coeff\_g\_phi\_input\_group\_L1}.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-$\lambda$ = 0.25 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.83] (0.1) & \textcolor{green!45!black}{0.97 [0.87] (3.1)} & 0.86 [0.70] (3.8) & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p25\_cv00} \\
-$\lambda$ = 0.5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.82] (0.0) & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.90 [0.76] (3.1)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p5\_cv00} \\
-$\lambda$ = 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.89] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & 0.90 [0.73] (3.1) & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_1\_cv00} \\
-$\lambda$ = 2.5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90 [0.87] (0.0)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & 0.84 [0.51] (8.6) & \textcolor{green!45!black}{0.95 [0.95] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_2p5\_cv00} \\
-$\lambda$ = 5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.91] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.92 [0.83] (2.5)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_5\_cv00} \\
-$\lambda$ = 10 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.90 [0.87] (1.7)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.91} & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_10\_cv00} \\
-\textbf{$\lambda$ = 25} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{0.91 [0.74] (2.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.88} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_25\_cv00}} \\
+$\lambda$ = 0.25 & 0.11 & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.83] (0.1) & \textcolor{green!45!black}{0.97 [0.87] (3.1)} & 0.86 [0.70] (3.8) & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p25\_cv00}} \\[1pt]
+$\lambda$ = 0.5 & 0.11 & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.82] (0.0) & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.90 [0.76] (3.1)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p5\_cv00}} \\[1pt]
+$\lambda$ = 1 & 0.12 & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.89] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & 0.90 [0.73] (3.1) & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_1\_cv00}} \\[1pt]
+$\lambda$ = 2.5 & 0.12 & 0.48 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90 [0.87] (0.0)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & 0.84 [0.51] (8.6) & \textcolor{green!45!black}{0.95 [0.95] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_2p5\_cv00}} \\[1pt]
+$\lambda$ = 5 & 0.12 & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.91] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.92 [0.83] (2.5)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_5\_cv00}} \\[1pt]
+$\lambda$ = 10 & 0.12 & 0.48 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.90 [0.87] (1.7)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.91} \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_10\_cv00}} \\[1pt]
+\textbf{$\lambda$ = 25} & \textbf{0.12} & \textbf{0.49} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{0.91 [0.74] (2.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.88} \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_25\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.93 $\pm$ 0.03 & 0.98 $\pm$ 0.01 & 0.89 $\pm$ 0.03 & 0.97 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 &  \\
+\textbf{mean} $\pm$ SD & 0.12 $\pm$ 0.00 & 0.49 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.93 $\pm$ 0.03 & 0.98 $\pm$ 0.01 & 0.89 $\pm$ 0.03 & 0.97 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.002 $R^2$ per edge over the current form, and the reversal it needs sits 293$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the OTHER family's reconstruction reaches $r=0.49$ against 0.12, so the trajectory does not prefer the form the data was made with.}
@@ -39,20 +46,25 @@ $\lambda$ = 10 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-14: current model on current data, $\sigma=0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90 [0.88] (0.0)} & \textcolor{green!45!black}{0.94 [0.59] (4.5)} & 0.80 [-1.57] (19.0) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.86 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_cv00} \\
-fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.89 [0.87] (0.0) & 0.87 [-1.09] (3.1) & 0.78 [-0.71] (12.6) & \textcolor{green!45!black}{0.96 [0.95] (0.2)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_cv01} \\
-fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.85] (0.0) & \textcolor{green!45!black}{0.92 [-30.01] (4.6)} & 0.74 [-0.66] (13.9) & \textcolor{green!45!black}{0.94 [0.94] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_cv02} \\
-fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.86 [0.83] (0.0) & \textcolor{green!45!black}{0.92 [0.52] (3.9)} & 0.80 [-0.98] (19.9) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_cv03} \\
-\textbf{fold 4} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.91 [0.91] (0.0)}} & \textbf{\textcolor{green!45!black}{0.94 [-28.23] (2.0)}} & \textbf{0.81 [-2.57] (12.3)} & \textbf{\textcolor{green!45!black}{0.97 [0.88] (1.6)}} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.78} & \textbf{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv04}} \\
+fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90 [0.88] (0.0)} & \textcolor{green!45!black}{0.94 [0.59] (4.5)} & 0.80 [-1.57] (19.0) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.86 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv00}} \\[1pt]
+fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.89 [0.87] (0.0) & 0.87 [-1.09] (3.1) & 0.78 [-0.71] (12.6) & \textcolor{green!45!black}{0.96 [0.95] (0.2)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv01}} \\[1pt]
+fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.85] (0.0) & \textcolor{green!45!black}{0.92 [-30.01] (4.6)} & 0.74 [-0.66] (13.9) & \textcolor{green!45!black}{0.94 [0.94] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv02}} \\[1pt]
+fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.86 [0.83] (0.0) & \textcolor{green!45!black}{0.92 [0.52] (3.9)} & 0.80 [-0.98] (19.9) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv03}} \\[1pt]
+\textbf{fold 4} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.91 [0.91] (0.0)}} & \textbf{\textcolor{green!45!black}{0.94 [-28.23] (2.0)}} & \textbf{0.81 [-2.57] (12.3)} & \textbf{\textcolor{green!45!black}{0.97 [0.88] (1.6)}} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.78} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_cv04}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.02 & 0.92 $\pm$ 0.03 & 0.79 $\pm$ 0.03 & 0.95 $\pm$ 0.01 & -- & 1.00 $\pm$ 0.00 & 0.81 $\pm$ 0.03 &  \\
+\textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.02 & 0.92 $\pm$ 0.03 & 0.79 $\pm$ 0.03 & 0.95 $\pm$ 0.01 & -- & 1.00 $\pm$ 0.00 & 0.81 $\pm$ 0.03 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 274$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column.}
@@ -60,20 +72,25 @@ fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-14: current model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-fold 00\_ref & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.95 [0.94] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.95 [0.88] (1.8)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90} & \tiny\texttt{flyvis\_current\_noise\_005\_current\_cv00\_ref} \\
-fold 01$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\_005\_current\_cv01} \\
-\textbf{fold 02} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{0.85 [0.61] (4.0)} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.87} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv02}} \\
-fold 03 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{0.93 [0.76] (4.1)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_cv03} \\
-fold 04 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.94 [0.92] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & 0.81 [0.60] (5.1) & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.88 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_cv04} \\
+fold 00\_ref & \textcolor{green!45!black}{1.00} & 0.68 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.95 [0.94] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.95 [0.88] (1.8)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv00\_ref}} \\[1pt]
+fold 01$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv01}} \\[1pt]
+\textbf{fold 02} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{0.57} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{0.85 [0.61] (4.0)} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.87} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv02}} \\[1pt]
+fold 03 & \textcolor{green!45!black}{1.00} & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{0.93 [0.76] (4.1)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv03}} \\[1pt]
+fold 04 & \textcolor{green!45!black}{0.99} & 0.49 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.94 [0.92] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & 0.81 [0.60] (5.1) & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & -- & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.88 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv04}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.95 $\pm$ 0.01 & 0.98 $\pm$ 0.01 & 0.89 $\pm$ 0.07 & 0.98 $\pm$ 0.01 & -- & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 &  \\
+\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 0.56 $\pm$ 0.09 & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.95 $\pm$ 0.01 & 0.98 $\pm$ 0.01 & 0.89 $\pm$ 0.07 & 0.98 $\pm$ 0.01 & -- & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 219$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=1.00$ against 0.53 for the other family.}
@@ -81,19 +98,23 @@ fold 04 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-14: conductance model on conductance data, $\sigma=0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-\textbf{gnn} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{-0.91 [-7.95] (0.2)} & \textbf{0.86 [0.25] (7.4)} & \textbf{0.88 [-75.93] (58.6)} & \textbf{0.66 [-1.36] (6.8)} & \textbf{0.83 [-1474] (61.3)} & \textbf{\textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99}} & \textbf{0.48} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_cv00}} \\
-gnn\_nol1 & \textcolor{green!45!black}{0.97} & 0.56 & -1.55 [-2.39] (0.3) & \textcolor{green!45!black}{0.93 [0.02] (12.1)} & 0.87 [-138135] (75.8) & 0.57 [0.31] (10.4) & 0.86 [-72.62] (68.6) & \textcolor{green!45!black}{0.98} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.46 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_nol1\_cv00} \\
-gnn\_nol1sil & \textcolor{green!45!black}{0.98} & 0.76 & -1.78 [-70834218] (0.6) & 0.40 [0.37] (14.6) & \textcolor{green!45!black}{0.93 [-293660] (74.1)} & 0.47 [0.23] (18.8) & 0.88 [-2840] (51.6) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.36 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_nol1sil\_cv00} \\
-gnnsil & 0.70 & 0.45 & -- & -11.02 [-0.10] (58.2) & 0.82 [-18.16] (72.4) & -0.02 [-0.00] (14.2) & -- & \textcolor{green!45!black}{0.92} / 0.64 / 0.55 & 0.40 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnnsil\_cv00} \\
+\textbf{gnn} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{-0.91 [-7.95] (0.2)} & \textbf{0.86 [0.25] (7.4)} & \textbf{0.88 [-75.93] (58.6)} & \textbf{0.66 [-1.36] (6.8)} & \textbf{0.83 [-1474] (61.3)} & \textbf{\textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99}} & \textbf{0.48} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_cv00}} \\[1pt]
+gnn\_nol1 & -- & -- & \textcolor{green!45!black}{0.97} & 0.56 & -1.55 [-2.39] (0.3) & \textcolor{green!45!black}{0.93 [0.02] (12.1)} & 0.87 [-138135] (75.8) & 0.57 [0.31] (10.4) & 0.86 [-72.62] (68.6) & \textcolor{green!45!black}{0.98} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.46 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_nol1\_cv00}} \\[1pt]
+gnn\_nol1sil & -- & -- & \textcolor{green!45!black}{0.98} & 0.76 & -1.78 [-70834218] (0.6) & 0.40 [0.37] (14.6) & \textcolor{green!45!black}{0.93 [-293660] (74.1)} & 0.47 [0.23] (18.8) & 0.88 [-2840] (51.6) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.36 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_nol1sil\_cv00}} \\[1pt]
+gnnsil & -- & -- & 0.70 & 0.45 & -- & -11.02 [-0.10] (58.2) & 0.82 [-18.16] (72.4) & -0.02 [-0.00] (14.2) & -- & \textcolor{green!45!black}{0.92} / 0.64 / 0.55 & 0.40 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnnsil\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 0.91 $\pm$ 0.14 & 0.69 $\pm$ 0.24 & -1.41 $\pm$ 0.45 & -2.21 $\pm$ 5.88 & 0.88 $\pm$ 0.04 & 0.42 $\pm$ 0.30 & 0.86 $\pm$ 0.03 & 0.91 $\pm$ 0.18 & 0.42 $\pm$ 0.06 &  \\
+\textbf{mean} $\pm$ SD & -- & -- & 0.91 $\pm$ 0.14 & 0.69 $\pm$ 0.24 & -1.41 $\pm$ 0.45 & -2.21 $\pm$ 5.88 & 0.88 $\pm$ 0.04 & 0.42 $\pm$ 0.30 & 0.86 $\pm$ 0.03 & 0.91 $\pm$ 0.18 & 0.42 $\pm$ 0.06 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.029$ $\pm$ 0.088 $R^2$ per edge over the current form, and the reversal it needs, 1.6$\times$ the data's own voltage range, is inside the range where it can be identified.}
@@ -102,19 +123,23 @@ gnnsil & 0.70 & 0.45 & -- & -11.02 [-0.10] (58.2) & 0.82 [-18.16] (72.4) & -0.02
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-14: conductance model on conductance data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-gnn & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.97} & -1.21 [-62.98] (0.9) & \textcolor{green!45!black}{0.97 [0.20] (8.3)} & 0.77 [-121.1] (43.1) & 0.81 [-4.61] (7.6) & 0.84 [-2.82] (62.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.58 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_cv00} \\
-gnn\_nol1 & \textcolor{green!45!black}{0.96} & 0.87 & -0.07 [-21.19] (0.4) & \textcolor{green!45!black}{0.91 [0.23] (12.4)} & \textcolor{green!45!black}{0.94 [-22.39] (63.2)} & 0.73 [-2.27] (13.4) & 0.89 [-2.54] (59.5) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_nol1\_cv00} \\
-gnn\_nol1sil & \textcolor{green!45!black}{0.96} & 0.76 & -0.51 [-30.63] (0.3) & \textcolor{green!45!black}{0.91 [0.35] (8.0)} & 0.85 [-514.6] (63.6) & 0.74 [0.13] (15.9) & 0.87 [-1.15] (47.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.64 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_nol1sil\_cv00} \\
-\textbf{gnnsil} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.86} & \textbf{0.42 [-12.07] (0.1)} & \textbf{\textcolor{green!45!black}{0.92 [0.48] (5.2)}} & \textbf{0.87 [-29.15] (42.8)} & \textbf{0.82 [0.22] (8.3)} & \textbf{\textcolor{green!45!black}{0.91 [-0.87] (37.7)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99}} & \textbf{0.69} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00}} \\
+gnn & 0.46 & 0.57 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.97} & -1.21 [-62.98] (0.9) & \textcolor{green!45!black}{0.97 [0.20] (8.3)} & 0.77 [-121.1] (43.1) & 0.81 [-4.61] (7.6) & 0.84 [-2.82] (62.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.58 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_cv00}} \\[1pt]
+gnn\_nol1 & 0.28 & 0.37 & \textcolor{green!45!black}{0.96} & 0.87 & -0.07 [-21.19] (0.4) & \textcolor{green!45!black}{0.91 [0.23] (12.4)} & \textcolor{green!45!black}{0.94 [-22.39] (63.2)} & 0.73 [-2.27] (13.4) & 0.89 [-2.54] (59.5) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_nol1\_cv00}} \\[1pt]
+gnn\_nol1sil & 0.45 & 0.48 & \textcolor{green!45!black}{0.96} & 0.76 & -0.51 [-30.63] (0.3) & \textcolor{green!45!black}{0.91 [0.35] (8.0)} & 0.85 [-514.6] (63.6) & 0.74 [0.13] (15.9) & 0.87 [-1.15] (47.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.64 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnn\_nol1sil\_cv00}} \\[1pt]
+\textbf{gnnsil} & \textbf{0.44} & \textbf{0.53} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.86} & \textbf{0.42 [-12.07] (0.1)} & \textbf{\textcolor{green!45!black}{0.92 [0.48] (5.2)}} & \textbf{0.87 [-29.15] (42.8)} & \textbf{0.82 [0.22] (8.3)} & \textbf{\textcolor{green!45!black}{0.91 [-0.87] (37.7)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99}} & \textbf{0.69} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 0.98 $\pm$ 0.02 & 0.86 $\pm$ 0.08 & -0.34 $\pm$ 0.69 & 0.93 $\pm$ 0.03 & 0.86 $\pm$ 0.07 & 0.78 $\pm$ 0.05 & 0.88 $\pm$ 0.03 & 1.00 $\pm$ 0.00 & 0.60 $\pm$ 0.08 &  \\
+\textbf{mean} $\pm$ SD & 0.41 $\pm$ 0.08 & 0.49 $\pm$ 0.09 & 0.98 $\pm$ 0.02 & 0.86 $\pm$ 0.08 & -0.34 $\pm$ 0.69 & 0.93 $\pm$ 0.03 & 0.86 $\pm$ 0.07 & 0.78 $\pm$ 0.05 & 0.88 $\pm$ 0.03 & 1.00 $\pm$ 0.00 & 0.60 $\pm$ 0.08 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.036$ $\pm$ 0.093 $R^2$ per edge over the current form, and the reversal it needs, 1.7$\times$ the data's own voltage range, is inside the range where it can be identified, rolled out, the OTHER family's reconstruction reaches $r=0.51$ against 0.44, so the trajectory does not prefer the form the data was made with.}
@@ -123,17 +148,19 @@ gnn\_nol1sil & \textcolor{green!45!black}{0.96} & 0.76 & -0.51 [-30.63] (0.3) & 
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-14: known-ODE on conductance data --- the generator's structure, parameters learned.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & known-ODE & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.04] (0.1) & \textcolor{green!45!black}{1.00 [0.77] (4.7)} & \textcolor{green!45!black}{0.99 [0.86] (10.9)} & \textcolor{green!45!black}{0.98 [0.93] (1.6)} & \textcolor{green!45!black}{0.98 [0.39] (11.2)} & -- & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_llmwinner\_cv00} \\
-\textbf{0.05} & \textbf{known-ODE} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00 [0.95] (4.2)}} & \textbf{\textcolor{green!45!black}{0.99 [0.98] (4.9)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.7)}} & \textbf{\textcolor{green!45!black}{0.95 [0.84] (8.9)}} & \textbf{--} & \textbf{0.58} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_llmwinner\_cv00}} \\
+0 & known-ODE & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.04] (0.1) & \textcolor{green!45!black}{1.00 [0.77] (4.7)} & \textcolor{green!45!black}{0.99 [0.86] (10.9)} & \textcolor{green!45!black}{0.98 [0.93] (1.6)} & \textcolor{green!45!black}{0.98 [0.39] (11.2)} & -- & 0.50 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_llmwinner\_cv00}} \\[1pt]
+\textbf{0.05} & \textbf{known-ODE} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.97 [0.97] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00 [0.95] (4.2)}} & \textbf{\textcolor{green!45!black}{0.99 [0.98] (4.9)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.7)}} & \textbf{\textcolor{green!45!black}{0.95 [0.84] (8.9)}} & \textbf{--} & \textbf{0.58} \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_llmwinner\_cv00}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.92 $\pm$ 0.07 & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.01 & 0.96 $\pm$ 0.02 & -- & 0.54 $\pm$ 0.06 &  \\
+ & \textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.92 $\pm$ 0.07 & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.01 & 0.96 $\pm$ 0.02 & -- & 0.54 $\pm$ 0.06 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
@@ -142,18 +169,23 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-15 Block A: current model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-\textbf{cv00} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.95 [0.94] (0.0)}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{\textcolor{green!45!black}{0.95 [0.88] (1.8)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.90}} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv00}} \\
-nol$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\_005\_current\_nol} \\
-sil$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\_005\_current\_sil} \\
-nol1sil$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\_005\_current\_nol1sil} \\
-nol1silgain$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\_005\_current\_nol1silgain} \\
+\textbf{cv00} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.68} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.95 [0.94] (0.0)}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{\textcolor{green!45!black}{0.95 [0.88] (1.8)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.90}} \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_cv00}} \\[1pt]
+nol$^{*}$ &  &  &  &  &  &  &  &  \\
+\multicolumn{9}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_nol}} \\[1pt]
+sil$^{*}$ &  &  &  &  &  &  &  &  \\
+\multicolumn{9}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_sil}} \\[1pt]
+nol1sil$^{*}$ &  &  &  &  &  &  &  &  \\
+\multicolumn{9}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_nol1sil}} \\[1pt]
+nol1silgain$^{*}$ &  &  &  &  &  &  &  &  \\
+\multicolumn{9}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_nol1silgain}} \\[1pt]
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 201$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=1.00$ against 0.68 for the other family.}
@@ -163,28 +195,41 @@ nol1silgain$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-15 Block B: conductance model on conductance data, $\sigma=0$ and $0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & ctrl & \textcolor{green!45!black}{0.96} & 0.26 & -2.99 [-3154680212827] (1.1) & 0.57 [-0.03] (19.0) & \textcolor{green!45!black}{0.91 [-54560637] (76.5)} & 0.43 [-2.00] (24.5) & 0.88 [-953.2] (61.9) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_ctrl\_cv00} \\
-0 & g1e5 & \textcolor{green!45!black}{0.99} & 0.56 & -1.64 [-35.46] (0.6) & 0.61 [-0.02] (10.9) & \textcolor{green!45!black}{0.95 [-16.50] (68.9)} & 0.60 [0.17] (16.0) & 0.89 [-995.4] (54.3) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e5\_cv00} \\
-0 & g1e4 & \textcolor{green!45!black}{0.99} & 0.79 & -1.87 [-1488889710247] (0.5) & 0.17 [-0.02] (11.6) & \textcolor{green!45!black}{0.94 [-5.27] (72.5)} & 0.60 [0.21] (18.2) & 0.87 [-1153] (45.9) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e4\_cv00} \\
-0 & g1e3 & \textcolor{green!45!black}{0.98} & 0.77 & -1.48 [-1536170] (0.6) & 0.47 [-0.02] (11.7) & \textcolor{green!45!black}{0.95 [-4.18] (70.8)} & 0.57 [0.24] (21.3) & 0.87 [-5845] (46.2) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.53 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e3\_cv00} \\
-0 & rc5 & \textcolor{green!45!black}{0.96} & \textcolor{green!45!black}{0.91} & -2.86 [-40973196600738] (0.7) & 0.09 [-0.03] (12.6) & \textcolor{green!45!black}{0.91 [-2215] (77.4)} & 0.46 [-0.18] (26.8) & 0.86 [-123.3] (58.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.48 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_rc5\_cv00} \\
-0 & rc5g1e4 & \textcolor{green!45!black}{0.97} & \textcolor{green!45!black}{0.90} & -2.36 [-193434] (0.4) & 0.19 [-0.02] (12.6) & \textcolor{green!45!black}{0.95 [-11.65] (76.0)} & 0.61 [0.01] (22.7) & 0.87 [-812.8] (54.1) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.46 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_rc5g1e4\_cv00} \\
-0.05 & ctrl & \textcolor{green!45!black}{0.97} & 0.78 & -1.25 [-3.21] (0.3) & 0.65 [0.38] (11.8) & \textcolor{green!45!black}{0.96 [-3.69] (58.2)} & 0.73 [0.09] (18.2) & 0.88 [-1.26] (44.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.60 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_ctrl\_cv00} \\
-0.05 & g1e5 & \textcolor{green!45!black}{0.94} & 0.69 & -1.02 [-1676] (0.4) & 0.88 [0.29] (12.5) & \textcolor{green!45!black}{0.94 [-177.0] (61.3)} & 0.71 [0.16] (12.2) & 0.87 [-1.32] (54.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.59 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e5\_cv00} \\
-\textbf{0.05} & \textbf{g1e4} & \textbf{\textcolor{green!45!black}{0.95}} & \textbf{0.78} & \textbf{-0.82 [-72138462] (0.4)} & \textbf{0.90 [0.30] (8.7)} & \textbf{0.84 [-17049718] (58.3)} & \textbf{0.70 [0.31] (15.0)} & \textbf{0.86 [-0.97] (54.9)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98}} & \textbf{0.59} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e4\_cv00}} \\
-0.05 & g1e3 & \textcolor{green!45!black}{0.95} & 0.80 & -1.89 [-135.9] (0.4) & 0.61 [0.36] (8.8) & \textcolor{green!45!black}{0.90 [-582073] (64.5)} & 0.72 [0.37] (12.5) & 0.87 [-1.75] (54.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.62 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e3\_cv00} \\
-0.05 & rc5 & \textcolor{green!45!black}{0.95} & 0.90 & -2.19 [-6.16] (0.4) & \textcolor{green!45!black}{0.91 [0.03] (8.0)} & 0.82 [-626.6] (65.2) & 0.76 [0.06] (15.8) & 0.84 [-1.48] (50.1) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.58 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_rc5\_cv00} \\
-0.05 & rc5g1e4 & \textcolor{green!45!black}{0.92} & 0.88 & -1.01 [-156.4] (0.3) & 0.81 [0.22] (8.0) & 0.82 [-2496] (65.8) & 0.71 [-0.04] (14.2) & 0.86 [-3.52] (60.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.54 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_rc5g1e4\_cv00} \\
-0\,$\dagger$ & repro & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.91 [-7.95] (0.2) & 0.86 [0.25] (7.4) & 0.88 [-75.93] (58.6) & 0.66 [-1.36] (6.8) & 0.83 [-1474] (61.3) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.48 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_cv00\_repro} \\
+0 & ctrl & -- & -- & \textcolor{green!45!black}{0.96} & 0.26 & -2.99 [-3154680212827] (1.1) & 0.57 [-0.03] (19.0) & \textcolor{green!45!black}{0.91 [-54560637] (76.5)} & 0.43 [-2.00] (24.5) & 0.88 [-953.2] (61.9) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.50 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_ctrl\_cv00}} \\[1pt]
+0 & g1e5 & -- & -- & \textcolor{green!45!black}{0.99} & 0.56 & -1.64 [-35.46] (0.6) & 0.61 [-0.02] (10.9) & \textcolor{green!45!black}{0.95 [-16.50] (68.9)} & 0.60 [0.17] (16.0) & 0.89 [-995.4] (54.3) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e5\_cv00}} \\[1pt]
+0 & g1e4 & -- & -- & \textcolor{green!45!black}{0.99} & 0.79 & -1.87 [-1488889710247] (0.5) & 0.17 [-0.02] (11.6) & \textcolor{green!45!black}{0.94 [-5.27] (72.5)} & 0.60 [0.21] (18.2) & 0.87 [-1153] (45.9) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.51 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e4\_cv00}} \\[1pt]
+0 & g1e3 & -- & -- & \textcolor{green!45!black}{0.98} & 0.77 & -1.48 [-1536170] (0.6) & 0.47 [-0.02] (11.7) & \textcolor{green!45!black}{0.95 [-4.18] (70.8)} & 0.57 [0.24] (21.3) & 0.87 [-5845] (46.2) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.53 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_g1e3\_cv00}} \\[1pt]
+0 & rc5 & -- & -- & \textcolor{green!45!black}{0.96} & \textcolor{green!45!black}{0.91} & -2.86 [-40973196600738] (0.7) & 0.09 [-0.03] (12.6) & \textcolor{green!45!black}{0.91 [-2215] (77.4)} & 0.46 [-0.18] (26.8) & 0.86 [-123.3] (58.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.48 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_rc5\_cv00}} \\[1pt]
+0 & rc5g1e4 & -- & -- & \textcolor{green!45!black}{0.97} & \textcolor{green!45!black}{0.90} & -2.36 [-193434] (0.4) & 0.19 [-0.02] (12.6) & \textcolor{green!45!black}{0.95 [-11.65] (76.0)} & 0.61 [0.01] (22.7) & 0.87 [-812.8] (54.1) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.46 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_nol12sil\_rc5g1e4\_cv00}} \\[1pt]
+0.05 & ctrl & 0.20 & 0.27 & \textcolor{green!45!black}{0.97} & 0.78 & -1.25 [-3.21] (0.3) & 0.65 [0.38] (11.8) & \textcolor{green!45!black}{0.96 [-3.69] (58.2)} & 0.73 [0.09] (18.2) & 0.88 [-1.26] (44.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.60 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_ctrl\_cv00}} \\[1pt]
+0.05 & g1e5 & 0.28 & 0.29 & \textcolor{green!45!black}{0.94} & 0.69 & -1.02 [-1676] (0.4) & 0.88 [0.29] (12.5) & \textcolor{green!45!black}{0.94 [-177.0] (61.3)} & 0.71 [0.16] (12.2) & 0.87 [-1.32] (54.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.59 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e5\_cv00}} \\[1pt]
+\textbf{0.05} & \textbf{g1e4} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{0.95}} & \textbf{0.78} & \textbf{-0.82 [-72138462] (0.4)} & \textbf{0.90 [0.30] (8.7)} & \textbf{0.84 [-17049718] (58.3)} & \textbf{0.70 [0.31] (15.0)} & \textbf{0.86 [-0.97] (54.9)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98}} & \textbf{0.59} \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e4\_cv00}} \\[1pt]
+0.05 & g1e3 & 0.39 & 0.49 & \textcolor{green!45!black}{0.95} & 0.80 & -1.89 [-135.9] (0.4) & 0.61 [0.36] (8.8) & \textcolor{green!45!black}{0.90 [-582073] (64.5)} & 0.72 [0.37] (12.5) & 0.87 [-1.75] (54.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.62 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_g1e3\_cv00}} \\[1pt]
+0.05 & rc5 & 0.25 & 0.27 & \textcolor{green!45!black}{0.95} & 0.90 & -2.19 [-6.16] (0.4) & \textcolor{green!45!black}{0.91 [0.03] (8.0)} & 0.82 [-626.6] (65.2) & 0.76 [0.06] (15.8) & 0.84 [-1.48] (50.1) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.58 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_rc5\_cv00}} \\[1pt]
+0.05 & rc5g1e4 & 0.29 & 0.48 & \textcolor{green!45!black}{0.92} & 0.88 & -1.01 [-156.4] (0.3) & 0.81 [0.22] (8.0) & 0.82 [-2496] (65.8) & 0.71 [-0.04] (14.2) & 0.86 [-3.52] (60.7) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.54 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_nol12sil\_rc5g1e4\_cv00}} \\[1pt]
+0\,$\dagger$ & repro & -- & -- & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.91 [-7.95] (0.2) & 0.86 [0.25] (7.4) & 0.88 [-75.93] (58.6) & 0.66 [-1.36] (6.8) & 0.83 [-1474] (61.3) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.48 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_gnn\_cv00\_repro}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 0.96 $\pm$ 0.02 & 0.77 $\pm$ 0.19 & -1.72 $\pm$ 0.73 & 0.59 $\pm$ 0.29 & 0.91 $\pm$ 0.05 & 0.63 $\pm$ 0.10 & 0.87 $\pm$ 0.02 & 1.00 $\pm$ 0.00 & 0.54 $\pm$ 0.05 &  \\
+ & \textbf{mean} $\pm$ SD & 0.28 $\pm$ 0.07 & 0.36 $\pm$ 0.11 & 0.96 $\pm$ 0.02 & 0.77 $\pm$ 0.19 & -1.72 $\pm$ 0.73 & 0.59 $\pm$ 0.29 & 0.91 $\pm$ 0.05 & 0.63 $\pm$ 0.10 & 0.87 $\pm$ 0.02 & 1.00 $\pm$ 0.00 & 0.54 $\pm$ 0.05 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.033$ $\pm$ 0.087 $R^2$ per edge over the current form, and the reversal it needs, 1.4$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.28$ and 0.29), so the trajectory does not separate the families.}
@@ -194,20 +239,25 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-15 Block C: conductance model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-fold 0 & \textcolor{green!45!black}{0.95} & 0.88 & -1.00 [-30.56] (4.0) & 0.76 [0.67] (3.0) & 0.53 [-504.3] (71.0) & 0.59 [-0.16] (15.2) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} & 0.66 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv00} \\
-\textbf{fold 1} & \textbf{\textcolor{green!45!black}{0.98}} & \textbf{\textcolor{green!45!black}{0.93}} & \textbf{0.05 [-32.19] (1.0)} & \textbf{0.81 [0.78] (2.1)} & \textbf{0.57 [-555.4] (57.6)} & \textbf{0.70 [0.59] (4.5)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.62} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv01}} \\
-fold 2 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.92} & -0.01 [-22.93] (1.0) & 0.88 [0.80] (2.1) & 0.49 [-327.4] (58.2) & 0.73 [0.37] (3.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.61 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv02} \\
-fold 3 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.92} & -0.16 [-27.71] (1.4) & 0.81 [0.50] (5.1) & 0.64 [-439.4] (59.7) & 0.81 [0.58] (5.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.65 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv03} \\
-fold 4 & \textcolor{green!45!black}{0.95} & 0.89 & -1.02 [-41407] (4.4) & 0.61 [0.69] (3.3) & 0.47 [-146807] (73.5) & 0.63 [-0.03] (13.4) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.73 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv04} \\
+fold 0 & 0.49 & 0.45 & \textcolor{green!45!black}{0.95} & 0.88 & -1.00 [-30.56] (4.0) & 0.76 [0.67] (3.0) & 0.53 [-504.3] (71.0) & 0.59 [-0.16] (15.2) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} & 0.66 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv00}} \\[1pt]
+\textbf{fold 1} & \textbf{0.48} & \textbf{0.39} & \textbf{\textcolor{green!45!black}{0.98}} & \textbf{\textcolor{green!45!black}{0.93}} & \textbf{0.05 [-32.19] (1.0)} & \textbf{0.81 [0.78] (2.1)} & \textbf{0.57 [-555.4] (57.6)} & \textbf{0.70 [0.59] (4.5)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.62} \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv01}} \\[1pt]
+fold 2 & 0.48 & 0.51 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.92} & -0.01 [-22.93] (1.0) & 0.88 [0.80] (2.1) & 0.49 [-327.4] (58.2) & 0.73 [0.37] (3.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.61 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv02}} \\[1pt]
+fold 3 & 0.13 & 0.40 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.92} & -0.16 [-27.71] (1.4) & 0.81 [0.50] (5.1) & 0.64 [-439.4] (59.7) & 0.81 [0.58] (5.5) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.65 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv03}} \\[1pt]
+fold 4 & 0.44 & 0.45 & \textcolor{green!45!black}{0.95} & 0.89 & -1.02 [-41407] (4.4) & 0.61 [0.69] (3.3) & 0.47 [-146807] (73.5) & 0.63 [-0.03] (13.4) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.98} & 0.73 \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_nol12sil\_g1e3\_cv04}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & 0.97 $\pm$ 0.02 & 0.91 $\pm$ 0.02 & -0.43 $\pm$ 0.54 & 0.77 $\pm$ 0.10 & 0.54 $\pm$ 0.07 & 0.69 $\pm$ 0.08 & 1.00 $\pm$ 0.00 & 0.65 $\pm$ 0.05 &  \\
+\textbf{mean} $\pm$ SD & 0.40 $\pm$ 0.15 & 0.44 $\pm$ 0.05 & 0.97 $\pm$ 0.02 & 0.91 $\pm$ 0.02 & -0.43 $\pm$ 0.54 & 0.77 $\pm$ 0.10 & 0.54 $\pm$ 0.07 & 0.69 $\pm$ 0.08 & 1.00 $\pm$ 0.00 & 0.65 $\pm$ 0.05 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.042$ $\pm$ 0.106 $R^2$ per edge over the current form, and the reversal it needs, 2.4$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.48$ and 0.45), so the trajectory does not separate the families.}
@@ -215,25 +265,35 @@ fold 4 & \textcolor{green!45!black}{0.95} & 0.89 & -1.02 [-41407] (4.4) & 0.61 [
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-15 Block D: current model on current data, $\sigma=0.05$, measurement noise $0.1$ and $0.2$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma_{meas}$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma_{meas}$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0.1 & k1 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.96} & 0.75 [0.66] (0.1) & 0.30 [0.16] (7.9) & 0.66 [-1.07] (25.3) & 0.88 [0.88] (0.3) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 & \tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_k1\_cv00} \\
-0.1 & rc5 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.99} & 0.75 [0.72] (0.0) & 0.38 [0.30] (7.4) & 0.67 [-1.56] (25.7) & 0.89 [0.87] (0.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 & \tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc5\_cv00} \\
-0.1 & rc8 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & 0.76 [0.75] (0.0) & 0.43 [0.39] (7.0) & 0.70 [-1.16] (23.9) & 0.89 [0.88] (0.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 & \tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc8\_cv00} \\
-\textbf{0.1} & \textbf{rc10} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{0.77 [0.75] (0.0)} & \textbf{0.44 [0.40] (5.7)} & \textbf{0.71 [-1.18] (25.1)} & \textbf{0.89 [0.88] (0.2)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.86} & \textbf{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc10\_cv00}} \\
-0.1 & k5fix & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & 0.70 [-13.39] (0.1) & 0.34 [-1.62] (8.1) & 0.70 [-2585] (31.2) & 0.79 [-21.94] (5.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.83 & \tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_k5fix\_cv00} \\
-0.2 & k1 & \textcolor{green!45!black}{0.96} & \textcolor{green!45!black}{0.92} & 0.51 [0.46] (0.1) & 0.13 [-0.04] (9.7) & 0.61 [-2.93] (43.2) & 0.79 [0.78] (0.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.86 & \tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_k1\_cv00} \\
-0.2 & rc5 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.97} & 0.50 [0.44] (0.1) & 0.09 [-0.03] (9.7) & 0.51 [-4.51] (42.4) & 0.77 [0.72] (2.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.84 & \tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc5\_cv00} \\
-0.2 & rc8 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.98} & 0.59 [0.56] (0.0) & 0.19 [0.02] (9.7) & 0.59 [-3.09] (37.7) & 0.80 [0.78] (0.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 & \tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc8\_cv00} \\
-0.2 & rc10 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.98} & 0.59 [0.57] (0.1) & 0.20 [0.00] (9.7) & 0.59 [-3.34] (38.2) & 0.81 [0.79] (0.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.79 & \tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc10\_cv00} \\
-0.2 & k5fix & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.97} & 0.53 [0.46] (0.1) & 0.08 [-0.03] (9.7) & 0.39 [-5.62] (45.3) & 0.69 [0.62] (5.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 & \tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_k5fix\_cv00} \\
+0.1 & k1 & \textcolor{green!45!black}{0.96} & 0.65 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.96} & 0.75 [0.66] (0.1) & 0.30 [0.16] (7.9) & 0.66 [-1.07] (25.3) & 0.88 [0.88] (0.3) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_k1\_cv00}} \\[1pt]
+0.1 & rc5 & \textcolor{green!45!black}{0.99} & 0.68 & \textcolor{green!45!black}{0.98} & \textcolor{green!45!black}{0.99} & 0.75 [0.72] (0.0) & 0.38 [0.30] (7.4) & 0.67 [-1.56] (25.7) & 0.89 [0.87] (0.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc5\_cv00}} \\[1pt]
+0.1 & rc8 & \textcolor{green!45!black}{0.99} & 0.65 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & 0.76 [0.75] (0.0) & 0.43 [0.39] (7.0) & 0.70 [-1.16] (23.9) & 0.89 [0.88] (0.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc8\_cv00}} \\[1pt]
+\textbf{0.1} & \textbf{rc10} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{0.63} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{0.77 [0.75] (0.0)} & \textbf{0.44 [0.40] (5.7)} & \textbf{0.71 [-1.18] (25.1)} & \textbf{0.89 [0.88] (0.2)} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.86} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_rc10\_cv00}} \\[1pt]
+0.1 & k5fix & \textcolor{green!45!black}{0.93} & 0.58 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & 0.70 [-13.39] (0.1) & 0.34 [-1.62] (8.1) & 0.70 [-2585] (31.2) & 0.79 [-21.94] (5.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.83 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_k5fix\_cv00}} \\[1pt]
+0.2 & k1 & \textcolor{green!45!black}{0.92} & 0.64 & \textcolor{green!45!black}{0.96} & \textcolor{green!45!black}{0.92} & 0.51 [0.46] (0.1) & 0.13 [-0.04] (9.7) & 0.61 [-2.93] (43.2) & 0.79 [0.78] (0.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.86 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_k1\_cv00}} \\[1pt]
+0.2 & rc5 & \textcolor{green!45!black}{0.91} & 0.57 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.97} & 0.50 [0.44] (0.1) & 0.09 [-0.03] (9.7) & 0.51 [-4.51] (42.4) & 0.77 [0.72] (2.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.84 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc5\_cv00}} \\[1pt]
+0.2 & rc8 & \textcolor{green!45!black}{0.97} & 0.65 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.98} & 0.59 [0.56] (0.0) & 0.19 [0.02] (9.7) & 0.59 [-3.09] (37.7) & 0.80 [0.78] (0.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc8\_cv00}} \\[1pt]
+0.2 & rc10 & \textcolor{green!45!black}{0.98} & 0.59 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.98} & 0.59 [0.57] (0.1) & 0.20 [0.00] (9.7) & 0.59 [-3.34] (38.2) & 0.81 [0.79] (0.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.79 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_rc10\_cv00}} \\[1pt]
+0.2 & k5fix & \textcolor{green!45!black}{0.91} & 0.54 & \textcolor{green!45!black}{0.95} & \textcolor{green!45!black}{0.97} & 0.53 [0.46] (0.1) & 0.08 [-0.03] (9.7) & 0.39 [-5.62] (45.3) & 0.69 [0.62] (5.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_020\_gnn\_k5fix\_cv00}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 0.97 $\pm$ 0.02 & 0.97 $\pm$ 0.02 & 0.64 $\pm$ 0.11 & 0.26 $\pm$ 0.14 & 0.61 $\pm$ 0.10 & 0.82 $\pm$ 0.07 & 1.00 $\pm$ 0.00 & 0.84 $\pm$ 0.03 &  \\
+ & \textbf{mean} $\pm$ SD & 0.96 $\pm$ 0.03 & 0.62 $\pm$ 0.04 & 0.97 $\pm$ 0.02 & 0.97 $\pm$ 0.02 & 0.64 $\pm$ 0.11 & 0.26 $\pm$ 0.14 & 0.61 $\pm$ 0.10 & 0.82 $\pm$ 0.07 & 1.00 $\pm$ 0.00 & 0.84 $\pm$ 0.03 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 67$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=0.97$ against 0.64 for the other family.}
@@ -242,25 +302,35 @@ $\sigma_{meas}$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: known-ODE cross-model grid --- current known-ODE on current-generated data, five folds at each $\sigma$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11539] (1.8)} & \textcolor{green!45!black}{0.92 [0.15] (7.3)} & \textcolor{green!45!black}{0.96 [0.95] (0.2)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv00} \\
-0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11457] (1.8)} & \textcolor{green!45!black}{0.92 [0.12] (7.4)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.90 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv01} \\
-0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11622] (1.8)} & \textcolor{green!45!black}{0.92 [0.14] (7.4)} & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv02} \\
-\textbf{0} & \textbf{fold 3} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.93 [0.89] (0.1)}} & \textbf{\textcolor{green!45!black}{0.99 [-11648] (1.8)}} & \textbf{\textcolor{green!45!black}{0.92 [0.15] (7.4)}} & \textbf{\textcolor{green!45!black}{0.96 [0.96] (0.1)}} & \textbf{--} & \textbf{0.89} & \textbf{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv03}} \\
-0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11726] (1.8)} & \textcolor{green!45!black}{0.92 [0.16] (7.2)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv04} \\
-0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.92] (13.5)} & \textcolor{green!45!black}{0.93 [0.67] (6.4)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv00} \\
-0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.96 [-4.92] (13.5)} & \textcolor{green!45!black}{0.94 [0.76] (5.4)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv01} \\
-0.05 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.93] (13.6)} & \textcolor{green!45!black}{0.91 [0.63] (6.1)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv02} \\
-0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.91] (13.6)} & \textcolor{green!45!black}{0.93 [0.72] (6.1)} & -- & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv03} \\
-0.05 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.90] (13.5)} & \textcolor{green!45!black}{0.94 [0.71] (5.8)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv04} \\
+0 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11539] (1.8)} & \textcolor{green!45!black}{0.92 [0.15] (7.3)} & \textcolor{green!45!black}{0.96 [0.95] (0.2)} & -- & 0.88 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv00}} \\[1pt]
+0 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11457] (1.8)} & \textcolor{green!45!black}{0.92 [0.12] (7.4)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.90 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv01}} \\[1pt]
+0 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11622] (1.8)} & \textcolor{green!45!black}{0.92 [0.14] (7.4)} & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & -- & 0.88 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv02}} \\[1pt]
+\textbf{0} & \textbf{fold 3} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.93 [0.89] (0.1)}} & \textbf{\textcolor{green!45!black}{0.99 [-11648] (1.8)}} & \textbf{\textcolor{green!45!black}{0.92 [0.15] (7.4)}} & \textbf{\textcolor{green!45!black}{0.96 [0.96] (0.1)}} & \textbf{--} & \textbf{0.89} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv03}} \\[1pt]
+0 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11726] (1.8)} & \textcolor{green!45!black}{0.92 [0.16] (7.2)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.88 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv04}} \\[1pt]
+0.05 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.92] (13.5)} & \textcolor{green!45!black}{0.93 [0.67] (6.4)} & -- & 0.89 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv00}} \\[1pt]
+0.05 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.96 [-4.92] (13.5)} & \textcolor{green!45!black}{0.94 [0.76] (5.4)} & -- & 0.89 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv01}} \\[1pt]
+0.05 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.93] (13.6)} & \textcolor{green!45!black}{0.91 [0.63] (6.1)} & -- & 0.89 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv02}} \\[1pt]
+0.05 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.91] (13.6)} & \textcolor{green!45!black}{0.93 [0.72] (6.1)} & -- & 0.90 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv03}} \\[1pt]
+0.05 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.90] (13.5)} & \textcolor{green!45!black}{0.94 [0.71] (5.8)} & -- & 0.88 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv04}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.87 $\pm$ 0.07 & 0.97 $\pm$ 0.02 & 0.94 $\pm$ 0.02 & 0.95 $\pm$ 0.02 & -- & 0.89 $\pm$ 0.01 &  \\
+ & \textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.87 $\pm$ 0.07 & 0.97 $\pm$ 0.02 & 0.94 $\pm$ 0.02 & 0.95 $\pm$ 0.02 & -- & 0.89 $\pm$ 0.01 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
@@ -268,25 +338,35 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: known-ODE cross-model grid --- conductance known-ODE on current-generated data, five folds at each $\sigma$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5352] (8.6) & 0.75 [-23.33] (28.4) & 0.85 [-0.20] (6.4) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv00} \\
-0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.90 [-5232] (8.4) & 0.75 [-23.27] (27.7) & 0.88 [-0.28] (6.5) & -- & 0.42 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv01} \\
-0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5300] (8.6) & 0.74 [-22.58] (27.6) & 0.84 [-0.47] (6.3) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv02} \\
-0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5320] (8.6) & 0.75 [-22.68] (27.9) & 0.86 [-0.07] (6.2) & -- & 0.45 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv03} \\
-0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.89 [-5335] (8.4) & 0.75 [-22.36] (27.6) & 0.87 [-0.09] (6.5) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv04} \\
-0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.4)} & 0.66 [-9.51] (23.2) & \textcolor{green!45!black}{0.91 [0.49] (2.1)} & -- & 0.72 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv00} \\
-0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.3)} & 0.66 [-9.56] (23.1) & \textcolor{green!45!black}{0.92 [0.55] (2.3)} & -- & 0.71 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv01} \\
-0.05 & fold 2 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.2)} & 0.67 [-8.56] (24.2) & 0.89 [0.41] (2.0) & -- & 0.71 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv02} \\
-\textbf{0.05} & \textbf{fold 3} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{-0.03 [0.01] (0.4)} & \textbf{\textcolor{green!45!black}{0.94 [0.94] (0.2)}} & \textbf{0.67 [-8.86] (24.2)} & \textbf{\textcolor{green!45!black}{0.91 [0.57] (2.1)}} & \textbf{--} & \textbf{0.71} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv03}} \\
-0.05 & fold 4 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & 0.67 [-8.59] (24.4) & \textcolor{green!45!black}{0.91 [0.57] (2.3)} & -- & 0.72 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv04} \\
+0 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5352] (8.6) & 0.75 [-23.33] (28.4) & 0.85 [-0.20] (6.4) & -- & 0.43 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv00}} \\[1pt]
+0 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.90 [-5232] (8.4) & 0.75 [-23.27] (27.7) & 0.88 [-0.28] (6.5) & -- & 0.42 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv01}} \\[1pt]
+0 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5300] (8.6) & 0.74 [-22.58] (27.6) & 0.84 [-0.47] (6.3) & -- & 0.43 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv02}} \\[1pt]
+0 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5320] (8.6) & 0.75 [-22.68] (27.9) & 0.86 [-0.07] (6.2) & -- & 0.45 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv03}} \\[1pt]
+0 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.89 [-5335] (8.4) & 0.75 [-22.36] (27.6) & 0.87 [-0.09] (6.5) & -- & 0.43 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv04}} \\[1pt]
+0.05 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.4)} & 0.66 [-9.51] (23.2) & \textcolor{green!45!black}{0.91 [0.49] (2.1)} & -- & 0.72 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv00}} \\[1pt]
+0.05 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.3)} & 0.66 [-9.56] (23.1) & \textcolor{green!45!black}{0.92 [0.55] (2.3)} & -- & 0.71 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv01}} \\[1pt]
+0.05 & fold 2 & -- & -- & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.2)} & 0.67 [-8.56] (24.2) & 0.89 [0.41] (2.0) & -- & 0.71 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv02}} \\[1pt]
+\textbf{0.05} & \textbf{fold 3} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{-0.03 [0.01] (0.4)} & \textbf{\textcolor{green!45!black}{0.94 [0.94] (0.2)}} & \textbf{0.67 [-8.86] (24.2)} & \textbf{\textcolor{green!45!black}{0.91 [0.57] (2.1)}} & \textbf{--} & \textbf{0.71} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv03}} \\[1pt]
+0.05 & fold 4 & -- & -- & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & 0.67 [-8.59] (24.4) & \textcolor{green!45!black}{0.91 [0.57] (2.3)} & -- & 0.72 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv04}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -0.05 $\pm$ 0.02 & 0.92 $\pm$ 0.03 & 0.71 $\pm$ 0.04 & 0.88 $\pm$ 0.03 & -- & 0.57 $\pm$ 0.15 &  \\
+ & \textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -0.05 $\pm$ 0.02 & 0.92 $\pm$ 0.03 & 0.71 $\pm$ 0.04 & 0.88 $\pm$ 0.03 & -- & 0.57 $\pm$ 0.15 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
@@ -294,25 +374,35 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: known-ODE cross-model grid --- current known-ODE on conductance-generated data, five folds at each $\sigma$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -24.11 [-9.49] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.87 [-0.50] (31.9) & 0.86 [0.26] (9.1) & -- & 0.82 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv00} \\
-\textbf{0} & \textbf{fold 1} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{-24.09 [-9.58] (1.3)} & \textbf{\textcolor{green!45!black}{1.00 [0.68] (4.4)}} & \textbf{0.88 [-0.54] (33.1)} & \textbf{0.89 [0.42] (9.3)} & \textbf{--} & \textbf{0.81} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv01}} \\
-0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.20 [-9.56] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.0) & 0.84 [0.20] (8.9) & -- & 0.78 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv02} \\
-0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.18 [-9.51] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.9) & 0.86 [0.33] (9.1) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv03} \\
-0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.25 [-9.52] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.45] (32.7) & 0.87 [0.36] (8.9) & -- & 0.83 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv04} \\
-0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.30 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.24] (28.7) & 0.88 [0.42] (11.4) & -- & 0.81 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv00} \\
-0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.52 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.22] (28.9) & 0.90 [0.53] (11.4) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv01} \\
-0.05 & fold 2 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.31 [-11.91] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.20] (28.2) & 0.87 [0.37] (11.4) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv02} \\
-0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.49 [-11.93] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.19] (28.3) & 0.88 [0.49] (11.4) & -- & 0.77 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv03} \\
-0.05 & fold 4 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.38 [-11.89] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.5)} & 0.89 [-0.18] (28.3) & 0.89 [0.49] (11.3) & -- & 0.80 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv04} \\
+0 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -24.11 [-9.49] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.87 [-0.50] (31.9) & 0.86 [0.26] (9.1) & -- & 0.82 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv00}} \\[1pt]
+\textbf{0} & \textbf{fold 1} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{-24.09 [-9.58] (1.3)} & \textbf{\textcolor{green!45!black}{1.00 [0.68] (4.4)}} & \textbf{0.88 [-0.54] (33.1)} & \textbf{0.89 [0.42] (9.3)} & \textbf{--} & \textbf{0.81} \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv01}} \\[1pt]
+0 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.20 [-9.56] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.0) & 0.84 [0.20] (8.9) & -- & 0.78 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv02}} \\[1pt]
+0 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.18 [-9.51] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.9) & 0.86 [0.33] (9.1) & -- & 0.79 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv03}} \\[1pt]
+0 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.25 [-9.52] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.45] (32.7) & 0.87 [0.36] (8.9) & -- & 0.83 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv04}} \\[1pt]
+0.05 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.30 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.24] (28.7) & 0.88 [0.42] (11.4) & -- & 0.81 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv00}} \\[1pt]
+0.05 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.52 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.22] (28.9) & 0.90 [0.53] (11.4) & -- & 0.79 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv01}} \\[1pt]
+0.05 & fold 2 & -- & -- & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.31 [-11.91] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.20] (28.2) & 0.87 [0.37] (11.4) & -- & 0.79 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv02}} \\[1pt]
+0.05 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.49 [-11.93] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.19] (28.3) & 0.88 [0.49] (11.4) & -- & 0.77 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv03}} \\[1pt]
+0.05 & fold 4 & -- & -- & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.38 [-11.89] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.5)} & 0.89 [-0.18] (28.3) & 0.89 [0.49] (11.3) & -- & 0.80 \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv04}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -25.78 $\pm$ 1.71 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 & 0.87 $\pm$ 0.02 & -- & 0.80 $\pm$ 0.02 &  \\
+ & \textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -25.78 $\pm$ 1.71 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 & 0.87 $\pm$ 0.02 & -- & 0.80 $\pm$ 0.02 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
@@ -320,25 +410,35 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: known-ODE cross-model grid --- conductance known-ODE on conductance-generated data, five folds at each $\sigma$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{0.8cm}p{2.0cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+$\sigma$ & arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.89 [-0.66] (0.1) & \textcolor{green!45!black}{1.00 [0.80] (4.3)} & \textcolor{green!45!black}{1.00 [0.83] (11.2)} & \textcolor{green!45!black}{0.99 [0.92] (1.9)} & \textcolor{green!45!black}{0.98 [-1.29] (12.5)} & -- & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv00} \\
-0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.15] (0.1) & \textcolor{green!45!black}{1.00 [0.79] (4.8)} & \textcolor{green!45!black}{0.99 [0.85] (11.1)} & \textcolor{green!45!black}{0.99 [0.94] (1.9)} & \textcolor{green!45!black}{0.97 [0.12] (11.6)} & -- & 0.47 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv01} \\
-0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [-0.27] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (5.0)} & \textcolor{green!45!black}{0.99 [0.85] (11.8)} & \textcolor{green!45!black}{0.98 [0.92] (1.9)} & \textcolor{green!45!black}{0.97 [0.09] (11.9)} & -- & 0.49 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv02} \\
-0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.22] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (1.8)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.49 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv03} \\
-0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.19] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (2.0)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv04} \\
-0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.3)} & \textcolor{green!45!black}{0.98 [0.98] (9.3)} & \textcolor{green!45!black}{0.99 [0.99] (0.4)} & \textcolor{green!45!black}{0.93 [0.77] (15.8)} & -- & 0.60 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv00} \\
-\textbf{0.05} & \textbf{fold 1} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.89 [0.89] (0.0)} & \textbf{\textcolor{green!45!black}{1.00 [0.95] (3.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (8.7)}} & \textbf{\textcolor{green!45!black}{1.00 [0.99] (0.2)}} & \textbf{\textcolor{green!45!black}{0.93 [0.78] (15.7)}} & \textbf{--} & \textbf{0.63} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv01}} \\
-0.05 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.66 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv02} \\
-0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.6)} & \textcolor{green!45!black}{0.99 [0.99] (9.4)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.62 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv03} \\
-0.05 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.87] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.6)} & \textcolor{green!45!black}{0.99 [0.99] (0.1)} & \textcolor{green!45!black}{0.93 [0.77] (16.2)} & -- & 0.61 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv04} \\
+0 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.89 [-0.66] (0.1) & \textcolor{green!45!black}{1.00 [0.80] (4.3)} & \textcolor{green!45!black}{1.00 [0.83] (11.2)} & \textcolor{green!45!black}{0.99 [0.92] (1.9)} & \textcolor{green!45!black}{0.98 [-1.29] (12.5)} & -- & 0.50 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv00}} \\[1pt]
+0 & fold 1 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.15] (0.1) & \textcolor{green!45!black}{1.00 [0.79] (4.8)} & \textcolor{green!45!black}{0.99 [0.85] (11.1)} & \textcolor{green!45!black}{0.99 [0.94] (1.9)} & \textcolor{green!45!black}{0.97 [0.12] (11.6)} & -- & 0.47 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv01}} \\[1pt]
+0 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [-0.27] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (5.0)} & \textcolor{green!45!black}{0.99 [0.85] (11.8)} & \textcolor{green!45!black}{0.98 [0.92] (1.9)} & \textcolor{green!45!black}{0.97 [0.09] (11.9)} & -- & 0.49 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv02}} \\[1pt]
+0 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.22] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (1.8)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.49 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv03}} \\[1pt]
+0 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.19] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (2.0)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.50 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv04}} \\[1pt]
+0.05 & fold 0 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.3)} & \textcolor{green!45!black}{0.98 [0.98] (9.3)} & \textcolor{green!45!black}{0.99 [0.99] (0.4)} & \textcolor{green!45!black}{0.93 [0.77] (15.8)} & -- & 0.60 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv00}} \\[1pt]
+\textbf{0.05} & \textbf{fold 1} & \textbf{--} & \textbf{--} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.89 [0.89] (0.0)} & \textbf{\textcolor{green!45!black}{1.00 [0.95] (3.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (8.7)}} & \textbf{\textcolor{green!45!black}{1.00 [0.99] (0.2)}} & \textbf{\textcolor{green!45!black}{0.93 [0.78] (15.7)}} & \textbf{--} & \textbf{0.63} \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv01}} \\[1pt]
+0.05 & fold 2 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.66 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv02}} \\[1pt]
+0.05 & fold 3 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.6)} & \textcolor{green!45!black}{0.99 [0.99] (9.4)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.62 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv03}} \\[1pt]
+0.05 & fold 4 & -- & -- & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.87] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.6)} & \textcolor{green!45!black}{0.99 [0.99] (0.1)} & \textcolor{green!45!black}{0.93 [0.77] (16.2)} & -- & 0.61 \\
+\multicolumn{13}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv04}} \\[1pt]
 \midrule
- & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.88 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.95 $\pm$ 0.02 & -- & 0.56 $\pm$ 0.07 &  \\
+ & \textbf{mean} $\pm$ SD & -- & -- & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.88 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.95 $\pm$ 0.02 & -- & 0.56 $\pm$ 0.07 \\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
@@ -346,19 +446,25 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: the group lasso carried over to conductance data, $\sigma=0.05$; $\lambda$ is \texttt{coeff\_g\_phi\_input\_group\_L1}.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-$\lambda$ = 0$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0\_cv00} \\
-$\lambda$ = 0.25$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0p25\_cv00} \\
-$\lambda$ = 1$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_1\_cv00} \\
-$\lambda$ = 5$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_5\_cv00} \\
-$\lambda$ = 10$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_10\_cv00} \\
-$\lambda$ = 25$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_25\_cv00} \\
+$\lambda$ = 0$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0\_cv00}} \\[1pt]
+$\lambda$ = 0.25$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0p25\_cv00}} \\[1pt]
+$\lambda$ = 1$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_1\_cv00}} \\[1pt]
+$\lambda$ = 5$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_5\_cv00}} \\[1pt]
+$\lambda$ = 10$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_10\_cv00}} \\[1pt]
+$\lambda$ = 25$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_25\_cv00}} \\[1pt]
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs, 0.9$\times$ the data's own voltage range, is inside the range where it can be identified.}
@@ -367,22 +473,31 @@ $\lambda$ = 25$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductan
 \begin{table}[H]
 \scriptsize
 \raggedright
-\setlength{\tabcolsep}{2pt}
+\setlength{\tabcolsep}{1.5pt}
 \caption{2026-09-16: one-hour probes on conductance data, $\sigma=0.05$, at about 100{,}000 iterations; \texttt{p2w} arms aim at $W_{ij}$ and \texttt{p2r} arms at the rollout.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-noreg$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_noreg} \\
-silg1e3$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_silg1e3} \\
-nol2g1e2$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_nol2g1e2} \\
-l1x3sil$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_l1x3sil} \\
-rc8$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8} \\
-rc8bs8$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8bs8} \\
-lrhalf$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_lrhalf} \\
-rc8nol2$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8nol2} \\
-gnnsil twin$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00\_repro} \\
+noreg$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_noreg}} \\[1pt]
+silg1e3$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_silg1e3}} \\[1pt]
+nol2g1e2$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_nol2g1e2}} \\[1pt]
+l1x3sil$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_l1x3sil}} \\[1pt]
+rc8$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8}} \\[1pt]
+rc8bs8$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8bs8}} \\[1pt]
+lrhalf$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_lrhalf}} \\[1pt]
+rc8nol2$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8nol2}} \\[1pt]
+gnnsil twin$^{*}$ &  &  &  &  &  &  &  &  &  \\
+\multicolumn{10}{@{}l@{}}{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00\_repro}} \\[1pt]
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.032$ $\pm$ 0.093 $R^2$ per edge over the current form, and the reversal it needs, 1.8$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.38$ and 0.38), so the trajectory does not separate the families.}
