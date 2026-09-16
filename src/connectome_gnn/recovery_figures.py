@@ -277,3 +277,101 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k", config=None,
     plt.savefig(out, dpi=300)
     plt.close(fig)
     return out
+
+
+def plot_form_comparison(rec, log_dir, out_path=None, reference=None,
+                         ref_label="reference run"):
+    """results/form_comparison.png: the two forms' R2 distributions, and the test.
+
+    LEFT, THE DISTRIBUTIONS. One histogram per family over the per-edge R2 of
+    the same messages, on a log count axis because the bulk of 434,112 edges
+    piles into the top bin and everything that distinguishes the families lives
+    in the tail that would otherwise be invisible. Red and blue for the two
+    forms, which are two sources rather than a truth and a prediction.
+
+    RIGHT, WHAT THE TEST SAYS, as text. The numbers and the picture are written
+    by the same call so a figure can never carry a statistic the terminal did
+    not print, and the caveat about autocorrelated frames travels with them.
+
+    `reference` is the per-edge gain array of another run -- a model KNOWN to
+    have no driving force is the empirical null -- which adds the across-run
+    Kolmogorov-Smirnov test, the one comparison here whose null is not false by
+    construction.
+    """
+    from connectome_gnn.metrics import form_comparison_stats
+
+    d = getattr(rec, "diagnostics", {}) or {}
+    cond = np.asarray(d.get("_form_cond_r2_full", []), dtype=np.float64)
+    cur = np.asarray(d.get("_form_cur_r2_full", []), dtype=np.float64)
+    if cond.size == 0 or cur.size == 0:
+        return None, []
+    stats, lines = form_comparison_stats(d)
+
+    gain = cond - cur
+    gain = gain[np.isfinite(gain)]
+    if reference is not None and np.asarray(reference).size:
+        ref = np.asarray(reference, dtype=np.float64)
+        ref = ref[np.isfinite(ref)]
+        if ref.size:
+            from scipy.stats import ks_2samp
+            ks = ks_2samp(gain, ref)
+            stats["ks_D"] = float(ks.statistic)
+            stats["ks_p"] = float(ks.pvalue)
+            lines.append(
+                f"   against {ref_label}, whose message has no driving force: "
+                f"KS D = {ks.statistic:.3f}, p = {ks.pvalue:.3g} "
+                f"({gain.size:,} vs {ref.size:,} edges)")
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    ax = axes[0]
+    bins = np.linspace(min(np.nanmin(cur), 0.0), 1.0, 120)
+    ax.hist(cond[np.isfinite(cond)], bins=bins, color="tab:blue", alpha=0.65,
+            label="conductance form   $b_1 u + b_2\\,u v_i + b_3$")
+    ax.hist(cur[np.isfinite(cur)], bins=bins, color="tab:red", alpha=0.55,
+            label="current form   $W u + C$")
+    ax.set_yscale("log")
+    ax.set_xlabel("per-edge fit $R^2$", fontsize=14)
+    ax.set_ylabel("edges", fontsize=14)
+    ax.legend(loc="upper left", fontsize=11, frameon=False)
+    ax.text(0.004, 1.02, "a   the same messages, fitted inside each family",
+            transform=ax.transAxes, va="bottom", fontsize=12, fontweight="bold")
+
+    ax = axes[1]
+    ax.axis("off")
+    ax.text(0.004, 1.02, "b   is the difference more than one column buys by chance",
+            transform=ax.transAxes, va="bottom", fontsize=12, fontweight="bold")
+    # The terminal's own lines, verbatim, minus the indentation they carry there.
+    body = "\n".join(l.strip() if l.startswith("   ") else l for l in lines)
+    ax.text(0.0, 0.95, body, transform=ax.transAxes, va="top", ha="left",
+            fontsize=10.5, family="monospace", wrap=True)
+    fig.tight_layout()
+    out = out_path or _fig_out(log_dir, "form_comparison.png")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    return out, lines
+
+
+def write_form_arrays(rec, log_dir, out_path=None):
+    """results/form_comparison.npz: the per-edge arrays the test is run on.
+
+    Four float32 arrays over the run's edges -- both forms' R2, the t statistic
+    on the driving-force slope, and the frames each edge was fitted on -- about
+    7 MB for 434,112 edges. They are kept because the comparison that matters
+    across runs, one model's gain distribution against a model known to have no
+    driving force, cannot be made from summary numbers, and refitting a finished
+    run to get them back costs a GPU hour.
+    """
+    d = getattr(rec, "diagnostics", {}) or {}
+    cond = d.get("_form_cond_r2_full")
+    if cond is None:
+        return None
+    out = out_path or _fig_out(log_dir, "form_comparison.npz")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    np.savez_compressed(
+        out,
+        conductance_form_r2=np.asarray(cond, dtype=np.float32),
+        current_form_r2=np.asarray(d.get("_form_cur_r2_full"), dtype=np.float32),
+        t_driving_force=np.asarray(d.get("_form_t_b2_full"), dtype=np.float32),
+        frames_per_edge=np.asarray(d.get("_form_n_used_full"), dtype=np.float32))
+    return out

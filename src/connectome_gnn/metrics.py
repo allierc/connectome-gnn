@@ -3519,6 +3519,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         if cond:
             cond_r2 = fit_r2
             cb1, cb2 = b1, b2
+            t_cond = t_b2
         else:
             # The current branch never built the three-column system; build it
             # here so a current model is asked the same question in reverse --
@@ -3535,6 +3536,13 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                 1.0 - (Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y) / Syy,
                 np.nan)
             cb1, cb2 = _b3[:, 0], _b3[:, 1]
+            _ss3 = Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y
+            _s2 = np.where(n_used > 3, _ss3 / np.maximum(n_used - 3, 1), np.nan)
+            _v = np.full(n_e, np.nan)
+            if ok3.any():
+                _v[ok3] = np.linalg.inv(_M3[ok3])[:, 1, 1]
+            _se = np.sqrt(np.maximum(_s2 * _v, 0.0))
+            t_cond = np.where(_se > 0, np.abs(cb2) / _se, np.nan)
 
         # WHERE THE CONDUCTANCE FORM PUTS ITS REVERSAL, whichever family the
         # model is. This is the sharper discriminator, and R2 is not: fitted to
@@ -3679,6 +3687,15 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _W_alt = k[i_ids] * (-cb2)                  # conductance form: b2 = -W
         _E_alt = E_cond_form
         rec.diagnostics["alt_form_family"] = "conductance"
+    # THE PER-EDGE ARRAYS, KEPT FOR THE TEST AND THE FIGURE. Underscored, so
+    # they stay on the object and out of the key-value log: the summary numbers
+    # go to metrics.txt, the distributions go to results/form_comparison.npz,
+    # and the question "are the two forms distinguishable" is answered from the
+    # distributions rather than from two medians.
+    rec.diagnostics["_form_cond_r2_full"] = _scatter(cond_r2)
+    rec.diagnostics["_form_cur_r2_full"] = _scatter(cur_r2)
+    rec.diagnostics["_form_t_b2_full"] = _scatter(t_cond)
+    rec.diagnostics["_form_n_used_full"] = _scatter(n_used)
     rec.diagnostics["_W_alt_full"] = _scatter(_W_alt)
     rec.diagnostics["_E_alt_full"] = _scatter(_E_alt)
 
@@ -4299,3 +4316,90 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
                 rec.diagnostics["msg_form_r2_median"] = _rev["fit_r2_median"]
                 rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
                 rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate
+
+
+# --------------------------------------------------------------------------- #
+#  ARE THE TWO FORMS DISTINGUISHABLE ON THIS RUN
+# --------------------------------------------------------------------------- #
+
+def form_comparison_stats(diagnostics, n_edges_reported=None):
+    """The nested-model test between the two families, edge by edge.
+
+    WHY NOT A TWO-SAMPLE TEST BETWEEN THE TWO R2 DISTRIBUTIONS. They are paired
+    -- same edge, same frames -- and nested: the current form is the conductance
+    form with the u*v_i column deleted, so its residual sum of squares can only
+    be larger, edge for edge, by algebra. A Kolmogorov-Smirnov or Mann-Whitney
+    test between them has a null that is false before the data is seen, and on
+    434,112 edges it rejects whatever the size of the effect.
+
+    The test a nested pair defines is the F test, per edge:
+
+        F = (RSS_current - RSS_conductance) / (RSS_conductance / (n - 3))
+
+    with 1 and n-3 degrees of freedom, n being the frames that edge was fitted
+    on. Written through R2 -- both are taken against the same total sum of
+    squares -- that is F = (R2_cond - R2_cur) / ((1 - R2_cond) / (n - 3)), and
+    it equals the SQUARE of the t statistic on b2 the readout already computes
+    for its reversal gate. So the answer at the level of the run is the share of
+    edges that reject, at a threshold stated with the number of tests it is
+    being applied across.
+
+    THE CAVEAT THAT COMES WITH IT: n counts frames, and frames are consecutive
+    samples of a smooth trajectory, so the effective sample size is smaller than
+    n and every rejection count here is optimistic. It is reported with the
+    median frames per edge so the reader can see what it rests on.
+
+    Returns (stats dict, list of terminal lines).
+    """
+    cond = np.asarray(diagnostics.get("_form_cond_r2_full", []), dtype=np.float64)
+    cur = np.asarray(diagnostics.get("_form_cur_r2_full", []), dtype=np.float64)
+    t = np.asarray(diagnostics.get("_form_t_b2_full", []), dtype=np.float64)
+    n_used = np.asarray(diagnostics.get("_form_n_used_full", []), dtype=np.float64)
+    if cond.size == 0 or cur.size == 0:
+        return {}, []
+
+    ok = np.isfinite(cond) & np.isfinite(cur)
+    gain = np.where(ok, cond - cur, np.nan)
+    g = gain[np.isfinite(gain)]
+    n_e = int(n_edges_reported or ok.sum())
+    tt = t[np.isfinite(t)]
+
+    # Two thresholds, both named for what they control. t >= 3 is the readout's
+    # own reversal gate, one test at a time; the Bonferroni threshold is the one
+    # that controls a 5% chance of ANY false rejection across every edge tested,
+    # which is the honest bar for a claim about the run rather than about an
+    # edge.
+    from scipy.stats import norm
+    _t_bonf = float(norm.isf(0.025 / max(n_e, 1)))
+    stats = {
+        "n_edges": n_e,
+        "gain_mean": float(np.mean(g)) if g.size else float("nan"),
+        "gain_sd": float(np.std(g, ddof=1)) if g.size > 1 else float("nan"),
+        "gain_q10": float(np.quantile(g, 0.10)) if g.size else float("nan"),
+        "gain_q50": float(np.quantile(g, 0.50)) if g.size else float("nan"),
+        "gain_q90": float(np.quantile(g, 0.90)) if g.size else float("nan"),
+        "cond_median": float(np.nanmedian(cond)) if np.isfinite(cond).any() else float("nan"),
+        "cur_median": float(np.nanmedian(cur)) if np.isfinite(cur).any() else float("nan"),
+        "t_median": float(np.median(tt)) if tt.size else float("nan"),
+        "pct_t3": float(100.0 * np.mean(tt >= 3.0)) if tt.size else float("nan"),
+        "t_bonferroni": _t_bonf,
+        "pct_bonferroni": float(100.0 * np.mean(tt >= _t_bonf)) if tt.size else float("nan"),
+        "frames_median": float(np.nanmedian(n_used)) if n_used.size else float("nan"),
+    }
+    f = stats
+    lines = [
+        f"are the two forms distinguishable on this run?  "
+        f"(nested F test per edge, 1 and n-3 d.o.f.)",
+        f"   median per-edge R²: conductance {f['cond_median']:.4f}   "
+        f"current {f['cur_median']:.4f}",
+        f"   gain quantiles [10 / 50 / 90]: {f['gain_q10']:+.4f} / "
+        f"{f['gain_q50']:+.4f} / {f['gain_q90']:+.4f}   "
+        f"(mean {f['gain_mean']:+.4f} ± {f['gain_sd']:.4f})",
+        f"   edges where the driving force clears 3 s.e.: {f['pct_t3']:.1f}%   "
+        f"and Bonferroni t ≥ {f['t_bonferroni']:.2f} over {f['n_edges']:,} tests: "
+        f"{f['pct_bonferroni']:.1f}%",
+        f"   median |t| on the driving-force slope {f['t_median']:.1f}, on a median "
+        f"{f['frames_median']:.0f} frames per edge — consecutive frames, so these "
+        f"shares are optimistic",
+    ]
+    return stats, lines
