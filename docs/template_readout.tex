@@ -23,7 +23,7 @@
 
 
 
-\section{What is observed, and what is free}
+\section{Generator vs GNN}
 
 The generator is a conductance-based network of $N$ neurons. For neuron $i$,
 %
@@ -295,9 +295,9 @@ heading reports the fitted scale $0.0844$ against $T G \tau = 0.0923$ from panel
 offset $b = -2.334$\,V. \textbf{(d)}~each of the $11$ synapses separately, mean
 removed, on one shared voltage scale so that a synapse the model dropped looks
 flat rather than being magnified to full height. \textbf{(e)}~the update fit of
-\eqref{eq:updatefit}: $T = 14.79$ against the generator's $1/\tau = 11.11$,
+\eqref{eq:updatesolve}: $T = 14.79$ against the generator's $1/\tau = 11.11$,
 $G = 0.0693$ against a target of $1$. \textbf{(f)}~per synapse, the generator's
-$(W, E, \text{offset}=0)$ against the template fit of \eqref{eq:edgefit}, and a
+$(W, E, \text{offset}=0)$ against the template fit of \eqref{eq:edgesolve}, and a
 free symbolic search for comparison.}
 \label{fig:panels}
 \end{figure}
@@ -315,119 +315,5 @@ $+2.334$ measured on the total message against $+1.510$ from summing the eight
 fitted $C_{ij}$; the gap is the three synapses the model pruned, which have no
 fit to contribute one. The two stages agree on a quantity neither of them
 imposes.
-
-\section{Population results}
-\label{sec:population}
-
-\begin{table}[htbp]
-\centering
-\caption{The same trained model, read three ways.
-``Chain'' is the previous estimator (a per-edge line through $m/\vj$ with the
-$g_\phi$ and $f_\theta$ gain corrections). ``Blind'' and ``diagnostic'' are the
-two gauge conventions of \S\ref{sec:gauge}. $W$ statistics are over the
-$321{,}774$ edges the fit accepted; $R^2$ is outlier-filtered
-($383$ outliers, $0.12\%$).}
-\label{tab:pop}
-\begin{tabular}{lccc}
-\toprule
- & chain & template, blind & template, diagnostic \\
-\midrule
-$W_{ij}$ $R^2$                   & ---    & $+0.273$ & $\mathbf{+0.691}$ \\
-$W_{ij}$ Pearson $r$             & ---    & $0.238$  & $\mathbf{0.796}$ \\
-$W_{ij}$ median relative error   & ---    & $25.2\%$ & $\mathbf{7.3\%}$ \\
-$W_{ij}$ slope                   & ---    & $0.582$  & $0.760$ \\
-$E_{ij}$ median per-edge fit $R^2$ & $0.812$ & $\mathbf{0.9997}$ & $0.9997$ \\
-$E_{ij}$ RMSE (V)                & ---    & $7.76$   & $7.76$ \\
-$\tau$ $R^2$                     & $0.912$ & $0.925$ & $0.925$ \\
-$V^{\mathrm{rest}}$ $R^2$        & $0.787$ & $0.792$ & $0.792$ \\
-clustering accuracy              & $0.490$ & $\mathbf{0.583}$ & $0.662$ \\
-clustering NMI                   & $0.714$ & $\mathbf{0.828}$ & $0.838$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Three readings of Table~\ref{tab:pop} deserve emphasis.
-
-\paragraph{The form is identified; the constant inside it is not.} The median
-per-edge $R^2$ of the conductance template is $0.9997$: the model's message
-\emph{is} of the form $W\act(\vj)(E-\vi) + C$ to four decimal places. The
-reversal implied by that form nonetheless has an RMSE of $7.76$\,V across the
-$66$ distinct values the generator uses. Reporting the fit quality as if it were
-recovery would be reporting the extraction's goodness of fit; both numbers
-belong in any claim about reversal potentials.
-
-\paragraph{What separates blind from diagnostic is $\tau$, and only $\tau$.}
-The two columns differ by nothing but which time constant closes
-\eqref{eq:apply}. Since $\tau$ is recovered at $R^2 = 0.925$, one might expect
-the effect to be small; it is not, because $k_i$ multiplies an entire row of the
-connectome, so each neuron's $\tau$ error scales all of its synapses coherently.
-The median $\tau$ is $37\%$ too large, and the $W$ statistics inherit exactly
-that. \emph{This makes a prediction that can falsify the whole framing}: a
-regulariser that pins $G_i \to 1$ forces $k_i = \tau_i T_i G_i \to 1$ and removes
-$\tau$ from the conductance readout altogether, so the two columns should
-converge. If they do not, the gauge is not the whole story.
-
-\paragraph{The population number is dominated by synapses that do not exist.}
-Figure~\ref{fig:scatter} shows why the per-neuron picture
-(median learned/true $1.39$, interquartile range $1.22$) and the population $R^2$
-($0.273$) tell different stories. Half the fitted edges have a true
-conductance below $10^{-8}$ (the first five deciles run from $2\times10^{-15}$ to
-$8.5\times10^{-9}$) --- the generator has no synapse
-there --- and the model gives them conductances up to $10^{-2}$. They dominate
-the sum of squares while carrying no biology. A second, smaller population is
-whole postsynaptic neurons whose rows collapsed, visible as vertical streaks at
-ratios of $10^{-6}$ and below.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{Wij_scatter_model_tau.png}
-\caption{Learned against true conductance, blind gauge. \textbf{(a)}~every
-fitted edge, logarithmic axes, with neuron $2895$'s synapses in red; the diagonal
-ridge is the recovered population and the cloud at lower left is the phantom
-one. \textbf{(b)}~the top decile of true conductance on linear axes, median
-learned/true $1.17$. \textbf{(c)}~per postsynaptic neuron, the median ratio over
-its edges against the total conductance it receives; the bulk sits at $1.39$ and
-the vertical streaks are collapsed rows.}
-\label{fig:scatter}
-\end{figure}
-
-\section{Is the method sound?}
-
-\paragraph{What it assumes.} (i)~That $\act$ is known. It is given from the
-generator, so on real data this becomes an assumption about the synaptic
-nonlinearity and should be stated as one; the free symbolic search in panel (f)
-of Figure~\ref{fig:panels} exists to check it, and a separate PySR template
-search --- which fits $\act$ rather than assuming it --- is run on a handful of
-neurons for exactly that purpose. (ii)~That $f_\theta$ is approximately affine in
-the message over the observed range; measured, not assumed
-($R^2 = 0.9994$, ratio to autograd $0.9994$). (iii)~That the generator gives each
-neuron two reversals, used only by the pooling step, which can be disabled.
-
-\paragraph{What it does not do.} It does not make an unidentifiable quantity
-identifiable. The offset $\beta_i$ is measured here against the generator's
-message, which is an \emph{account} of the error, not a blind recovery; only a
-prior that pins the message's level --- a penalty on $g_\phi$ at silent
-presynaptic input --- makes it identifiable during training. The same holds for
-the scale: the readout undoes $k_i$ after the fact, and a penalty tying
-$\partial f_\theta/\partial \msg$ to $-\partial f_\theta/\partial v$ is what
-would remove it during training.
-
-\paragraph{What would falsify it.} The convergence prediction of
-\S\ref{sec:population}; the agreement of $\sum_j C_{ij}$ with the independently
-fitted total offset, which currently holds to the pruned synapses; and the
-agreement of the fitted $T_iG_i$ with autograd, which would break first if the
-update stopped being affine in the message.
-
-\section{Implementation}
-
-The readout is \texttt{metrics.extract\_template\_params}, scored through the
-same \texttt{score\_recovery} as every other estimator so that the two readouts
-of a run differ only in \texttt{Wij\_estimator} and can be compared line by line.
-Per-edge fits are batched \texttt{numpy} solves of stacked $3\times3$ normal
-equations; the per-neuron update is a batched $4\times4$ solve accumulated over
-frames. Cost on the example run: all $434{,}112$ edges and $13{,}741$ neurons in
-under a minute on one L4, against the $\sim 300$\,s per neuron a symbolic search
-over $\act$ would take. The figures in this note are generated by
-\texttt{GNN\_Main.py -o plot} and \texttt{tools/wij\_scatter.py}.
 
 \end{document}
