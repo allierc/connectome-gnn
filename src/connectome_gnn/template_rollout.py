@@ -60,6 +60,22 @@ def known_ode_name(config):
     return _KNOWN_ODE_FOR.get(getattr(config.graph_model, "signal_model_name", ""))
 
 
+def other_known_ode_name(config):
+    """The OTHER family's known-ODE: current for a conductance run, and back.
+
+    What the alternative-form fit is rolled out in. The point of running it is
+    that R2 cannot separate the families on this data -- the conductance form
+    contains the current one -- while a rollout can: constants that reproduce
+    the message but not the trajectory were describing the sample, not the
+    dynamics.
+    """
+    own = known_ode_name(config)
+    if own is None:
+        return None
+    return ("flyvis_known_ode" if own == "flyvis_conductance_known_ode"
+            else "flyvis_conductance_known_ode")
+
+
 def noise_free_dataset(dataset: str) -> str:
     """The noise-free sibling of a dataset name.
 
@@ -282,17 +298,30 @@ def _prepare_conductance(model, rec, edges, x_ts, n_neurons, n_edges, notes):
     return notes
 
 
-def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None, x_ts=None):
+def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None,
+                     x_ts=None, alt=False, filename="template_fit.pt"):
     """models/template_fit.pt: the recovered parameters in a known-ODE.
+
+    With `alt`, the OTHER family's known-ODE carrying the other form's
+    constants: the same message read as W*relu(v_j) + C when the model is
+    conductance, and as W*relu(v_j)*(E - v_i) + C when it is current. tau and
+    V_rest are unchanged -- the update fit does not depend on which form the
+    per-edge message was read with -- so only W, and the reversal where the
+    alternative has one, come from the other fit.
 
     Returns (path, known_ode_name, what_was_written), or None when this run has
     no matching known-ODE or the readout recovered nothing to write.
     """
-    name = known_ode_name(config)
+    name = other_known_ode_name(config) if alt else known_ode_name(config)
     if name is None:
         return None
     if rec is None or not any(q in rec.pairs for q in ("W", "tau", "V_rest")):
         return None
+    if alt:
+        _w = rec.diagnostics.get("_W_alt_full")
+        if _w is None:
+            return None
+        rec = _alt_view(rec)
 
     from connectome_gnn.models.registry import create_model
     model = create_model(name, aggr_type=config.graph_model.aggr_type,
@@ -310,11 +339,44 @@ def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None, x_ts
 
     out_dir = os.path.join(log_dir, "models")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "template_fit.pt")
+    path = os.path.join(out_dir, filename)
     torch.save({"model_state_dict": model.state_dict()}, path)
     if logger:
         logger.info(f"template checkpoint -> {path} ({written})")
     return path, name, written
+
+
+class _AltRec:
+    """`rec` with the alternative form's W and E in place of the own form's.
+
+    A view, not a copy of the arrays: everything the builder reads -- tau,
+    V_rest, the estimators -- is the same object, and only the two entries that
+    differ between the families are replaced. `pairs["W"]` is replaced too so
+    the round-trip check compares the checkpoint against what was written into
+    it rather than against the other fit.
+    """
+
+    def __init__(self, rec):
+        self.pairs = dict(rec.pairs)
+        self.diagnostics = dict(rec.diagnostics)
+        self.estimator = getattr(rec, "estimator", {})
+        self.correction = getattr(rec, "correction", {})
+        self.valid = getattr(rec, "valid", {})
+        w_alt = np.asarray(self.diagnostics["_W_alt_full"], dtype=np.float64)
+        self.diagnostics["_W_learned_full"] = w_alt
+        self.diagnostics["_tmpl_E_full"] = self.diagnostics.get("_E_alt_full")
+        if "W" in self.pairs:
+            gt = np.asarray(self.pairs["W"][0], dtype=np.float64)
+            keep = np.isfinite(w_alt)
+            n = min(gt.size, int(keep.sum()))
+            self.pairs["W"] = (gt[:n], w_alt[keep][:n])
+
+    def get(self, key):
+        return self.pairs.get(key)
+
+
+def _alt_view(rec):
+    return _AltRec(rec)
 
 
 def _parse_rollout_log(path):
@@ -337,7 +399,7 @@ def _parse_rollout_log(path):
 
 
 def run(rec, config, log_dir, device, logger=None, test_mode="template",
-        edges=None, x_ts=None):
+        edges=None, x_ts=None, alt=False):
     """Roll the recovered parameters out on noise-free data.
 
     Returns the metrics as a dict with `template_` names, ready to be merged into
@@ -345,10 +407,13 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template",
     an extra analysis at the end of a pass, and a failure in it must not cost the
     pass its figures.
     """
-    prefix = f"{test_mode}_rollout"
+    prefix = f"{test_mode}_rollout" if not alt else f"{test_mode}_alt_rollout"
+    _ckpt = "template_fit.pt" if not alt else "template_fit_alt.pt"
+    test_mode = test_mode if not alt else f"{test_mode}_alt"
     try:
         made = write_checkpoint(rec, config, log_dir, device, logger=logger,
-                                edges=edges, x_ts=x_ts)
+                                edges=edges, x_ts=x_ts, alt=alt,
+                                filename=_ckpt)
         if made is None:
             return {}
         _path, name, written = made
@@ -372,9 +437,11 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template",
             print(f"\033[93mtemplate rollout skipped: {msg}\033[0m")
             return {f"{prefix}_error": msg}
 
-        print(f"\033[93mrolling the template fit out on {nf.dataset} ...\033[0m")
+        _what = ("the template fit" if not alt
+                 else f"the same message read as {name.replace('flyvis_', '').replace('_known_ode', '')}")
+        print(f"\033[93mrolling {_what} out on {nf.dataset} ...\033[0m")
         from connectome_gnn.models.graph_tester import data_test_gnn
-        data_test_gnn(cfg, best_model="template_fit.pt", device=device,
+        data_test_gnn(cfg, best_model=_ckpt, device=device,
                       test_config=nf, test_mode=test_mode)
 
         _short = nf.dataset.split("/")[-1].replace("flyvis_", "")

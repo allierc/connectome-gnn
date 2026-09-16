@@ -3518,6 +3518,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                           np.nan)
         if cond:
             cond_r2 = fit_r2
+            cb1, cb2 = b1, b2
         else:
             # The current branch never built the three-column system; build it
             # here so a current model is asked the same question in reverse --
@@ -3533,6 +3534,24 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                 ok3 & (Syy > 0),
                 1.0 - (Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y) / Syy,
                 np.nan)
+            cb1, cb2 = _b3[:, 0], _b3[:, 1]
+
+        # WHERE THE CONDUCTANCE FORM PUTS ITS REVERSAL, whichever family the
+        # model is. This is the sharper discriminator, and R2 is not: fitted to
+        # a CURRENT model's message the conductance form reaches R2 1.0000 --
+        # it contains the current form -- but only by placing E at -280, -487,
+        # -850, voltages the data never visits, so the u*v_i column is being
+        # used as a near-constant rescaling of u rather than as a driving force.
+        # Reported against the voltage the postsynaptic cells actually reach, so
+        # "large" has a reference: an |E| many times the observed |v_i| is a
+        # reversal outside the data, and the conductance reading is spurious.
+        # A VANISHING SLOPE IS THE EXTREME OF THE SAME STATEMENT, not a missing
+        # value: b2 -> 0 is the fit saying the message does not depend on v_i at
+        # all, and dropping those edges would delete exactly the evidence. They
+        # are kept and the ratio is capped -- past a million times the voltage
+        # range it no longer matters how far outside the data the reversal is.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            E_cond_form = np.where(cb2 != 0, -cb1 / cb2, np.inf * np.sign(cb1))
 
     # POOLING THE REVERSAL, AND READING W THROUGH IT. The generator hands every
     # edge onto neuron i one of exactly two reversals -- one for the excitatory
@@ -3629,9 +3648,51 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         float(np.nanmedian(cur_r2)) if np.isfinite(cur_r2).any() else float("nan"))
     rec.diagnostics["conductance_form_r2_median"] = (
         float(np.nanmedian(cond_r2)) if np.isfinite(cond_r2).any() else float("nan"))
+    # MEAN AND SD, NOT THE MEDIAN, for the gain. Most of the 434k edges carry a
+    # sender that is almost never above the activation floor: both forms fit
+    # their near-empty message at R2 ~1 and the driving force has nothing to
+    # explain, so the median edge reports +0.006 while the synapses that carry
+    # signal report +0.2 to +0.85. The mean keeps those in, and the SD is how
+    # unequal the population is -- an SD several times the mean is the shape
+    # above, and it is the shape that matters.
     _gain = cond_r2 - cur_r2
-    rec.diagnostics["driving_force_r2_gain_median"] = (
-        float(np.nanmedian(_gain)) if np.isfinite(_gain).any() else float("nan"))
+    _gf = _gain[np.isfinite(_gain)]
+    rec.diagnostics["driving_force_r2_gain_mean"] = (
+        float(np.mean(_gf)) if _gf.size else float("nan"))
+    rec.diagnostics["driving_force_r2_gain_sd"] = (
+        float(np.std(_gf, ddof=1)) if _gf.size > 1 else float("nan"))
+    # THE REVERSAL THE CONDUCTANCE FORM NEEDS, and the voltage the data reaches.
+    # |E| far outside the second is the fit saying "no driving force here" in
+    # the one place R2 cannot: on a current model the conductance form fits
+    # perfectly and puts E hundreds of millivolts away.
+    # THE OTHER FAMILY'S CONSTANTS, KEPT FOR THE ROLLOUT. R2 says how well the
+    # other form describes the message; only putting those constants back into
+    # the generator's equation and running it says whether they DO the same
+    # thing. The gauge k_i is the same one the own-family W goes through -- the
+    # message the update divides back out -- because the two fits describe the
+    # same message in the same units.
+    if cond:
+        _W_alt = k[i_ids] * c1                      # current form: msg = W*u + C
+        _E_alt = np.full(n_e, np.nan)
+        rec.diagnostics["alt_form_family"] = "current"
+    else:
+        _W_alt = k[i_ids] * (-cb2)                  # conductance form: b2 = -W
+        _E_alt = E_cond_form
+        rec.diagnostics["alt_form_family"] = "conductance"
+    rec.diagnostics["_W_alt_full"] = _scatter(_W_alt)
+    rec.diagnostics["_E_alt_full"] = _scatter(_E_alt)
+
+    _E_CAP = 1e6
+    _Ec = np.abs(E_cond_form[~np.isnan(E_cond_form)])
+    _vi_scale = float(np.percentile(np.abs(vi), 99)) if vi.size else float("nan")
+    _E_med = float(np.median(np.minimum(_Ec, _E_CAP * max(_vi_scale, 1e-12)))) \
+        if _Ec.size else float("nan")
+    rec.diagnostics["conductance_form_E_absmedian"] = _E_med
+    rec.diagnostics["vi_abs_p99"] = _vi_scale
+    rec.diagnostics["conductance_form_E_over_vi"] = (
+        float(_E_med / _vi_scale)
+        if np.isfinite(_E_med) and np.isfinite(_vi_scale) and _vi_scale > 0
+        else float("nan"))
     rec.diagnostics["tmpl_frames_used"] = int(vi.shape[1])
     rec.diagnostics["tmpl_frame_choice"] = frame_choice
     rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
