@@ -439,10 +439,32 @@ def closed_form_template(g, out):
         out["update_tmpl_note"] = f"least squares failed: {exc}"
 
     # --- one fit per incoming synapse -------------------------------------
+    # BOTH FAMILIES ON EVERY SYNAPSE, not only the model's own. The current form
+    # W*relu(v_j) + C is the conductance form with the u*v_i column deleted, so
+    # it can never fit better; what the panel shows is how much the deleted
+    # column was worth on THIS synapse. A conductance model whose message the
+    # current form reproduces to the same R2 has not shown a driving force --
+    # the same comparison `current_form_r2_median` makes over all edges, here
+    # written out per synapse where the constants can be read.
     for row, idx in enumerate(g["edge_ids"]):
         idx = int(idx)
         u = np.asarray(g["act_j"][row], dtype=float)
         m = np.asarray(g["m_model"][row], dtype=float)
+        for fam, fcols in (("cond", [u, u * g["v_i"], ones]), ("cur", [u, ones])):
+            try:
+                bb, *_ = np.linalg.lstsq(np.column_stack(fcols), m, rcond=None)
+            except np.linalg.LinAlgError:
+                continue
+            ppred = np.column_stack(fcols) @ bb
+            if fam == "cond":
+                _W = -float(bb[1])
+                _E = (-float(bb[0]) / float(bb[1])) if abs(float(bb[1])) > 1e-12 else None
+                _eq = (f"{_W:.4f} * relu(v_j) * ({_E:+.3f} - v_i) + {float(bb[2]):.4f}"
+                       if _E is not None else None)
+            else:
+                _eq = f"{float(bb[0]):+.4f} * relu(v_j) + {float(bb[1]):.4f}"
+            out[f"tmpl_{fam}"][idx] = _eq
+            out[f"tmpl_{fam}_r2"][idx] = _r2(m, ppred)
         cols = [u, u * g["v_i"], ones] if cond else [u, ones]
         try:
             b, *_ = np.linalg.lstsq(np.column_stack(cols), m, rcond=None)
@@ -482,7 +504,10 @@ def symbolic_forms(g, cfg):
            "update_tmpl_note": "disabled", "update_tmpl_p": {},
            "edges": {}, "edge_r2": {}, "edge_notes": {},
            "tmpl": {}, "tmpl_r2": {}, "tmpl_E": {}, "tmpl_C": {}, "tmpl_W": {},
-           "tmpl_notes": {}}
+           "tmpl_notes": {},
+           # The same message fitted by BOTH families, so the panel can say
+           # whether the driving force was worth its column on this synapse.
+           "tmpl_cond": {}, "tmpl_cond_r2": {}, "tmpl_cur": {}, "tmpl_cur_r2": {}}
     # THE TEMPLATE ROWS DO NOT NEED PySR, and used to print "[not fitted]"
     # whenever Julia could not start -- next to a generator row that was right
     # there, and next to a metrics.txt reporting the very same fit. With act
@@ -780,8 +805,11 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # T * G * tau correction the total message gets in panel c.
     _gain_note = (f", W and offset scaled by T*G*tau = {kW:.4f}"
                   if kW else ", W in the model's own gauge")
+    _other = ("W * relu(v_j) + offset" if fm["conductance"]
+              else "W * relu(v_j) * (E - v_i) + offset")
     axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
-             f"{fam},\n    {_gain_note.lstrip(', ')}, and a free search",
+             f"{fam},\n    {_gain_note.lstrip(', ')}, the same message fitted inside "
+             f"{_other}, and a free search",
              transform=axf.transAxes,
              va="bottom", fontsize=11)
     def fmt_W(w):
@@ -826,6 +854,17 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                            f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
             else:
                 txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
+            # THE OTHER FAMILY'S FORM ON THE SAME SYNAPSE. The two are nested --
+            # the current form is the conductance one without the u*v_i column
+            # -- so this line can only be worse, and the gap is the evidence.
+            # Equal R2 on a conductance model means the message needs no driving
+            # force, whatever the template row above recovered for E.
+            _alt = "cur" if fm["conductance"] else "cond"
+            _alt_name = "current" if fm["conductance"] else "cond.   "
+            _aeq = sr.get(f"tmpl_{_alt}", {}).get(idx)
+            if _aeq:
+                txt.append(f"{_alt_name} form {_aeq}"
+                           f"{fmt_r2(sr.get(f'tmpl_{_alt}_r2', {}).get(idx))}")
         eq = sr["edges"].get(idx)
         txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
                    else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")

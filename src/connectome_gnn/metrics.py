@@ -3498,6 +3498,42 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         # an edge whose message is a large constant the form cannot produce.
         fit_r2 = np.where(ok & (Syy > 0), 1.0 - ss_res / Syy, np.nan)
 
+        # BOTH FAMILIES' FORMS ON THE SAME MESSAGE, always, whichever family the
+        # model belongs to. The current form W*act(v_j) + C is the conductance
+        # form with the driving-force column u*v_i DELETED -- a nested pair --
+        # so the second fit costs one more solve off the sums already summed,
+        # and the comparison it allows is the one a good fit R2 alone cannot
+        # settle: a conductance GNN whose message the CURRENT form explains just
+        # as well has not demonstrated it learned a driving force, it has
+        # demonstrated that this data does not need one. Reported as R2 per
+        # edge, and as the per-edge gain, because a median of differences is not
+        # the difference of the medians when the two forms disagree on a few
+        # edges and agree on the rest.
+        _den2 = S11 * S33 - S13 ** 2
+        ok2 = (n_used >= min_points) & (_den2 > 0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            c1 = np.where(ok2, (S33 * S1y - S13 * S3y) / _den2, np.nan)
+            c3 = np.where(ok2, (S11 * S3y - S13 * S1y) / _den2, np.nan)
+        cur_r2 = np.where(ok2 & (Syy > 0), 1.0 - (Syy - c1 * S1y - c3 * S3y) / Syy,
+                          np.nan)
+        if cond:
+            cond_r2 = fit_r2
+        else:
+            # The current branch never built the three-column system; build it
+            # here so a current model is asked the same question in reverse --
+            # does its message carry a driving force it was never given?
+            _M3 = np.stack([np.stack([S11, S12, S13], -1),
+                            np.stack([S12, S22, S23], -1),
+                            np.stack([S13, S23, S33], -1)], -2)
+            _r3 = np.stack([S1y, S2y, S3y], -1)
+            _det3 = np.linalg.det(_M3)
+            ok3 = (n_used >= min_points) & np.isfinite(_det3) & (np.abs(_det3) > 1e-18)
+            _b3 = _solve(_M3, _r3, ok3)
+            cond_r2 = np.where(
+                ok3 & (Syy > 0),
+                1.0 - (Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y) / Syy,
+                np.nan)
+
     # POOLING THE REVERSAL, AND READING W THROUGH IT. The generator hands every
     # edge onto neuron i one of exactly two reversals -- one for the excitatory
     # senders, one for the inhibitory -- so the per-edge estimates of each sign
@@ -3583,6 +3619,19 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _n_E = int(np.isfinite(E_fit).sum())
         rec.diagnostics["tmpl_n_E_identified"] = _n_E
         rec.diagnostics["tmpl_pct_E_identified"] = float(100.0 * _n_E / max(n_e, 1))
+    # THE TWO FORMS SIDE BY SIDE. `msg_form_r2_median` is the model's own
+    # family; these two are both families on that same message, so the reader
+    # can see whether the family mattered. The gain is the median over edges of
+    # the R2 the driving-force column ADDS, in R2 points of the per-edge
+    # message: near zero means the current form already explains the message a
+    # conductance model emits.
+    rec.diagnostics["current_form_r2_median"] = (
+        float(np.nanmedian(cur_r2)) if np.isfinite(cur_r2).any() else float("nan"))
+    rec.diagnostics["conductance_form_r2_median"] = (
+        float(np.nanmedian(cond_r2)) if np.isfinite(cond_r2).any() else float("nan"))
+    _gain = cond_r2 - cur_r2
+    rec.diagnostics["driving_force_r2_gain_median"] = (
+        float(np.nanmedian(_gain)) if np.isfinite(_gain).any() else float("nan"))
     rec.diagnostics["tmpl_frames_used"] = int(vi.shape[1])
     rec.diagnostics["tmpl_frame_choice"] = frame_choice
     rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
