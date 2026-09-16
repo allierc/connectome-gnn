@@ -760,6 +760,30 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     # A failed diagnostic must not take the training run with it.
                     logger.warning(f"teacher rollout eval failed: {type(_e).__name__}: {_e}")
 
+            # THE PER-NEURON READOUT AT THE PANEL CADENCE. config.analysis.neurons
+            # already names the neurons `-o plot` opens up at the end of a run;
+            # the same figure is written here into tmp_training/neuron_panels/,
+            # one neuron<id>_<iteration>.png per checkpoint, so the message and
+            # update traces can be watched converging rather than seen once when
+            # the run is over. Symbolic regression and the free-run panel are off
+            # -- analyse_neurons says why neither is available mid-run -- which
+            # leaves 600 teacher-forced frames, seconds of GPU beside the rollout
+            # eval above.
+            if (save_panels and getattr(config, "analysis", None)
+                    and config.analysis.neurons):
+                from connectome_gnn.neuron_panels import analyse_neurons
+                try:
+                    model.eval()
+                    analyse_neurons(
+                        config, model, data, log_dir, device=device, logger=logger,
+                        out_dir=os.path.join(log_dir, "tmp_training", "neuron_panels"),
+                        tag=f"{regularizer.iter_count:08d}",
+                        sr_enabled=False, use_rollout=False, quiet=True)
+                except Exception as _e:
+                    logger.warning(f"neuron panels skipped: {type(_e).__name__}: {_e}")
+                finally:
+                    model.train()
+
             # ONE EXTRACTION PER CHECKPOINT. Every recovered quantity -- W, tau,
             # V_rest, E_ij, msg_i -- comes out of extract_recovered_params once,
             # score_recovery names the numbers, recovery_log_append writes one
@@ -819,11 +843,34 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # produces the (gt, learned) pair once, score_recovery scores it,
                 # and the panels consume the same arrays.
                 from connectome_gnn.metrics import (
-                    extract_recovered_params, score_recovery)
+                    extract_recovered_params, extract_template_params,
+                    score_recovery, template_readout_enabled)
                 _rec = extract_recovered_params(
                     model, ode_params, config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons,
                     need=("W", "tau", "V_rest", "E_ij", "msg_i"))
+                # THE SAME READOUT THE FIGURES USE, at every checkpoint. The
+                # template fit -- the generator's own closed form per edge,
+                # msg_ij = W*act(v_j)*(E - v_i) + C, carried into the generator's
+                # units by k_i = tau_i * dftheta_dmsg_i -- supersedes the
+                # correction chain for W, E_ij, tau and V_rest, and it is what
+                # results/ has reported since GNN_PlotFigure switched. A
+                # progress bar and a tmp_training/<key>.log that disagree with
+                # the final metrics.txt of the same run are worse than either,
+                # because the trajectory in the log is what a sweep is read on.
+                # It EXTENDS the chain's object rather than replacing it: msg_i
+                # and the f_theta diagnostics the training panels draw come only
+                # from there.
+                if template_readout_enabled(config, model):
+                    try:
+                        _rec = extract_template_params(
+                            model, ode_params, config=config, edges=edges,
+                            x_ts=x_ts, device=device, n_neurons=n_neurons,
+                            base=_rec)
+                    except Exception as _exc:
+                        logger.warning(
+                            f"template readout unavailable at checkpoint, keeping "
+                            f"the correction chain: {type(_exc).__name__}: {_exc}")
                 _scored = score_recovery(_rec, config)
                 _rec_last = _rec
                 _rec_op = ode_params
@@ -889,6 +936,34 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     _dynamics_dict_from, cluster_recovery, training_log_append)
                 if _rec_last is not None:
                     dynamics = _dynamics_dict_from(_rec_last, config)
+                # THE SAME FIGURES results/ GETS, at every checkpoint. Drawn from
+                # connectome_gnn.recovery_figures, so the scatter in
+                # tmp_training/recovery/ and the one in results/ are one piece of
+                # code reading one threshold -- they used to be two drawings of
+                # the same arrays that disagreed on decimals, on filtering and on
+                # what they annotated.
+                if save_panels and _rec_last is not None and _scored is not None:
+                    from connectome_gnn.recovery_figures import (
+                        _plot_recovered_scatter, _plot_parameter_error)
+                    _fdir = os.path.join(log_dir, "tmp_training", "recovery")
+                    _tag = f"{regularizer.iter_count:08d}"
+                    for _q, _k in (("W", "Wij"), ("E_ij", "Eij"), ("tau", "tau"),
+                                   ("V_rest", "V_rest"), ("msg_i", "msg_i")):
+                        try:
+                            _plot_recovered_scatter(
+                                _rec_last, _scored, _q, log_dir, config=config,
+                                out_path=os.path.join(_fdir, f"{_k}_{_tag}.png"))
+                        except Exception as _exc:
+                            logger.warning(f"{_q} checkpoint scatter skipped: "
+                                           f"{type(_exc).__name__}: {_exc}")
+                    try:
+                        _plot_parameter_error(
+                            _rec_last, _scored, log_dir,
+                            out_path=os.path.join(_fdir, f"parameter_error_{_tag}.png"))
+                    except Exception as _exc:
+                        logger.warning(f"checkpoint error panels skipped: "
+                                       f"{type(_exc).__name__}: {_exc}")
+
                 # E_ij and msg_i panels, same arrays. Absent quantity, no panel.
                 if save_panels and _rec_last is not None:
                     _e = _rec_last.get("E_ij")
@@ -898,7 +973,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         # draw it marked as such (the W panel beside it draws
                         # the gain-corrected W the same way).
                         _e = _rec_last.pairs.get("E_ij")
-                        _e_gate = _rec_last.diagnostics.get("Eij_gate")
+                        _e_gate = _rec_last.diagnostics.get("msg_form_r2_median")
                     if _e is not None:
                         _grp = None
                         try:

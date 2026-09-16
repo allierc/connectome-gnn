@@ -16,6 +16,7 @@ matplotlib.use('Agg')  # set non-interactive backend before other imports
 import argparse
 
 from connectome_gnn.config import NeuralGraphConfig
+from connectome_gnn.results_layout import clear_results as _clear_results
 from connectome_gnn.generators.graph_data_generator import data_generate
 from connectome_gnn.models.graph_trainer import (
     data_train, data_test, data_train_INR, data_train_task,
@@ -36,7 +37,6 @@ from GNN_PlotFigure import data_plot
 
 import warnings
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
-
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=FutureWarning)
     parser = argparse.ArgumentParser(description="connectome_gnn")
@@ -310,6 +310,13 @@ if __name__ == "__main__":
             _marker = os.path.join(run_log_dir, '_completed_test')
             if os.path.exists(_marker):
                 os.remove(_marker)
+            # THE RESULTS THIS TASK IS ABOUT TO REWRITE, removed first. A stale
+            # rollout png from a previous checkpoint sitting beside a fresh one
+            # is indistinguishable from a fresh one, and the panels that read
+            # rollout_bundle.npz would silently describe the wrong run. `test`
+            # owns the rollout outputs; `plot` owns everything else (see
+            # GNN_PlotFigure.data_plot), so each clears only what it regenerates.
+            _clear_results(run_log_dir, prefixes=('rollout',), keep_extras=True)
             # Release training-phase CUDA memory (incl. CUDA Graphs private pools)
             # before allocating the test model. Without this, large e15 GNN runs
             # OOM at test-time model creation despite total need being modest.
@@ -433,6 +440,19 @@ if __name__ == "__main__":
             except Exception as _e:
                 print(f"neuron panels skipped: {type(_e).__name__}: {_e}")
 
+            # ONE README, AND ONLY WHEN PySR DID NOT RUN. Written after the
+            # panels because that is the only consumer of PySR, and removed
+            # again when PySR did run -- a stale README describing a failure
+            # that no longer happened is worse than none, because the numbers in
+            # this directory would then be disowned by their own results folder.
+            try:
+                from connectome_gnn import pysr_env as _pysr_env
+                _readme = _pysr_env.write_status(run_log_dir)
+                if _readme:
+                    print(f"\033[91mPySR did not run -> {_readme}\033[0m")
+            except Exception as _e:
+                print(f"pysr status note skipped: {type(_e).__name__}: {_e}")
+
             # Conductance-twin parameter panels. No-op for every other model:
             # plot_twin_params returns None unless the checkpoint carries E_exc.
             try:
@@ -475,8 +495,11 @@ if __name__ == "__main__":
 
 
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
+# Wij=-0.015(0.42%) Vr=0.520(98%) τ=-9.189(93%) msg=-4609.39]
+# Wij=0.962(0.00%) Vr=0.565(19%) τ=0.912(2%) msg=0.92]
+# 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
 # conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 
-# conn=0.950 Vr=0.591(18%) τ=0.902(2%)] 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
+# conn=0.950 Vr=0.591(18%) τ=0.902(2%)]
 # python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
 # python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"

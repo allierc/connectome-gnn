@@ -8,6 +8,7 @@ Contains:
 
 import glob
 import os
+from connectome_gnn.results_layout import fig_out
 import re
 from scipy.stats import pearsonr
 
@@ -904,12 +905,30 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         ax.spines['right'].set_visible(False)
         ax.spines['left'].set_visible(False)
 
-        ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
-                  bbox_transform=fig.transFigure, fontsize=14, frameon=False)
+        # No key on the "all" figure: every one of the n_neuron_types rows is
+        # stacked there, so the legend lands on top of the highest traces, and
+        # the three colours are the same in every rollout figure a run writes
+        # (green = ground truth, black = prediction, red dashed = stimulus).
+        if fig_name != "all":
+            ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0),
+                      bbox_transform=fig.transFigure, fontsize=14, frameon=False)
+            # The number the figure is evidence for, on the figure. Fisher-z
+            # pooled over ALL n_neurons -- not over the ten types drawn -- with
+            # the symmetric sd and the 95% interval back-transformed from z,
+            # which is why it can sit at 1.000 without the sd being zero. Same
+            # `_rollout_fz` the analysis log and results/metrics.txt report.
+            try:
+                ax.text(0.0, 1.015,
+                        f"Pearson r (Fisher-z pooled over neurons): "
+                        f"{_rollout_fz['r_mean']:.3f} ± {_rollout_fz['r_sd_sym']:.3f} "
+                        f"[{_rollout_fz['r_lo']:.3f}, {_rollout_fz['r_hi']:.3f}]",
+                        transform=ax.transAxes, va='bottom', ha='left', fontsize=13)
+            except Exception:
+                pass
 
         plt.tight_layout()
         _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-        plt.savefig(f"{results_dir}/rollout_{filename_}{_vis_tag}_{fig_name}{test_suffix}.png",
+        plt.savefig(fig_out(results_dir, f"rollout{_vis_tag}_{fig_name}{test_suffix}.png"),
                     dpi=300, bbox_inches='tight')
         plt.close()
 
@@ -1316,7 +1335,8 @@ def data_test_gnn_special(
             noise_p_W = torch.randn_like(pde.ode_params.W) * noise_W
             pde_modified.ode_params.W = pde.ode_params.W.clone() + noise_p_W
 
-        plot_weight_comparison(pde.ode_params.W, pde_modified.ode_params.W, f"{log_dir}/results/weight_comparison_{noise_W}.png")
+        plot_weight_comparison(pde.ode_params.W, pde_modified.ode_params.W,
+                               fig_out(log_dir, f"weight_comparison_{noise_W}.png"))
 
 
     fig_style = dark_style
@@ -1664,7 +1684,7 @@ def data_test_gnn_special(
 
         output_name = os.path.basename(config.dataset).split('flyvis_')[1] if 'flyvis_' in config.dataset else re.sub(r'_\d{2}$', '', os.path.basename(config.dataset))
         src = f"{log_dir}/tmp_recons/Fig_0_000000.png"
-        dst = f"{log_dir}/results/input_{output_name}.png"
+        dst = fig_out(log_dir, f"input_{output_name}.png")
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
             fdst.write(fsrc.read())
 
@@ -1793,7 +1813,7 @@ def data_test_gnn_special(
             plt.tight_layout()
             save_suffix = f"_{fig_suffix}" if fig_suffix else ""
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}{save_suffix}.png", dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout{_vis_tag}{save_suffix}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
     else:
@@ -1886,11 +1906,13 @@ def data_test_gnn_special(
             ax.spines['right'].set_visible(False)
             ax.spines['left'].set_visible(False)
 
-            ax.legend(loc='upper right', fontsize=14, frameon=False)
+            # Same rule as the main rollout figure: no key on "all".
+            if fig_name != "all":
+                ax.legend(loc='upper right', fontsize=14, frameon=False)
 
             plt.tight_layout()
             _vis_tag = f"_{sim.visual_input_type}" if sim.visual_input_type else ""
-            plt.savefig(f"{log_dir}/results/rollout_{filename_}{_vis_tag}_{fig_name}.png", dpi=300, bbox_inches='tight')
+            plt.savefig(fig_out(log_dir, f"rollout{_vis_tag}_{fig_name}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         if ('test_ablation' in test_mode) or ('test_inactivity' in test_mode):

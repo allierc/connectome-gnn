@@ -1,0 +1,88 @@
+description: 'one-hour probe, goal W_ij: the champion''s prior set with L1 on W at three times base, the lever behind the best full-length arm (l1x3g1e2, W_ij +0.24 at 1.6M). Wave three. Two things came out of wave one and two. First, the gauge ladder with the anchor peaks at 1e-2: W_ij +0.27 at 1e-2, -0.04 at 1e-3, -0.62 at 1e-4, and 1e-2 also holds the best rollout of the wave, 0.71 against base 0.60 -- the first arm to move both. Second, every earlier sil arm kept coeff_g_phi_zero_below at 5 AND added the silent anchor, while the champion gnnsil_cv00 (W_ij 0.42, rollout 0.86) sets zero_below to 0 and uses the anchor alone. These four isolate that and compose the three W-positive levers. Reference at the same 100k iterations: arm_base rollout ~0.60 W_ij ~-0.23; the known-ODE on this data reaches 0.88.'
+dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
+simulation:
+  connectivity_file: to be specified
+  adjacency_matrix: ''
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 64000
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.05
+  seed: 42
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  skip_short_videos: true
+  blank_prefix_fraction: 0.5
+graph_model:
+  signal_model_name: flyvis_conductance
+  prediction: first_derivative
+  input_size: 6
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: false
+  w_squared: true
+plotting:
+  colormap: tab20
+  arrow_length: 1
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+training:
+  torch_compile: true
+  mlp_precision: fp32
+  n_runs: 1
+  device: auto
+  recurrent_training: false
+  time_step: 1
+  batch_size: 4
+  regul_batch_scaling: sqrt
+  batch_ratio: 1
+  small_init_batch_size: false
+  sparsity: none
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 0
+  coeff_g_phi_norm: 0
+  coeff_g_phi_weight_L1: 0
+  coeff_g_phi_weight_L2: 0
+  coeff_g_phi_zero_below: 0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 0.000225
+  coeff_W_L2: 7.5e-07
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
+  w_init_scale: 88
+  use_gt_edges: true
+  seed: 1042
+  deterministic: true
+  coeff_g_phi_silent: 5
+  n_epochs: 1
+  data_augmentation_loop: 32
+  checkpoint_saves_per_epoch: 3
+config_file: fly/flyvis_conductance_noise_005_conductance_p4w_sill1x3
+analysis:
+  neurons:
+  - 2895

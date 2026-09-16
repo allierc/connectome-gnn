@@ -1,0 +1,117 @@
+Traceback (most recent call last):
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/GNN_Main.py", line 19, in <module>
+    from connectome_gnn.generators.graph_data_generator import data_generate
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/src/connectome_gnn/generators/graph_data_generator.py", line 62, in <module>
+    from connectome_gnn.generators.davis import AugmentedVideoDataset, CombinedVideoDataset
+  File "/groups/saalfeld/home/allierc/Graph/connectome-gnn/src/connectome_gnn/generators/davis.py", line 13, in <module>
+    from flyvis import renderings_dir
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/__init__.py", line 72, in <module>
+    from .datasets import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/__init__.py", line 2, in <module>
+    from .flashes import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/flashes.py", line 17, in <module>
+    from .rendering import BoxEye
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/rendering/__init__.py", line 3, in <module>
+    from .eye import BoxEye, HexEye
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/flyvis/datasets/rendering/eye.py", line 10, in <module>
+    import torchvision.transforms.functional as ttf
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/__init__.py", line 10, in <module>
+    from torchvision import _meta_registrations, datasets, io, models, ops, transforms, utils  # usort:skip
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/models/__init__.py", line 2, in <module>
+    from .convnext import *
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/models/convnext.py", line 9, in <module>
+    from ..ops.misc import Conv2dNormActivation, Permute
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/__init__.py", line 23, in <module>
+    from .poolers import MultiScaleRoIAlign
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/poolers.py", line 10, in <module>
+    from .roi_align import roi_align
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torchvision/ops/roi_align.py", line 7, in <module>
+    from torch._dynamo.utils import is_compile_supported
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/__init__.py", line 13, in <module>
+    from . import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/aot_compile.py", line 15, in <module>
+    from . import convert_frame
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/convert_frame.py", line 57, in <module>
+    from torch._dynamo.symbolic_convert import TensorifyState
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/symbolic_convert.py", line 59, in <module>
+    from . import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/trace_rules.py", line 58, in <module>
+    from .variables import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/variables/__init__.py", line 19, in <module>
+    from .base import VariableTracker
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/variables/base.py", line 650, in <module>
+    from . import builder
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/variables/builder.py", line 94, in <module>
+    from ..side_effects import SideEffects
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/side_effects.py", line 34, in <module>
+    from torch._dynamo.variables.misc import AutogradFunctionContextVariable
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/variables/misc.py", line 61, in <module>
+    from .functions import NestedUserFunctionVariable, UserFunctionVariable
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/_dynamo/variables/functions.py", line 88, in <module>
+    from torch.distributed.fsdp._fully_shard import _fsdp_param_group
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/fsdp/__init__.py", line 1, in <module>
+    from ._flat_param import FlatParameter as FlatParameter
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/fsdp/_flat_param.py", line 33, in <module>
+    from ._fsdp_extensions import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/fsdp/_fsdp_extensions.py", line 8, in <module>
+    from torch.distributed.fsdp._shard_utils import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/fsdp/_shard_utils.py", line 18, in <module>
+    from torch.distributed.tensor import DeviceMesh, DTensor, Replicate, Shard as DShard
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/tensor/__init__.py", line 4, in <module>
+    import torch.distributed.tensor._ops  # force import all built-in dtensor ops
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/tensor/_ops/__init__.py", line 2, in <module>
+    from ._conv_ops import *  # noqa: F403
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/tensor/_ops/_conv_ops.py", line 5, in <module>
+    from torch.distributed.tensor._dtensor_spec import DTensorSpec, TensorMeta
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/tensor/_dtensor_spec.py", line 6, in <module>
+    from torch.distributed.tensor.placement_types import (
+  File "/groups/saalfeld/home/allierc/miniforge3/envs/connectome-gnn/lib/python3.12/site-packages/torch/distributed/tensor/placement_types.py", line 10, in <module>
+    from torch.distributed.tensor._collective_utils import (
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 991, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1124, in get_code
+  File "<frozen importlib._bootstrap_external>", line 753, in _compile_bytecode
+KeyboardInterrupt
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@h10u16>
+Subject: Job 153765204: <python GNN_Main.py -o train flyvis_noise_005_conductance_noiseprobe_grok_cv00> in cluster <Janelia> Exited
+
+Job <python GNN_Main.py -o train flyvis_noise_005_conductance_noiseprobe_grok_cv00> was submitted from host <e02u30> by user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+Job was executed on host(s) <8*h10u16>, in queue <gpu_a100>, as user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+</groups/saalfeld/home/allierc> was used as the home directory.
+</groups/saalfeld/home/allierc/Graph/connectome-gnn> was used as the working directory.
+Started at Fri Aug 28 10:01:48 2026
+Terminated at Fri Aug 28 10:01:59 2026
+Results reported at Fri Aug 28 10:01:59 2026
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+python GNN_Main.py -o train flyvis_noise_005_conductance_noiseprobe_grok_cv00
+------------------------------------------------------------
+
+TERM_OWNER: job killed by owner.
+Exited with exit code 130.
+
+Resource usage summary:
+
+    CPU time :                                   7.65 sec.
+    Max Memory :                                 493 MB
+    Average Memory :                             370.80 MB
+    Total Requested Memory :                     327680.00 MB
+    Delta Memory :                               327187.00 MB
+    Max Swap :                                   -
+    Max Processes :                              3
+    Max Threads :                                52
+    Run time :                                   14 sec.
+    Turnaround time :                            11 sec.
+
+The output (if any) is above this job summary.
+

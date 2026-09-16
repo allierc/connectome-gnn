@@ -1,4 +1,4 @@
-description: Benchmark variant 'det_a100_run2' of the noise-0.05 current GNN, LLM-tuned
+description: benchmark variant 'det_a100_run2' of the noise-0.05 current GNN, LLM-tuned
   parameters, blank50, unfolded nominal.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:

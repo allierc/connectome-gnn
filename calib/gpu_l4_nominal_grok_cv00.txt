@@ -1,0 +1,39 @@
+Terminated
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@h08u06>
+Subject: Job 153765199: <python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00> in cluster <Janelia> Exited
+
+Job <python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00> was submitted from host <e02u30> by user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+Job was executed on host(s) <8*h08u06>, in queue <gpu_l4>, as user <allierc> in cluster <Janelia> at Fri Aug 28 10:01:48 2026
+</groups/saalfeld/home/allierc> was used as the home directory.
+</groups/saalfeld/home/allierc/Graph/connectome-gnn> was used as the working directory.
+Started at Fri Aug 28 10:01:48 2026
+Terminated at Fri Aug 28 10:02:07 2026
+Results reported at Fri Aug 28 10:02:07 2026
+
+Your job looked like:
+
+------------------------------------------------------------
+# LSBATCH: User input
+python GNN_Main.py -o train flyvis_noise_005_nominal_grok_cv00
+------------------------------------------------------------
+
+TERM_OWNER: job killed by owner.
+Exited with exit code 143.
+
+Resource usage summary:
+
+    CPU time :                                   10.10 sec.
+    Max Memory :                                 465 MB
+    Average Memory :                             358.57 MB
+    Total Requested Memory :                     122880.00 MB
+    Delta Memory :                               122415.00 MB
+    Max Swap :                                   -
+    Max Processes :                              3
+    Max Threads :                                52
+    Run time :                                   19 sec.
+    Turnaround time :                            19 sec.
+
+The output (if any) is above this job summary.
+

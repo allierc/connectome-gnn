@@ -108,3 +108,23 @@ def test_no_legacy_names_anywhere_in_the_catalogue():
               "W_structure_r", "W_zscored_R2", "tau_no_outliers_R2", "Eij_n_edges", "raw_W_R2"}
     assert not legacy & set(s)
     assert set(RECOVERY_KEYS) >= {"Wij", "tau", "V_rest", "Eij", "msg_i"}
+
+
+def test_sort_key_orders_intra_epoch_checkpoints():
+    """The plot phase sorts checkpoints, so a name it cannot parse kills a run
+    AFTER its training finished -- which is how forty known-ODE jobs trained to
+    completion and wrote no results."""
+    from connectome_gnn.utils import sort_key
+    names = ["best_model_with_0_graphs_1_136532.pt",
+             "best_model_with_0_graphs_0_68266.pt",
+             "best_model_with_0_graphs_0.pt"]
+    assert [sort_key(n) for n in sorted(names, key=sort_key)] == \
+        [(0, 0, 0), (0, 0, 68266), (0, 1, 136532)]
+
+
+def test_known_ode_models_route_to_the_linear_plotter():
+    """Their W, tau and V_rest are direct parameters; the gnn plotter reads an
+    embedding they do not have, and the failure surfaces only after training."""
+    from connectome_gnn.models.known_ode import KnownODEBase, FlyvisKnownODE
+    assert KnownODEBase.MODEL_FAMILY == "linear"
+    assert FlyvisKnownODE.MODEL_FAMILY == "linear"

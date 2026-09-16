@@ -1,0 +1,254 @@
+"""Which figures a run's results/ directory shows, and which it tucks away.
+
+A results/ directory holding forty PNGs is one nobody reads. Everything this
+codebase draws is still drawn and still saved -- the ones a reader does not open
+first go to results/extras/ instead of being dropped, so no analysis is lost and
+nothing has to be re-run to get them back.
+
+WHAT STAYS IN results/, and why each earns it:
+
+    neuron<N>_panels.png      one neuron opened up, term by term: the readout
+                              that shows whether the synapses came back
+    rollout_*                 the free-running trajectory against the generator
+    Wij_comparison.png        the four scatters against truth. All four come
+    Eij_comparison.png        from the same RecoveredParams that metrics.txt is
+    tau_comparison.png        written from, and each states its own filtering:
+    V_rest_comparison.png     R2 without outliers, the full-sample R2 beside it
+    Wij_scatter_*             in parentheses, and the share that was dropped
+    embedding_augmented.png   the UMAP the cell-type clustering is read off;
+                              the plain a_i scatter goes to extras
+
+Five writers share this: GNN_PlotFigure, plot, plot_twin, graph_tester and
+tools/wij_scatter. They had five different ideas of where a figure belongs
+before, which is how results/ came to hold both a headline panel and a debug
+histogram with nothing distinguishing them.
+"""
+
+import functools
+import os
+
+# ------------------------------------------------------------------ #
+#  The provenance stamp
+# ------------------------------------------------------------------ #
+# EVERY PNG IN results/ SAYS WHERE ITS NUMBERS CAME FROM. The figures in a run
+# directory outlive the run: they end up in slides and in the paper, separated
+# from the metrics.txt that records the estimator, and a scatter of learned
+# against true weights looks identical whichever readout produced it. A five-
+# point mark in the bottom-right corner costs nothing and keeps the answer
+# attached to the picture.
+#
+# Applied by wrapping Figure.savefig once, at import, rather than by touching
+# the forty-odd savefig call sites across GNN_PlotFigure, plot, plot_twin,
+# graph_tester and neuron_panels -- one of which would have been missed, and a
+# figure without the stamp is worse than no stamp at all because it reads as a
+# figure from somewhere else. The wrapper stamps only paths under results/.
+#
+# The version is read from the installed package METADATA, never by importing
+# pysr: that import starts a Julia process and precompiles, which is seconds at
+# best and, on a node whose TMPDIR does not exist, an abort -- and no figure
+# should be able to take a run down.
+_STAMP_FONTSIZE = 5
+
+# ONLY THE FIGURES THE READOUT PRODUCED. A stamp on a figure the readout had no
+# part in is a false provenance claim, and the rollout traces are the clearest
+# case: rollout_DAVIS_*.png is the model integrated forward against the
+# generator's trajectory, with no fit of any kind in it. What does belong here
+# is everything drawn from the RecoveredParams -- the four scatters against
+# truth, the error distributions, and the per-neuron panels whose equation
+# column is the one place the real PySR search runs.
+STAMP_EXACT = (
+    "Wij_comparison.png",
+    "Eij_comparison.png",
+    "tau_comparison.png",
+    "V_rest_comparison.png",
+    "parameter_error.png",
+    "msg_i_comparison.png",
+    "twin_params.png",
+)
+STAMP_PREFIXES = (
+    "Wij_scatter",
+    "weights_comparison",
+    "neuron",            # neuron<N>_panels.png
+)
+
+
+def wants_stamp(name) -> bool:
+    base = os.path.basename(str(name))
+    return base in STAMP_EXACT or base.startswith(STAMP_PREFIXES)
+
+
+def stamp_text(name=None):
+    """What produced this figure, and PySR IS NAMED ONLY IF PySR RAN.
+
+    Every stamped figure here is drawn from the template readout, which is a
+    least-squares fit of the generator's own form -- no search, no Julia. Saying
+    "PySR" on those was a false provenance claim, and on a figure whose whole
+    job is to say where a number came from that is the one mistake that matters.
+
+    The single exception is neuron<N>_panels.png: its `free` row IS a PySR
+    search, so when the import succeeded the version is named beside the
+    readout. If PySR did not start, the panel says so in its own equation column
+    and the stamp stays silent about it.
+    """
+    base = "template readout (least squares)"
+    if name and os.path.basename(str(name)).startswith("neuron"):
+        try:
+            from connectome_gnn import pysr_env
+            if pysr_env.available():
+                from importlib.metadata import version
+                return f"{base} + PySR {version('pysr')} free search"
+        except Exception:
+            pass
+    return base
+
+
+def stamp_figure(fig, text=None, name=None):
+    """The mark, bottom-right, in the figure's own coordinates."""
+    fig.text(0.997, 0.003, text or stamp_text(name), ha="right", va="bottom",
+             fontsize=_STAMP_FONTSIZE, color="0.45", alpha=0.85)
+
+
+def install_savefig_stamp():
+    """Wrap Figure.savefig so results/*.png carry the stamp. Idempotent."""
+    try:
+        from matplotlib.figure import Figure
+    except Exception:
+        return
+    if getattr(Figure.savefig, "_pysr_stamp", False):
+        return
+    _orig = Figure.savefig
+
+    @functools.wraps(_orig)
+    def savefig(self, fname, *args, **kwargs):
+        try:
+            path = fname if isinstance(fname, str) else os.fspath(fname)
+        except TypeError:          # a buffer, not a path
+            path = ""
+        if isinstance(path, str) and path.endswith(".png") and \
+                (os.sep + "results" + os.sep) in path and wants_stamp(path):
+            try:
+                stamp_figure(self, name=path)
+            except Exception:
+                pass
+        return _orig(self, fname, *args, **kwargs)
+
+    savefig._pysr_stamp = True
+    Figure.savefig = savefig
+
+
+install_savefig_stamp()
+
+# The four scatters against truth, by EXACT name. Exact rather than prefix
+# because each has demoted siblings -- tau_comparison_cell_type,
+# tau_comparison_fslope, weights_comparison_corrected -- that a prefix would
+# sweep back in, and because only these four are drawn from the same
+# RecoveredParams that results/metrics.txt is written from. The others are
+# earlier estimators, kept for comparison, which is what extras/ is for.
+KEEP_EXACT = (
+    "Wij_comparison.png",
+    "Eij_comparison.png",
+    "tau_comparison.png",
+    "V_rest_comparison.png",
+    "msg_i_comparison.png",
+    "parameter_error.png",
+    # The family test: which of the two generator forms describes this network's
+    # message, and the per-edge arrays it is computed from. A headline because
+    # it answers a question about the model itself, not about one quantity's
+    # recovery, and because the arrays are what a second run is compared to.
+    "form_comparison.png",
+    "form_comparison.npz",
+)
+
+# The embedding kept is the AUGMENTED one -- the UMAP of (a_i, tau, V_rest, and
+# the weight statistics) that the cell-type clustering is actually read off. The
+# plain a_i scatter is a projection of two of those columns and goes to extras.
+KEEP_EXACT_EMBEDDING = ("embedding_augmented.png",)
+
+# First match wins; checked after EXTRAS_FIRST.
+KEEP_PREFIXES = (
+    "neuron",                  # narrowed by EXTRAS_FIRST to the per-neuron panels
+    "rollout",
+    "Wij_scatter",             # tools/wij_scatter, the log-axis population view
+    "embedding_augmented",
+    "hidden_inr_traces",
+    "metrics",
+)
+
+# Checked BEFORE KEEP_PREFIXES, for the one name a keep-prefix would otherwise
+# capture: the cell-type RMSE bar chart begins with "neuron" and is not a panel.
+EXTRAS_FIRST = ("neuron_type_reconstruction",)
+
+# Not figures, and not swept: written by one pass and read by a later one.
+# metrics.txt is deliberately NOT here -- data_plot rewrites it from scratch and
+# appends as it goes, so leaving the previous run's copy would silently produce a
+# file holding two runs' numbers with nothing marking the boundary.
+KEEP_ALWAYS = ("corrected_W.pt", "learned_ode_params.pt", "test_metrics.npz")
+
+
+def is_headline(name) -> bool:
+    """Whether this filename belongs in results/ rather than results/extras/."""
+    base = os.path.basename(str(name))
+    if base in KEEP_ALWAYS or base in KEEP_EXACT or base in KEEP_EXACT_EMBEDDING:
+        return True
+    if base.startswith(EXTRAS_FIRST):
+        return False
+    return base.startswith(KEEP_PREFIXES)
+
+
+def fig_out(log_dir, name) -> str:
+    """Absolute path for a figure, in results/ or results/extras/, made ready.
+
+    `log_dir` may be a run's log directory OR its results/ directory already --
+    two writers hold the latter -- so both are accepted rather than making each
+    call site remember which it has.
+    """
+    log_dir = str(log_dir).rstrip("/")
+    if os.path.basename(log_dir) == "results":
+        log_dir = os.path.dirname(log_dir)
+    out = os.path.join(log_dir, "results")
+    if not is_headline(name):
+        out = os.path.join(out, "extras")
+    os.makedirs(out, exist_ok=True)
+    return os.path.join(out, os.path.basename(str(name)))
+
+
+def clear_results(log_dir, prefixes=None, keep_extras=False, spare=()) -> int:
+    """Remove a run's stale result files before the task that regenerates them.
+
+    A figure left from an earlier commit looks exactly like one drawn today, and
+    results/ is read as a snapshot of one run at one revision -- after the
+    parameter readout changed underneath it, stale figures were the difference
+    between two panels in one directory describing different estimators.
+
+    `prefixes` limits the sweep to basenames starting with one of them, which is
+    how `-o test` clears only the rollout outputs it owns; None clears every
+    file except KEEP_ALWAYS. `spare` is the mirror image and is what `-o plot`
+    uses: clear everything EXCEPT these prefixes, because the rollout figures
+    belong to the test pass and a plot-only run is meant to redraw against the
+    rollout already on disk. `keep_extras` leaves results/extras/ in place.
+    Returns how many entries were removed.
+    """
+    import shutil
+    results = os.path.join(str(log_dir), "results")
+    if not os.path.isdir(results):
+        return 0
+    n = 0
+    for name in sorted(os.listdir(results)):
+        path = os.path.join(results, name)
+        if os.path.isdir(path):
+            if name == "extras" and not keep_extras and prefixes is None:
+                shutil.rmtree(path, ignore_errors=True)
+                n += 1
+            continue
+        if prefixes is not None and not name.startswith(tuple(prefixes)):
+            continue
+        if spare and name.startswith(tuple(spare)):
+            continue
+        if prefixes is None and name in KEEP_ALWAYS:
+            continue
+        try:
+            os.remove(path)
+            n += 1
+        except OSError:
+            pass
+    return n

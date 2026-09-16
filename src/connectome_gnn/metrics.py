@@ -768,7 +768,8 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
 G_PHI_EVAL_CHUNK = 1_000_000
 
 
-def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames=2000, seed=0):
+def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames=2000,
+                                seed=0, frame_idx=None):
     """Evaluate learned g_phi at REAL, co-occurring (vi(t), vj(t)) pairs for a
     sample of real edges — not an independent (vi, vj) grid.
 
@@ -815,8 +816,17 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
     dst = edges[1, sel].to(device)   # i — postsynaptic
     n_e = len(sel)
 
-    n_frames = min(n_frames, x_ts.n_frames)
-    frame_idx = torch.from_numpy(rng.choice(x_ts.n_frames, size=n_frames, replace=False)).to(device).long()
+    # FRAMES CHOSEN BY THE CALLER, when it has a reason to. A uniform sample
+    # spends its rows where the network is already easy to measure: the frames
+    # that matter for a rarely-active presynaptic cell are exactly the ones a
+    # uniform draw almost never contains. `choose_active_frames` picks them.
+    if frame_idx is None:
+        n_frames = min(n_frames, x_ts.n_frames)
+        frame_idx = torch.from_numpy(
+            rng.choice(x_ts.n_frames, size=n_frames, replace=False)).to(device).long()
+    else:
+        frame_idx = torch.as_tensor(np.asarray(frame_idx), device=device).long()
+        n_frames = int(frame_idx.numel())
 
     voltage = x_ts.voltage.to(device)                    # (T, N)
     vi = voltage[frame_idx][:, dst].T.contiguous()        # (n_e, n_frames)
@@ -1831,7 +1841,7 @@ MSG_N_FRAMES = 10
 
 
 def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
-                           n_frames=MSG_N_FRAMES):
+                           n_frames=MSG_N_FRAMES, scale=None):
     """The aggregated per-neuron message msg_i, true vs learned.
 
     WHY THE AGGREGATED MESSAGE AND NOT THE EDGE ONE. msg_i is what f_theta
@@ -1919,7 +1929,17 @@ def compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
 
             pred, in_features, msg_learned = model(state, ei, data_id=data_id,
                                                    return_all=True)
-            if _msg_i_through_f_theta(model):
+            if scale is not None:
+                # THE UPDATE TEMPLATE'S ROUTE. The model's own aggregate carried
+                # into the generator's units by the gauge the update fit
+                # measured, k_i = tau_i*T_i*G_i -- one multiply, no derivative of
+                # f_theta anywhere. The f_theta route below needs df/dmsg and
+                # df/dv per neuron and inherits both of their failures; this one
+                # is wrong only if T and G are.
+                _sc = torch.as_tensor(np.asarray(scale, dtype=np.float32),
+                                      device=msg_learned.device).ravel()
+                msg_learned = msg_learned.ravel()[:n_neurons] * _sc[:n_neurons]
+            elif _msg_i_through_f_theta(model):
                 msg_learned = _msg_through_f_theta(model, pred, in_features, n_neurons,
                                                    tau=tau_fit)
             true_all.append(to_numpy(msg_true).ravel())
@@ -2853,7 +2873,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                             on the `gain_corrected` path -- note "uncorrected"
                             means before the CORRECTION, not before outlier
                             filtering, two senses the old `raw_W_R2` conflated.
-        Eij_gate            median per-edge R2 of the straight line the
+        msg_form_r2_median  median per-edge R2 of the straight line the
                             `edge_line_fit` extraction assumes. THIS IS A
                             PRECONDITION, not a detail: below roughly 0.9 the
                             message is not affine in v_i, the model has not found
@@ -2895,7 +2915,7 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
     columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
     `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
-    `gnn_conductance_fit.log`'s `fit_r2_median` -> `Eij_gate`.
+    `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
     rec = RecoveredParams()
     if ode_params is None:
@@ -2969,7 +2989,9 @@ def _thresh_for(quantity, config):
         "W": getattr(r, "W_outlier_thresh", W_OUTLIER_THRESH),
         "tau": getattr(r, "tau_outlier_thresh", TAU_OUTLIER_THRESH),
         "V_rest": getattr(r, "V_rest_outlier_thresh", VREST_OUTLIER_THRESH),
-    }.get(quantity)          # None -> no filtering, which is right for E_ij/msg_i
+        "E_ij": getattr(r, "Eij_outlier_thresh", 5.0),
+        "msg_i": getattr(r, "msg_i_outlier_thresh", 1.0),
+    }.get(quantity)          # None -> no filtering
 
 
 # --------------------------------------------------------------------------- #
@@ -3094,7 +3116,8 @@ def _update_template_fit(model, config, edges, x_ts, n_neurons, device,
 
 
 def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
-                    n_frames=8, seed=0, gauge_tau="model", T=None, G=None):
+                    n_frames=8, seed=0, gauge_tau="model", T=None, G=None,
+                    slope_f=None):
     """Per neuron, the factor carrying its model message into the generator's units.
 
     k_i = tau_i * (d f_theta / d msg)_i, where the derivative comes from the
@@ -3103,11 +3126,13 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
     affine in the message, and the gap between them is reported as
     tmpl_dfdmsg_resid so that an update which is NOT affine says so.
 
-    `gauge_tau` decides whose time constant closes the conversion: "model" uses
-    the tau this model itself gives up (1/T from the same fit), so the readout
-    borrows nothing from the truth and k collapses to G; "true" uses the
-    generator's, which is what puts the model's conductances in the units
-    ode_params.W is written in, and is what the neuron panels print.
+    `gauge_tau` decides whose time constant closes the conversion. "true" is the
+    default and what the neuron panels print: it puts the model's conductances in
+    the units ode_params.W is written in, which is the only way the two can be
+    compared edge by edge. "model" uses the tau this model itself gives up (1/T
+    from the same fit), so the readout borrows nothing from the truth and k
+    collapses to G -- blind, but it charges W with tau's per-neuron error as
+    well as its own.
 
     Returns (k, dfdmsg, tau), each (N,).
     """
@@ -3131,6 +3156,18 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
 
     if gauge_tau == "true":
         tau = np.asarray(ode_params.gt_tau(n_neurons), dtype=np.float64)
+    elif slope_f is not None:
+        # THE SAME TAU THAT GETS REPORTED, not the raw 1/T. ode_params.derive_tau
+        # inverts this very slope and clips the result to the family's plausible
+        # range; the bare reciprocal does not, and its tail is multiplicative
+        # here -- every neuron's conductances are scaled by its own tau, so one
+        # neuron whose leak the model has not pinned corrupts that neuron's whole
+        # row. Using the clipped inversion keeps the readout blind AND keeps the
+        # tail out: reporting tau at R2 0.92 while gauging W with a different,
+        # unclipped tau was the inconsistency that made the blind path look
+        # hopeless (Wij_R2 0.272 against 0.691 with the generator's tau).
+        tau = np.asarray(ode_params.derive_tau(np.asarray(slope_f), n_neurons),
+                         dtype=np.float64)
     elif T is not None:
         with np.errstate(divide='ignore', invalid='ignore'):
             tau = np.where(T != 0, 1.0 / T, np.nan)
@@ -3142,11 +3179,98 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
     return dfdmsg * tau, dfdmsg, tau, autograd_dfdmsg
 
 
+def template_readout_enabled(config, model) -> bool:
+    """Whether the template readout supersedes the correction chain for this run.
+
+    ONE PREDICATE, not one per caller. The trainer reads it at every checkpoint
+    for the progress bar and tmp_training/<key>.log, and GNN_PlotFigure reads it
+    for results/; if the two ever disagreed, a run's trajectory and its final
+    numbers would describe different estimators and only the disagreement would
+    be visible.
+
+    GNNs with a g_phi only. `model_family` defaults to "gnn" for anything without
+    a MODEL_FAMILY tag, and the conductance known-ODE carries that tag while
+    having no g_phi at all -- there is no per-edge message to fit a template to,
+    and its parameters are direct. `recovery.readout: chain` opts a run out.
+    """
+    from connectome_gnn.models.utils import model_family
+    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
+        return False
+    core = getattr(model, "_orig_mod", model)
+    return model_family(model) == "gnn" and hasattr(core, "g_phi")
+
+
+
+def choose_active_frames(x_ts, src_ids, floor, base=256, per_neuron=8,
+                         max_frames=2048, seed=0, device=None):
+    """Frames chosen so that every presynaptic cell is seen active.
+
+    THE PROBLEM WITH A UNIFORM SAMPLE. An edge is measurable only on frames where
+    its presynaptic cell is above the activity floor, and a cell active in 2% of
+    the recording contributes ~5 rows in a 256-frame draw -- below the 8 the fit
+    needs. Those cells are not rare edges: a quarter of this connectome's edges
+    have one. Taking four times as many frames moves that share by four points,
+    because the extra frames are drawn from the same distribution.
+
+    WHAT THIS DOES INSTEAD. Start from a uniform base sample, count how often each
+    presynaptic cell is active in it, and for the cells still short, add frames
+    drawn from THEIR OWN active frames. The result is a frame set of the same
+    order as the base -- the busy cells are already covered by it -- that carries
+    the rare cells to the threshold as well.
+
+    Returns the chosen frame indices, and never more than `max_frames`.
+    """
+    rng = np.random.default_rng(seed)
+    n_total = int(x_ts.n_frames)
+    base = min(int(base), n_total)
+    chosen = set(rng.choice(n_total, size=base, replace=False).tolist())
+
+    # The activity matrix over a pool of candidate frames, presynaptic cells
+    # only: (frames, cells) booleans, read straight from the trajectory with no
+    # model in the loop, because act(v_j) > floor depends on the data alone.
+    pool = np.arange(n_total) if n_total <= max_frames * 4 else \
+        rng.choice(n_total, size=max_frames * 4, replace=False)
+    pool = np.sort(np.asarray(pool))
+    cells = np.unique(np.asarray(src_ids).ravel())
+    def _voltage(k):
+        """The frame's voltages, whichever shape the trajectory hands back.
+
+        A NeuronState carries `.voltage`; the stub trajectories the tests build
+        hand back a bare tensor whose first column is the voltage. Reading both
+        keeps the chooser usable without a full dataset behind it.
+        """
+        fr = x_ts.frame(int(k))
+        v = getattr(fr, "voltage", None)
+        if v is None:
+            v = fr[:, 0] if getattr(fr, "ndim", 1) > 1 else fr
+        return to_numpy(v).ravel()
+
+    volt = np.stack([_voltage(k) for k in pool])
+    active = volt[:, cells] > floor                         # (pool, cells)
+
+    in_base = np.isin(pool, np.fromiter(chosen, dtype=np.int64))
+    have = active[in_base].sum(axis=0)
+    short = np.where(have < per_neuron)[0]
+    for c in short:
+        if len(chosen) >= max_frames:
+            break
+        cand = pool[active[:, c]]
+        cand = cand[~np.isin(cand, np.fromiter(chosen, dtype=np.int64))]
+        if cand.size == 0:
+            continue
+        take = min(int(per_neuron - have[c]), cand.size, max_frames - len(chosen))
+        chosen.update(rng.choice(cand, size=take, replace=False).tolist())
+    return np.sort(np.fromiter(chosen, dtype=np.int64))
+
+
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=256, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
+                            second_pass_frames=768, second_pass_chunk=256,
+                            frame_choice="active",
                             gauge_frames=8, w_from="pooled_E",
-                            t_slope=3.0, update_frames=64) -> RecoveredParams:
+                            t_slope=3.0, update_frames=64,
+                            base: RecoveredParams = None) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
 
     The twin of :func:`extract_recovered_params` for the two edge quantities; see
@@ -3166,23 +3290,80 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             say little about W or E while still weighting the least squares.
         min_points: an edge needs this many surviving frames, and a non-singular
             2x2 normal matrix, or its entry is nan.
-        gauge_tau: "model" or "true", see :func:`_template_gauge`.
+        gauge_tau: "model" (default) or "true", see :func:`_template_gauge`.
+            The default is BLIND -- a recovery metric cannot use the quantity it
+            is recovering, and tau is one of them. "true" exists to separate the
+            template's own error from tau's, not to be reported as recovery.
+            Note what the unit means: W_true is written in units where the
+            message enters dv/dt as msg/tau_true: the generator's conductance is defined by a message
+            entering dv/dt as msg/tau_true, so expressing the model's in those
+            units needs that tau. Using the model's own instead makes k_i = G_i
+            and folds every per-neuron error in the recovered time constant into
+            that neuron's conductances -- measured on the sigma=0.05 conductance
+            run, Wij_R2 +0.691 -> +0.272 and the median edge error 7.3% -> 25.2%,
+            which is a measurement of tau and W jointly rather than of W. tau is
+            reported separately (R2 0.92); "model" is kept for the fully blind
+            reading.
         w_from: "pooled_E" reads W as (W*E) / E_pooled, "slope" as the raw
             -b2 of the fit. Conductance data only; see the pooling comment.
         t_slope: how many standard errors the driving-force coefficient must
             clear before the edge reports a reversal at all.
         update_frames: frames for the per-neuron update fit that yields tau,
             V_rest and the gauge. Capped by n_frames.
+        base: a RecoveredParams from :func:`extract_recovered_params` to start
+            from. The template readout produces W, E_ij, tau and V_rest; msg_i,
+            the gain/bias of a linear model and the f_theta diagnostics the
+            panels draw come only from the chain, so handing the chain's result
+            in here returns ONE object carrying both rather than two that
+            disagree about which is authoritative. Everything the template
+            produces overrides.
     """
     core = getattr(model, "_orig_mod", model)
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
     device = core.a.device if device is None else device
     cond = _is_conductance_data(ode_params)
-    rec = RecoveredParams()
+    if base is None:
+        rec = RecoveredParams()
+    else:
+        # A COPY, not the caller's object: the chain's result is still what
+        # results/metrics.txt is written from in some call sites, and silently
+        # mutating it would make the two files differ by call order.
+        rec = RecoveredParams(pairs=dict(base.pairs), estimator=dict(base.estimator),
+                              correction=dict(base.correction), valid=dict(base.valid),
+                              diagnostics=dict(base.diagnostics))
+
+    # `frame_choice="active"` spends the same number of frames where they are
+    # worth spending: a first uniform draw, then frames added from the active
+    # windows of the presynaptic cells that the draw left short. The floor it
+    # needs is the same quantile of act(v_j) the fit uses, measured on a small
+    # uniform probe first so the two agree.
+    _rc = getattr(config, "recovery", None)
+    frame_choice = getattr(_rc, "template_frame_choice", frame_choice) or frame_choice
+    second_pass_frames = getattr(_rc, "template_second_pass_frames", second_pass_frames)
+    _frames = None
+    if frame_choice == "active":
+        _probe = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
+                                             n_edges=int(edges.shape[1]),
+                                             n_frames=min(64, int(x_ts.n_frames)),
+                                             seed=seed)
+        _u0 = np.asarray(ode_params.gt_g_phi_func(_probe['vj'].astype(np.float64)),
+                         dtype=np.float64)
+        _pos = _u0[_u0 > 0]
+        _floor = float(np.quantile(_pos, vj_quantile)) if _pos.size else 0.0
+        # A trajectory that cannot answer "what was the voltage at frame k"
+        # falls back to the uniform draw rather than taking the run down: the
+        # frame choice is an optimisation, not a requirement.
+        try:
+            _frames = choose_active_frames(
+                x_ts, to_numpy(edges).reshape(2, -1)[0], _floor,
+                base=n_frames, per_neuron=max(min_points, 8),
+                max_frames=max(4 * n_frames, n_frames), seed=seed)
+        except Exception:
+            _frames = None
 
     res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
                                       n_edges=int(edges.shape[1]), n_frames=n_frames,
-                                      seed=seed)
+                                      seed=seed, frame_idx=_frames)
     eid = res['edge_idx']
     vi, vj = res['vi'].astype(np.float64), res['vj'].astype(np.float64)
     n_e = vi.shape[0]
@@ -3209,15 +3390,60 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # unbiases the other two: without a constant in the form, a message sitting
     # on a pedestal is fitted by tilting the driving force instead, which moves
     # the reversal.
-    y = np.where(keep, msg, 0.0)
-    x1 = np.where(keep, u, 0.0)
-    x2 = np.where(keep, u * vi, 0.0)
-    x3 = keep.astype(np.float64)
-    n_used = keep.sum(axis=1).astype(np.float64)
-    S11, S12, S22 = (x1 * x1).sum(1), (x1 * x2).sum(1), (x2 * x2).sum(1)
-    S13, S23, S33 = (x1 * x3).sum(1), (x2 * x3).sum(1), n_used
-    S1y, S2y, Syy = (x1 * y).sum(1), (x2 * y).sum(1), (y * y).sum(1)
-    S3y = (x3 * y).sum(1)
+    def _sums(u_, vi_, msg_, floor_):
+        """The ten per-edge sums the normal equations are built from.
+
+        Sums over frames, so a second sample ADDS to them: nothing of size
+        (edges, frames) survives this function, which is what lets more frames
+        be streamed for the edges that need them.
+        """
+        keep_ = u_ > max(floor_, 1e-6)
+        y_ = np.where(keep_, msg_, 0.0)
+        a1 = np.where(keep_, u_, 0.0)
+        a2 = np.where(keep_, u_ * vi_, 0.0)
+        a3 = keep_.astype(np.float64)
+        return dict(n=keep_.sum(axis=1).astype(np.float64),
+                    S11=(a1 * a1).sum(1), S12=(a1 * a2).sum(1), S22=(a2 * a2).sum(1),
+                    S13=(a1 * a3).sum(1), S23=(a2 * a3).sum(1),
+                    S1y=(a1 * y_).sum(1), S2y=(a2 * y_).sum(1),
+                    S3y=(a3 * y_).sum(1), Syy=(y_ * y_).sum(1))
+
+    acc = _sums(u, vi, msg, floor)
+    n_first_short = int((acc["n"] < min_points).sum())
+
+    # A SECOND PASS FOR THE EDGES THAT ARE SHORT, and for those only. The first
+    # sample leaves ~26% of edges with fewer than `min_points` usable rows --
+    # their presynaptic cell is rarely above the floor -- and raising n_frames
+    # for everyone re-fits every edge to admit them, which moves numbers that
+    # were already fine and costs memory quadratically (the sampler materialises
+    # edges x frames and dies at 4,096). Here the extra frames are streamed in
+    # chunks, their sums added ONLY where the first pass came up short, and the
+    # edges rescued this way are counted so the coverage gain is visible rather
+    # than assumed. Off by default: at four times the frames E_ij R2 fell from
+    # -0.013 to -0.828, because the edges admitted are the marginal ones.
+    _short = acc["n"] < min_points
+    n_rescued = 0
+    if second_pass_frames and _short.any():
+        _done = 0
+        while _done < int(second_pass_frames):
+            _chunk = min(int(second_pass_chunk), int(second_pass_frames) - _done)
+            _res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
+                                               n_edges=int(edges.shape[1]),
+                                               n_frames=_chunk, seed=seed + 1 + _done)
+            _u = np.asarray(ode_params.gt_g_phi_func(_res['vj'].astype(np.float64)),
+                            dtype=np.float64).reshape(_res['vj'].shape)
+            _msg = W_gnn[:, None] * _res['g_phi'].astype(np.float64)
+            _add = _sums(_u, _res['vi'].astype(np.float64), _msg, floor)
+            for k_ in acc:
+                acc[k_] = np.where(_short, acc[k_] + _add[k_], acc[k_])
+            _done += _chunk
+        n_rescued = int((_short & (acc["n"] >= min_points)).sum())
+
+    n_used = acc["n"]
+    S11, S12, S22 = acc["S11"], acc["S12"], acc["S22"]
+    S13, S23, S33 = acc["S13"], acc["S23"], acc["n"]
+    S1y, S2y, Syy = acc["S1y"], acc["S2y"], acc["Syy"]
+    S3y = acc["S3y"]
 
     def _solve(mats, rhs, good):
         """Per-edge least squares from stacked normal equations, nan where singular."""
@@ -3272,6 +3498,69 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         # an edge whose message is a large constant the form cannot produce.
         fit_r2 = np.where(ok & (Syy > 0), 1.0 - ss_res / Syy, np.nan)
 
+        # BOTH FAMILIES' FORMS ON THE SAME MESSAGE, always, whichever family the
+        # model belongs to. The current form W*act(v_j) + C is the conductance
+        # form with the driving-force column u*v_i DELETED -- a nested pair --
+        # so the second fit costs one more solve off the sums already summed,
+        # and the comparison it allows is the one a good fit R2 alone cannot
+        # settle: a conductance GNN whose message the CURRENT form explains just
+        # as well has not demonstrated it learned a driving force, it has
+        # demonstrated that this data does not need one. Reported as R2 per
+        # edge, and as the per-edge gain, because a median of differences is not
+        # the difference of the medians when the two forms disagree on a few
+        # edges and agree on the rest.
+        _den2 = S11 * S33 - S13 ** 2
+        ok2 = (n_used >= min_points) & (_den2 > 0)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            c1 = np.where(ok2, (S33 * S1y - S13 * S3y) / _den2, np.nan)
+            c3 = np.where(ok2, (S11 * S3y - S13 * S1y) / _den2, np.nan)
+        cur_r2 = np.where(ok2 & (Syy > 0), 1.0 - (Syy - c1 * S1y - c3 * S3y) / Syy,
+                          np.nan)
+        if cond:
+            cond_r2 = fit_r2
+            cb1, cb2 = b1, b2
+            t_cond = t_b2
+        else:
+            # The current branch never built the three-column system; build it
+            # here so a current model is asked the same question in reverse --
+            # does its message carry a driving force it was never given?
+            _M3 = np.stack([np.stack([S11, S12, S13], -1),
+                            np.stack([S12, S22, S23], -1),
+                            np.stack([S13, S23, S33], -1)], -2)
+            _r3 = np.stack([S1y, S2y, S3y], -1)
+            _det3 = np.linalg.det(_M3)
+            ok3 = (n_used >= min_points) & np.isfinite(_det3) & (np.abs(_det3) > 1e-18)
+            _b3 = _solve(_M3, _r3, ok3)
+            cond_r2 = np.where(
+                ok3 & (Syy > 0),
+                1.0 - (Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y) / Syy,
+                np.nan)
+            cb1, cb2 = _b3[:, 0], _b3[:, 1]
+            _ss3 = Syy - _b3[:, 0] * S1y - _b3[:, 1] * S2y - _b3[:, 2] * S3y
+            _s2 = np.where(n_used > 3, _ss3 / np.maximum(n_used - 3, 1), np.nan)
+            _v = np.full(n_e, np.nan)
+            if ok3.any():
+                _v[ok3] = np.linalg.inv(_M3[ok3])[:, 1, 1]
+            _se = np.sqrt(np.maximum(_s2 * _v, 0.0))
+            t_cond = np.where(_se > 0, np.abs(cb2) / _se, np.nan)
+
+        # WHERE THE CONDUCTANCE FORM PUTS ITS REVERSAL, whichever family the
+        # model is. This is the sharper discriminator, and R2 is not: fitted to
+        # a CURRENT model's message the conductance form reaches R2 1.0000 --
+        # it contains the current form -- but only by placing E at -280, -487,
+        # -850, voltages the data never visits, so the u*v_i column is being
+        # used as a near-constant rescaling of u rather than as a driving force.
+        # Reported against the voltage the postsynaptic cells actually reach, so
+        # "large" has a reference: an |E| many times the observed |v_i| is a
+        # reversal outside the data, and the conductance reading is spurious.
+        # A VANISHING SLOPE IS THE EXTREME OF THE SAME STATEMENT, not a missing
+        # value: b2 -> 0 is the fit saying the message does not depend on v_i at
+        # all, and dropping those edges would delete exactly the evidence. They
+        # are kept and the ratio is capped -- past a million times the voltage
+        # range it no longer matters how far outside the data the reversal is.
+        with np.errstate(divide='ignore', invalid='ignore'):
+            E_cond_form = np.where(cb2 != 0, -cb1 / cb2, np.inf * np.sign(cb1))
+
     # POOLING THE REVERSAL, AND READING W THROUGH IT. The generator hands every
     # edge onto neuron i one of exactly two reversals -- one for the excitatory
     # senders, one for the inhibitory -- so the per-edge estimates of each sign
@@ -3309,7 +3598,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         n_frames=min(n_frames, update_frames), seed=seed)
     k, dfdmsg, tau_used, autograd_dfdmsg = _template_gauge(
         core, config, ode_params, edges, x_ts, n_neurons, device,
-        n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit)
+        n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit,
+        slope_f=slope_f)
     W_learned = k[i_ids] * W_used
 
     # Back into the caller's edge order, so every array lines up with ode_params.W.
@@ -3330,13 +3620,110 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.correction["W"] = (f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
                            f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)")
     rec.diagnostics["_W_learned_full"] = W_learned
+    # THE TEMPLATE'S W CARRIES THE TEMPLATE'S OWN GATE, and must say so. On a
+    # conductance run `extract_recovered_params` has already set
+    # rec.valid["W"] = False whenever ITS estimator -- the edge_line_fit, a
+    # straight line in v_i -- fell below `gate`. This function then replaces the
+    # W pair with the template fit and left that False in place, so `rec.get("W")`
+    # returned None, score_recovery wrote no Wij_* key, and a run ended with no
+    # tmp_training/Wij.log and no Wij line in metrics.txt while its template fit
+    # sat at a median per-edge R2 of 0.999. A superseding readout that cannot
+    # clear the superseded one's veto is not superseding it.
+    rec.valid["W"] = r2_med >= gate
     # The median per-edge fit R2 under BOTH families, but only the conductance
-    # family may call it Eij_gate: on current data the fit has no reversal in it
+    # family may call it a reversal gate: on current data the fit has none in it
     # at all, and an Eij_ line there would read as a reversal recovered from a
     # model that never had one.
-    rec.diagnostics["tmpl_fit_r2_median"] = r2_med
+    rec.diagnostics["msg_form_r2_median"] = r2_med
+    # THE COUNTS, NOT ONLY THE SHARES. `tmpl_pct_unfitted` says 0.37% and leaves
+    # the reader to multiply; two runs with different edge counts cannot be
+    # compared from percentages at all. These are what the scatters print.
+    _n_fitted = int((n_used >= min_points).sum())
+    rec.diagnostics["tmpl_n_edges"] = int(n_e)
+    rec.diagnostics["tmpl_n_edges_fitted"] = _n_fitted
+    rec.diagnostics["tmpl_pct_fitted"] = float(100.0 * _n_fitted / max(n_e, 1))
     if cond:
-        rec.diagnostics["Eij_gate"] = r2_med
+        _n_E = int(np.isfinite(E_fit).sum())
+        rec.diagnostics["tmpl_n_E_identified"] = _n_E
+        rec.diagnostics["tmpl_pct_E_identified"] = float(100.0 * _n_E / max(n_e, 1))
+    # THE TWO FORMS SIDE BY SIDE. `msg_form_r2_median` is the model's own
+    # family; these two are both families on that same message, so the reader
+    # can see whether the family mattered. The gain is the median over edges of
+    # the R2 the driving-force column ADDS, in R2 points of the per-edge
+    # message: near zero means the current form already explains the message a
+    # conductance model emits.
+    rec.diagnostics["current_form_r2_median"] = (
+        float(np.nanmedian(cur_r2)) if np.isfinite(cur_r2).any() else float("nan"))
+    rec.diagnostics["conductance_form_r2_median"] = (
+        float(np.nanmedian(cond_r2)) if np.isfinite(cond_r2).any() else float("nan"))
+    # MEAN AND SD, NOT THE MEDIAN, for the gain. Most of the 434k edges carry a
+    # sender that is almost never above the activation floor: both forms fit
+    # their near-empty message at R2 ~1 and the driving force has nothing to
+    # explain, so the median edge reports +0.006 while the synapses that carry
+    # signal report +0.2 to +0.85. The mean keeps those in, and the SD is how
+    # unequal the population is -- an SD several times the mean is the shape
+    # above, and it is the shape that matters.
+    _gain = cond_r2 - cur_r2
+    _gf = _gain[np.isfinite(_gain)]
+    rec.diagnostics["driving_force_r2_gain_mean"] = (
+        float(np.mean(_gf)) if _gf.size else float("nan"))
+    rec.diagnostics["driving_force_r2_gain_sd"] = (
+        float(np.std(_gf, ddof=1)) if _gf.size > 1 else float("nan"))
+    # THE REVERSAL THE CONDUCTANCE FORM NEEDS, and the voltage the data reaches.
+    # |E| far outside the second is the fit saying "no driving force here" in
+    # the one place R2 cannot: on a current model the conductance form fits
+    # perfectly and puts E hundreds of millivolts away.
+    # THE OTHER FAMILY'S CONSTANTS, KEPT FOR THE ROLLOUT. R2 says how well the
+    # other form describes the message; only putting those constants back into
+    # the generator's equation and running it says whether they DO the same
+    # thing. The gauge k_i is the same one the own-family W goes through -- the
+    # message the update divides back out -- because the two fits describe the
+    # same message in the same units.
+    if cond:
+        _W_alt = k[i_ids] * c1                      # current form: msg = W*u + C
+        _E_alt = np.full(n_e, np.nan)
+        rec.diagnostics["alt_form_family"] = "current"
+    else:
+        _W_alt = k[i_ids] * (-cb2)                  # conductance form: b2 = -W
+        _E_alt = E_cond_form
+        rec.diagnostics["alt_form_family"] = "conductance"
+    # THE PER-EDGE ARRAYS, KEPT FOR THE TEST AND THE FIGURE. Underscored, so
+    # they stay on the object and out of the key-value log: the summary numbers
+    # go to metrics.txt, the distributions go to results/form_comparison.npz,
+    # and the question "are the two forms distinguishable" is answered from the
+    # distributions rather than from two medians.
+    rec.diagnostics["_form_cond_r2_full"] = _scatter(cond_r2)
+    rec.diagnostics["_form_cur_r2_full"] = _scatter(cur_r2)
+    rec.diagnostics["_form_t_b2_full"] = _scatter(t_cond)
+    # The reversal the CONDUCTANCE form asks for on every edge, whichever family
+    # the model belongs to, kept per edge because the summary is a median of a
+    # population with two modes -- reversals inside the voltage range, and
+    # reversals that ran away because the slope they divide by is noise -- and a
+    # median cannot show that.
+    rec.diagnostics["_form_E_cond_full"] = _scatter(E_cond_form)
+    rec.diagnostics["_form_n_used_full"] = _scatter(n_used)
+    rec.diagnostics["_W_alt_full"] = _scatter(_W_alt)
+    rec.diagnostics["_E_alt_full"] = _scatter(_E_alt)
+
+    _E_CAP = 1e6
+    _Ec = np.abs(E_cond_form[~np.isnan(E_cond_form)])
+    _vi_scale = float(np.percentile(np.abs(vi), 99)) if vi.size else float("nan")
+    _E_med = float(np.median(np.minimum(_Ec, _E_CAP * max(_vi_scale, 1e-12)))) \
+        if _Ec.size else float("nan")
+    rec.diagnostics["conductance_form_E_absmedian"] = _E_med
+    rec.diagnostics["vi_abs_p99"] = _vi_scale
+    rec.diagnostics["conductance_form_E_over_vi"] = (
+        float(_E_med / _vi_scale)
+        if np.isfinite(_E_med) and np.isfinite(_vi_scale) and _vi_scale > 0
+        else float("nan"))
+    rec.diagnostics["tmpl_frames_used"] = int(vi.shape[1])
+    rec.diagnostics["tmpl_frame_choice"] = frame_choice
+    rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
+        100.0 * n_first_short / max(n_e, 1))
+    rec.diagnostics["tmpl_pct_rescued_second_pass"] = float(
+        100.0 * n_rescued / max(n_e, 1))
+    if cond:
+        rec.diagnostics["msg_form_r2_median"] = r2_med
         # Edges whose fitted message RISES with the postsynaptic voltage: no
         # driving force does that, since E - v_i can only fall as v_i climbs.
         rec.diagnostics["Eij_pct_wrong_slope"] = (
@@ -3365,7 +3752,27 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.estimator["V_rest"] = "update_template"
         rec.correction["V_rest"] = ("ode_params.derive_vrest of (a1, a0); a0 is "
                                     "confounded with a constant inside f(stim)")
-    rec.diagnostics["tmpl_update_r2_median"] = float(np.nanmedian(update_r2))
+    # msg_i THROUGH THE SAME GAUGE AS W. The chain reads the message back out
+    # through f_theta's derivatives; the template already has k_i per neuron from
+    # the update fit, so the model's own aggregate times k_i is the message in
+    # the generator's units with nothing differentiated. Superseding the chain
+    # here keeps one estimator behind every quantity in metrics.txt.
+    if x_ts is not None:
+        try:
+            _mt = compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
+                                         scale=k)
+            if _mt is not None:
+                _mp = _pair(_mt[0], _mt[1])
+                if _mp is not None:
+                    rec.pairs["msg_i"] = _mp
+                    rec.estimator["msg_i"] = "update_template"
+                    rec.correction["msg_i"] = (
+                        "k_i * msg_hat_i, the model's own aggregate scaled by "
+                        "the update fit's gauge k_i = tau_i * T_i * G_i")
+        except Exception as _exc:
+            rec.diagnostics["msg_i_template_error"] = f"{type(_exc).__name__}: {_exc}"
+
+    rec.diagnostics["update_form_r2_median"] = float(np.nanmedian(update_r2))
     rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
     # The update template's own T*G against autograd's df_theta/dmsg. They agree
     # exactly when the update is affine in the message; the ratio is how far it
@@ -3410,8 +3817,23 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _vt, _vl = rec.pairs["V_rest"]
         if _vl.size == n_neurons:
             rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
+            # THE CORRECTED LEVEL IS THE REPORTED ONE, for the same reason W is
+            # reported divided by k_i: both halves of the affine gauge
+            # msg_hat = msg/k_i + beta_i are properties of the model's message
+            # scale, not errors in the parameter. Leaving beta_i inside V_rest
+            # while dividing k_i out of W scored one half of one gauge and not
+            # the other. The uncorrected level is kept as V_rest_uncorrected and
+            # scored beside it, exactly as W keeps W_uncorrected.
+            rec.pairs["V_rest_uncorrected"] = (_vt, _vl)
+            rec.pairs["V_rest"] = _pair(_vt, _vl + _per_neuron)
+            rec.correction["V_rest"] = (
+                "ode_params.derive_vrest of (a1, a0), plus the neuron's own "
+                "incoming message offset k_i*beta_i, which the update otherwise "
+                "hands straight to the resting level")
     rec.diagnostics["tmpl_pct_E_unidentified"] = (
         float(100.0 * np.mean(~np.isfinite(E_fit))) if cond else float("nan"))
+    rec.diagnostics["_tmpl_E_full"] = E_learned
+    rec.diagnostics["_tmpl_W_fit"] = _scatter(W_used)
     rec.diagnostics["_tmpl_fit_r2"] = fit_r2_full
     rec.diagnostics["_tmpl_k"] = k
     rec.diagnostics["_tmpl_tau"] = tau_used
@@ -3482,6 +3904,23 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
             recovery_param_metrics(unc[0], unc[1],
                                    _thresh_for("W", config))["r2_clean"])
 
+    # HOW MUCH OF THE V_rest GAP IS THE MESSAGE OFFSET. The affine gauge is
+    # msg_hat_i = msg_i / k_i + beta_i, and the two halves are corrected very
+    # differently: W is divided by the measured k_i, while beta_i is not
+    # identifiable from the update at all -- the update hands a constant in the
+    # message straight to the resting potential, so the level the template reads
+    # is short by exactly the neuron's own incoming offset. Adding that offset
+    # back gives the second number, and the DIFFERENCE between the two is the
+    # answer to "is V_rest wrong, or is it beta_i sitting in V_rest". Reported,
+    # not substituted: the headline V_rest_R2 stays the one a reader gets
+    # without knowing the offset, which is the honest number for a real
+    # recording where the message is not observed.
+    _vunc = rec.pairs.get("V_rest_uncorrected")
+    if _vunc is not None:
+        out["V_rest_R2_uncorrected"] = float(
+            recovery_param_metrics(_vunc[0], _vunc[1],
+                                   _thresh_for("V_rest", config))["r2_clean"])
+
     # SCALE-FREE COMPANIONS for the two quantities a GNN pins down only up to a
     # gain. `<key>_gain` follows the one convention (learned ~= gain * true, see
     # r2_up_to_scale); `<key>_R2_scaled` is the R2 once it is divided out.
@@ -3549,8 +3988,9 @@ _COMMON_STATS = ("R2", "R2_all", "slope", "rmse", "n", "n_outliers", "pct_outlie
                  "rel_err_median", "rel_err_iqr")
 _EXTRA_STATS = {
     "Wij":   ("R2_scaled", "gain", "pearson", "zscored_R2", "R2_uncorrected"),
-    "Eij":   ("gate", "pct_wrong_slope"),
+    "Eij":   ("pct_wrong_slope",),
     "msg_i": ("R2_scaled", "gain"),
+    "V_rest": ("R2_uncorrected",),
 }
 
 
@@ -3639,7 +4079,7 @@ def recovery_log_append(log_dir, iteration, scored):
         # E_ij, and for W the fact that the estimator ran. Those rows are all
         # nan except the gate, which is the number that says WHY.
         present = (f"{key}_R2" in scored
-                   or (key == "Eij" and "Eij_gate" in scored)
+                   or (key == "Eij" and "msg_form_r2_median" in scored)
                    or (key == "Wij" and "Wij_estimator" in scored))
         if not present:
             continue
@@ -3812,7 +4252,7 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
     if want_W and estimator == "edge_line_fit":
         ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
         fit_r2 = float(np.nanmedian(ext["fit_r2"]))
-        rec.diagnostics["Eij_gate"] = fit_r2
+        rec.diagnostics["msg_form_r2_median"] = fit_r2
         rec.diagnostics["Eij_pct_wrong_slope"] = ext.get("pct_wrong_slope", float("nan"))
         # Below the gate the message is not affine in v_i, so the W and E the
         # line produced describe nothing. Recorded as invalid rather than
@@ -3879,6 +4319,93 @@ def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
             rec.pairs["E_ij"] = _pair(_rev["true"], _rev["learned"])
             rec.estimator["E_ij"] = "edge_line_fit"
             if "fit_r2_median" in _rev:
-                rec.diagnostics["Eij_gate"] = _rev["fit_r2_median"]
+                rec.diagnostics["msg_form_r2_median"] = _rev["fit_r2_median"]
                 rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
                 rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate
+
+
+# --------------------------------------------------------------------------- #
+#  ARE THE TWO FORMS DISTINGUISHABLE ON THIS RUN
+# --------------------------------------------------------------------------- #
+
+def form_comparison_stats(diagnostics, n_edges_reported=None):
+    """The nested-model test between the two families, edge by edge.
+
+    WHY NOT A TWO-SAMPLE TEST BETWEEN THE TWO R2 DISTRIBUTIONS. They are paired
+    -- same edge, same frames -- and nested: the current form is the conductance
+    form with the u*v_i column deleted, so its residual sum of squares can only
+    be larger, edge for edge, by algebra. A Kolmogorov-Smirnov or Mann-Whitney
+    test between them has a null that is false before the data is seen, and on
+    434,112 edges it rejects whatever the size of the effect.
+
+    The test a nested pair defines is the F test, per edge:
+
+        F = (RSS_current - RSS_conductance) / (RSS_conductance / (n - 3))
+
+    with 1 and n-3 degrees of freedom, n being the frames that edge was fitted
+    on. Written through R2 -- both are taken against the same total sum of
+    squares -- that is F = (R2_cond - R2_cur) / ((1 - R2_cond) / (n - 3)), and
+    it equals the SQUARE of the t statistic on b2 the readout already computes
+    for its reversal gate. So the answer at the level of the run is the share of
+    edges that reject, at a threshold stated with the number of tests it is
+    being applied across.
+
+    THE CAVEAT THAT COMES WITH IT: n counts frames, and frames are consecutive
+    samples of a smooth trajectory, so the effective sample size is smaller than
+    n and every rejection count here is optimistic. It is reported with the
+    median frames per edge so the reader can see what it rests on.
+
+    Returns (stats dict, list of terminal lines).
+    """
+    cond = np.asarray(diagnostics.get("_form_cond_r2_full", []), dtype=np.float64)
+    cur = np.asarray(diagnostics.get("_form_cur_r2_full", []), dtype=np.float64)
+    t = np.asarray(diagnostics.get("_form_t_b2_full", []), dtype=np.float64)
+    n_used = np.asarray(diagnostics.get("_form_n_used_full", []), dtype=np.float64)
+    if cond.size == 0 or cur.size == 0:
+        return {}, []
+
+    ok = np.isfinite(cond) & np.isfinite(cur)
+    gain = np.where(ok, cond - cur, np.nan)
+    g = gain[np.isfinite(gain)]
+    n_e = int(n_edges_reported or ok.sum())
+    tt = t[np.isfinite(t)]
+
+    # Two thresholds, both named for what they control. t >= 3 is the readout's
+    # own reversal gate, one test at a time; the Bonferroni threshold is the one
+    # that controls a 5% chance of ANY false rejection across every edge tested,
+    # which is the honest bar for a claim about the run rather than about an
+    # edge.
+    from scipy.stats import norm
+    _t_bonf = float(norm.isf(0.025 / max(n_e, 1)))
+    stats = {
+        "n_edges": n_e,
+        "gain_mean": float(np.mean(g)) if g.size else float("nan"),
+        "gain_sd": float(np.std(g, ddof=1)) if g.size > 1 else float("nan"),
+        "gain_q10": float(np.quantile(g, 0.10)) if g.size else float("nan"),
+        "gain_q50": float(np.quantile(g, 0.50)) if g.size else float("nan"),
+        "gain_q90": float(np.quantile(g, 0.90)) if g.size else float("nan"),
+        "cond_median": float(np.nanmedian(cond)) if np.isfinite(cond).any() else float("nan"),
+        "cur_median": float(np.nanmedian(cur)) if np.isfinite(cur).any() else float("nan"),
+        "t_median": float(np.median(tt)) if tt.size else float("nan"),
+        "pct_t3": float(100.0 * np.mean(tt >= 3.0)) if tt.size else float("nan"),
+        "t_bonferroni": _t_bonf,
+        "pct_bonferroni": float(100.0 * np.mean(tt >= _t_bonf)) if tt.size else float("nan"),
+        "frames_median": float(np.nanmedian(n_used)) if n_used.size else float("nan"),
+    }
+    f = stats
+    lines = [
+        f"are the two forms distinguishable on this run?  "
+        f"(nested F test per edge, 1 and n-3 d.o.f.)",
+        f"   median per-edge R²: conductance {f['cond_median']:.4f}   "
+        f"current {f['cur_median']:.4f}",
+        f"   gain quantiles [10 / 50 / 90]: {f['gain_q10']:+.4f} / "
+        f"{f['gain_q50']:+.4f} / {f['gain_q90']:+.4f}   "
+        f"(mean {f['gain_mean']:+.4f} ± {f['gain_sd']:.4f})",
+        f"   edges where the driving force clears 3 s.e.: {f['pct_t3']:.1f}%   "
+        f"and Bonferroni t ≥ {f['t_bonferroni']:.2f} over {f['n_edges']:,} tests: "
+        f"{f['pct_bonferroni']:.1f}%",
+        f"   median |t| on the driving-force slope {f['t_median']:.1f}, on a median "
+        f"{f['frames_median']:.0f} frames per edge — consecutive frames, so these "
+        f"shares are optimistic",
+    ]
+    return stats, lines

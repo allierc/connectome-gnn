@@ -1,4 +1,4 @@
-description: Conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0, W L1 off
+description: conductance GNN on the rig-2 (ion) twin, noise 0.05, fold 0, W L1 off
   and the silent-input anchor at 5 in place of coeff_g_phi_zero_below.
 dataset: flyvis_conductance_ion_sub_noise_005_blank50_cv00
 simulation:
