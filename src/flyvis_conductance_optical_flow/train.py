@@ -80,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--ncols", type=int, default=150, help="width of the progress bar, in characters"
     )
     p.add_argument(
+        "--verbose",
+        action="store_true",
+        help="keep flyvis's INFO logging. It prints the whole scheduler state once "
+        "per epoch, and an epoch here is 12 iterations, so it overruns the progress "
+        "bar several times a second; off by default",
+    )
+    p.add_argument(
         "--delete-if-exists",
         action="store_true",
         help="overwrite an existing run directory of the same name",
@@ -110,6 +117,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+
+    if not args.verbose:
+        # flyvis calls logging.basicConfig(level=INFO) at import, and its solver
+        # logs the full scheduler state at every epoch. An epoch is 12 iterations
+        # on this split, so that is several screens a second overwriting the
+        # progress bar. Raising the level on the `flyvis` parent logger silences
+        # its children (flyvis.solver, flyvis.network, ...) while leaving
+        # warnings and errors -- the things worth interrupting a bar for.
+        logging.getLogger("flyvis").setLevel(logging.WARNING)
 
     conductance = args.dynamics == CONDUCTANCE_DYNAMICS
     rig = (
