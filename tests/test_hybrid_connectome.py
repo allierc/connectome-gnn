@@ -53,14 +53,25 @@ class TestVariantResolution:
         }
         assert expected.issubset(set(_VARIANT_TO_DIRNAME.keys()))
 
+    # THE THREE BELOW TOUCH THE DISK. `_table_dir` does not just map a name, it
+    # checks the directory exists and raises with instructions when it does not,
+    # so without the release artifact these fail rather than skip -- three red
+    # tests in every run of a checkout that was never meant to have the data.
+    # The module already has that guard for the manifest; these get it too.
+    @pytest.mark.skipif(not DATA_DIR.exists(),
+                        reason="hybrid connectome tables not present")
     def test_table_dir_e8(self):
         d = _table_dir("e8_flywireRF", data_dir=DATA_DIR)
         assert d.name == "e8_flywireRF"
 
+    @pytest.mark.skipif(not DATA_DIR.exists(),
+                        reason="hybrid connectome tables not present")
     def test_table_dir_full_eye_proximal(self):
         d = _table_dir("full_eye_flywireRF_proximal_nulls", data_dir=DATA_DIR)
         assert d.name == "full_eye_flywireRF_proximal_nulls"
 
+    @pytest.mark.skipif(not DATA_DIR.exists(),
+                        reason="hybrid connectome tables not present")
     def test_table_dir_known_ode_aliases_to_gnn(self):
         # known_ode reuses the same parquet tables as its GNN sibling
         d_gnn = _table_dir("e8_flywireRF", data_dir=DATA_DIR)

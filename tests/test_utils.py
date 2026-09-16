@@ -34,12 +34,27 @@ class TestToNumpy:
 
 
 class TestSortKey:
+    """The contract is (run, epoch, sub) tuples over `best_model_with_*` names.
+
+    These two asserted a single packed number for names with no `best_model_with_`
+    prefix -- a contract sort_key stopped honouring long before this branch, so
+    they had been failing on main. Rewritten against what it does now, including
+    the intra-epoch name `checkpoint_saves_per_epoch` writes.
+    """
+
     def test_graphs_suffix(self):
-        assert sort_key("model_graphs_0.pt") == 0
+        assert sort_key("best_model_with_0_graphs_7.pt") == (0, 7, 0)
 
     def test_numeric_suffix(self):
-        key = sort_key("model_3_100.pt")
-        assert key == 3e7 + 100
+        assert sort_key("best_model_with_3_2_100.pt") == (3, 2, 100)
+
+    def test_intra_epoch_checkpoint(self):
+        assert sort_key("best_model_with_0_graphs_1_136532.pt") == (0, 1, 136532)
+
+    def test_a_name_it_cannot_parse_is_an_error(self):
+        import pytest
+        with pytest.raises(ValueError):
+            sort_key("model_graphs_0.pt")
 
 
 class TestChooseBoundaryValues:
