@@ -2707,6 +2707,35 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 model, ode_params, config, edges, x_ts, device,
                 log_dir, logger, log_file, n_neurons=n_neurons,
                 template_rollout=True)
+            # THE CLUSTERING IS A RECOVERED QUANTITY TOO, and belongs with the
+            # others. It used to print at the far end of the pass, after the
+            # stratified analysis and the connectivity statistics, so the one
+            # number that says whether the embedding found the cell types
+            # arrived a screen and a half below the R2s it belongs beside.
+            # Computed here because every input it needs -- the learned weights,
+            # tau, V_rest and the embedding -- has existed since the scatters
+            # were drawn. The site further down reuses this result; it recomputes
+            # only if this failed.
+            _cl = None
+            try:
+                n_gmm = min(100, n_neurons - 1)
+                _cl = cluster_recovery(
+                    to_numpy(type_list), to_numpy(edges), learned_weights, n_neurons,
+                    embedding=to_numpy(model.a), learned_tau=learned_tau,
+                    learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                    n_components=n_gmm, return_features=True)
+                a_aug = _cl.pop("_X")
+                results = dict(_cl, accuracy=_cl['clustering_accuracy'],
+                               ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+                cluster_acc = _cl['clustering_accuracy']
+                print(f"cluster acc (GMM, {n_gmm} components on the extracted "
+                      f"parameters): {_r2_color(cluster_acc)}{cluster_acc:.3f}"
+                      f"{_ANSI_RESET}  ARI {_cl['clustering_ari']:.3f}  "
+                      f"NMI {_cl['clustering_nmi']:.3f}")
+                write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
+            except Exception as _e:
+                logger.warning(f"clustering deferred: {type(_e).__name__}: {_e}")
+                _cl = None
             # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
             # against the truth and E_ij did not, although the template readout
             # produces the pair -- so the one quantity that is gauge-invariant,
@@ -3413,7 +3442,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
 
 
             # compute connectivity statistics (vectorized via bincount)
-            print('computing connectivity statistics...')
             edges_np = to_numpy(edges)
             src, dst = edges_np[0], edges_np[1]
 
@@ -3459,20 +3487,23 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                     w_in_min_true, w_in_max_true,
                                     w_out_min_true, w_out_max_true])
 
-            n_gmm = min(100, n_neurons - 1)
-
-            # Cell-type clustering on (a_i, tau, V_rest, W stats): the function
-            # the trainer's cluster.log uses, on the same feature stack.
-            _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
-                                   embedding=to_numpy(model.a),
-                                   learned_tau=learned_tau,
-                                   learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
-                                   n_components=n_gmm, return_features=True)
-            a_aug = _cl.pop("_X")
-            results = dict(_cl, accuracy=_cl['clustering_accuracy'], ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
-            cluster_acc = _cl['clustering_accuracy']
-            print(f"GMM (n_components={n_gmm}): accuracy={_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}, ARI={_cl['clustering_ari']:.3f}, NMI={_cl['clustering_nmi']:.3f}")
-            write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
+            # Already computed and printed with the other recovered quantities;
+            # this recomputes only if that failed.
+            if _cl is None:
+                n_gmm = min(100, n_neurons - 1)
+                _cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
+                                       embedding=to_numpy(model.a),
+                                       learned_tau=learned_tau,
+                                       learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                                       n_components=n_gmm, return_features=True)
+                a_aug = _cl.pop("_X")
+                results = dict(_cl, accuracy=_cl['clustering_accuracy'],
+                               ari=_cl['clustering_ari'], nmi=_cl['clustering_nmi'])
+                cluster_acc = _cl['clustering_accuracy']
+                print(f"cluster acc (GMM, {n_gmm} components): "
+                      f"{_r2_color(cluster_acc)}{cluster_acc:.3f}{_ANSI_RESET}  "
+                      f"ARI {_cl['clustering_ari']:.3f}  NMI {_cl['clustering_nmi']:.3f}")
+                write_recovery_metrics(_cl, log_dir, log_file=log_file, logger=logger)
 
             reducer = umap.UMAP(n_components=2, random_state=42, n_neighbors=15, min_dist=0.1)
             a_umap = reducer.fit_transform(a_aug)
