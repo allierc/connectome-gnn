@@ -27,6 +27,15 @@ class KnownODEBase(nn.Module):
     # `model.NNR_hidden is not None` to decide between fill-in and zero-silencing.
     NNR_hidden = None
 
+    # WHICH PLOT PATH SCORES THESE MODELS. W, tau and V_rest are direct
+    # parameters here, which is what 'linear' means; the default 'gnn' routes to
+    # a plotter that reads model.a and model.f_theta, and a known-ODE has
+    # neither. The conductance subclass overrides this PER INSTANCE because its
+    # answer depends on train_on_teacher; every other subclass is linear always.
+    # Without the tag twenty current known-ODE runs trained to completion and
+    # died in the plot pass on AttributeError: no attribute 'a'.
+    MODEL_FAMILY = "linear"
+
     def __init__(self, aggr_type='add', config=None, device=None):
         super().__init__()
 
