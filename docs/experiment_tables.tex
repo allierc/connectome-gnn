@@ -1,5 +1,5 @@
 \documentclass[10pt,a4paper]{article}
-\usepackage[margin=1.6cm,landscape]{geometry}
+\usepackage[margin=1.2cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,xcolor,array}
 \usepackage[T1]{fontenc}
 \setlength{\parskip}{4pt}
@@ -13,33 +13,36 @@ held-out numbers yet.}\end{center}
 \vspace{4pt}
 \section*{2026-08-30}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-08-30: group-lasso sweep, conductance model on current data, $\sigma=0.05$; $\lambda$ is \texttt{coeff\_g\_phi\_input\_group\_L1}.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
-$\lambda$ = 0.25 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p25\_cv00} \\
-\textbf{$\lambda$ = 0.5} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p5\_cv00}} \\
-$\lambda$ = 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_1\_cv00} \\
-$\lambda$ = 2.5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_2p5\_cv00} \\
-$\lambda$ = 5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_5\_cv00} \\
-$\lambda$ = 10 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_10\_cv00} \\
-$\lambda$ = 25 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -- & -- & -- & -- & -- & -- & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_25\_cv00} \\
+$\lambda$ = 0.25 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.83] (0.1) & \textcolor{green!45!black}{0.97 [0.87] (3.1)} & 0.86 [0.70] (3.8) & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p25\_cv00} \\
+$\lambda$ = 0.5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.90 [0.82] (0.0) & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.90 [0.76] (3.1)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p5\_cv00} \\
+$\lambda$ = 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.89] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & 0.90 [0.73] (3.1) & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.87 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_1\_cv00} \\
+$\lambda$ = 2.5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.90 [0.87] (0.0)} & \textcolor{green!45!black}{0.96 [0.96] (0.0)} & 0.84 [0.51] (8.6) & \textcolor{green!45!black}{0.95 [0.95] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_2p5\_cv00} \\
+$\lambda$ = 5 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.92 [0.91] (0.0)} & \textcolor{green!45!black}{0.98 [0.98] (0.0)} & \textcolor{green!45!black}{0.92 [0.83] (2.5)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_5\_cv00} \\
+$\lambda$ = 10 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.97 [0.97] (0.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.90 [0.87] (1.7)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.91} & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_10\_cv00} \\
+\textbf{$\lambda$ = 25} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.98 [0.98] (0.0)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{0.91 [0.74] (2.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (0.0)}} & \textbf{\textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00}} & \textbf{0.88} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_25\_cv00}} \\
 \midrule
-\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & -- & -- & -- & -- & -- & -- &  \\
+\textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.93 $\pm$ 0.03 & 0.98 $\pm$ 0.01 & 0.89 $\pm$ 0.03 & 0.97 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 &  \\
 \bottomrule
 \end{tabular}
+\\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.002 $R^2$ per edge over the current form, and the reversal it needs sits 293$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the OTHER family's reconstruction reaches $r=0.49$ against 0.12, so the trajectory does not prefer the form the data was made with.}
 \end{table}
 \section*{2026-09-14}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-14: current model on current data, $\sigma=0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -55,11 +58,12 @@ fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 274$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-14: current model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -75,11 +79,12 @@ fold 04 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 219$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=1.00$ against 0.53 for the other family.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-14: conductance model on conductance data, $\sigma=0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -94,11 +99,12 @@ gnnsil & 0.70 & 0.45 & -- & -11.02 [-0.10] (58.2) & 0.82 [-18.16] (72.4) & -0.02
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.029$ $\pm$ 0.088 $R^2$ per edge over the current form, and the reversal it needs, 1.6$\times$ the data's own voltage range, is inside the range where it can be identified.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-14: conductance model on conductance data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -113,11 +119,12 @@ gnn\_nol1sil & \textcolor{green!45!black}{0.96} & 0.76 & -0.51 [-30.63] (0.3) & 
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.036$ $\pm$ 0.093 $R^2$ per edge over the current form, and the reversal it needs, 1.7$\times$ the data's own voltage range, is inside the range where it can be identified, rolled out, the OTHER family's reconstruction reaches $r=0.51$ against 0.44, so the trajectory does not prefer the form the data was made with.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-14: known-ODE on conductance data --- the generator's structure, parameters learned.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.9cm}p{1.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -131,11 +138,12 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \end{table}
 \section*{2026-09-15}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-15 Block A: current model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -147,14 +155,15 @@ nol1silgain$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 201$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=1.00$ against 0.68 for the other family.}
-\\[2pt]{\scriptsize $^{*}$ still training, at iteration 1,280,001 of 1,600,000 when this table was built.}
+\\[2pt]{\scriptsize $^{*}$ still training, at iteration 16,001 of 1,600,000 when this table was built.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-15 Block B: conductance model on conductance data, $\sigma=0$ and $0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.9cm}p{1.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -179,11 +188,12 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \\[2pt]{\scriptsize $\dagger$ the reproduction twin, with both weight penalties \emph{on} and no anchor, for reference.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-15 Block C: conductance model on current data, $\sigma=0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -199,11 +209,12 @@ fold 4 & \textcolor{green!45!black}{0.95} & 0.89 & -1.02 [-41407] (4.4) & 0.61 [
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.042$ $\pm$ 0.106 $R^2$ per edge over the current form, and the reversal it needs, 2.4$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.48$ and 0.45), so the trajectory does not separate the families.}
 \end{table}
 \begin{table}[H]
-\footnotesize
+\scriptsize
 \raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-15 Block D: current model on current data, $\sigma=0.05$, measurement noise $0.1$ and $0.2$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{0.9cm}p{1.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.75cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedright\arraybackslash}p{2.4cm}}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
 \toprule
 $\sigma_{meas}$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
 \midrule
@@ -222,5 +233,133 @@ $\sigma_{meas}$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 67$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=0.97$ against 0.64 for the other family.}
+\end{table}
+\section*{2026-09-16}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: known-ODE cross-model grid --- current known-ODE on current-generated data, five folds at each $\sigma$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11539] (1.8)} & \textcolor{green!45!black}{0.92 [0.15] (7.3)} & \textcolor{green!45!black}{0.96 [0.95] (0.2)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv00} \\
+0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11457] (1.8)} & \textcolor{green!45!black}{0.92 [0.12] (7.4)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.90 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv01} \\
+0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11622] (1.8)} & \textcolor{green!45!black}{0.92 [0.14] (7.4)} & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv02} \\
+\textbf{0} & \textbf{fold 3} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{0.93 [0.89] (0.1)}} & \textbf{\textcolor{green!45!black}{0.99 [-11648] (1.8)}} & \textbf{\textcolor{green!45!black}{0.92 [0.15] (7.4)}} & \textbf{\textcolor{green!45!black}{0.96 [0.96] (0.1)}} & \textbf{--} & \textbf{0.89} & \textbf{\tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv03}} \\
+0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.93 [0.89] (0.1)} & \textcolor{green!45!black}{0.99 [-11726] (1.8)} & \textcolor{green!45!black}{0.92 [0.16] (7.2)} & \textcolor{green!45!black}{0.97 [0.96] (0.3)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_free\_current\_knownode\_cv04} \\
+0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.92] (13.5)} & \textcolor{green!45!black}{0.93 [0.67] (6.4)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv00} \\
+0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.96 [-4.92] (13.5)} & \textcolor{green!45!black}{0.94 [0.76] (5.4)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv01} \\
+0.05 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.93] (13.6)} & \textcolor{green!45!black}{0.91 [0.63] (6.1)} & -- & 0.89 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv02} \\
+0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.91] (13.6)} & \textcolor{green!45!black}{0.93 [0.72] (6.1)} & -- & 0.90 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv03} \\
+0.05 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.80 [0.44] (0.3) & \textcolor{green!45!black}{0.95 [0.95] (0.1)} & \textcolor{green!45!black}{0.95 [-4.90] (13.5)} & \textcolor{green!45!black}{0.94 [0.71] (5.8)} & -- & 0.88 & \tiny\texttt{flyvis\_current\_noise\_005\_current\_knownode\_cv04} \\
+\midrule
+ & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.87 $\pm$ 0.07 & 0.97 $\pm$ 0.02 & 0.94 $\pm$ 0.02 & 0.95 $\pm$ 0.02 & -- & 0.89 $\pm$ 0.01 &  \\
+\bottomrule
+\end{tabular}
+\\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: known-ODE cross-model grid --- conductance known-ODE on current-generated data, five folds at each $\sigma$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5352] (8.6) & 0.75 [-23.33] (28.4) & 0.85 [-0.20] (6.4) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv00} \\
+0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.90 [-5232] (8.4) & 0.75 [-23.27] (27.7) & 0.88 [-0.28] (6.5) & -- & 0.42 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv01} \\
+0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5300] (8.6) & 0.74 [-22.58] (27.6) & 0.84 [-0.47] (6.3) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv02} \\
+0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.10] (0.5) & 0.90 [-5320] (8.6) & 0.75 [-22.68] (27.9) & 0.86 [-0.07] (6.2) & -- & 0.45 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv03} \\
+0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -0.07 [-0.11] (0.5) & 0.89 [-5335] (8.4) & 0.75 [-22.36] (27.6) & 0.87 [-0.09] (6.5) & -- & 0.43 & \tiny\texttt{flyvis\_current\_noise\_free\_conductance\_knownode\_cv04} \\
+0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.4)} & 0.66 [-9.51] (23.2) & \textcolor{green!45!black}{0.91 [0.49] (2.1)} & -- & 0.72 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv00} \\
+0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.95 [0.94] (0.3)} & 0.66 [-9.56] (23.1) & \textcolor{green!45!black}{0.92 [0.55] (2.3)} & -- & 0.71 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv01} \\
+0.05 & fold 2 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.2)} & 0.67 [-8.56] (24.2) & 0.89 [0.41] (2.0) & -- & 0.71 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv02} \\
+\textbf{0.05} & \textbf{fold 3} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{\textcolor{green!45!black}{0.99}} & \textbf{-0.03 [0.01] (0.4)} & \textbf{\textcolor{green!45!black}{0.94 [0.94] (0.2)}} & \textbf{0.67 [-8.86] (24.2)} & \textbf{\textcolor{green!45!black}{0.91 [0.57] (2.1)}} & \textbf{--} & \textbf{0.71} & \textbf{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv03}} \\
+0.05 & fold 4 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -0.03 [0.01] (0.4) & \textcolor{green!45!black}{0.94 [0.94] (0.1)} & 0.67 [-8.59] (24.4) & \textcolor{green!45!black}{0.91 [0.57] (2.3)} & -- & 0.72 & \tiny\texttt{flyvis\_current\_noise\_005\_conductance\_knownode\_cv04} \\
+\midrule
+ & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -0.05 $\pm$ 0.02 & 0.92 $\pm$ 0.03 & 0.71 $\pm$ 0.04 & 0.88 $\pm$ 0.03 & -- & 0.57 $\pm$ 0.15 &  \\
+\bottomrule
+\end{tabular}
+\\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: known-ODE cross-model grid --- current known-ODE on conductance-generated data, five folds at each $\sigma$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & -24.11 [-9.49] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.87 [-0.50] (31.9) & 0.86 [0.26] (9.1) & -- & 0.82 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv00} \\
+\textbf{0} & \textbf{fold 1} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{-24.09 [-9.58] (1.3)} & \textbf{\textcolor{green!45!black}{1.00 [0.68] (4.4)}} & \textbf{0.88 [-0.54] (33.1)} & \textbf{0.89 [0.42] (9.3)} & \textbf{--} & \textbf{0.81} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv01}} \\
+0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.20 [-9.56] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.0) & 0.84 [0.20] (8.9) & -- & 0.78 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv02} \\
+0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.18 [-9.51] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.48] (32.9) & 0.86 [0.33] (9.1) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv03} \\
+0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -24.25 [-9.52] (1.3) & \textcolor{green!45!black}{1.00 [0.68] (4.4)} & 0.88 [-0.45] (32.7) & 0.87 [0.36] (8.9) & -- & 0.83 & \tiny\texttt{flyvis\_conductance\_noise\_free\_current\_knownode\_cv04} \\
+0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.30 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.24] (28.7) & 0.88 [0.42] (11.4) & -- & 0.81 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv00} \\
+0.05 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.52 [-11.94] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.4)} & 0.89 [-0.22] (28.9) & 0.90 [0.53] (11.4) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv01} \\
+0.05 & fold 2 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.31 [-11.91] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.20] (28.2) & 0.87 [0.37] (11.4) & -- & 0.79 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv02} \\
+0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{0.99} & -27.49 [-11.93] (1.5) & \textcolor{green!45!black}{1.00 [0.96] (3.4)} & 0.89 [-0.19] (28.3) & 0.88 [0.49] (11.4) & -- & 0.77 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv03} \\
+0.05 & fold 4 & \textcolor{green!45!black}{0.99} & \textcolor{green!45!black}{0.99} & -27.38 [-11.89] (1.5) & \textcolor{green!45!black}{1.00 [0.95] (3.5)} & 0.89 [-0.18] (28.3) & 0.89 [0.49] (11.3) & -- & 0.80 & \tiny\texttt{flyvis\_conductance\_noise\_005\_current\_knownode\_cv04} \\
+\midrule
+ & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & -25.78 $\pm$ 1.71 & 1.00 $\pm$ 0.00 & 0.89 $\pm$ 0.01 & 0.87 $\pm$ 0.02 & -- & 0.80 $\pm$ 0.02 &  \\
+\bottomrule
+\end{tabular}
+\\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: known-ODE cross-model grid --- conductance known-ODE on conductance-generated data, five folds at each $\sigma$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{0.75cm}p{1.45cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+$\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+0 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.89 [-0.66] (0.1) & \textcolor{green!45!black}{1.00 [0.80] (4.3)} & \textcolor{green!45!black}{1.00 [0.83] (11.2)} & \textcolor{green!45!black}{0.99 [0.92] (1.9)} & \textcolor{green!45!black}{0.98 [-1.29] (12.5)} & -- & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv00} \\
+0 & fold 1 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.15] (0.1) & \textcolor{green!45!black}{1.00 [0.79] (4.8)} & \textcolor{green!45!black}{0.99 [0.85] (11.1)} & \textcolor{green!45!black}{0.99 [0.94] (1.9)} & \textcolor{green!45!black}{0.97 [0.12] (11.6)} & -- & 0.47 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv01} \\
+0 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [-0.27] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (5.0)} & \textcolor{green!45!black}{0.99 [0.85] (11.8)} & \textcolor{green!45!black}{0.98 [0.92] (1.9)} & \textcolor{green!45!black}{0.97 [0.09] (11.9)} & -- & 0.49 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv02} \\
+0 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.22] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (1.8)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.49 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv03} \\
+0 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [-0.19] (0.1) & \textcolor{green!45!black}{1.00 [0.78] (4.9)} & \textcolor{green!45!black}{0.99 [0.85] (11.3)} & \textcolor{green!45!black}{0.99 [0.93] (2.0)} & \textcolor{green!45!black}{0.97 [0.13] (11.9)} & -- & 0.50 & \tiny\texttt{flyvis\_conductance\_noise\_free\_conductance\_knownode\_cv04} \\
+0.05 & fold 0 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.3)} & \textcolor{green!45!black}{0.98 [0.98] (9.3)} & \textcolor{green!45!black}{0.99 [0.99] (0.4)} & \textcolor{green!45!black}{0.93 [0.77] (15.8)} & -- & 0.60 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv00} \\
+\textbf{0.05} & \textbf{fold 1} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{\textcolor{green!45!black}{1.00}} & \textbf{0.89 [0.89] (0.0)} & \textbf{\textcolor{green!45!black}{1.00 [0.95] (3.7)}} & \textbf{\textcolor{green!45!black}{0.99 [0.99] (8.7)}} & \textbf{\textcolor{green!45!black}{1.00 [0.99] (0.2)}} & \textbf{\textcolor{green!45!black}{0.93 [0.78] (15.7)}} & \textbf{--} & \textbf{0.63} & \textbf{\tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv01}} \\
+0.05 & fold 2 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.0)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.66 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv02} \\
+0.05 & fold 3 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.88 [0.88] (0.0) & \textcolor{green!45!black}{1.00 [0.96] (3.6)} & \textcolor{green!45!black}{0.99 [0.99] (9.4)} & \textcolor{green!45!black}{0.99 [0.99] (0.0)} & \textcolor{green!45!black}{0.93 [0.77] (16.1)} & -- & 0.62 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv03} \\
+0.05 & fold 4 & \textcolor{green!45!black}{1.00} & \textcolor{green!45!black}{1.00} & 0.87 [0.87] (0.0) & \textcolor{green!45!black}{1.00 [0.95] (3.7)} & \textcolor{green!45!black}{0.99 [0.99] (9.6)} & \textcolor{green!45!black}{0.99 [0.99] (0.1)} & \textcolor{green!45!black}{0.93 [0.77] (16.2)} & -- & 0.61 & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_knownode\_cv04} \\
+\midrule
+ & \textbf{mean} $\pm$ SD & 1.00 $\pm$ 0.00 & 1.00 $\pm$ 0.00 & 0.88 $\pm$ 0.01 & 1.00 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.95 $\pm$ 0.02 & -- & 0.56 $\pm$ 0.07 &  \\
+\bottomrule
+\end{tabular}
+\\[3pt]{\scriptsize \textbf{Is the right form learned?} not asked here: this model IS the generator's equation with its constants learned, so there is no free message for the two forms to be fitted to.}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: one-hour probes on conductance data, $\sigma=0.05$, at about 100{,}000 iterations; \texttt{p2w} arms aim at $W_{ij}$ and \texttt{p2r} arms at the rollout.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+noreg$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_noreg} \\
+silg1e3$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_silg1e3} \\
+nol2g1e2$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_nol2g1e2} \\
+l1x3sil$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2w\_l1x3sil} \\
+rc8$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8} \\
+rc8bs8$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8bs8} \\
+lrhalf$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_lrhalf} \\
+rc8nol2$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_p2r\_rc8nol2} \\
+gnnsil twin$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00\_repro} \\
+\bottomrule
+\end{tabular}
+\\[2pt]{\scriptsize reference at the same iteration: \texttt{arm\_base} rollout $r\approx0.60$, $W_{ij}$ $R^2\approx-0.23$; the known-ODE on this data reaches $W_{ij}$ 0.88.}
 \end{table}
 \end{document}

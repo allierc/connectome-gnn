@@ -24,6 +24,7 @@ DATE_14, DATE_15 = "2026-09-14", "2026-09-15"
 # it is the same conductance GNN on CURRENT data, so its reversal has no
 # ground truth and its W is the only recovery it can be judged on.
 DATE_30 = "2026-08-30"
+DATE_16 = "2026-09-16"
 
 
 _GREEN = 0.9
@@ -224,11 +225,11 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     # column starts at the same place in every table.
     # Wide enough that "0.805 [-1.527] (18.6)" does not wrap: a wrapped cell
     # breaks the row alignment the fixed widths are for.
-    _R = r">{\raggedleft\arraybackslash}p{2.75cm}"       # an R2 cell
-    _P = r">{\raggedleft\arraybackslash}p{1.5cm}"        # a prediction r
-    ncols = ((r"p{0.9cm}p{1.6cm}" if extra_col else r"p{2.5cm}")
-             + _P * 2 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.6cm}" + _P
-             + r">{\raggedright\arraybackslash}p{2.4cm}")
+    _R = r">{\raggedleft\arraybackslash}p{2.2cm}"        # an R2 cell
+    _P = r">{\raggedleft\arraybackslash}p{1.0cm}"        # a prediction r
+    ncols = ((r"p{0.75cm}p{1.45cm}" if extra_col else r"p{2.2cm}")
+             + _P * 2 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.3cm}" + _P
+             + r">{\raggedright\arraybackslash}p{6.4cm}")
     head = ["arm"]
     if extra_col:
         head.insert(0, extra_col[0])
@@ -243,7 +244,8 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     # Caption ABOVE the table: read top to bottom, the name of the thing comes
     # before the thing. \caption placed before \begin{tabular} is what puts it
     # there; the float would otherwise number it after the rules.
-    out = [r"\begin{table}[H]", r"\footnotesize", r"\raggedright",
+    out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
+           r"\setlength{\tabcolsep}{2pt}",
            rf"\caption{{{caption}}}",
            r"\setlength{\tabcolsep}{3pt}",
            rf"\begin{{tabular}}{{{ncols}}}", r"\toprule",
@@ -353,7 +355,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
 
 L = []
 L.append(r"""\documentclass[10pt,a4paper]{article}
-\usepackage[margin=1.6cm,landscape]{geometry}
+\usepackage[margin=1.2cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,xcolor,array}
 \usepackage[T1]{fontenc}
 \setlength{\parskip}{4pt}
@@ -484,6 +486,51 @@ def _mn(r_):
 L.append(table(pick("D15", "D meas noise 010") + pick("D15", "D meas noise 020"),
                rf"{DATE_15} Block D: current model on current data, $\sigma=0.05$, measurement noise $0.1$ and $0.2$.",
                extra_col=(r"$\sigma_{meas}$", _mn), eij=False))
+
+# ----------------------------------------------------------------- 2026-09-16
+# THE CROSS-MODEL GRID. Each cell is a known-ODE -- the generator's structure
+# with only its constants learned -- fitted to data made by one family or the
+# other. The diagonal says how well the constants are identifiable at all; the
+# off-diagonal says what a wrong structural assumption costs, and the answer the
+# whole grid gives is that it costs nothing in PREDICTION and everything in
+# recovery.
+def _ko_sig(r_):
+    return "0" if r_["block"].endswith("s0") else "0.05"
+
+
+_grid = [(d, m) for d in ("current", "conductance") for m in ("current", "conductance")]
+_any_grid = any(pick("D16", f"KO {d} data {m} ODE s0") for d, m in _grid)
+if _any_grid:
+    L.append(rf"\section*{{{DATE_16}}}")
+    for d, m in _grid:
+        rows_ = (pick("D16", f"KO {d} data {m} ODE s0")
+                 + pick("D16", f"KO {d} data {m} ODE s005"))
+        if not rows_:
+            continue
+        L.append(table(rows_,
+                       rf"{DATE_16}: known-ODE cross-model grid --- {m} known-ODE on "
+                       rf"{d}-generated data, five folds at each $\sigma$.",
+                       extra_col=(r"$\sigma$", _ko_sig),
+                       eij=(d == "conductance" and m == "conductance")))
+
+_lassoC = pick("D16", "lasso conductance data")
+if _lassoC:
+    L.append(table(_lassoC,
+                   rf"{DATE_16}: the group lasso carried over to conductance data, "
+                   rf"$\sigma=0.05$; $\lambda$ is \texttt{{coeff\_g\_phi\_input\_group\_L1}}.",
+                   note=r"on \emph{current} data the same penalty took $W_{ij}$ $R^2$ "
+                        r"from 0.90 at $\lambda=0.25$ to 0.98 at 25 with rollout "
+                        r"$r=1.00$ throughout; the best arm on \emph{this} data is 0.42."))
+
+_probes = pick("D16", "probe goal W") + pick("D16", "probe goal roll")
+if _probes:
+    L.append(table(_probes,
+                   rf"{DATE_16}: one-hour probes on conductance data, $\sigma=0.05$, "
+                   rf"at about 100{{,}}000 iterations; \texttt{{p2w}} arms aim at "
+                   rf"$W_{{ij}}$ and \texttt{{p2r}} arms at the rollout.",
+                   note=r"reference at the same iteration: \texttt{arm\_base} "
+                        r"rollout $r\approx0.60$, $W_{ij}$ $R^2\approx-0.23$; the "
+                        r"known-ODE on this data reaches $W_{ij}$ 0.88."))
 
 L.append(r"\end{document}")
 
