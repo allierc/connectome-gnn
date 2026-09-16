@@ -176,11 +176,23 @@ def write_summary_png(nv, rows, out_path) -> None:
     d = nv.dir.path
 
     def read(rel):
+        """The array at `<run>/<rel>`, or None.
+
+        A PUBLISHED run has none of the training history a locally trained one
+        does -- one checkpoint, no per-iteration loss, and what it does store can
+        be a scalar rather than a series. Everything downstream therefore has to
+        treat every one of these as optional; returning None for an unsized
+        object is what lets one code path plot both.
+        """
         p = d / rel
         if not p.exists():
             return None
-        with h5py.File(p, "r") as f:
-            return np.asarray(f["data"])
+        try:
+            with h5py.File(p, "r") as f:
+                a = np.asarray(f["data"])
+            return a if a.ndim >= 1 and a.size else None
+        except Exception:
+            return None
 
     iters = read("chkpt_iter.h5")
     train_iter = read("loss.h5")
@@ -221,8 +233,8 @@ def write_summary_png(nv, rows, out_path) -> None:
     ax.text(0, 1.02, "loss per checkpoint", transform=ax.transAxes)
 
     ax = axes[2]
-    x = (iters[rows["index"]] if iters is not None and max(rows["index"]) < len(iters)
-         else rows["index"])
+    idx = np.asarray(rows["index"])
+    x = iters[idx] if (iters is not None and idx.max() < len(iters)) else idx
     ax.plot(x, rows["epe"], marker="o", ms=3, lw=1.2, color="k", label="held-out EPE")
     ax.axhline(rows["zero_epe"], ls="--", lw=1.0, color="0.5",
                label=f"zero prediction ({rows['zero_epe']:.3f})")
@@ -424,10 +436,15 @@ def stability_report(network, activity, dt, out_dir):
 
     Returns None for a current-based run, which has no conductance to sum.
     """
-    params = network._param_api()
-    if not hasattr(params.edges, "conductance"):
+    # DISPATCH ON THE DYNAMICS, not on the parameters. `params.edges` is an
+    # AutoDeref, whose __getattr__ forwards to __getitem__ and raises KeyError --
+    # which `hasattr` does not catch, so asking it for a key a current-based run
+    # has never written propagates the KeyError instead of answering False. This is
+    # the same test `reversal_report` uses, for the same reason.
+    if not hasattr(network.dynamics, "reversal_per_edge"):
         return None
 
+    params = network._param_api()
     dev = params.nodes.time_const.device
     g = params.edges.conductance.detach().reshape(-1)
     src = network._source_indices.to(dev).long()
@@ -532,6 +549,11 @@ def main(argv=None) -> int:
     # constructor argument; a run trained by this repo has no such key. Dropped
     # rather than special-cased on the run, so one code path reads both.
     task_config.pop("type", None)
+    # `task_weight` is the old spelling of `task_weights`, renamed since the
+    # published models were exported. Both are null on a single-task config, so
+    # the rename is all there is to it.
+    if "task_weight" in task_config:
+        task_config["task_weights"] = task_config.pop("task_weight")
     if args.original_split:
         task_config["original_split"] = True
     task = Task(**task_config)
