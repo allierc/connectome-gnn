@@ -97,6 +97,7 @@ gnnsil & 0.70 & 0.45 & -- & -11.02 [-0.10] (58.2) & 0.82 [-18.16] (72.4) & -0.02
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.029$ $\pm$ 0.088 $R^2$ per edge over the current form, and the reversal it needs, 1.6$\times$ the data's own voltage range, is inside the range where it can be identified.}
+\\[2pt]{\scriptsize \textbf{Silence prior:} rows differ --- anchor: gnn\_nol1sil, gnnsil; zero-below: gnn, gnn\_nol1.}
 \end{table}
 \begin{table}[H]
 \scriptsize
@@ -117,6 +118,7 @@ gnn\_nol1sil & \textcolor{green!45!black}{0.96} & 0.76 & -0.51 [-30.63] (0.3) & 
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.036$ $\pm$ 0.093 $R^2$ per edge over the current form, and the reversal it needs, 1.7$\times$ the data's own voltage range, is inside the range where it can be identified, rolled out, the OTHER family's reconstruction reaches $r=0.51$ against 0.44, so the trajectory does not prefer the form the data was made with.}
+\\[2pt]{\scriptsize \textbf{Silence prior:} rows differ --- anchor: gnn\_nol1sil, gnnsil; zero-below: gnn, gnn\_nol1.}
 \end{table}
 \begin{table}[H]
 \scriptsize
@@ -155,7 +157,8 @@ nol1silgain$^{*}$ &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_current\_noise\
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs sits 201$\times$ outside the voltage range the data reaches, so the conductance reading is an artefact of the extra column, rolled out, the own-family reconstruction reaches $r=1.00$ against 0.68 for the other family.}
-\\[2pt]{\scriptsize $^{*}$ still training, at iteration 16,001 of 1,600,000 when this table was built.}
+\\[2pt]{\scriptsize \textbf{Silence prior:} rows differ --- anchor: sil, nol1sil, nol1silgain; neither: cv00, nol.}
+\\[2pt]{\scriptsize $^{*}$ still training, at iteration 320,001 of 1,600,000 when this table was built.}
 \end{table}
 \begin{table}[H]
 \scriptsize
@@ -185,6 +188,7 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \bottomrule
 \end{tabular}
 \\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.033$ $\pm$ 0.087 $R^2$ per edge over the current form, and the reversal it needs, 1.4$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.28$ and 0.29), so the trajectory does not separate the families.}
+\\[2pt]{\scriptsize \textbf{Silence prior:} rows differ --- anchor: ctrl, g1e5, g1e4, g1e3, rc5, rc5g1e4, ctrl, g1e5, g1e4, g1e3, rc5, rc5g1e4; zero-below: repro.}
 \\[2pt]{\scriptsize $\dagger$ the reproduction twin, with both weight penalties \emph{on} and no anchor, for reference.}
 \end{table}
 \begin{table}[H]
@@ -343,6 +347,27 @@ $\sigma$ & arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{2pt}
+\caption{2026-09-16: the group lasso carried over to conductance data, $\sigma=0.05$; $\lambda$ is \texttt{coeff\_g\_phi\_input\_group\_L1}.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
+\toprule
+arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & \tiny config \\
+\midrule
+$\lambda$ = 0$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0\_cv00} \\
+$\lambda$ = 0.25$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_0p25\_cv00} \\
+$\lambda$ = 1$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_1\_cv00} \\
+$\lambda$ = 5$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_5\_cv00} \\
+$\lambda$ = 10$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_10\_cv00} \\
+$\lambda$ = 25$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_lasso\_25\_cv00} \\
+\bottomrule
+\end{tabular}
+\\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.000$ $\pm$ 0.000 $R^2$ per edge over the current form, and the reversal it needs, 0.9$\times$ the data's own voltage range, is inside the range where it can be identified.}
+\\[2pt]{\scriptsize on \emph{current} data the same penalty took $W_{ij}$ $R^2$ from 0.90 at $\lambda=0.25$ to 0.98 at 25 with rollout $r=1.00$ throughout; the best arm on \emph{this} data is 0.42.}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
 \caption{2026-09-16: one-hour probes on conductance data, $\sigma=0.05$, at about 100{,}000 iterations; \texttt{p2w} arms aim at $W_{ij}$ and \texttt{p2r} arms at the rollout.}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{2.2cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{2.3cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedright\arraybackslash}p{6.4cm}}
@@ -360,6 +385,8 @@ rc8nol2$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noi
 gnnsil twin$^{*}$ &  &  &  &  &  &  &  &  &  & \tiny\texttt{flyvis\_conductance\_noise\_005\_conductance\_gnnsil\_cv00\_repro} \\
 \bottomrule
 \end{tabular}
+\\[3pt]{\scriptsize 	extbf{Is the right form learned?} the driving-force column buys $+0.032$ $\pm$ 0.093 $R^2$ per edge over the current form, and the reversal it needs, 1.8$\times$ the data's own voltage range, is inside the range where it can be identified, the two reconstructions roll out alike ($r=0.38$ and 0.38), so the trajectory does not separate the families.}
+\\[2pt]{\scriptsize \textbf{Silence prior:} silg1e3, l1x3sil train under \emph{both} \texttt{coeff\_g\_phi\_zero\_below} and \texttt{coeff\_g\_phi\_silent}; the champion uses the anchor alone, so those rows are not a clean comparison with it.}
 \\[2pt]{\scriptsize reference at the same iteration: \texttt{arm\_base} rollout $r\approx0.60$, $W_{ij}$ $R^2\approx-0.23$; the known-ODE on this data reaches $W_{ij}$ 0.88.}
 \end{table}
 \end{document}
