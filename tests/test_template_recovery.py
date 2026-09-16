@@ -238,7 +238,11 @@ def test_both_families_forms_are_fitted_to_the_same_message():
     d = rec.diagnostics
     assert d["conductance_form_r2_median"] > 0.999
     assert d["current_form_r2_median"] < 0.99
-    assert d["driving_force_r2_gain_median"] > 0.001
+    assert d["driving_force_r2_gain_mean"] > 0.001
+    # The reversal it needs sits where the generator put it, a few units from
+    # the voltages the cells take -- not hundreds, which is the signature of a
+    # driving-force column fitted to a message that has none.
+    assert d["conductance_form_E_over_vi"] < 10.0
 
 
 def test_a_current_message_costs_nothing_to_drop_the_driving_force():
@@ -260,4 +264,10 @@ def test_a_current_message_costs_nothing_to_drop_the_driving_force():
                                   gauge_tau="true", min_points=4)
     d = rec.diagnostics
     assert d["current_form_r2_median"] > 0.999
-    assert abs(d["driving_force_r2_gain_median"]) < 1e-6
+    assert abs(d["driving_force_r2_gain_mean"]) < 1e-6
+    # R2 CANNOT TELL THEM APART HERE -- the conductance form contains the
+    # current one, so it ties -- and the reversal is what gives it away: to
+    # explain a message with no driving force the fit pushes E far outside
+    # every voltage in the data.
+    assert d["conductance_form_r2_median"] > 0.999
+    assert d["conductance_form_E_over_vi"] > 20.0

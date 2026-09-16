@@ -52,7 +52,8 @@ from connectome_gnn.zarr_io import load_simulation_data, load_raw_array
 from connectome_gnn.sparsify import clustering_gmm
 from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from connectome_gnn.models.registry import create_model
-from connectome_gnn.models.utils import model_family, restore_edge_sign_lock
+from connectome_gnn.models.utils import (model_family, restore_edge_sign_lock,
+                                        is_conductance_gnn)
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
@@ -480,6 +481,14 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         from connectome_gnn import template_rollout as _tr
         scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
                               edges=edges, x_ts=x_ts))
+        # AND THE SAME MESSAGE READ AS THE OTHER FAMILY, rolled out the same
+        # way. This is the test the R2s cannot do: the two forms are nested, so
+        # the fuller one always fits at least as well, but only one of them can
+        # reproduce eight thousand frames of the circuit's own trajectory. A
+        # current-form reconstruction of a conductance network that rolls out
+        # just as far means this data never constrained the family.
+        scored.update(_tr.run(rec, config, log_dir, device, logger=logger,
+                              edges=edges, x_ts=x_ts, alt=True))
     write_recovery_metrics(scored, log_dir, log_file=log_file, logger=logger)
     # DOES THE NETWORK OBEY THE GENERATOR'S EQUATION AT ALL. Two medians answer
     # it, one per fit: the per-edge form W*act(v_j)*(E - v_i) + C against the
@@ -495,16 +504,7 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
             return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
         print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
               f"   (does the generator's form describe the model at all)")
-        # AND WHICH FAMILY'S FORM. The current form W*act(v_j) + C is the
-        # conductance form with the driving-force column deleted, so it can only
-        # fit worse; what the pair says is how much worse. A conductance model
-        # whose message the current form explains as well has not learned a
-        # driving force, it has learned a message this data never needed one for.
-        if _cond is not None or _cur is not None:
-            _gain = scored.get("driving_force_r2_gain_median")
-            print(f"   per-edge message by family: conductance {_fmt(_cond)}  "
-                  f"current {_fmt(_cur)}  "
-                  f"(driving force buys {'--' if _gain is None or _gain != _gain else f'{_gain:+.4f}'} R²)")
+
 
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
@@ -518,6 +518,56 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
         if f"{key}_estimator" in scored:
             line += f"  [{scored[f'{key}_estimator']}]"
         print(line)
+
+    # WHICH FAMILY'S EQUATION IS THIS, asked of the trained network rather than
+    # of the data. Every R2 above assumes the answer: they are the generator's
+    # constants read out through the generator's own form. This paragraph fits
+    # the OTHER family's form to the same message and reports what it gets, so a
+    # reader can see whether the family was doing any work.
+    #
+    # Two numbers, because R2 alone does not decide it. The current form is the
+    # conductance form minus the u*v_i column, so on a current model the
+    # conductance form ties at R2 1.0000 -- and gives itself away by the
+    # reversal it needs, E at hundreds of units where the voltage never leaves
+    # single digits. Large |E| relative to the voltage the cells reach means the
+    # column is being used to rescale u, not as a driving force.
+    _cond = scored.get("conductance_form_r2_median")
+    _cur = scored.get("current_form_r2_median")
+    if _cond is not None or _cur is not None:
+        _is_cond = is_conductance_gnn(config.graph_model.signal_model_name)
+        _own, _other = (("conductance", "current") if _is_cond
+                        else ("current", "conductance"))
+        _g, _gsd = (scored.get("driving_force_r2_gain_mean"),
+                    scored.get("driving_force_r2_gain_sd"))
+        _Eabs, _vi = (scored.get("conductance_form_E_absmedian"),
+                      scored.get("vi_abs_p99"))
+        _ratio = scored.get("conductance_form_E_over_vi")
+
+        def _n(v, fmt="{:.4f}"):
+            return "--" if v is None or v != v else fmt.format(v)
+        print(f"\033[93mwhich family's equation did the network learn?\033[0m"
+              f"  (the model is {_own})")
+        print(f"   per-edge message fitted inside each form: "
+              f"conductance R² {_n(_cond)}   current R² {_n(_cur)}")
+        print(f"   the driving-force column buys {_n(_g, '{:+.4f}')} ± {_n(_gsd)} R² "
+              f"per edge (mean ± SD over edges)")
+        print(f"   the conductance form needs |E| = {_n(_Eabs, '{:.3g}')} "
+              f"against |v_i| ≤ {_n(_vi, '{:.3g}')} in the data "
+              f"({_n(_ratio, '{:.1f}')}×)")
+        # THE ROLLOUT OF EACH RECONSTRUCTION, which is the test that can fail.
+        # Both forms describe the message; running them as generators over eight
+        # thousand frames asks whether they describe the circuit.
+        _ro, _ra = scored.get("template_rollout_r"), scored.get("template_alt_rollout_r")
+        if _ro is not None or _ra is not None:
+            print(f"   rolled out on noise-free data: "
+                  f"{_own} fit r {_n(_ro, '{:.3f}')}   "
+                  f"{_other} fit r {_n(_ra, '{:.3f}')}")
+        # NO RULE YET, and saying so is the point: these are the two statistics a
+        # rule would be built from, not the rule. A threshold on either would be
+        # chosen from the runs it is meant to judge.
+        print(f"   \033[90mno decision rule yet: a current-generated message "
+              f"admits both forms, and telling them apart is what these two "
+              f"numbers are for\033[0m")
     return rec, scored
 
 

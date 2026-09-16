@@ -459,11 +459,18 @@ def closed_form_template(g, out):
             if fam == "cond":
                 _W = -float(bb[1])
                 _E = (-float(bb[0]) / float(bb[1])) if abs(float(bb[1])) > 1e-12 else None
-                _eq = (f"{_W:.4f} * relu(v_j) * ({_E:+.3f} - v_i) + {float(bb[2]):.4f}"
-                       if _E is not None else None)
+                _C = float(bb[2])
             else:
-                _eq = f"{float(bb[0]):+.4f} * relu(v_j) + {float(bb[1]):.4f}"
-            out[f"tmpl_{fam}"][idx] = _eq
+                _W, _E, _C = float(bb[0]), None, float(bb[1])
+            # The CONSTANTS, not the equation. Two equations one under the other
+            # are two strings a reader has to parse before they can compare the
+            # only things that differ; W, E and the offset in fixed columns line
+            # up down the panel, and the reversal -- which is what says whether
+            # the conductance reading is physical at all -- lands in the same
+            # place on every row.
+            out[f"tmpl_{fam}_W"][idx] = _W
+            out[f"tmpl_{fam}_E"][idx] = _E
+            out[f"tmpl_{fam}_C"][idx] = _C
             out[f"tmpl_{fam}_r2"][idx] = _r2(m, ppred)
         cols = [u, u * g["v_i"], ones] if cond else [u, ones]
         try:
@@ -507,7 +514,8 @@ def symbolic_forms(g, cfg):
            "tmpl_notes": {},
            # The same message fitted by BOTH families, so the panel can say
            # whether the driving force was worth its column on this synapse.
-           "tmpl_cond": {}, "tmpl_cond_r2": {}, "tmpl_cur": {}, "tmpl_cur_r2": {}}
+           "tmpl_cond_W": {}, "tmpl_cond_E": {}, "tmpl_cond_C": {}, "tmpl_cond_r2": {},
+           "tmpl_cur_W": {}, "tmpl_cur_E": {}, "tmpl_cur_C": {}, "tmpl_cur_r2": {}}
     # THE TEMPLATE ROWS DO NOT NEED PySR, and used to print "[not fitted]"
     # whenever Julia could not start -- next to a generator row that was right
     # there, and next to a metrics.txt reporting the very same fit. With act
@@ -807,9 +815,9 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                   if kW else ", W in the model's own gauge")
     _other = ("W * relu(v_j) + offset" if fm["conductance"]
               else "W * relu(v_j) * (E - v_i) + offset")
-    axf.text(0.0, 1.005, f"f   the synapses: generator, the same fitted inside "
-             f"{fam},\n    {_gain_note.lstrip(', ')}, the same message fitted inside "
-             f"{_other}, and a free search",
+    axf.text(0.0, 1.005, f"f   the synapses: generator, then the same message fitted "
+             f"inside {fam}\n    and inside the other family's {_other}"
+             f"{_gain_note}, and a free search",
              transform=axf.transAxes,
              va="bottom", fontsize=11)
     def fmt_W(w):
@@ -835,36 +843,36 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                    f"   offset =   0.0000"]
         else:
             txt = [f"generator   W = {fmt_W(fm['W'][idx])}   offset =   0.0000"]
-        if True:
-            teq = sr.get("tmpl", {}).get(idx)
-            E = sr.get("tmpl_E", {}).get(idx)
-            C = sr.get("tmpl_C", {}).get(idx)
-            W = sr.get("tmpl_W", {}).get(idx)
-            if teq:
-                Wc = None if (W is None or kW is None) else W * kW
-                Cc = None if (C is None or kW is None) else C * kW
-                wtxt = ("W = " + (fmt_W(Wc) if Wc is not None else
-                                  (fmt_W(W) if W is not None else "     n/a")))
-                ctxt = ("offset = " + (fmt_W(Cc) if Cc is not None else "     n/a"))
-                # The current family has no reversal to print, and a column of
-                # "E = n/a" would only say so once per synapse.
-                etxt = (f"E = {E:+8.3f}   " if E is not None
-                        else ("E =      n/a   " if fm["conductance"] else ""))
-                txt.append(f"template    {wtxt}   {etxt}{ctxt}"
-                           f"{fmt_r2(sr.get('tmpl_r2', {}).get(idx))}")
-            else:
-                txt.append(f"template    [{sr.get('tmpl_notes', {}).get(idx) or 'not fitted'}]")
-            # THE OTHER FAMILY'S FORM ON THE SAME SYNAPSE. The two are nested --
-            # the current form is the conductance one without the u*v_i column
-            # -- so this line can only be worse, and the gap is the evidence.
-            # Equal R2 on a conductance model means the message needs no driving
-            # force, whatever the template row above recovered for E.
-            _alt = "cur" if fm["conductance"] else "cond"
-            _alt_name = "current" if fm["conductance"] else "cond.   "
-            _aeq = sr.get(f"tmpl_{_alt}", {}).get(idx)
-            if _aeq:
-                txt.append(f"{_alt_name} form {_aeq}"
-                           f"{fmt_r2(sr.get(f'tmpl_{_alt}_r2', {}).get(idx))}")
+        # BOTH TEMPLATES, THE GENERATOR'S FAMILY FIRST. Same constants, same
+        # columns, so the rows can be read down: the family this data was made
+        # with, then the other family fitted to the same message. The second row
+        # is the control -- on a current model the conductance form also reaches
+        # R2 1.000, and the only thing that gives it away is the E it needs,
+        # hundreds of units from any voltage the cell ever takes.
+        _own = "cond" if fm["conductance"] else "cur"
+        _alt = "cur" if fm["conductance"] else "cond"
+        _label = {"cond": "conductance template", "cur": "current template"}
+
+        def _row(famkey, tag):
+            W = sr.get(f"tmpl_{famkey}_W", {}).get(idx)
+            E = sr.get(f"tmpl_{famkey}_E", {}).get(idx)
+            C = sr.get(f"tmpl_{famkey}_C", {}).get(idx)
+            if W is None and C is None:
+                note = sr.get("tmpl_notes", {}).get(idx) or "not fitted"
+                return f"{tag:<28}[{note}]"
+            Wc = W if (W is None or kW is None) else W * kW
+            Cc = C if (C is None or kW is None) else C * kW
+            wtxt = "W = " + (fmt_W(Wc) if Wc is not None else "     n/a")
+            ctxt = "offset = " + (fmt_W(Cc) if Cc is not None else "     n/a")
+            # Only the conductance form has a reversal; the current form's row
+            # leaves the column blank rather than printing n/a on every synapse.
+            etxt = (("E = " + (f"{E:+8.3f}" if E is not None else "     n/a") + "   ")
+                    if famkey == "cond" else " " * 15)
+            return (f"{tag:<28}{wtxt}   {etxt}{ctxt}"
+                    f"{fmt_r2(sr.get(f'tmpl_{famkey}_r2', {}).get(idx))}")
+
+        txt.append(_row(_own, _label[_own]))
+        txt.append(_row(_alt, _label[_alt] + " (other form)"))
         eq = sr["edges"].get(idx)
         txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
                    else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
@@ -943,8 +951,11 @@ def analyse_neurons(config, model, data, log_dir, device="cpu", logger=None,
             path = plot_neuron_panels(g, sr, int(neuron), log_dir, rollout=roll, dt=dt,
                                       label=_label if tag is None else f"{_label}  iter {tag}",
                                       out_path=_out)
+            # No line per panel. They land in results/ beside every other figure
+            # the pass writes, none of which announce themselves, and six
+            # identical paths pushed the numbers above them off the screen. The
+            # caller gets the list back; failures below still speak.
             written.append(path)
-            _say(logger, f"neuron {neuron}: panels -> {path}", quiet)
         except Exception as exc:
             _say(logger, f"neuron {neuron}: readout failed: {type(exc).__name__}: {exc}", quiet)
     return written
