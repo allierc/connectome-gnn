@@ -159,6 +159,45 @@ def _med(entries, key):
 _E_OUTSIDE = 10.0
 
 
+# WHICH SILENCE PRIOR EACH ROW TRAINED UNDER. There are two, and they do the
+# same job by different means: coeff_g_phi_zero_below pushes g_phi to zero below
+# an input threshold, coeff_g_phi_silent anchors what it emits at silent input.
+# The champion uses the anchor ALONE, with zero_below at 0; several probes were
+# built on a base that sets zero_below and then added the anchor, so they
+# trained under both and their comparison with the champion is not clean. A
+# table whose rows disagree about this says so under itself rather than leaving
+# it in the yaml.
+def _anchor_tag(cfg):
+    import os
+    import yaml
+    path = os.path.join(os.path.dirname(OUT), "config", "fly", cfg + ".yaml")
+    if not os.path.exists(path):
+        return None
+    t = (yaml.safe_load(open(path)) or {}).get("training", {}) or {}
+    zb = t.get("coeff_g_phi_zero_below", 0) or 0
+    si = t.get("coeff_g_phi_silent", 0) or 0
+    return ("both" if (zb and si) else
+            "anchor" if si else "zero-below" if zb else "neither")
+
+
+def anchor_note(entries):
+    tags = {}
+    for r_ in entries:
+        tags.setdefault(_anchor_tag(r_["config"]), []).append(r_["label"])
+    tags.pop(None, None)
+    if "both" in tags:
+        rows_ = ", ".join(esc(l) for l in tags["both"])
+        return (r"\textbf{Silence prior:} " + rows_ + " train under \emph{both} "
+                r"\texttt{coeff\_g\_phi\_zero\_below} and "
+                r"\texttt{coeff\_g\_phi\_silent}; the champion uses the anchor alone, "
+                r"so those rows are not a clean comparison with it.")
+    if len(tags) > 1:
+        return (r"\textbf{Silence prior:} rows differ --- "
+                + "; ".join(f"{k}: " + ", ".join(esc(l) for l in v)
+                            for k, v in sorted(tags.items())) + ".")
+    return None
+
+
 def form_verdict(entries):
     """One sentence under a table: was the generator's own form the one learned?
 
@@ -347,6 +386,9 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     _verdict = form_verdict(entries)
     if _verdict:
         out.append(rf"\\[3pt]{{\scriptsize {_verdict}}}")
+    _anchor = anchor_note(entries)
+    if _anchor:
+        out.append(rf"\\[2pt]{{\scriptsize {_anchor}}}")
     if note:
         out.append(rf"\\[2pt]{{\scriptsize {note}}}")
     out += [r"\end{table}"]
