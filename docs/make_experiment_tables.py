@@ -20,6 +20,10 @@ import sys
 TSV = sys.argv[1] if len(sys.argv) > 1 else "/tmp/exp_rows.tsv"
 OUT = os.path.dirname(os.path.abspath(__file__))
 DATE_14, DATE_15 = "2026-09-14", "2026-09-15"
+# The group-lasso sweep predates the two nights above and is read against them:
+# it is the same conductance GNN on CURRENT data, so its reversal has no
+# ground truth and its W is the only recovery it can be judged on.
+DATE_30 = "2026-08-30"
 
 
 _GREEN = 0.9
@@ -270,6 +274,15 @@ final, from \texttt{results/metrics.txt} on the held-out test split.
 Rows marked $^{*}$ are left blank: those runs are still training and have no
 held-out numbers yet.}\end{center}
 \vspace{4pt}""")
+
+# ----------------------------------------------------------------- 2026-08-30
+_lasso = pick("D30", "lasso current data")
+if _lasso:
+    L.append(rf"\section*{{{DATE_30}}}")
+    L.append(table(_lasso,
+                   rf"{DATE_30}: group-lasso sweep, conductance model on current data, "
+                   rf"$\sigma=0.05$; $\lambda$ is \texttt{{coeff\_g\_phi\_input\_group\_L1}}.",
+                   eij=False))
 
 # ----------------------------------------------------------------- 2026-09-14
 L.append(rf"\section*{{{DATE_14}}}")

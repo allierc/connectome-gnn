@@ -1,3 +1,10 @@
+D30	lasso current data	λ = 0.25	flyvis_current_noise_005_conductance_lasso_0p25_cv00	FINAL
+D30	lasso current data	λ = 0.5	flyvis_current_noise_005_conductance_lasso_0p5_cv00	FINAL
+D30	lasso current data	λ = 1	flyvis_current_noise_005_conductance_lasso_1_cv00	FINAL
+D30	lasso current data	λ = 2.5	flyvis_current_noise_005_conductance_lasso_2p5_cv00	FINAL
+D30	lasso current data	λ = 5	flyvis_current_noise_005_conductance_lasso_5_cv00	FINAL
+D30	lasso current data	λ = 10	flyvis_current_noise_005_conductance_lasso_10_cv00	FINAL
+D30	lasso current data	λ = 25	flyvis_current_noise_005_conductance_lasso_25_cv00	FINAL
 D14	CV current sigma 0.05	fold 00_ref	flyvis_current_noise_005_current_cv00_ref	FINAL
 D14	CV current sigma 0.05	fold 02	flyvis_current_noise_005_current_cv02	FINAL
 D14	CV current sigma 0.05	fold 03	flyvis_current_noise_005_current_cv03	FINAL
