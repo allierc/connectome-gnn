@@ -194,6 +194,25 @@ def main(argv=None) -> int:
         print("--dry-run: nothing written")
         return 0
 
+    # AN EXISTING RUN DIRECTORY IS REFUSED BY DATAMATE, NOT BY FLYVIS, and the
+    # refusal reads as a config diff on `delete_if_exists` -- a key datamate
+    # strips from the passed config before comparing but keeps in the stored
+    # `_meta.yaml`, so the two can never agree. Any second run of a name hits it,
+    # including a re-launch after a job died. Caught here so the message names
+    # the directory and the way out rather than ending in a datamate traceback.
+    import flyvis
+
+    run_dir = flyvis.results_dir / config.network_name
+    if run_dir.exists() and not args.delete_if_exists:
+        n_chkpts = len(list((run_dir / "chkpts").glob("*"))) if (run_dir / "chkpts").exists() else 0
+        raise SystemExit(
+            f"{run_dir} already exists ({n_chkpts} checkpoints).\n"
+            "  --delete-if-exists   start over, discarding it\n"
+            "  or choose another member/ensemble id in the run name\n"
+            "Datamate refuses to reopen it: it strips `delete_if_exists` from the "
+            "passed config but stores it, so the configs never compare equal."
+        )
+
     solver = MultiTaskSolver(
         name=config.network_name,
         config=config,
