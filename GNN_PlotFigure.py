@@ -500,6 +500,21 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
             line += f"  [{scored[f'{key}_estimator']}]"
         print(line)
 
+    # ARE THE TWO FAMILIES DISTINGUISHABLE HERE. The test and the figure come
+    # off the same call, so results/form_comparison.png cannot carry a number
+    # the terminal did not print, and the per-edge arrays are kept beside it for
+    # the across-run comparison the tool makes.
+    if rec is not None:
+        try:
+            from connectome_gnn.recovery_figures import (plot_form_comparison,
+                                                         write_form_arrays)
+            _path, _lines = plot_form_comparison(rec, log_dir)
+            for _l in _lines:
+                print(_l)
+            write_form_arrays(rec, log_dir)
+        except Exception as _e:
+            logger.warning(f"form comparison skipped: {type(_e).__name__}: {_e}")
+
     # THE RECOVERED PARAMETERS RUN AS A GENERATOR. Everything above says the fit
     # is consistent with what the network computes; this says the numbers are the
     # circuit, by loading them into the known-ODE and rolling it out on the

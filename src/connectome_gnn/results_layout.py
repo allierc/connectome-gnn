@@ -151,6 +151,12 @@ KEEP_EXACT = (
     "V_rest_comparison.png",
     "msg_i_comparison.png",
     "parameter_error.png",
+    # The family test: which of the two generator forms describes this network's
+    # message, and the per-edge arrays it is computed from. A headline because
+    # it answers a question about the model itself, not about one quantity's
+    # recovery, and because the arrays are what a second run is compared to.
+    "form_comparison.png",
+    "form_comparison.npz",
 )
 
 # The embedding kept is the AUGMENTED one -- the UMAP of (a_i, tau, V_rest, and
