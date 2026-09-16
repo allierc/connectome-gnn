@@ -126,6 +126,32 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _integrator_note(network) -> str:
+    """One line naming the time step the dynamics actually implements.
+
+    Read off the class ATTRIBUTE, not off the class name, and that distinction is
+    the whole point of the line. The name `ConductanceSynapses` is the same in
+    every checkout; `INTEGRATION` exists only where the exponential-Euler step
+    does. So a job launched from a checkout that predates the fix prints `forward
+    Euler` and can be killed in the first seconds, rather than looking identical
+    for the two hours it takes to explode the way flow/2000/000 did at iteration
+    16,368.
+
+    Every other NetworkDynamics -- flyvis's own current model included -- carries
+    no such attribute and keeps flyvis's forward Euler at the fixed dt, which is
+    the truth for them and is what they say here.
+    """
+    got = type(network.dynamics).__name__
+    step = getattr(type(network.dynamics), "INTEGRATION", None)
+    if step is not None:
+        return f"{step} (exact at frozen coefficients)"
+    if got == CONDUCTANCE_DYNAMICS:
+        return ("forward Euler -- STALE CHECKOUT. This conductance model has no "
+                "INTEGRATION attribute, so it is the pre-fix step that explodes "
+                "once (dt/tau_i)(1 + G_i) passes 2. Kill the job and pull.")
+    return f"flyvis forward Euler at the fixed dt (unchanged; {got} is flyvis's own)"
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -213,6 +239,9 @@ def main(argv=None) -> int:
         n_free = sum(p.numel() for p in network.parameters() if p.requires_grad)
         print(f"\033[92mdynamics {type(network.dynamics).__name__} registered; "
               f"{n_free} free network parameters\033[0m")
+        # The same line the real run prints, so `--dry-run` is enough to confirm a
+        # checkout has the exponential-Euler step without queueing for a GPU.
+        print(f"\033[92mintegrator        {_integrator_note(network)}\033[0m")
         print("--dry-run: nothing written")
         return 0
 
@@ -248,6 +277,13 @@ def main(argv=None) -> int:
     n_free = sum(p.numel() for p in solver.network.parameters() if p.requires_grad)
     print(f"\033[92mdynamics {type(solver.network.dynamics).__name__} registered; "
           f"{n_free} free network parameters\033[0m")
+    # WHICH INTEGRATOR IS ABOUT TO RUN, said out loud. The step is a property of
+    # the dynamics class, not of the config, so nothing else in the run's output
+    # distinguishes the exponential-Euler conductance model from the forward-Euler
+    # one that died at iteration 16,368 -- and a run that starts with the wrong
+    # one looks identical for two hours. flyvis's own current model is untouched
+    # by that change and says so here.
+    print(f"\033[92mintegrator        {_integrator_note(solver.network)}\033[0m")
     print(f"\033[96mwriting to        {solver.path}\033[0m")
 
     with TrainingProgress(solver, ncols=args.ncols):

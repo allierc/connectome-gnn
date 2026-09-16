@@ -93,6 +93,15 @@ def in_band(raw: torch.Tensor, lo: float, hi: float) -> torch.Tensor:
 class ConductanceSynapses(NetworkDynamics):
     """Passive point neurons with conductance-based graded release synapses.
 
+    Attributes:
+        INTEGRATION: how one timestep is taken, printed in the training banner. It
+            is an attribute of the CLASS rather than a string in the trainer so the
+            banner cannot claim a step the code does not take: a checkout without
+            this fix has no such attribute and the banner says forward Euler, which
+            is the one line in a cluster log that answers "did the job pick up the
+            new code".
+
+
     Args:
         activation: presynaptic nonlinearity, as for `PPNeuronIGRSynapses`.
         exc_band: (lo, hi) excursions from rest for the cation reversal.
@@ -110,6 +119,8 @@ class ConductanceSynapses(NetworkDynamics):
     there is no recording, and the voltage range is an outcome of training rather
     than an input to it.
     """
+
+    INTEGRATION = "exponential Euler, stable at any total conductance"
 
     def __init__(
         self,
