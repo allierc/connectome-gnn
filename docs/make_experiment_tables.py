@@ -134,126 +134,19 @@ def pick(sec, block):
     return [r for r in rows if r["sec"] == sec and r["block"] == block]
 
 
-def _med(entries, key):
-    """Median over the arms of one table, or None when nothing was measured."""
-    xs = []
-    for r_ in entries:
-        try:
-            v = float(r_[key])
-        except (TypeError, ValueError, KeyError):
-            continue
-        if v == v:
-            xs.append(v)
-    if not xs:
-        return None
-    xs.sort()
-    n = len(xs)
-    return xs[n // 2] if n % 2 else 0.5 * (xs[n // 2 - 1] + xs[n // 2])
 
 
-# The reversal has to lie where the voltage goes. A conductance form fitted to a
-# message with no driving force puts E far outside the range the cells ever
-# reach -- 201x on the current GNN against 1.4x on the conductance one -- so the
-# rule reads the ratio, not the R2, and 10x is the round number between those
-# two populations rather than a level anything was tuned to.
-_E_OUTSIDE = 10.0
 
+def _pending(r_):
+    """A row is pending when the RUN has no numbers, not when the manifest says so.
 
-# WHICH SILENCE PRIOR EACH ROW TRAINED UNDER. There are two, and they do the
-# same job by different means: coeff_g_phi_zero_below pushes g_phi to zero below
-# an input threshold, coeff_g_phi_silent anchors what it emits at silent input.
-# The champion uses the anchor ALONE, with zero_below at 0; several probes were
-# built on a base that sets zero_below and then added the anchor, so they
-# trained under both and their comparison with the champion is not clean. A
-# table whose rows disagree about this says so under itself rather than leaving
-# it in the yaml.
-def _anchor_tag(cfg):
-    import os
-    import yaml
-    path = os.path.join(os.path.dirname(OUT), "config", "fly", cfg + ".yaml")
-    if not os.path.exists(path):
-        return None
-    t = (yaml.safe_load(open(path)) or {}).get("training", {}) or {}
-    zb = t.get("coeff_g_phi_zero_below", 0) or 0
-    si = t.get("coeff_g_phi_silent", 0) or 0
-    return ("both" if (zb and si) else
-            "anchor" if si else "zero-below" if zb else "neither")
-
-
-def anchor_note(entries):
-    tags = {}
-    for r_ in entries:
-        tags.setdefault(_anchor_tag(r_["config"]), []).append(r_["label"])
-    tags.pop(None, None)
-    if "both" in tags:
-        rows_ = ", ".join(esc(l) for l in tags["both"])
-        return (r"\textbf{Silence prior:} " + rows_ + " train under \emph{both} "
-                r"\texttt{coeff\_g\_phi\_zero\_below} and "
-                r"\texttt{coeff\_g\_phi\_silent}; the champion uses the anchor alone, "
-                r"so those rows are not a clean comparison with it.")
-    if len(tags) > 1:
-        return (r"\textbf{Silence prior:} rows differ --- "
-                + "; ".join(f"{k}: " + ", ".join(esc(l) for l in v)
-                            for k, v in sorted(tags.items())) + ".")
-    return None
-
-
-def form_verdict(entries):
-    """One sentence under a table: was the generator's own form the one learned?
-
-    WRITTEN FROM THE ROWS, not by hand. Three measurements decide it and each is
-    quoted with its reference, because every one of them is a ratio or a
-    difference that means nothing on its own:
-
-      the gain    how much R2 per edge the driving-force column buys over the
-                  current form, mean over edges; the two forms are NESTED, so
-                  this is >= 0 by algebra and only its size is informative
-      the reversal the fitted |E| as a multiple of the 99th percentile of |v_i|
-                  in the data; a reversal the voltage never approaches is a
-                  column being used to rescale u, not a driving force
-      the rollout  each reconstruction loaded back into its family's known-ODE
-                  and run on noise-free data; the one test the nested pair
-                  cannot dodge, and readable only when the own-family
-                  reconstruction is itself faithful
+    The manifest's status is typed by hand when a run is launched and goes stale
+    the moment it lands: two whole tables printed blank the morning after their
+    runs finished, with the numbers sitting in the TSV. What decides now is
+    whether this run produced a rollout or a W -- if it did, print it.
     """
-    g, gsd = _med(entries, "gain"), _med(entries, "gainsd")
-    evi = _med(entries, "evi")
-    ro, ra = _med(entries, "roll_own"), _med(entries, "roll_alt")
-    if g is None and evi is None:
-        # A known-ODE table is not missing the test, it cannot be given it: the
-        # model IS the generator's equation with its parameters learned, so
-        # there is no free message to fit two forms to. Said once, under the
-        # table, rather than leaving a reader to wonder which runs failed.
-        if entries and all("knownode" in r_.get("config", "") for r_ in entries):
-            return (r"\textbf{Is the right form learned?} not asked here: this model "
-                    r"IS the generator's equation with its constants learned, so there "
-                    r"is no free message for the two forms to be fitted to.")
-        return None
-    bits = []
-    if g is not None:
-        bits.append(rf"the driving-force column buys ${g:+.3f}$"
-                    + (rf" $\pm$ {gsd:.3f}" if gsd is not None else "")
-                    + " $R^2$ per edge over the current form")
-    if evi is not None:
-        if evi > _E_OUTSIDE:
-            bits.append(rf"and the reversal it needs sits {evi:.0f}$\times$ outside the "
-                        rf"voltage range the data reaches, so the conductance reading is "
-                        rf"an artefact of the extra column")
-        else:
-            bits.append(rf"and the reversal it needs, {evi:.1f}$\times$ the data's own "
-                        rf"voltage range, is inside the range where it can be identified")
-    if ro is not None and ra is not None:
-        if ro >= ra + 0.05:
-            bits.append(rf"rolled out, the own-family reconstruction reaches $r={ro:.2f}$ "
-                        rf"against {ra:.2f} for the other family")
-        elif ra >= ro + 0.05:
-            bits.append(rf"rolled out, the OTHER family's reconstruction reaches "
-                        rf"$r={ra:.2f}$ against {ro:.2f}, so the trajectory does not "
-                        rf"prefer the form the data was made with")
-        else:
-            bits.append(rf"the two reconstructions roll out alike ($r={ro:.2f}$ and "
-                        rf"{ra:.2f}), so the trajectory does not separate the families")
-    return ("\textbf{Is the right form learned?} " + ", ".join(bits) + ".") if bits else None
+    return not any(r_.get(k) and r_[k] not in ("", "||")
+                   for k in ("roll", "Wij", "onestep"))
 
 
 def table(entries, caption, extra_col=None, eij=True, note=None):
@@ -302,7 +195,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
             return float(r_["roll"]) - 1e6      # far below any real W_ij R2
         except (TypeError, ValueError):
             return float("-inf")
-    _finished = [r_ for r_ in entries if r_["status"] != "RUN"]
+    _finished = [r_ for r_ in entries if not _pending(r_)]
     _best = max(_finished, key=_rank) if _finished else None
 
     for r_ in entries:
@@ -311,7 +204,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
         # fitted to, and printing them in the same column as a held-out test
         # number -- even starred -- invites exactly the comparison the star is
         # there to forbid. The row stays so the arm is visible as pending.
-        pending = r_["status"] == "RUN"
+        pending = _pending(r_)
         star = r"$^{*}$" if pending else ""
         cells = [esc(r_["label"]) + star]
         if extra_col:
@@ -364,7 +257,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     # The summary row, over the finished arms only -- a mean that quietly
     # included a pending run's train-split number would be the one number in the
     # table nobody could trace back to a row.
-    done = [r_ for r_ in entries if r_["status"] != "RUN"]
+    done = [r_ for r_ in entries if not _pending(r_)]
     if len(done) > 1:
         cells = [r"\textbf{mean} $\pm$ SD"]
         if extra_col:
@@ -387,14 +280,6 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
                   mean_sd(_floats("cluster"))]
         out += [r"\midrule", " & ".join(cells) + r" \\"]
     out += [r"\bottomrule", r"\end{tabular}"]
-    _verdict = form_verdict(entries)
-    if _verdict:
-        out.append(rf"\\[3pt]{{\scriptsize {_verdict}}}")
-    _anchor = anchor_note(entries)
-    if _anchor:
-        out.append(rf"\\[2pt]{{\scriptsize {_anchor}}}")
-    if note:
-        out.append(rf"\\[2pt]{{\scriptsize {note}}}")
     out += [r"\end{table}"]
     return "\n".join(out)
 
@@ -419,15 +304,14 @@ _lasso = pick("D30", "lasso current data")
 if _lasso:
     L.append(rf"\section*{{{DATE_30}}}")
     L.append(table(_lasso,
-                   rf"{DATE_30}: group-lasso sweep, conductance model on current data, "
-                   rf"$\sigma=0.05$; $\lambda$ is \texttt{{coeff\_g\_phi\_input\_group\_L1}}.",
+                   r"Conductance model on current data with a group lasso, $\sigma = 0.05$.",
                    eij=False))
 
 # ----------------------------------------------------------------- 2026-09-14
 L.append(rf"\section*{{{DATE_14}}}")
 
 L.append(table(pick("D14", "CV current sigma 0"),
-               rf"{DATE_14}: current model on current data, $\sigma=0$."))
+               r"Current model on current data with $\sigma = 0$."))
 
 # Fold 1 keeps its ROW and loses its numbers: it is retraining, because its spec
 # pointed at fold 0's data. A blank line in the fold sequence says that where a
@@ -440,7 +324,7 @@ if not any(r_["label"].endswith("01") for r_ in _cv005):
                                 Wij="", tau="", V_rest="", Eij_rmse="", roll="",
                                 msg="", onestep="", cluster="")] + _cv005[1:]
 L.append(table(_cv005,
-               rf"{DATE_14}: current model on current data, $\sigma=0.05$."))
+               r"Current model on current data with $\sigma = 0.05$."))
 
 # The known-ODE gets its own table. It is a different model class -- the
 # generator's structure with only its parameters learned -- so a row of it inside
@@ -450,10 +334,10 @@ _c005 = pick("D14", "conductance sigma 0.05")
 _c000 = pick("D14", "conductance sigma 0")
 _ko = pick("D14", "known-ODE sigma 0") + pick("D14", "known-ODE sigma 0.05")
 L.append(table(_c000,
-               rf"{DATE_14}: conductance model on conductance data, $\sigma=0$."))
+               r"Conductance model on conductance data with $\sigma = 0$."))
 
 L.append(table(_c005,
-               rf"{DATE_14}: conductance model on conductance data, $\sigma=0.05$."))
+               r"Conductance model on conductance data with $\sigma = 0.05$."))
 
 def _ko_sigma(r_):
     return "0" if r_["block"].endswith("sigma 0") else "0.05"
@@ -461,8 +345,7 @@ def _ko_sigma(r_):
 
 if _ko:
     L.append(table(_ko,
-                   rf"{DATE_14}: known-ODE on conductance data --- the generator's structure, "
-                   rf"parameters learned.",
+                   r"Conductance known-ODE on conductance data with $\sigma = 0$ and $0.05$.",
                    extra_col=(r"$\sigma$", _ko_sigma)))
 
 # ------------------------------------------------------------- between blocks
@@ -494,12 +377,12 @@ def _iteration_now(entries):
 
 
 _A = pick("D15", "A current/current")
-_pending = [r_ for r_ in _A if not _clean(r_["Wij"])]
-_iter = _iteration_now(_pending)
+_unfinished = [r_ for r_ in _A if not _clean(r_["Wij"])]
+_iter = _iteration_now(_unfinished)
 _note = (rf"$^{{*}}$ still training, at iteration {_iter:,} of 1,600,000 when this "
          rf"table was built." if _iter else None)
 L.append(table(_A,
-               rf"{DATE_15} Block A: current model on current data, $\sigma=0.05$.",
+               r"Block A: current model on current data with $\sigma = 0.05$.",
                eij=False, note=_note))
 
 # Noise-free first everywhere, the run without the complication before the one
@@ -516,12 +399,12 @@ def _sigma(r_):
     return "0"
 
 
-L.append(table(_B, rf"{DATE_15} Block B: conductance model on conductance data, $\sigma=0$ and $0.05$.",
+L.append(table(_B, r"Block B: conductance model on conductance data with $\sigma = 0$ and $0.05$.",
                extra_col=(r"$\sigma$", _sigma),
                note=r"$\dagger$ the reproduction twin, with both weight penalties \emph{on} and no anchor, for reference."))
 
 L.append(table(pick("D15", "C cond model / current data"),
-               rf"{DATE_15} Block C: conductance model on current data, $\sigma=0.05$.",
+               r"Block C: conductance model on current data with $\sigma = 0.05$.",
                eij=False))
 
 
@@ -530,7 +413,7 @@ def _mn(r_):
 
 
 L.append(table(pick("D15", "D meas noise 010") + pick("D15", "D meas noise 020"),
-               rf"{DATE_15} Block D: current model on current data, $\sigma=0.05$, measurement noise $0.1$ and $0.2$.",
+               r"Block D: current model on current data with $\sigma = 0.05$, measurement noise $0.1$ and $0.2$.",
                extra_col=(r"$\sigma_{meas}$", _mn), eij=False))
 
 # ----------------------------------------------------------------- 2026-09-16
@@ -554,16 +437,14 @@ if _any_grid:
         if not rows_:
             continue
         L.append(table(rows_,
-                       rf"{DATE_16}: known-ODE cross-model grid --- {m} known-ODE on "
-                       rf"{d}-generated data, five folds at each $\sigma$.",
+                       rf"{m.capitalize()} known-ODE on {d} data with $\sigma = 0$ and $0.05$.",
                        extra_col=(r"$\sigma$", _ko_sig),
                        eij=(d == "conductance" and m == "conductance")))
 
 _lassoC = pick("D16", "lasso conductance data")
 if _lassoC:
     L.append(table(_lassoC,
-                   rf"{DATE_16}: the group lasso carried over to conductance data, "
-                   rf"$\sigma=0.05$; $\lambda$ is \texttt{{coeff\_g\_phi\_input\_group\_L1}}.",
+                   r"Conductance model on conductance data with a group lasso, $\sigma = 0.05$.",
                    note=r"on \emph{current} data the same penalty took $W_{ij}$ $R^2$ "
                         r"from 0.90 at $\lambda=0.25$ to 0.98 at 25 with rollout "
                         r"$r=1.00$ throughout; the best arm on \emph{this} data is 0.42."))
@@ -571,9 +452,7 @@ if _lassoC:
 _probes = pick("D16", "probe goal W") + pick("D16", "probe goal roll")
 if _probes:
     L.append(table(_probes,
-                   rf"{DATE_16}: one-hour probes on conductance data, $\sigma=0.05$, "
-                   rf"at about 100{{,}}000 iterations; \texttt{{p2w}} arms aim at "
-                   rf"$W_{{ij}}$ and \texttt{{p2r}} arms at the rollout.",
+                   r"Conductance model on conductance data with one-hour probes, $\sigma = 0.05$.",
                    note=r"reference at the same iteration: \texttt{arm\_base} "
                         r"rollout $r\approx0.60$, $W_{ij}$ $R^2\approx-0.23$; the "
                         r"known-ODE on this data reaches $W_{ij}$ 0.88."))
