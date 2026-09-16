@@ -85,7 +85,9 @@ for line in open(TSV):
                      onestep=f[11] if len(f) > 11 else "",
                      cluster=f[12] if len(f) > 12 else "",
                      fit=f[13] if len(f) > 13 else "",
-                     ufit=f[14] if len(f) > 14 else ""))
+                     ufit=f[14] if len(f) > 14 else "",
+                     cfit=f[15] if len(f) > 15 else "",
+                     curfit=f[16] if len(f) > 16 else ""))
 
 
 def _clean(field):
@@ -133,7 +135,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
     _R = r">{\raggedleft\arraybackslash}p{2.75cm}"       # an R2 cell
     _P = r">{\raggedleft\arraybackslash}p{1.5cm}"        # a prediction r
     ncols = ((r"p{0.9cm}p{1.6cm}" if extra_col else r"p{2.5cm}")
-             + _P * 2 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.1cm}" + _P
+             + _P * 2 + _R * (5 if eij else 4) + r">{\raggedleft\arraybackslash}p{2.6cm}" + _P
              + r">{\raggedright\arraybackslash}p{2.4cm}")
     head = ["arm"]
     if extra_col:
@@ -143,7 +145,7 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
              r"$\mathrm{msg}_i$ $R^2$"]
     if eij:
         head += [r"$E_{ij}$ $R^2$"]
-    head += [r"fit $R^2$ \tiny edge/upd", "cluster acc.", r"\tiny config"]
+    head += [r"fit $R^2$ \tiny upd/cond/cur", "cluster acc.", r"\tiny config"]
     # Flush left, not centred: the tables differ in width by several columns and
     # centring made each one start at a different indent down the page.
     # Caption ABOVE the table: read top to bottom, the name of the thing comes
@@ -199,15 +201,26 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
             # the R2 columns to its left are whether the constants that form
             # implies are the generator's. A row with a high fit and a negative
             # W or E is the interesting case, and it is the common one.
-            # ONE CELL, TWO FITS: the per-edge form against the model's message
-            # and the per-neuron update against its dv/dt. Both are "does the
-            # generator's equation describe this network", at the two places it
-            # can be asked, and they belong side by side rather than in separate
-            # columns nobody lines up.
-            def _pair_fit(a_, b_):
-                pa, pb = _pred(a_), _pred(b_)
-                return pa if pb == "--" else (pb if pa == "--" else f"{pa} / {pb}")
-            cells += [_pair_fit(r_["fit"], r_["ufit"]), _pred(r_["cluster"])]
+            # ONE CELL, THREE FITS: the per-neuron update against the model's
+            # own dv/dt, then the per-edge message against BOTH families' forms
+            # -- conductance b1*u + b2*u*v_i + b3, then current W*u + C, which is
+            # that form with the driving-force column deleted. The third number
+            # is what stops the second from being read as evidence: a
+            # conductance model whose message the current form fits just as well
+            # has not shown it learned a driving force, only that this data does
+            # not require one.
+            def _triple_fit(*vals):
+                got = [_pred(v) for v in vals]
+                got = [g for g in got if g != "--"]
+                return " / ".join(got) if got else "--"
+            # A run plotted before the two-form fit landed carries only its own
+            # family's median; it goes in the middle slot rather than being
+            # dropped, so old and new rows still show the same kind of number
+            # where the column says update / conductance / current.
+            _c, _cur = r_["cfit"], r_["curfit"]
+            if not _c and not _cur:
+                _c = r_["fit"]
+            cells += [_triple_fit(r_["ufit"], _c, _cur), _pred(r_["cluster"])]
         cells += [r"\tiny\texttt{" + esc(r_["config"]) + "}"]
         if _best is not None and r_ is _best:
             cells = [(r"\textbf{" + c + "}") if c else c for c in cells]
@@ -233,7 +246,8 @@ def table(entries, caption, extra_col=None, eij=True, note=None):
             cells.append(mean_sd([_clean(r_[q]) for r_ in done]))
         if eij:
             cells.append(mean_sd([_clean(r_["Eij"]) for r_ in done]))
-        cells += [mean_sd(_floats("fit")), mean_sd(_floats("cluster")), ""]
+        cells += [mean_sd(_floats("cfit") or _floats("fit")),
+                  mean_sd(_floats("cluster")), ""]
         out += [r"\midrule", " & ".join(cells) + r" \\"]
     out += [r"\bottomrule", r"\end{tabular}"]
     if note:

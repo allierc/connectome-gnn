@@ -219,3 +219,45 @@ def test_a_pedestal_in_the_message_is_read_as_an_offset_not_as_conductance():
 
 def to_np(t):
     return t.detach().numpy().ravel()
+
+
+def test_both_families_forms_are_fitted_to_the_same_message():
+    """A conductance message needs the driving-force column; a current one does not.
+
+    The comparison the two medians exist for. `current_form_r2_median` fits
+    W*relu(v_j) + C -- the conductance form with the u*v_i column deleted -- to
+    the same per-edge message, so a model whose message the CURRENT form already
+    explains has not demonstrated a learned driving force however well the
+    conductance form fits it. Here the model really is conductance, so the
+    deleted column has to cost R2.
+    """
+    cfg, op, model, edges, x_ts, _ = _fixture()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    d = rec.diagnostics
+    assert d["conductance_form_r2_median"] > 0.999
+    assert d["current_form_r2_median"] < 0.99
+    assert d["driving_force_r2_gain_median"] > 0.001
+
+
+def test_a_current_message_costs_nothing_to_drop_the_driving_force():
+    """The same model with relu(v_j) alone: both forms fit, the gain is ~0.
+
+    The nested pair means the conductance form can never fit WORSE, so the test
+    of 'is there a driving force here' is whether the extra column BUYS
+    anything, not whether the fuller form fits.
+    """
+    cfg, op, model, edges, x_ts, _ = _fixture()
+
+    class _CurrentGPhi(_GPhi):
+        def forward(self, x):
+            return torch.relu(x[:, 0]).unsqueeze(1)
+
+    model.g_phi = _CurrentGPhi()
+    rec = extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
+                                  device="cpu", n_neurons=N, n_frames=T,
+                                  gauge_tau="true", min_points=4)
+    d = rec.diagnostics
+    assert d["current_form_r2_median"] > 0.999
+    assert abs(d["driving_force_r2_gain_median"]) < 1e-6

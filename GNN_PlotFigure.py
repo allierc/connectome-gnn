@@ -488,11 +488,23 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     # only question left is whether the constants are the generator's -- which is
     # what every R2 below answers. Low means those constants describe nothing.
     _ef, _uf = scored.get("msg_form_r2_median"), scored.get("update_form_r2_median")
+    _cond = scored.get("conductance_form_r2_median")
+    _cur = scored.get("current_form_r2_median")
     if _ef is not None or _uf is not None:
         def _fmt(v):
             return "--" if v is None or v != v else f"{_r2_color(v)}{v:.4f}{_ANSI_RESET}"
         print(f"template fit R²: edge {_fmt(_ef)}  update {_fmt(_uf)}"
               f"   (does the generator's form describe the model at all)")
+        # AND WHICH FAMILY'S FORM. The current form W*act(v_j) + C is the
+        # conductance form with the driving-force column deleted, so it can only
+        # fit worse; what the pair says is how much worse. A conductance model
+        # whose message the current form explains as well has not learned a
+        # driving force, it has learned a message this data never needed one for.
+        if _cond is not None or _cur is not None:
+            _gain = scored.get("driving_force_r2_gain_median")
+            print(f"   per-edge message by family: conductance {_fmt(_cond)}  "
+                  f"current {_fmt(_cur)}  "
+                  f"(driving force buys {'--' if _gain is None or _gain != _gain else f'{_gain:+.4f}'} R²)")
 
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:

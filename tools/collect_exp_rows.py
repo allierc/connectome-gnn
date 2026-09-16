@@ -12,7 +12,7 @@ Usage:
 Manifest columns (tab separated): section, block, label, config, status.
 Output columns, one row per run:
     section block label config status Wij tau V_rest Eij rollout msg onestep
-    cluster msg_form update_form
+    cluster msg_form update_form conductance_form current_form
 with each recovery field written `clean|all|pct outliers`, the three numbers
 metrics.txt keeps apart.
 """
@@ -28,7 +28,11 @@ LOG_ROOT = os.environ.get("GNN_LOG_ROOT",
 # that still write the old keys, so both are accepted and the new name is what
 # the table gets. See tools/extraction_gate.py for the full rename map.
 MEDIANS = {"msg_form": ("msg_form_r2_median", "tmpl_fit_r2_median"),
-           "update_form": ("update_form_r2_median", "tmpl_update_r2_median")}
+           "update_form": ("update_form_r2_median", "tmpl_update_r2_median"),
+           # Both families' forms fitted to the SAME message, added 2026-09-15.
+           # Runs plotted before that carry neither and print one fewer number.
+           "conductance_form": ("conductance_form_r2_median",),
+           "current_form": ("current_form_r2_median",)}
 
 
 def read_metrics(config):
@@ -97,7 +101,8 @@ def main():
                triple(m, "Wij"), triple(m, "tau"), triple(m, "V_rest"),
                triple(m, "Eij"), num(m, "rollout_r"), triple(m, "msg_i"),
                one_step_r(config), num(m, "clustering_accuracy"),
-               num(m, *MEDIANS["msg_form"]), num(m, *MEDIANS["update_form"])]
+               num(m, *MEDIANS["msg_form"]), num(m, *MEDIANS["update_form"]),
+               num(m, *MEDIANS["conductance_form"]), num(m, *MEDIANS["current_form"])]
         print("\t".join(row))
 
 
