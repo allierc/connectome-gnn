@@ -180,6 +180,14 @@ def form_verdict(entries):
     evi = _med(entries, "evi")
     ro, ra = _med(entries, "roll_own"), _med(entries, "roll_alt")
     if g is None and evi is None:
+        # A known-ODE table is not missing the test, it cannot be given it: the
+        # model IS the generator's equation with its parameters learned, so
+        # there is no free message to fit two forms to. Said once, under the
+        # table, rather than leaving a reader to wonder which runs failed.
+        if entries and all("knownode" in r_.get("config", "") for r_ in entries):
+            return (r"\textbf{Is the right form learned?} not asked here: this model "
+                    r"IS the generator's equation with its constants learned, so there "
+                    r"is no free message for the two forms to be fitted to.")
         return None
     bits = []
     if g is not None:
