@@ -3695,6 +3695,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["_form_cond_r2_full"] = _scatter(cond_r2)
     rec.diagnostics["_form_cur_r2_full"] = _scatter(cur_r2)
     rec.diagnostics["_form_t_b2_full"] = _scatter(t_cond)
+    # The reversal the CONDUCTANCE form asks for on every edge, whichever family
+    # the model belongs to, kept per edge because the summary is a median of a
+    # population with two modes -- reversals inside the voltage range, and
+    # reversals that ran away because the slope they divide by is noise -- and a
+    # median cannot show that.
+    rec.diagnostics["_form_E_cond_full"] = _scatter(E_cond_form)
     rec.diagnostics["_form_n_used_full"] = _scatter(n_used)
     rec.diagnostics["_W_alt_full"] = _scatter(_W_alt)
     rec.diagnostics["_E_alt_full"] = _scatter(_E_alt)
