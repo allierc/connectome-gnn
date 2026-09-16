@@ -1742,6 +1742,41 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 _write_recovery_metrics(
                     model, ode_params, config, edges, x_ts, device,
                     log_dir, logger, log_file, n_neurons=n_neurons)
+                # WHERE THIS MODEL PUT ITS REVERSALS, against the voltage the
+                # data reaches. A known-ODE runs no template readout -- it IS
+                # the generator's equation, so there is no free message to fit
+                # two forms to and no form_comparison.png -- and the only
+                # ground-truth-free thing left to ask of it is whether the
+                # constants it chose are physically admissible. Written here so
+                # the answer is in results/metrics.txt rather than in whoever
+                # last opened the checkpoint: on current-generated data, which
+                # has no driving force at all, this model still reports
+                # E_exc +6.2 and E_inh -4.1, the same range as on conductance
+                # data. That is the measurement behind "the known-ODE cannot
+                # tell which family generated the data".
+                _E = {k: getattr(model, k, None) for k in ("E_exc", "E_inh")}
+                if any(v is not None for v in _E.values()):
+                    _lines = []
+                    _vi = float(np.percentile(np.abs(to_numpy(activity_true)), 99)) \
+                        if activity_true is not None else float("nan")
+                    _lines.append(f"vi_abs_p99: {_vi:.6f}\n")
+                    _worst = 0.0
+                    for _k, _v in _E.items():
+                        if _v is None:
+                            continue
+                        _m = float(np.median(to_numpy(_v).ravel()))
+                        _lines.append(f"learned_{_k}_median: {_m:.6f}\n")
+                        _worst = max(_worst, abs(_m))
+                    if _vi == _vi and _vi > 0:
+                        _lines.append(f"learned_E_abs_over_vi: {_worst / _vi:.6f}\n")
+                    with open(os.path.join(log_dir, 'results', 'metrics.txt'), 'a') as _mf:
+                        _mf.writelines(_lines)
+                    def _med_of(_v):
+                        return (float(np.median(to_numpy(_v).ravel()))
+                                if _v is not None else float("nan"))
+                    print(f"learned reversals: E_exc {_med_of(_E['E_exc']):+.2f}  "
+                          f"E_inh {_med_of(_E['E_inh']):+.2f}  against |v_i| ≤ "
+                          f"{_vi:.2f} in the data ({_worst / _vi:.1f}×)")
                 continue
 
             # print learnable parameters table
