@@ -214,19 +214,20 @@ so a network obeying it exactly would return
 \label{eq:gencoeffs}
 \end{equation}
 %
-Read the middle two together: $\alpha_2 = -\alpha_1$, \emph{whatever $\tau_i$ is}.
-The generator has no freedom in how hard the message drives the update --- it
-enters the same bracket as the leak, over the same $\tau$ --- so that equality is
-a property of the equation, not of the circuit, and it holds neuron by neuron.
-The model's $\alpha_2$ is under no such constraint, and \S\ref{sec:gauge} is about
-what that costs.
+\eqref{eq:gencoeffs} holds in \emph{one} gauge, and \eqref{eq:gaugetransform}
+below is what breaks it: that transformation moves $\alpha_0$ and $\alpha_2$ ---
+precisely the two coefficients \eqref{eq:gencoeffs} pins --- while leaving
+$d\vi/dt$ untouched, so a network obeying the generator exactly returns
+\eqref{eq:gencoeffs} only if it happens to sit at $k_i = 1$, $\beta_i = 0$.
+What survives is $\alpha_1 = -1/\tau_i$, which \eqref{eq:gaugetransform} does not
+touch: the time constant is the one thing readable off the fit with no gauge
+argument at all.
 
 \subsection{From the fitted coefficients to the circuit}
 \label{sec:gauge}
 
-\paragraph{The redundancy.} $\alpha_2$ is exactly where the trouble is. Rescale
-and shift a neuron's message, and absorb it in the two coefficients that multiply
-and offset it:
+\paragraph{The redundancy.} Rescale and shift a neuron's message, and absorb it
+in the two coefficients that multiply and offset it:
 %
 \begin{equation}
 \widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
