@@ -30,7 +30,15 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 FLOW_RUNS = [(f"flow/1000/{m:03d}", "current") for m in range(6)] + \
             [(f"flow/2000/{m:03d}", "conductance") for m in (1, 2)]
+# THE NINTH PANEL IS A TARGET, NOT A RUN. `ode_params.pt` sits beside the data
+# the generator wrote, holding the W every connectome-gnn run on that dataset is
+# scored against -- so putting it on these axes says whether a flow-trained
+# weight distribution looks anything like the one the campaign has to recover.
+GT_DATASET = "flyvis_noise_005_blank50_cv00"
 TWIN = "flyvis_current_noise_free_conductance_ion_sub_cv00"
+GRAPHS = os.environ.get(
+    "GNN_GRAPHS_ROOT",
+    "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly")
 
 
 def flow_weights(name):
@@ -62,9 +70,17 @@ def twin_weights(config_name, device):
     sd = torch.load(ck[-1], map_location=device, weights_only=False)
     migrate_state_dict(sd)
     model.load_state_dict(sd.get("model_state_dict", sd), strict=False)
-    w = to_numpy(model.W).ravel()
     # The conductance class holds the square root of the conductance.
-    return np.abs(w ** 2), cfg
+    return np.abs(to_numpy(model.W).ravel() ** 2)
+
+
+def gt_weights(dataset):
+    """The generator's own W for a dataset, out of the file the runs score against."""
+    path = os.path.join(GRAPHS, dataset, "ode_params.pt")
+    d = torch.load(path, map_location="cpu", weights_only=False)
+    w = d["W"] if isinstance(d, dict) else getattr(d, "W")
+    w = w.detach().cpu() if hasattr(w, "detach") else torch.as_tensor(w)
+    return np.abs(np.asarray(w, dtype=float).ravel())
 
 
 def init_draw(n_edges, scale, seed=42):
@@ -80,6 +96,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="figures/w_flow_panels.png")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--gt-dataset", default=GT_DATASET,
+                    help="dataset whose ode_params.pt supplies the ninth panel")
     ap.add_argument("--scale", type=float, default=1.0,
                     help="w_init_scale of the red reference draw")
     args = ap.parse_args()
@@ -94,27 +112,37 @@ def main():
                   f"|w| median {np.median(w[w > 0]):.4g}")
         except Exception as exc:
             print(f"{name}: {type(exc).__name__}: {exc}")
-    w_twin, _cfg = twin_weights(TWIN, args.device)
-    panels.append(("ion_sub twin (known-ODE)", "conductance", w_twin))
-    print(f"{TWIN:<16} conductance  {w_twin.size:>9} edges  "
+    w_twin = twin_weights(TWIN, args.device)
+    panels.append(("ion_sub twin (known-ODE)\nlearned, generated the campaign data",
+                   "conductance", w_twin))
+    print(f"{TWIN:<16} twin         {w_twin.size:>9} edges  "
           f"|w| median {np.median(w_twin[w_twin > 0]):.4g}")
+    w_gt = gt_weights(args.gt_dataset)
+    panels.append((f"{args.gt_dataset}\nground truth the runs are scored against",
+                   "target", w_gt))
+    print(f"{args.gt_dataset:<16} ground truth {w_gt.size:>9} edges  "
+          f"|w| median {np.median(w_gt[w_gt > 0]):.4g}")
 
     allw = np.concatenate([np.abs(w[w > 0]) for _, _, w in panels])
     lo, hi = np.percentile(allw, 0.05), allw.max()
     bins = np.logspace(np.log10(max(lo, 1e-12)), np.log10(hi * 1.5), 80)
 
-    fig, axes = plt.subplots(3, 3, figsize=(16, 11), sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 5, figsize=(24, 9), sharex=True, sharey=True)
     for ax, (label, family, w) in zip(axes.ravel(), panels):
         ref = init_draw(w.size, args.scale)
-        ax.hist(w[w > 0], bins=bins, color="tab:blue", alpha=0.75, label="trained $|W|$")
+        colour = "tab:green" if family == "target" else "tab:blue"
+        ax.hist(w[w > 0], bins=bins, color=colour, alpha=0.75,
+                label="generator's $|W|$" if family == "target" else "trained $|W|$")
         ax.hist(ref[ref > 0], bins=bins, histtype="step", color="tab:red", lw=1.6,
                 label=f"randn-scaled init, scale {args.scale:g}")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.text(0.0, 1.02, f"{label}   ({family})", transform=ax.transAxes,
-                va="bottom", fontsize=11)
+                va="bottom", fontsize=10)
+        if family == "target":
+            ax.legend(fontsize=9, frameon=False, loc="upper left")
     for ax in axes[-1]:
-        ax.set_xlabel("|W| = syn_count x syn_strength", fontsize=12)
+        ax.set_xlabel("|W|", fontsize=12)
     for ax in axes[:, 0]:
         ax.set_ylabel("edges", fontsize=12)
     axes[0, 0].legend(fontsize=9, frameon=False, loc="upper left")
