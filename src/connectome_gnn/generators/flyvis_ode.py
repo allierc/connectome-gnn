@@ -261,11 +261,27 @@ class FlyVisODE(nn.Module):
         Returns the next voltage, shaped like `state.voltage`.
         """
         v = state.voltage.unsqueeze(-1)
+        opto0 = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
         if not self.is_conductance:
-            return (v + dt * self.forward(state, edge_index)).squeeze(-1)
+            # THE CURRENT-BASED FAMILY IS LINEAR IN v_i TOO, with A = -1/tau_i and
+            # no G_i, so the same exact step applies -- and unlike the conductance
+            # branch it is not needed for stability (the max(tau_i, dt) floor holds
+            # dt/tau_i at or under 1) but only to remove the O(dt^2) discretisation
+            # error. That makes the current family the clean control for measuring
+            # what the step itself costs, with neither integrator diverging.
+            if 'tanh' in self.model_type:
+                # The tanh term makes the equation nonlinear in v_i, so there is no
+                # exact step to take; fall back rather than pretend.
+                return (v + dt * self.forward(state, edge_index)).squeeze(-1)
+            particle_type = state.neuron_type.unsqueeze(-1).long()
+            msg = self._compute_messages(v, particle_type, edge_index)
+            v_inf = (self.ode_params.V_i_rest[:, None]
+                     + (state.stimulus + opto0).unsqueeze(-1) + msg)
+            decay = torch.exp(-dt / self.ode_params.tau_i[:, None])
+            return (v_inf + (v - v_inf) * decay).squeeze(-1)
 
         src, dst = edge_index
-        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        opto = opto0
         drive = self.ode_params.W[:, None] * self.g_phi(v[src])      # (E, 1) >= 0
 
         # The two halves of the message, kept apart: the part that multiplies v_i
