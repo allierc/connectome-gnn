@@ -1,0 +1,166 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=0.8cm,landscape]{geometry}
+\usepackage{booktabs,float,amsmath,xcolor,array}
+\usepackage[T1]{fontenc}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\begin{document}
+\begin{center}{\Large Conductance GNN on task-trained conductance data}\\[2pt]
+{\small Every $R^2$ is written \emph{outlier-filtered} [full sample] (\% dropped),
+final, from \texttt{results/metrics.txt} on the held-out test split.
+Rows marked $^{*}$ are left blank: those runs are still training and have no
+held-out numbers yet.}\end{center}
+\vspace{4pt}
+\section*{2026-09-17}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Conductance model on conductance data with a silent-input anchor and a message-gain term, group lasso $\lambda = 0$, $\sigma = 0.05$.}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}}
+\toprule
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
+\midrule
+silent 1, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e5\_lasso0\_cv00}} \\[1pt]
+silent 1, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e4\_lasso0\_cv00}} \\[1pt]
+silent 1, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e3\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e5\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e4\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e3\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e5\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e4\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e3\_lasso0\_cv00}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Conductance model on conductance data with a silent-input anchor and a message-gain term, group lasso $\lambda = 0.1$, $\sigma = 0.05$.}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}}
+\toprule
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
+\midrule
+silent 1, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 1, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 1, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e3\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e3\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e3\_lasso0p1\_cv00}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Conductance model on current data with a group lasso $\lambda = 0.1$, $\sigma = 0.05$.}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}}
+\toprule
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
+\midrule
+fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p1\_cv00}} \\[1pt]
+fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_current\_noise\_005\_conductance\_lasso\_0p1\_cv01}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Conductance model on conductance data, training split, group lasso $\lambda = 0$, $\sigma = 0.05$.}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}}
+\toprule
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
+\midrule
+silent 1, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e5\_lasso0\_cv00}} \\[1pt]
+silent 1, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e4\_lasso0\_cv00}} \\[1pt]
+silent 1, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e3\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e5\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e4\_lasso0\_cv00}} \\[1pt]
+silent 5, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e3\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e5\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e4\_lasso0\_cv00}} \\[1pt]
+silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e3\_lasso0\_cv00}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Conductance model on conductance data, training split, group lasso $\lambda = 0.1$, $\sigma = 0.05$.}
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.35cm}>{\raggedleft\arraybackslash}p{2.2cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}>{\raggedleft\arraybackslash}p{1.05cm}}
+\toprule
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
+\midrule
+silent 1, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 1, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 1, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s1g1e3\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 5, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s5g1e3\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e5\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e4\_lasso0p1\_cv00}} \\[1pt]
+silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_s25g1e3\_lasso0p1\_cv00}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{document}

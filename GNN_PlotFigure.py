@@ -74,8 +74,10 @@ from connectome_gnn.metrics import (
     derive_vrest,
     compute_reversal_metrics,
     compute_msg_i_recovery,
+    ReadoutError,
     extract_recovered_params,
     extract_template_params,
+    require_template_readout,
     template_readout_enabled,
     score_recovery,
     INDEX_TO_NAME,
@@ -461,12 +463,19 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
                 logger.warning("template readout disabled: numbers come from "
                                "the gain-correction chain, not the PySR template")
         except Exception as _exc:
+            # FATAL unless the config asked for the chain. This handler used to
+            # print in red and carry on, which left results/metrics.txt holding
+            # chain numbers under the template's names -- the tmp_training rows
+            # this run is compared against came from the other estimator.
             print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
-                  f"{type(_exc).__name__}: {_exc} -- falling back to the "
-                  f"gain-correction chain.{_ANSI_RESET}")
-            logger.warning(f"template readout unavailable, keeping the "
-                           f"correction chain: {type(_exc).__name__}: {_exc}")
+                  f"{type(_exc).__name__}: {_exc}{_ANSI_RESET}")
+            require_template_readout(config, _exc, "results/metrics.txt")
         scored = score_recovery(rec, config)
+    except ReadoutError:
+        # Through, not swallowed: the handler below exists so a failed
+        # DIAGNOSTIC does not cost a run its figures, and a readout that changed
+        # underfoot is not that.
+        raise
     except Exception as exc:
         logger.warning(f"recovery metrics unavailable: {type(exc).__name__}: {exc}")
         rec, scored = None, {}

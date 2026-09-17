@@ -2344,10 +2344,46 @@ def data_generate_voltage(
         # --- Standard flyvis network ---
         config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
         config_net.connectome.extent = extent
+        # ONE INDEX FOR EITHER FAMILY. The published models carry exactly one
+        # checkpoint and it is the trained one, which is why this used to be a
+        # hard-coded 0; a TASK-TRAINED run of ours has 65 and 0 is the untrained
+        # network, so generating from it would silently produce data from a model
+        # that never learned anything.
+        _chkpt = int(getattr(sim, "conductance_checkpoint_index", 0))
+        if sim.ground_truth_model == "flyvis_conductance":
+            # THE SAME TRANSPLANT, WITH THE CONDUCTANCE DYNAMICS. flyvis shares
+            # every parameter by cell type and filter tap, so a state dict trained
+            # at extent 15 loads into an extent-8 network unchanged -- that is what
+            # the current-based path already relies on. All this branch adds is the
+            # dynamics class and the two reversal parameters, so the shapes match
+            # what the flow run saved.
+            #
+            # Importing the package is what REGISTERS them: flyvis resolves both by
+            # class name against the live subclass tree and, finding neither, would
+            # warn and fall back to a base class whose methods are `pass`.
+            import flyvis_conductance_optical_flow  # noqa: F401
+            from datamate import Namespace
+            from flyvis_conductance_optical_flow.config import CONDUCTANCE_DYNAMICS
+
+            config_net.dynamics.type = CONDUCTANCE_DYNAMICS
+            for name, dim in (("E_exc_raw", "global"), ("E_inh_raw", "per_type")):
+                config_net.node_config[name] = Namespace(
+                    type="ReversalPotential", groupby=["type"], initial_dist="Value",
+                    value=0.0, reversal_dim=dim, requires_grad=True)
+            # NOT checkpoint 0: that is the untrained network. See
+            # SimulationConfig.conductance_checkpoint_index.
         net = Network(**config_net)
         nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
-        trained_net = nnv.init_network(checkpoint=0)
+        trained_net = nnv.init_network(checkpoint=_chkpt)
         net.load_state_dict(trained_net.state_dict())
+        if sim.ground_truth_model == "flyvis_conductance":
+            got = type(net.dynamics).__name__
+            if got != CONDUCTANCE_DYNAMICS:
+                raise RuntimeError(
+                    f"network.dynamics is {got}, not {CONDUCTANCE_DYNAMICS}; flyvis "
+                    "fell back to a base class whose methods are `pass`.")
+            print(f"\033[96m  conductance generator: flow/{sim.ensemble_id}/"
+                  f"{sim.model_id} checkpoint {_chkpt}, {got}\033[0m", flush=True)
     torch.set_grad_enabled(False)
 
     _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
@@ -2480,6 +2516,18 @@ def data_generate_voltage(
         logger.info(
             f"conductance ground truth from {sim.conductance_checkpoint}: "
             f"E_inh={float(ode_params.E_inh[0]):+.3f} E_exc={float(ode_params.E_exc[0]):+.3f}, "
+            f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
+    elif sim.ground_truth_model == "flyvis_conductance":
+        # The parameters are already in the network -- `write_derived_params` has
+        # materialised both reversals per neuron -- so unlike the twin path there is
+        # no checkpoint to read and no square root to undo.
+        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
+
+        ode_params = FlyVisConductanceODEParams.from_flyvis_network(net, device=device)
+        logger.info(
+            f"conductance ground truth from flow/{sim.ensemble_id}/{sim.model_id}: "
+            f"E_exc {float(ode_params.E_exc.min()):+.3f}..{float(ode_params.E_exc.max()):+.3f}, "
+            f"E_inh {float(ode_params.E_inh.min()):+.3f}..{float(ode_params.E_inh.max()):+.3f}, "
             f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
     else:
         ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
@@ -3361,6 +3409,44 @@ def data_generate_voltage(
         type_list=to_numpy(type_list.squeeze()),
     )
 
+    # THE SAME RENDERER, ONE ROW PER CELL TYPE. `activity.png` samples 12 neurons
+    # by index, which is a thin slice of 65 types; these two answer "what does
+    # every type look like" and "what do the types we always look at look like".
+    # Black rather than green and a dashed stimulus, because at generation time
+    # there is no prediction to contrast a green ground truth against -- the
+    # figure is the data, not a comparison.
+    try:
+        _types = to_numpy(x_ts.neuron_type).astype(int)
+        _first_of_type = {}
+        for _i, _t in enumerate(_types):
+            _first_of_type.setdefault(int(_t), _i)
+        _CURATED = [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]
+        for _name, _ids in (
+            ("activity_all.png", [_first_of_type[t] for t in sorted(_first_of_type)]),
+            ("activity_selected.png",
+             [_first_of_type[t] for t in _CURATED if t in _first_of_type]),
+        ):
+            if not _ids:
+                continue
+            save_trace_figure(
+                graphs_data_path(config.dataset, _name),
+                activity_np[:n_trace_frames][:, _ids],
+                None,
+                stim_np,
+                sim.delta_t,
+                None,
+                n_traces=len(_ids),
+                type_names=index_to_name,
+                type_list=_types[_ids],
+                n_neurons=len(_ids),
+                true_color="black",
+                stim_linestyle="--",
+                figsize=(9.0, 0.28 * len(_ids) + 1.6),
+            )
+            logger.info(f"wrote {_name} ({len(_ids)} cell types)")
+    except Exception as _e:
+        logger.warning(f"per-type trace figures skipped: {type(_e).__name__}: {_e}")
+
     if visualize & (run == run_vizualized):
         logger.info("generating lossless video ...")
 
@@ -3719,6 +3805,7 @@ def _run_ode_generation(
                         # 1/sqrt(M) so the per-observed-frame noise variance matches base.
                         # Stimulus is held constant across substeps (observed cadence=delta_t).
                         _h = sim.delta_t / _n_sub
+                        _exp_euler = getattr(sim, "conductance_exponential_euler", True)
                         for _sub in range(_n_sub):
                             if _sub == 0:
                                 _dv = dv_step  # reuse the derivative already computed above
@@ -3726,7 +3813,19 @@ def _run_ode_generation(
                                 _dv = pde(x, edge_index, has_field=False).squeeze()
                                 if _adapt_g > 0.0:
                                     _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
-                            if noise_model_level > 0:
+                            # EXPONENTIAL EULER ON THE CONDUCTANCE BRANCH. Forward
+                            # Euler contracts only while (h/tau_i)(1 + G_i) < 2, and
+                            # the generating network was measured with a total
+                            # synaptic conductance G_i up to 3.2 -- a factor of 4.4
+                            # at h = 20 ms and tau_i = 19 ms, which is how
+                            # flow/2000/000 died. `pde.step` solves the step exactly
+                            # at frozen coefficients instead, so it is a contraction
+                            # for any G_i >= 0. `_dv` is still the true derivative
+                            # and is what gets STORED as the training target; only
+                            # the state update changes.
+                            if _exp_euler:
+                                x.voltage = pde.step(x, edge_index, _h)
+                            elif noise_model_level > 0:
                                 x.voltage = (
                                     x.voltage
                                     + _h * _dv
@@ -3735,10 +3834,31 @@ def _run_ode_generation(
                                 )
                             else:
                                 x.voltage = x.voltage + _h * _dv
+                            if _exp_euler and noise_model_level > 0:
+                                # Process noise is added AFTER the exact step, with
+                                # the same per-observed-frame variance as the Euler
+                                # branch above.
+                                x.voltage = x.voltage + torch.randn(
+                                    n_neurons, dtype=torch.float32, device=device
+                                ) * noise_model_level / (_n_sub ** 0.5)
                             if _adapt_g > 0.0:
                                 adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
                     else:
-                        if noise_model_level > 0:
+                        # THE DEFAULT PATH -- `_need_substep_loop` is off unless a
+                        # misspecification test asks for substeps, so this, not the
+                        # branch above, is what almost every dataset is integrated
+                        # with. The conductance generator needs its exact step here
+                        # too: forward Euler contracts only while
+                        # (dt/tau_i)(1 + G_i) < 2 and the generating network reaches
+                        # 4.4, which blows every trace up inside ten frames.
+                        _exp_euler_1 = getattr(sim, "conductance_exponential_euler", True)
+                        if _exp_euler_1:
+                            x.voltage = pde.step(x, edge_index, sim.delta_t)
+                            if noise_model_level > 0:
+                                x.voltage = x.voltage + torch.randn(
+                                    n_neurons, dtype=torch.float32, device=device
+                                ) * noise_model_level
+                        elif noise_model_level > 0:
                             x.voltage = (
                                 x.voltage
                                 + sim.delta_t * dv_step

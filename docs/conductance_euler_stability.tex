@@ -1,0 +1,93 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=1.8cm]{geometry}
+\usepackage[table]{xcolor}
+\usepackage{graphicx}
+\usepackage{caption}
+
+\newcommand{\dt}{\Delta t}
+\captionsetup{font=small}
+\setlength{\parskip}{0.3em}
+\setlength{\abovedisplayskip}{5pt}
+\setlength{\belowdisplayskip}{5pt}
+\setlength{\abovedisplayshortskip}{3pt}
+\setlength{\belowdisplayshortskip}{3pt}
+\pagestyle{empty}
+
+\begin{document}
+
+\begin{center}
+{\large\bfseries The conductance step: closed-form integration}\\[0.2em]
+{\small branch \texttt{feat/flyvis-flow-conductance-E} \quad|\quad 16 September 2026}
+\end{center}
+
+\textbf{The model.} For postsynaptic neuron $i$, with $g_{ij}\ge 0$ the
+conductance of edge $j\!\to\!i$, $E_{ij}$ the reversal that edge drives toward,
+$E_i$ the leak reversal of the cell itself (flyvis stores it as the parameter
+\texttt{bias}, one learned value per cell type), $\mathrm{stim}_i$ the external
+stimulus current and $\tau_i$ the membrane time constant,
+\begin{equation}
+\tau_i\frac{dv_i}{dt}
+= -v_i + E_i + \sum_j g_{ij}\,u_j\,(E_{ij}-v_i) + \mathrm{stim}_i ,
+\qquad u_j \equiv \mathrm{relu}\bigl(v_j(t)\bigr).
+\label{eq:model}
+\end{equation}
+$u_j$ is the presynaptic drive. It is a \emph{known number} at the moment the step
+is taken --- the state of the other neurons at time $t$ --- not an unknown of the
+equation for $v_i$, which is what makes the closed form below available.
+
+\textbf{It is affine in $v_i$.} Define the conductance-weighted sum of the
+reversals reaching $i$, and the total synaptic conductance onto $i$ in units of
+its own leak conductance:
+\begin{equation}
+S_i=\sum_j g_{ij}\,u_j\,E_{ij},
+\qquad
+G_i=\sum_j g_{ij}\,u_j\ \ (\ge 0).
+\end{equation}
+Both are known at time $t$. The synaptic sum then splits into a part independent
+of $v_i$ and a part proportional to it,
+\begin{equation}
+\sum_j g_{ij}\,u_j\,(E_{ij}-v_i)
+=\underbrace{\sum_j g_{ij}u_jE_{ij}}_{S_i}
+-\;v_i\underbrace{\sum_j g_{ij}u_j}_{G_i}
+= S_i - v_i G_i ,
+\end{equation}
+so the right-hand side of \eqref{eq:model} collects the two $v_i$ terms --- the
+leak $-v_i$ and the shunt $-v_iG_i$ --- into one:
+\begin{align}
+\tau_i\frac{dv_i}{dt}
+&= -v_i + E_i + S_i - v_iG_i + \mathrm{stim}_i \nonumber\\[0.15em]
+&= -(1+G_i)\,v_i + \bigl(E_i+S_i+\mathrm{stim}_i\bigr) \nonumber\\[0.15em]
+&= (1+G_i)\left[\frac{E_i+S_i+\mathrm{stim}_i}{1+G_i}-v_i\right] .
+\end{align}
+The bracket is the distance to the voltage at which the right-hand side vanishes,
+so \eqref{eq:model} is a pure relaxation,
+\begin{equation}
+\tau_i\frac{dv_i}{dt}=(1+G_i)\bigl(v^{\infty}_i-v_i\bigr),
+\qquad
+v^{\infty}_i=\frac{E_i+S_i+\mathrm{stim}_i}{1+G_i},
+\qquad
+\tau^{\mathrm{eff}}_i=\frac{\tau_i}{1+G_i}.
+\label{eq:relax}
+\end{equation}
+
+\textbf{Integration over one step.} $G_i$, $S_i$ and $\mathrm{stim}_i$ are read off the state
+at time $t$ and held there across the step, as forward Euler also does. Then $v^{\infty}_i$ and $\tau^{\mathrm{eff}}_i$ are constants over
+$[t,t+\dt]$, \eqref{eq:relax} separates, and the integral is elementary:
+\begin{equation}
+\int_{v_i(t)}^{v_i(t+\dt)}\frac{dv_i}{v^{\infty}_i-v_i}
+=\int_{t}^{t+\dt}\frac{dt'}{\tau^{\mathrm{eff}}_i}
+\qquad\Longrightarrow\qquad
+\ln\frac{v^{\infty}_i-v_i(t)}{v^{\infty}_i-v_i(t+\dt)}
+=\frac{\dt}{\tau^{\mathrm{eff}}_i}\;\equiv\;z ,
+\end{equation}
+so that, with $z=(1+G_i)\dt/\tau_i$ the number of effective relaxation times one
+step covers,
+\begin{equation}
+\boxed{\;v_i(t+\dt)=v^{\infty}_i+\bigl(v_i(t)-v^{\infty}_i\bigr)\,e^{-z}\;}
+\label{eq:exact}
+\end{equation}
+
+\end{document}

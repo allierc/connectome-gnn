@@ -313,6 +313,19 @@ class NeuralGNN(nn.Module):
             W_init = (torch.rand(n_w, device=self.device, dtype=torch.float32) * 2 - 1) * bound
         else:  # 'randn'
             W_init = torch.randn(n_w, device=self.device, dtype=torch.float32)
+        # THE INIT IS A STATEMENT ABOUT THE EFFECTIVE WEIGHT, so under w_squared
+        # it is the SQUARE that has to land where w_init_mode intended and the
+        # parameter must start at its root. Initialising the parameter itself at
+        # that scale and then squaring it is what killed the first squared runs:
+        # randn_scaled gives |W| ~ 1/sqrt(434,112) = 1.5e-3, hence W**2 ~ 2e-6 --
+        # six orders below a true conductance -- and the gradient
+        # dL/dW = dL/dmsg * g_phi * 2W carries that same factor, so W shrinks,
+        # the gradient shrinks with it, and zero is an absorbing state. Eleven of
+        # the eighteen gauge-grid arms reached Wij_gain 0.000 within 12k
+        # iterations. Taking the root leaves the initial MESSAGE identical to the
+        # unsquared model's while making 2W order 0.08 rather than 0.003.
+        if self.w_squared:
+            W_init = W_init.abs().sqrt()
         self.W = nn.Parameter(W_init[:, None], requires_grad=True)
 
         if "visual" in model_config.field_type:

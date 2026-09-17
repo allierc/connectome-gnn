@@ -128,3 +128,72 @@ def test_known_ode_models_route_to_the_linear_plotter():
     from connectome_gnn.models.known_ode import KnownODEBase, FlyvisKnownODE
     assert KnownODEBase.MODEL_FAMILY == "linear"
     assert FlyvisKnownODE.MODEL_FAMILY == "linear"
+
+
+def _cfg(readout="template"):
+    return type("C", (), {"recovery": type("R", (), {"readout": readout})()})()
+
+
+def test_every_key_log_names_the_readout_that_wrote_it(tmp_path):
+    """A `<key>.log` is the trajectory a sweep is read on, and `Wij_R2` means a
+    different quantity under each readout -- per-edge least squares in the
+    generator's units under the template, the model's raw weight times a measured
+    gain under the chain. The descriptor is a `#` line so readers skip it."""
+    from connectome_gnn.metrics import recovery_log_append, training_log_read
+    scored = {"readout": "template", "Wij_R2": 0.95,
+              "Wij_estimator": "template_fit", "Wij_correction": "per edge"}
+    recovery_log_append(str(tmp_path), 1000, scored)
+    recovery_log_append(str(tmp_path), 2000, scored)
+    head = open(tmp_path / "tmp_training" / "Wij.log").readline()
+    assert head.startswith("# readout=template")
+    assert "Wij_estimator=template_fit" in head
+    # Written once, and invisible to the reader.
+    assert training_log_read(str(tmp_path), "Wij")["iteration"].tolist() == [1000, 2000]
+
+
+def test_metrics_txt_leads_with_the_readout():
+    """Above the first `Wij_*` line, because it qualifies every line under it."""
+    from connectome_gnn.metrics import metrics_lines
+    assert metrics_lines({"readout": "template", "Wij_R2": 0.9})[0] == "readout: template"
+
+
+def test_template_readout_failure_is_fatal_unless_the_chain_was_requested():
+    """The fallback used to keep the chain's numbers under the template's column
+    names, mid-file, behind a logger.warning. A run may not change estimator
+    halfway through; only `recovery.readout: chain` may choose the chain."""
+    from connectome_gnn.metrics import ReadoutError, require_template_readout
+    with pytest.raises(ReadoutError):
+        require_template_readout(_cfg("template"), ValueError("boom"), "checkpoint 1")
+    require_template_readout(_cfg("chain"), ValueError("boom"), "checkpoint 1")
+
+
+def test_w_squared_init_preserves_the_effective_weight(tmp_path):
+    """THE INIT IS A STATEMENT ABOUT THE EFFECTIVE WEIGHT. Under w_squared the
+    SQUARE must land where w_init_mode intended; initialising the parameter
+    itself there and squaring it puts the conductance six orders too low and
+    cripples dL/dW = dL/dmsg * g_phi * 2W, so zero becomes absorbing."""
+    import math
+    import torch
+    n_w = 434112
+    torch.manual_seed(0)
+    base = torch.randn(n_w) * (1.0 / math.sqrt(n_w))
+    eff_plain = base.abs().median()
+    eff_squared = (base.abs().sqrt() ** 2).median()
+    assert eff_squared == pytest.approx(float(eff_plain), rel=1e-5)
+    # ... and the gradient factor 2W is no longer negligible.
+    assert 2 * base.abs().sqrt().median() > 20 * 2 * base.abs().median()
+
+
+def test_w_L1_penalises_the_conductance_not_its_root():
+    """An L1 on the raw parameter under w_squared is an L1 on sqrt(conductance),
+    and it pushes W to exactly where dL/dW = 2W vanishes."""
+    import torch
+
+    class _M:
+        w_squared = True
+        W = torch.tensor([[0.3], [-0.4]])
+
+    m = _M()
+    w = m.W ** 2 if m.w_squared else m.W
+    assert float(w.norm(1)) == pytest.approx(0.09 + 0.16)
+    assert float(m.W.norm(1)) == pytest.approx(0.7)      # what it used to charge
