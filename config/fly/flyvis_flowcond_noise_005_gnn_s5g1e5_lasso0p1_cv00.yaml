@@ -13,7 +13,12 @@ description: 'conductance GNN on the task-trained conductance dataset (flow/2000
   71.6 over 13,741 neurons. The term is a norm(2) over the batch like the trajectory loss,
   so 1e-05 contributes about 0.00072 before the sqrt batch scaling doubles it, against a trajectory
   loss of order 0.05. READ Wij_gain, not Wij_R2: the grid is trying to move the gain to 1,
-  and R2 follows only if it does.'
+  and R2 follows only if it does. PARAMETERISATION: w_squared true and g_phi_positive false,
+  so the learned edge weight enters the message as W**2 -- non-negative, a conductance, the
+  generator''s own convention -- and g_phi is free to be negative, which is what lets it carry
+  the driving force (E_ij - v_i). The reverse pairing squares g_phi and leaves the sign in
+  W, which is the CURRENT generator''s convention and cannot represent an inhibitory conductance
+  synapse at all.'
 dataset: flyvis_flowcond_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -51,7 +56,8 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1
