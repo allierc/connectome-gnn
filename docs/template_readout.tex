@@ -45,13 +45,30 @@ The model is a graph network with the same connectivity:
 \begin{equation}
 \frac{d\vi}{dt} \;=\; f_\theta\!\bigl(\vi, a_i, \widehat{\msg}_i, I_i\bigr),
 \qquad
-\widehat{\msg}_i \;=\; \sum_{j \in \mathcal{N}(i)} \widehat{W}_{ij}\;
+\widehat{\msg}_i \;=\; \sum_{j \in \mathcal{N}(i)} \widehat{W}_{ij}^{\,2}\;
      g_\phi\!\bigl(\vj, a_j, \vi, a_i\bigr),
 \label{eq:model}
 \end{equation}
 %
 where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
-per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
+per-edge weight.
+
+\paragraph{Why the weight is squared.} It puts the sign where
+\eqref{eq:gen} puts it. $\widehat{W}_{ij}^{\,2} \ge 0$ makes the learned weight a
+conductance by construction, matching $\Wij \ge 0$, and leaves $g_\phi$ free to
+be negative --- which it must be, since the factor it has to reproduce is
+$\act(\vj)\,(\Eij - \vi)$ and the driving force is negative on an inhibitory
+synapse. The alternative pairing, $\widehat{W}_{ij}\,g_\phi^2$, is the CURRENT
+generator's convention, where the true weight is itself signed; used on
+conductance data it forbids $g_\phi$ from ever changing sign, so no inhibitory
+driving force can be represented and the polarity is pushed into
+$\widehat{W}_{ij}$ instead --- against a $\Wij$ that is non-negative by
+construction. Exactly one of the two may be squared. Throughout what follows,
+$\widehat{W}_{ij}^{\,2}$ is what the per-edge fit of \S\ref{sec:edge} recovers,
+because it is what multiplies $g_\phi$ in the message; the raw parameter is its
+square root and is never compared with anything.
+
+Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty: the message is an internal
 variable, so any rescaling of it that $f_\theta$ can undo leaves the training
 objective exactly unchanged. \S\ref{sec:readout} first measures what the network
