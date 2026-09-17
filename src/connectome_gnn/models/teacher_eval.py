@@ -172,7 +172,8 @@ def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
 
 def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
                       type_names=None, type_list=None, r_pooled=None,
-                      n_diverged=0, n_neurons=None):
+                      n_diverged=0, n_neurons=None,
+                      true_color=None, stim_linestyle="-", figsize=None):
     """Supplementary-Figure-6 style: stacked traces, green truth, black rollout, red stimulus.
 
     Traces are baseline-subtracted and offset so that a shared y-scale does not let
@@ -198,15 +199,22 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
     bl = tr.mean(axis=1, keepdims=True)
     step = float(np.nanpercentile(np.abs(tr - bl), 99)) * 2.5 or 1.0
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.4), dpi=150)
+    # `true_color` exists for the DATA-ONLY case with many rows: green is the
+    # ground-truth colour when there is a black prediction beside it, but a
+    # generated dataset has no prediction, and a wall of green reads worse than
+    # black at 65 rows. Defaults to COLOR_TRUE so every existing caller is
+    # unchanged.
+    _c_true = true_color or COLOR_TRUE
+    fig, ax = plt.subplots(figsize=(figsize or (7.0, 4.4)), dpi=150)
     for i in range(len(idx)):
-        ax.plot(t_ms, (tr[i] - bl[i, 0]) + i * step, color=COLOR_TRUE, lw=0.7)
+        ax.plot(t_ms, (tr[i] - bl[i, 0]) + i * step, color=_c_true, lw=0.7)
         if pr is not None:
             ax.plot(t_ms, (pr[i] - bl[i, 0]) + i * step, color=COLOR_PRED, lw=0.6)
     if stim is not None and np.isfinite(stim).any():
         s = stim - np.nanmean(stim)
         sc = step / (np.nanmax(np.abs(s)) or 1.0)
-        ax.plot(t_ms, s * sc - step, color=COLOR_STIM, lw=0.6)
+        ax.plot(t_ms, s * sc - step, color=COLOR_STIM, lw=0.6,
+                linestyle=stim_linestyle)
 
     labels = []
     for j in idx:

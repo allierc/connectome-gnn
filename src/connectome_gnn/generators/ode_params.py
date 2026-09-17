@@ -572,6 +572,61 @@ class FlyVisConductanceODEParams(FlyVisCurrentODEParams):
     edge_is_inh: torch.Tensor = None  # (E,) bool
 
     @classmethod
+    def from_flyvis_network(cls, net, device: torch.device | str = "cpu"):
+        """Construct from a flyvis Network carrying `ConductanceSynapses`.
+
+        THE TWIN OF `FlyVisCurrentODEParams.from_flyvis_network`, for a network
+        trained on the OPTIC-FLOW TASK rather than fitted to a current-based
+        teacher. Everything comes out of the same `_param_api()`, because
+        `ConductanceSynapses.write_derived_params` has already materialised both
+        reversals at node level by the time it returns:
+
+            W        edges.syn_count * edges.syn_strength -- the conductance, and
+                     already non-negative: flyvis clamps `syn_strength`, so unlike
+                     the twin's parameterisation there is no square root to undo.
+            E_exc,   nodes.E_exc / nodes.E_inh, ALREADY PER NEURON. Each carries
+            E_inh    65 distinct values, one per cell type, because every flyvis
+                     parameter is shared by cell type -- including the `bias` the
+                     reversals are anchored on.
+            edge_is_inh
+                     `edges.sign < 0`, the connectome's own Dale sign, which the
+                     conductance model uses to select WHICH reversal an edge
+                     drives toward rather than to sign its weight.
+
+        The network may be at any retinotopic extent: flyvis shares parameters by
+        cell type and filter tap, so an extent-8 network loaded with an extent-15
+        model's state dict has the same 65 distinct values scattered onto fewer
+        columns. That transplant is what lets a flow model trained on the full
+        retina generate a 13,741-neuron dataset.
+        """
+        params = net._param_api()
+        conductance = (params.edges.syn_count * params.edges.syn_strength).detach().float()
+        if bool((conductance < 0).any()):
+            raise AssertionError(
+                "negative conductance from syn_count * syn_strength; flyvis clamps "
+                "syn_strength non-negative, so this network was not trained with the "
+                "conductance dynamics")
+        for name in ("E_exc", "E_inh"):
+            if not hasattr(params.nodes, name):
+                raise KeyError(
+                    f"the network's params carry no {name}; its dynamics is "
+                    f"{type(net.dynamics).__name__}, not ConductanceSynapses. Import "
+                    "flyvis_conductance_optical_flow before building the Network.")
+        edge_index = torch.stack([
+            torch.tensor(net.connectome.edges.source_index[:]),
+            torch.tensor(net.connectome.edges.target_index[:]),
+        ], dim=0)
+        return cls(
+            tau_i=params.nodes.time_const.detach().float().to(device),
+            V_i_rest=params.nodes.bias.detach().float().to(device),
+            edge_index=edge_index.to(device),
+            W=conductance.to(device),
+            E_exc=params.nodes.E_exc.detach().float().to(device),
+            E_inh=params.nodes.E_inh.detach().float().to(device),
+            edge_is_inh=(params.edges.sign < 0).detach().to(device),
+        )
+
+    @classmethod
     def from_twin_checkpoint(cls, ckpt_path, edge_index, n_neurons=None,
                              device: torch.device | str = "cpu"):
         """Build from a trained `flyvis_conductance_known_ode` checkpoint.

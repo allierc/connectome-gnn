@@ -2918,6 +2918,12 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
     rec = RecoveredParams()
+    # THE RUN-LEVEL DESCRIPTOR, set here and overwritten by
+    # `extract_template_params` when it runs on top of this object. One word for
+    # the whole readout, beside the per-quantity `<key>_estimator` strings: those
+    # name the fit, this names which of the two routes the run took. It reaches
+    # metrics.txt and the `#` header of every tmp_training/<key>.log.
+    rec.diagnostics["readout"] = "chain"
     if ode_params is None:
         return rec
     if n_neurons is None:
@@ -3194,10 +3200,58 @@ def template_readout_enabled(config, model) -> bool:
     and its parameters are direct. `recovery.readout: chain` opts a run out.
     """
     from connectome_gnn.models.utils import model_family
-    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
+    if chain_readout_requested(config):
         return False
     core = getattr(model, "_orig_mod", model)
     return model_family(model) == "gnn" and hasattr(core, "g_phi")
+
+
+def chain_readout_requested(config) -> bool:
+    """Did this run ASK for the gain-correction chain, in writing?
+
+    The difference that matters is between a run configured for the chain and a
+    run that fell back to it. Both used to end with chain numbers under the
+    template's column names; only the first is a result. `recovery.readout:
+    chain` in the yaml is the only way to be in the first case.
+    """
+    return getattr(getattr(config, "recovery", None), "readout", "template") != "template"
+
+
+class ReadoutError(RuntimeError):
+    """The template readout failed on a run that did not ask for the chain.
+
+    Its own class so the broad `except Exception` handlers that wrap extraction
+    -- there to keep a failed diagnostic from killing a training run -- can let
+    this one through. A diagnostic that fails is a missing number; a readout
+    that silently changes is a wrong one.
+    """
+
+
+def require_template_readout(config, exc, where: str):
+    """Re-raise unless the run opted into the chain. Called from the `except` of
+    every template-readout call site.
+
+    THE FALLBACK USED TO BE SILENT AND THE NUMBERS KEPT THEIR NAMES. A checkpoint
+    whose template fit raised wrote the chain's W, E_ij, tau and V_rest into the
+    same tmp_training/<key>.log columns, under a logger.warning nobody reads, and
+    the row was indistinguishable from the 60 template rows above it. A run may
+    not change estimator halfway through without saying so, and the only way to
+    guarantee a log describes one readout is to stop when it cannot.
+    """
+    if chain_readout_requested(config):
+        # This module prints rather than logging -- it is called from the
+        # training loop, from test_plot and from the tests, and the one place
+        # all three are read is the terminal.
+        print(f"\033[91mtemplate readout unavailable at {where}, and "
+              f"recovery.readout is not 'template' -- keeping the "
+              f"gain-correction chain: {type(exc).__name__}: {exc}\033[0m")
+        return
+    raise ReadoutError(
+        f"template readout failed at {where}: {type(exc).__name__}: {exc}. "
+        "Refusing to fall back to the gain-correction chain, which would write "
+        "different numbers under the same <key>_* names. Set recovery.readout: "
+        "chain in the config to ask for the chain deliberately."
+    ) from exc
 
 
 
@@ -3331,6 +3385,11 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec = RecoveredParams(pairs=dict(base.pairs), estimator=dict(base.estimator),
                               correction=dict(base.correction), valid=dict(base.valid),
                               diagnostics=dict(base.diagnostics))
+    # This function is the two-form readout; reaching its body IS the fact the
+    # descriptor records. Set before anything can fail, because a partial
+    # template extraction that raises is caught by require_template_readout and
+    # takes the run down -- it never leaves a half-labelled object behind.
+    rec.diagnostics["readout"] = "template"
 
     # `frame_choice="active"` spends the same number of frames where they are
     # worth spending: a first uniform draw, then frames added from the active
@@ -3475,13 +3534,36 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             # is not `t_slope` of them away from zero reports no reversal rather
             # than a ratio of two small numbers.
             sigma2 = np.where(n_used > 3, ss_res / np.maximum(n_used - 3, 1), np.nan)
+            _v11 = np.full(n_e, np.nan)
+            _v12 = np.full(n_e, np.nan)
             _v22 = np.full(n_e, np.nan)
             if ok.any():
-                _v22[ok] = np.linalg.inv(_M[ok])[:, 1, 1]
+                _inv = np.linalg.inv(_M[ok])
+                _v11[ok], _v12[ok], _v22[ok] = _inv[:, 0, 0], _inv[:, 0, 1], _inv[:, 1, 1]
             se_b2 = np.sqrt(np.maximum(sigma2 * _v22, 0.0))
             t_b2 = np.where(se_b2 > 0, np.abs(b2) / se_b2, np.nan)
             E_fit = np.where((np.abs(W_fit) > 1e-12) & (t_b2 >= t_slope),
                              b1 / W_fit, np.nan)
+            # HOW MUCH OF E's ERROR IS NOISE. E = -b1/b2 is a ratio of two
+            # correlated coefficients, so its standard error is the delta-method
+            # propagation through BOTH, off the same (A'A)^-1 the fit used:
+            #   var(E) = sigma^2/b2^2 * [V11 + (b1/b2)^2 V22 - 2 (b1/b2) V12].
+            # This is the number that separates the two ways E can be wrong. The
+            # t-gate above removes the VARIANCE failure -- an edge whose
+            # postsynaptic voltage barely moved, where b2 is noise and its
+            # reciprocal explodes. It cannot touch the BIAS failure: a component
+            # of the model's message proportional to act(v_j) with no driving
+            # force in it, D_ij * u, lands entirely in b1 and shifts E by
+            # k_i D_ij / W_ij while leaving W = -b2 untouched. That shift is not
+            # identifiable from one edge's message -- b1 cannot be split into
+            # W*E and k*D, they are one column's coefficient -- so it is
+            # measured rather than corrected: an |E - E_true| far above se(E) is
+            # a current-form component in the message, not sampling noise.
+            _ratio = np.where(np.abs(b2) > 1e-12, b1 / b2, np.nan)
+            se_E = np.sqrt(np.maximum(
+                sigma2 / np.maximum(b2 ** 2, 1e-24)
+                * (_v11 + _ratio ** 2 * _v22 - 2.0 * _ratio * _v12), 0.0))
+            se_E = np.where(np.isfinite(E_fit), se_E, np.nan)
         else:
             # The current family has no driving force, so the form is
             # W * act(v_j) + offset: two columns, same constant.
@@ -3491,6 +3573,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             b3 = np.where(ok, (S11 * S3y - S13 * S1y) / _den, np.nan)
             b2 = np.zeros(n_e)
             W_fit, E_fit = b1, np.full(n_e, np.nan)
+            se_E = np.full(n_e, np.nan)
             ss_res = Syy - b1 * S1y - b3 * S3y
         # UNCENTRED R2, against zero rather than against the edge's mean message:
         # the template has no intercept, a synapse with no drive must send no
@@ -3729,12 +3812,36 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.diagnostics["Eij_pct_wrong_slope"] = (
             float(100.0 * np.mean(slope_full[np.isfinite(slope_full)] > 0))
             if np.isfinite(slope_full).any() else float("nan"))
-        rec.pairs["E_ij"] = _pair(
-            np.asarray(to_numpy(ode_params.reversal_per_edge())).ravel(), E_learned)
+        _E_true = np.asarray(to_numpy(ode_params.reversal_per_edge())).ravel()
+        rec.pairs["E_ij"] = _pair(_E_true, E_learned)
         rec.estimator["E_ij"] = "template_fit"
-        rec.correction["E_ij"] = (f"E_ij = (W*E) / W from the two-column fit, "
-                                  f"kept where the slope clears {t_slope} standard errors")
+        # NO CORRECTION, AND THAT IS A RESULT, NOT AN OMISSION. The gauge k_i
+        # divides b1 and b2 alike, so it cancels in E = -b1/b2: E is the one
+        # recovered quantity that needs neither the scale W goes through nor the
+        # offset V_rest gets back. What it is NOT immune to is a current-form
+        # component in the model's message, which biases it without touching W.
+        rec.correction["E_ij"] = (
+            f"E_ij = -b1/b2 from the three-column fit [act(v_j), act(v_j)*v_i, 1]; "
+            f"the gauge k_i cancels in the ratio so no scale correction applies; "
+            f"kept where |b2| clears {t_slope} standard errors")
         rec.valid["E_ij"] = r2_med >= gate
+        # NOISE OR BIAS: the two ways E is wrong, told apart. se(E) is what the
+        # fit's own residual says the ratio's uncertainty is; the observed error
+        # is what it actually is. Their ratio is the diagnostic -- near 1 the
+        # reversal is as well recovered as the data allows, and much above 1 the
+        # message carries a term the conductance form has no column for, which
+        # no amount of extra frames will fix.
+        _se_full = _scatter(se_E)
+        rec.diagnostics["_Eij_se_full"] = _se_full
+        _fin = np.isfinite(_se_full) & np.isfinite(E_learned) & np.isfinite(_E_true)
+        rec.diagnostics["Eij_se_median"] = (
+            float(np.median(_se_full[_fin])) if _fin.any() else float("nan"))
+        if _fin.any():
+            _obs = np.abs(E_learned[_fin] - _E_true[_fin])
+            rec.diagnostics["Eij_abs_err_median"] = float(np.median(_obs))
+            _den = np.median(_se_full[_fin])
+            rec.diagnostics["Eij_err_over_se"] = (
+                float(np.median(_obs) / _den) if _den > 0 else float("nan"))
     # TAU AND V_REST OUT OF THE SAME FIT, not out of a second one. The update
     # template gives the model's leak rate T_i and the voltage it relaxes to in
     # the same four columns that give the gauge, so reporting them here costs
@@ -4011,18 +4118,28 @@ def _fmt_metric(v):
     return str(v)
 
 
-def training_log_append(log_dir, name, iteration, row):
+def training_log_append(log_dir, name, iteration, row, note=None):
     """Append one row to tmp_training/<name>.log, writing the header first.
 
     `row` is an ordered {column: value}; the header is `iteration,` + its keys.
     Readers parse by NAME (training_log_read), never by position, so a column
     can be added without shifting anyone.
+
+    `note` is a provenance descriptor written ONCE, as a `#` line above the
+    header: which estimator produced every row in this file, and what correction
+    it applied. A `<key>.log` is a trajectory a sweep gets read on, and the same
+    column name means a different quantity under a different readout -- W from
+    the template fit is per-edge least squares in the generator's units, W from
+    the correction chain is the model's raw weight scaled by a measured gain.
+    `training_log_read` already skips `#`, so this costs no reader anything.
     """
     tmp = os.path.join(log_dir, "tmp_training")
     os.makedirs(tmp, exist_ok=True)
     path = os.path.join(tmp, f"{name}.log")
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         with open(path, "w") as f:
+            if note:
+                f.write(f"# {note}\n")
             f.write("iteration," + ",".join(row.keys()) + "\n")
     with open(path, "a") as f:
         f.write(f"{int(iteration)}," + ",".join(_fmt_metric(v) for v in row.values()) + "\n")
@@ -4084,8 +4201,16 @@ def recovery_log_append(log_dir, iteration, scored):
         if not present:
             continue
         cols = recovery_log_columns(key)
+        # THE SAME DESCRIPTOR metrics.txt CARRIES, on the trajectory that led to
+        # it: `<key>_estimator` and `<key>_correction`, plus the run's readout.
+        # Written on the first row only -- the readout cannot change mid-run now
+        # that require_template_readout raises rather than falling back, so one
+        # line describes every row beneath it.
+        _note = "; ".join(
+            f"{c}={scored[c]}" for c in ("readout", f"{key}_estimator",
+                                         f"{key}_correction") if c in scored)
         training_log_append(log_dir, key, iteration,
-                            {c: scored.get(c) for c in cols})
+                            {c: scored.get(c) for c in cols}, note=_note or None)
 
 
 def metrics_lines(scored):
@@ -4096,6 +4221,14 @@ def metrics_lines(scored):
     (a diagnostic such as extraction_error) come last, unchanged.
     """
     lines, seen = [], set()
+    # THE DESCRIPTOR FIRST, because it qualifies every `<key>_*` line under it:
+    # `readout: template` is the two-form per-edge fit of the generator's own
+    # closed form, `readout: chain` the gain-correction estimators. Emitted at
+    # the top rather than with the other loose diagnostics at the bottom, where
+    # a reader who stopped at the first Wij line would never reach it.
+    if "readout" in scored:
+        lines.append(f"readout: {_fmt_metric(scored['readout'])}")
+        seen.add("readout")
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
             continue

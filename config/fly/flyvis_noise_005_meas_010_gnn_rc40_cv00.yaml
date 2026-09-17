@@ -1,0 +1,116 @@
+dataset: flyvis_noise_005_010_blank50_cv00
+description: 'rollout curriculum K=11..20 at measurement noise 0.10, forked from the K=1..10 run rather
+  than continued in place: rc10 is a published row and resuming would overwrite it. Starts from that run''s
+  epoch-9 checkpoint through training.pretrained_model, ten more epochs at K=11..20, the same compute
+  per epoch since Niter is divided by the horizon. rc10 gave W_ij R2 0.880 at measurement noise 0.1 and
+  0.747 at 0.2, the best of the ladder in both, and the question is whether depth keeps paying past ten.
+  WATCH THE HORIZON AGAINST TAU: at K=20 and delta_t 0.02 the unrolled window is 0.4 s against a tau near
+  0.02 s, twenty time constants, so the target may have forgotten its initial condition -- if rollout
+  r rises while W_ij falls, that is what happened.'
+graph_model:
+  aggr_type: add
+  embedding_dim: 2
+  g_phi_positive: true
+  hidden_dim: 80
+  hidden_dim_update: 80
+  input_size: 3
+  input_size_update: 5
+  n_layers: 3
+  n_layers_update: 3
+  output_size: 1
+  output_size_update: 1
+  prediction: first_derivative
+  signal_model_name: flyvis_current
+  update_type: generic
+plotting:
+  arrow_length: 1
+  colormap: tab20
+  xlim:
+  - -2.5
+  - 2.5
+  ylim:
+  - -100
+  - 100
+simulation:
+  adjacency_matrix: ''
+  baseline_value: 0
+  blank_prefix_fraction: 0.5
+  connectivity_file: to be specified
+  datavis_roots:
+  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  delta_t: 0.02
+  measurement_noise_level: 0.1
+  n_edges: 434112
+  n_frames: 64000
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_neurons: 13741
+  noise_model_level: 0.05
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  seed: 42
+  skip_short_videos: true
+  visual_input_type: DAVIS
+training:
+  batch_ratio: 1
+  batch_size: 4
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_g_phi_diff: 375
+  coeff_g_phi_norm: 0.45
+  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_weight_L2: 0
+  data_augmentation_loop: 50
+  device: auto
+  frame_target_offset: 1
+  lr: 0.0018
+  lr_W: 0.0009
+  lr_embedding: 0.002325
+  mlp_precision: bf16
+  n_epochs: 10
+  n_runs: 1
+  recurrent_training: true
+  regul_annealing_rate: 0.0
+  regul_batch_scaling: sqrt
+  rollout_horizon_schedule:
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
+  - 27
+  - 28
+  - 29
+  - 30
+  - 31
+  - 32
+  - 33
+  - 34
+  - 35
+  - 36
+  - 37
+  - 38
+  - 39
+  - 40
+  rollout_step_reduction: mean
+  rollout_step_weighting: uniform
+  seed: 1042
+  small_init_batch_size: false
+  sparsity: none
+  time_step: 1
+  torch_compile: true
+  use_gt_edges: true
+  w_init_mode: randn_scaled
+  pretrained_model: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_meas_010_gnn_rc20_cv00/models/best_model_with_0_graphs_9_7998.pt
+  checkpoint_saves_per_epoch: 3
+analysis:
+  neurons:
+  - 2895
+config_file: fly/flyvis_noise_005_meas_010_gnn_rc40_cv00

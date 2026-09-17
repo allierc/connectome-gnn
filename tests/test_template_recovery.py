@@ -6,6 +6,7 @@ recover the form it was handed, nothing it says about a trained GNN is worth
 reading.
 """
 import numpy as np
+import pytest
 import torch
 
 from connectome_gnn.metrics import extract_template_params, score_recovery
@@ -271,3 +272,49 @@ def test_a_current_message_costs_nothing_to_drop_the_driving_force():
     # every voltage in the data.
     assert d["conductance_form_r2_median"] > 0.999
     assert d["conductance_form_E_over_vi"] > 20.0
+
+
+def test_a_current_form_component_biases_E_and_leaves_W_alone():
+    """THE ONE ERROR THE READOUT CANNOT CORRECT, and the reason E carries an
+    se beside it.
+
+    The template fits [u, u*v_i, 1] with u = act(v_j). A component of the
+    message proportional to u with no driving force in it, D*u, is collinear
+    with the W*E term: both live in the first column. So it lands entirely in
+    b1 and shifts E = -b1/b2 by D/W, while b2 = -W is untouched.
+
+    This is not a gauge and no correction removes it -- b1 is one coefficient
+    and cannot be split into W*E and D from a single edge's message.
+    """
+    rng = np.random.default_rng(0)
+    W, E, D = 0.4, -3.0, 0.05
+    u = np.abs(rng.normal(1.0, 0.4, 4000))
+    vi = rng.normal(0.0, 1.0, 4000)
+
+    def fit(y):
+        A = np.column_stack([u, u * vi, np.ones_like(u)])
+        b, *_ = np.linalg.lstsq(A, y, rcond=None)
+        return -b[1], -b[0] / b[1]          # W_fit, E_fit
+
+    W0, E0 = fit(W * u * (E - vi))
+    W1, E1 = fit(W * u * (E - vi) + D * u)
+    assert W0 == pytest.approx(W, rel=1e-9) and E0 == pytest.approx(E, rel=1e-9)
+    # W survives the contamination; E moves by exactly D/W.
+    assert W1 == pytest.approx(W, rel=1e-9)
+    assert E1 == pytest.approx(E + D / W, rel=1e-9)
+    assert abs(E1 - E) > 0.1
+
+
+def test_the_gauge_cancels_in_E_but_not_in_W():
+    """Why the document says E needs no correction: msg_hat = msg / k + C
+    divides b1 and b2 by the same k, and E is their ratio. W is not a ratio and
+    must be multiplied back by k."""
+    rng = np.random.default_rng(1)
+    W, E, k, C = 0.4, -3.0, 7.0, 1.3
+    u = np.abs(rng.normal(1.0, 0.4, 4000))
+    vi = rng.normal(0.0, 1.0, 4000)
+    A = np.column_stack([u, u * vi, np.ones_like(u)])
+    b, *_ = np.linalg.lstsq(A, (W * u * (E - vi)) / k + C, rcond=None)
+    assert -b[0] / b[1] == pytest.approx(E, rel=1e-9)       # E: k cancelled
+    assert -b[1] == pytest.approx(W / k, rel=1e-9)          # W: still in 1/k units
+    assert k * -b[1] == pytest.approx(W, rel=1e-9)          # ... until multiplied back
