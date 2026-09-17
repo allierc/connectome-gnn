@@ -197,3 +197,27 @@ def test_w_L1_penalises_the_conductance_not_its_root():
     w = m.W ** 2 if m.w_squared else m.W
     assert float(w.norm(1)) == pytest.approx(0.09 + 0.16)
     assert float(m.W.norm(1)) == pytest.approx(0.7)      # what it used to charge
+
+
+def test_W_L2_penalises_the_conductance_not_its_root():
+    """Same bug as W_L1, same fix: under w_squared the conductance is W**2, so a
+    norm on the raw parameter is a norm on its root and its gradient carries the
+    same vanishing 2W factor. Both coefficients are live in the gauge grid
+    (7.5e-05 and 7.5e-07), so both were pulling W into the absorbing state."""
+    import torch
+    W = torch.tensor([[0.3], [-0.4]])
+    assert float((W ** 2).norm(2)) == pytest.approx(0.183576, abs=1e-6)  # ||0.09, 0.16||
+    assert float(W.norm(2)) == pytest.approx(0.5)                        # what it charged
+
+
+def test_W_sign_is_refused_under_w_squared():
+    """A sign-consistency penalty on a non-negative quantity is vacuous: it would
+    report perfect Dale conformance while measuring nothing. Under w_squared the
+    sign lives in g_phi, so the term has to be refused rather than applied."""
+    import inspect
+
+    from connectome_gnn.models import regularizer
+    src = inspect.getsource(regularizer)
+    i = src.index("coeff_W_sign is non-zero on a w_squared model")
+    guard = src.rindex("if getattr(model, 'w_squared', False):", 0, i)
+    assert "raise ValueError" in src[guard:i + 200]
