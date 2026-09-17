@@ -54,26 +54,20 @@ where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty.
 
-\paragraph{Describing the model in the generator's terms.} $f_\theta$ is an MLP:
-there is no $\tau$ in it to read off, no resting potential, no message gain. What
-there is, on this data, is a function close to affine in its inputs --- and any
-affine function of $(\vi, \widehat{\msg}_i, I_i)$ can be grouped into the shape of
-\eqref{eq:gen}:
+\paragraph{The model's update in the generator's shape.} $f_\theta$ is an MLP:
+there is no $\tau$ in it to read off, no resting potential, no message gain. Write
+its update the way \eqref{eq:gen} is written, constants left open,
 %
 \begin{equation}
 \frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
-                              + f(I_i)\Bigr].
+                              + f(I_i)\Bigr],
 \label{eq:updatetmpl}
 \end{equation}
 %
-So $T_i$, $V_i$, $G_i$ and $f(\cdot)$ are not assumptions about the model, they
-are four numbers measured from it: \S\ref{sec:update} regresses the model's own
-$d\vi/dt$ on $(1, \vi, \widehat{\msg}_i, I_i)$ and regroups the coefficients,
-reporting the $R^2$ that says how well ``close to affine'' held. Three have
-counterparts in \eqref{eq:gen} --- $1/\tau_i$, the constant level
-$V^{\mathrm{rest}}_i$ (not the moving state $\vi$), and $f$ linear on this data.
-$G_i$ has none: there the message enters the bracket with a coefficient of
-exactly $1$.
+to be measured in \S\ref{sec:update}. Three of the four have counterparts in
+\eqref{eq:gen} --- $1/\tau_i$, the constant level $V^{\mathrm{rest}}_i$ (not the
+moving state $\vi$), and $f$, linear on this data. $G_i$ has none: there the
+message enters the bracket with a coefficient of exactly $1$.
 
 \paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
 shift a neuron's message, and absorb it in the two constants that multiply and
@@ -259,8 +253,9 @@ fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversa
 \subsection{Per neuron: $T_i$, $V_i$, $G_i$}
 \label{sec:update}
 
-The same least-squares approach on the update. Taking $f(I)$ linear, \eqref{eq:updatetmpl}
-expands to a four-column regression of the model's own $d\vi/dt$ on its own
+The same least-squares approach on the update, and it is the regression that is
+primary: \eqref{eq:updatetmpl} is what it becomes when the coefficients are
+regrouped. Taking $f(I)$ linear, fit the model's own $d\vi/dt$ against its own
 inputs,
 %
 \begin{equation}
@@ -272,9 +267,12 @@ T_i = -a_1 ,\quad V_i = a_0/T_i ,\quad G_i = a_2/T_i ,
 \end{equation}
 %
 again $(A^{\!\top}\!A)^{-1}A^{\!\top}y$, now $4\times4$ per neuron and accumulated
-over frames so nothing of size $N \times n_{\mathrm{frames}}$ is ever held. The
-fit's $R^2$ is reported: it is how far the model's update is from affine in the
-message, and a low value invalidates $T$, $V$ and $G$ together.
+over frames so nothing of size $N \times n_{\mathrm{frames}}$ is ever held. Any
+affine function of $(\vi, \widehat{\msg}_i, I_i)$ regroups into
+\eqref{eq:updatetmpl}, so writing the model's update that way assumes nothing
+beyond affineness itself --- and that is precisely what the fit's $R^2$ tests. It
+is reported: it is how far the model's update is from affine in the message, and
+a low value invalidates $T$, $V$ and $G$ together.
 
 \subsection{From the fitted coefficients to the circuit}
 \label{sec:gauge}
