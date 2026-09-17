@@ -12,6 +12,10 @@ below is the check worth running after building a network, because the failure
 mode is otherwise a network that trains quietly with no dynamics at all.
 """
 
+# THE `noqa` IS LOAD-BEARING. Neither name is used in this file, so ruff's F401
+# (imported-but-unused) fires on both, and `ruff --fix` would DELETE them -- which
+# removes the only thing that registers the model. The import IS the effect: it
+# puts the two classes into the subclass trees flyvis searches by name.
 from flyvis_conductance_optical_flow.dynamics import ConductanceSynapses  # noqa: F401
 from flyvis_conductance_optical_flow.parameters import ReversalPotential  # noqa: F401
 
