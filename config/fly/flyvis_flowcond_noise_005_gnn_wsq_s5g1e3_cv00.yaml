@@ -78,11 +78,12 @@ training:
   use_gt_edges: true
   seed: 1042
   deterministic: true
-  n_epochs: 5
-  data_augmentation_loop: 100
+  n_epochs: 1
+  data_augmentation_loop: 250
   coeff_g_phi_input_group_L1: 0.0
   coeff_g_phi_silent: 5
   coeff_f_theta_msg_gain: 0.001
+  checkpoint_saves_per_epoch: 8
 analysis:
   neurons:
   - 2895
