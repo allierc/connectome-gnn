@@ -118,28 +118,33 @@ def metrics(run):
     return out if "Wij_R2" in out else None
 
 
+# THE GAUGE GRID, launched 2026-09-17: the two terms that fix the two halves of
+# the affine message redundancy, crossed, at one fold and two lasso strengths.
+# `coeff_g_phi_silent` pins the message's LEVEL (beta_i -> 0) at relu(v_j) = 0,
+# where the true message is exactly zero; `coeff_f_theta_msg_gain` pins its
+# SCALE (k_i -> 1) by charging df/dmsg + df/dv, which the generator makes zero
+# for every neuron whatever its tau. The nominal config carries neither.
+_SIL = [("s1", 1), ("s5", 5), ("s25", 25)]
+_GAIN = [("g1e5", "10^{-5}"), ("g1e4", "10^{-4}"), ("g1e3", "10^{-3}")]
+
 ARMS = []
-for _noise, _sig in (("noise_free", "0"), ("noise_005", "0.05")):
-    for _lam, _tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
-        for _cv in (0, 1):
-            ARMS.append(dict(block="lasso", sigma=_sig,
-                             label=rf"$\lambda={_lam}$, fold {_cv:02d}",
-                             run=f"flyvis_flowcond_{_noise}_gnn_{_tag}_cv{_cv:02d}"))
-for _lam, _tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
-    for _cv in (0, 1):
-        ARMS.append(dict(block="rc10", sigma="0",
-                         label=rf"$\lambda={_lam}$, fold {_cv:02d}",
-                         run=f"flyvis_flowcond_noise_free_gnn_{_tag}_rc10_cv{_cv:02d}"))
-for _noise, _sig in (("noise_free", "0"), ("noise_005", "0.05")):
-    for _cv in (0, 1):
-        ARMS.append(dict(block="gsil", sigma=_sig, label=rf"silent anchor, fold {_cv:02d}",
-                         run=f"flyvis_flowcond_{_noise}_gnn_gsil_lasso0_cv{_cv:02d}"))
+for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
+    for _stag, _sil in _SIL:
+        for _gtag, _g in _GAIN:
+            ARMS.append(dict(
+                block=f"grid_{_ltag}", sigma="0.05",
+                label=rf"silent {_sil}, gain ${_g}$",
+                run=f"flyvis_flowcond_noise_005_gnn_{_stag}{_gtag}_{_ltag}_cv00"))
+# The conductance model on CURRENT data at lasso 0.1, two folds: the one cell
+# missing from the group-lasso sweep of the first document.
+for _cv in (0, 1):
+    ARMS.append(dict(block="cur0p1", sigma="0.05", label=rf"fold {_cv:02d}",
+                     run=f"flyvis_current_noise_005_conductance_lasso_0p1_cv{_cv:02d}"))
 
 
 def pick(block, sigma=None):
     return [a for a in ARMS
-            if a["block"] == block and (sigma is None or a["sigma"] == sigma)
-            and os.path.isdir(f"{LOG}/{a['run']}")]
+            if a["block"] == block and (sigma is None or a["sigma"] == sigma)]
 
 
 # --------------------------------------------------------------------------- #
@@ -249,19 +254,14 @@ held-out numbers yet.}\end{center}
 
     # THE FIRST DOCUMENT'S CAPTION TEMPLATE, unchanged:
     # "<Model> model on <data> data with <knob>, $\sigma = <noise>$."
-    for sig in ("0", "0.05"):
-        e = pick("lasso", sig)
-        if e:
-            L.append(table(e, "Conductance model on conductance data with a group "
-                              rf"lasso, $\sigma = {sig}$."))
-    e = pick("rc10")
-    if e:
-        L.append(table(e, "Conductance model on conductance data with a group lasso "
-                          r"and a $K = 10$ rollout, $\sigma = 0$."))
-    e = pick("gsil")
-    if e:
-        L.append(table(e, "Conductance model on conductance data with a silent-input "
-                          r"anchor, $\sigma = 0$ and $0.05$."))
+    for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
+        L.append(table(pick(f"grid_{_ltag}"),
+                       "Conductance model on conductance data with a silent-input "
+                       "anchor and a message-gain term, group lasso "
+                       rf"$\lambda = {_lam}$, $\sigma = 0.05$."))
+    L.append(table(pick("cur0p1"),
+                   "Conductance model on current data with a group lasso "
+                   r"$\lambda = 0.1$, $\sigma = 0.05$."))
 
     # NO TRAINING-SPLIT TABLE. It existed to show a campaign in flight; that
     # campaign was killed, and the numbers in it were read at whatever iteration
