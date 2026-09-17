@@ -207,117 +207,125 @@ def pick(block, sigma=None):
 # --------------------------------------------------------------------------- #
 #  tables                                                                      #
 # --------------------------------------------------------------------------- #
-# THE FIRST DOCUMENT'S TWELVE COLUMNS, in its order and at its widths, so a
-# table from either document can be read against the other without re-learning
-# the layout. Four scalar columns at 1.15 cm, five R2 columns at 2.6 cm, the
-# three-part fit R2 at 2.4 cm, cluster accuracy at 1.15 cm.
+# ONE COLUMN SET FOR EVERY TABLE IN THIS DOCUMENT, held-out and training split
+# alike. The first document's twelve, in its order, plus the three this campaign
+# is about. A table missing a column its neighbour has cannot be read against it,
+# so a quantity a given source does not carry prints `--` rather than dropping
+# the column.
 #
-# The four scalars, with the metrics.txt key each reads:
-#   fit roll r, same form   template_rollout_r       the template's own constants
-#                                                    put back into the generator's
-#                                                    equation and integrated
-#   fit roll r, other form  template_alt_rollout_r   the same, with the OTHER
-#                                                    family's constants
-#   one-step r              one_step_r
-#   rollout r               rollout_r
+#   k          tau_i * df/dmsg_i, median over neurons, by autograd on real frames
+#              with the MODEL's own tau. k = 1 IS the fixed gauge -- neither
+#              Wij_R2 nor Wij gain says whether the gauge is fixed, this does.
+#   Wij gain   learned/true: the single factor W is wrong by when k != 1.
+#   gain term  what coeff_f_theta_msg_gain contributes to the loss, so an arm
+#              that was never actually applied cannot be recorded as "the term
+#              did not help".
 _SCALARS = [("template_rollout_r", r"fit roll $r$ \tiny same form"),
             ("template_alt_rollout_r", r"fit roll $r$ \tiny other form"),
             ("one_step_r", "one-step $r$"),
             ("rollout_r", "rollout $r$")]
-# The five recovered quantities, `clean [all] (pct dropped)` each.
 _COLS = [("Wij", r"$W_{ij}$ $R^2$"), ("tau", r"$\tau$ $R^2$"),
          ("V_rest", r"$V_{rest}$ $R^2$"), ("msg_i", r"$\mathrm{msg}_i$ $R^2$"),
          ("Eij", r"$E_{ij}$ $R^2$")]
-# Does the model obey the generator's equation at all: the median per-neuron R2
-# of the update template, then the median per-edge R2 under each synapse family.
 _FIT3 = ("update_form_r2_median", "conductance_form_r2_median",
          "current_form_r2_median")
 
+_R = r">{\raggedleft\arraybackslash}p{2.35cm}"
+_P = r">{\raggedleft\arraybackslash}p{1.05cm}"
+NCOLS = (r"p{2.8cm}" + _P * len(_SCALARS) + _R * len(_COLS)
+         + r">{\raggedleft\arraybackslash}p{2.2cm}" + _P * 4)
+HEAD = (["arm"] + [h for _, h in _SCALARS] + [h for _, h in _COLS]
+        + [r"fit $R^2$ \tiny upd/cond/cur", "cluster acc.",
+           "$k$", r"$W_{ij}$ gain", "gain term"])
+NC = len(HEAD)
 
-def table(entries, caption):
-    """The held-out table: the first document's twelve columns, its widths, and
-    its closing mean row."""
-    _R = r">{\raggedleft\arraybackslash}p{2.6cm}"
-    _P = r">{\raggedleft\arraybackslash}p{1.15cm}"
-    ncols = (r"p{2.8cm}" + _P * len(_SCALARS) + _R * len(_COLS)
-             + r">{\raggedleft\arraybackslash}p{2.4cm}" + _P)
-    head = (["arm"] + [h for _, h in _SCALARS] + [h for _, h in _COLS]
-            + [r"fit $R^2$ \tiny upd/cond/cur", "cluster acc."])
-    n = len(head)
+
+def _fmt_term(v):
+    return "--" if v is None else f"{v:.0e}"
+
+
+def _held_out_row(a):
+    """Cells from results/metrics.txt; None when the run has not finished."""
+    m = metrics(a["run"])
+    if m is None:
+        return None, {}
+    cells = [num(m.get(k)) for k, _ in _SCALARS]
+    seen = {k: m.get(k) for k, _ in _SCALARS}
+    for k, _ in _COLS:
+        cells.append(r2(m.get(f"{k}_R2"), m.get(f"{k}_R2_all"),
+                        m.get(f"{k}_pct_outliers")))
+        seen[k] = m.get(f"{k}_R2")
+    cells.append(" / ".join(
+        green(num(v), float(v)) if v not in (None, "", "nan") else "--"
+        for v in (m.get(k) for k in _FIT3)))
+    cells.append(num(m.get("clustering_accuracy")))
+    seen["cluster"] = m.get("clustering_accuracy")
+    kk, _ = gauge_k(a["run"])
+    cells += [num(kk), num(m.get("Wij_gain")),
+              _fmt_term(loss_term(a["run"], "f_theta_msg_gain"))]
+    seen["k"], seen["gain"] = kk, m.get("Wij_gain")
+    return cells, seen
+
+
+def _training_row(a):
+    """The same columns from tmp_training/<key>.log. The four rollout scalars,
+    the three-part fit R2 and the clustering are not written per checkpoint, so
+    they print `--`: the column stays, the value is honestly absent."""
+    it, _w = live(a["run"], "Wij", "Wij_R2")
+    if it is None:
+        return None, None, {}
+    cells = ["--"] * len(_SCALARS)
+    seen = {}
+    for k, _ in _COLS:
+        v = live(a["run"], k, f"{k}_R2")[1]
+        cells.append(r2(v, live(a["run"], k, f"{k}_R2_all")[1],
+                        live(a["run"], k, f"{k}_pct_outliers")[1]))
+        seen[k] = v
+    cells += ["--", "--"]
+    kk, _ = gauge_k(a["run"])
+    g = live(a["run"], "Wij", "Wij_gain")[1]
+    cells += [num(kk), num(g), _fmt_term(loss_term(a["run"], "f_theta_msg_gain"))]
+    seen["k"], seen["gain"] = kk, g
+    return it, cells, seen
+
+
+def table(entries, caption, training=False):
+    """One table, the shared column set. `training` reads tmp_training/<key>.log
+    and tags each row with the iteration it was read at; otherwise cells come
+    from results/metrics.txt and a run with none gets blanks and a star."""
     out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
            r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
-           r"\setlength{\tabcolsep}{3pt}",
-           rf"\begin{{tabular}}{{{ncols}}}", r"\toprule",
-           " & ".join(head) + r" \\", r"\midrule"]
-    cols = {k: [] for k, _ in _SCALARS}
-    cols.update({k: [] for k, _ in _COLS})
-    cols["cluster"] = []
+           r"\setlength{\tabcolsep}{2pt}",
+           rf"\begin{{tabular}}{{{NCOLS}}}", r"\toprule",
+           " & ".join(HEAD) + r" \\", r"\midrule"]
+    acc, n_rows = {}, 0
     for a in entries:
-        m = metrics(a["run"])
-        if m is None:
-            out.append(a["label"] + r"$^{*}$" + " & " * (n - 1) + r" \\")
+        if training:
+            it, cells, seen = _training_row(a)
+            if cells is None:
+                continue
+            label = a["label"] + rf" \tiny({it:,})"
         else:
-            cells = [a["label"]]
-            for k, _ in _SCALARS:
-                cells.append(num(m.get(k)))
-                cols[k].append(m.get(k))
-            for k, _ in _COLS:
-                cells.append(r2(m.get(f"{k}_R2"), m.get(f"{k}_R2_all"),
-                                m.get(f"{k}_pct_outliers")))
-                cols[k].append(m.get(f"{k}_R2"))
-            # Three numbers in one cell, slashed, each coloured on its own value
-            # -- the first document's `1.00 / 1.00 / 1.00`.
-            _f = [m.get(k) for k in _FIT3]
-            cells.append(" / ".join(
-                green(num(v), float(v)) if v not in (None, "", "nan") else "--"
-                for v in _f))
-            cells.append(num(m.get("clustering_accuracy")))
-            cols["cluster"].append(m.get("clustering_accuracy"))
-            out.append(" & ".join(cells) + r" \\")
-        out.append(rf"\multicolumn{{{n}}}{{@{{}}l@{{}}}}"
+            cells, seen = _held_out_row(a)
+            label = a["label"] + ("" if cells else r"$^{*}$")
+        if cells is None:
+            out.append(label + " & " * (NC - 1) + r" \\")
+        else:
+            n_rows += 1
+            out.append(" & ".join([label] + cells) + r" \\")
+            for k, v in seen.items():
+                acc.setdefault(k, []).append(v)
+        out.append(rf"\multicolumn{{{NC}}}{{@{{}}l@{{}}}}"
                    rf"{{\tiny\texttt{{{esc(a['run'])}}}}} \\[1pt]")
-    out += [r"\midrule",
-            " & ".join([r"\textbf{mean} $\pm$ SD"]
-                       + [mean_sd(cols[k]) for k, _ in _SCALARS]
-                       + [mean_sd(cols[k]) for k, _ in _COLS]
-                       + ["--", mean_sd(cols["cluster"])]) + r" \\",
-            r"\bottomrule", r"\end{tabular}", r"\end{table}"]
-    return "\n".join(out)
-
-
-
-
-def live_table(entries, caption):
-    """QUARANTINED: the training split, with the iteration each number was read
-    at. Its own columns and its own caption, so no row can be read as held-out.
-    `Wij gain` leads, because that is the quantity the grid is trying to move."""
-    _P = r">{\raggedleft\arraybackslash}p{1.5cm}"
-    out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
-           r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
-           r"\setlength{\tabcolsep}{3pt}",
-           rf"\begin{{tabular}}{{p{{4.0cm}}{_P * 8}}}", r"\toprule",
-           " & ".join(["arm", "iteration", "$k$", r"$W_{ij}$ gain", "gain term",
-                       r"$W_{ij}$ $R^2$", r"$E_{ij}$ $R^2$",
-                       r"$\mathrm{msg}_i$ $R^2$", r"$\tau$ $R^2$"]) + r" \\",
-           r"\midrule"]
-    n = 0
-    for a in entries:
-        it, w = live(a["run"], "Wij", "Wij_R2")
-        if it is None:
-            continue
-        n += 1
-        _, g = live(a["run"], "Wij", "Wij_gain")
-        _, e = live(a["run"], "Eij", "Eij_R2")
-        _, ms = live(a["run"], "msg_i", "msg_i_R2")
-        _, t = live(a["run"], "tau", "tau_R2")
-        gt = loss_term(a["run"], "f_theta_msg_gain")
-        kk, _ = gauge_k(a["run"])
-        out.append(" & ".join([a["label"], f"{it:,}", num(kk), num(g),
-                               "--" if gt is None else f"{gt:.1e}",
-                               num(w), num(e), num(ms), num(t)]) + r" \\")
-    if not n:
+    if training and not n_rows:
         return ""
-    out += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    keys = [k for k, _ in _SCALARS] + [k for k, _ in _COLS]
+    means = [mean_sd(acc.get(k, [])) for k in keys]
+    tail = ["--", mean_sd(acc.get("cluster", [])),
+            mean_sd(acc.get("k", [])), mean_sd(acc.get("gain", [])), "--"]
+    out += [r"\midrule",
+            " & ".join([r"\textbf{mean} $\pm$ SD"] + means + tail) + r" \\",
+            r"\bottomrule", r"\end{tabular}", r"\end{table}"]
     return "\n".join(out)
 
 
@@ -355,15 +363,14 @@ held-out numbers yet.}\end{center}
                    r"$\lambda = 0.1$, $\sigma = 0.05$."))
 
     for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
-        _t = live_table(
+        _t = table(
             pick(f"grid_{_ltag}"),
             "Training split at the iteration shown, group lasso "
             rf"$\lambda = {_lam}$. `gain term\' is the value "
             r"\texttt{coeff\_f\_theta\_msg\_gain} contributes to the loss "
             r"(the per-neuron figure the log stores, $\times\,13{,}741$), against a "
-            r"trajectory loss of order $0.05$. $k = \tau_i\,\partial f_\theta/"
-            r"\partial\mathrm{msg}_i$, median over neurons, by autograd on real "
-            r"frames with the model\'s own $\tau$: the gauge is fixed at $k = 1$.")
+            r"trajectory loss of order $0.05$. Columns the training logs do not "
+            r"carry print `--\'.", training=True)
         if _t:
             L.append(_t)
     L.append(r"\end{document}")

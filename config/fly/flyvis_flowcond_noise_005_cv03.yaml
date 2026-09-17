@@ -1,6 +1,6 @@
-description: 'generation spec: conductance dataset from the flyvis conductance model
-  trained on the optic-flow task (flow/2000/001, checkpoint 28), noise 0.05, blank-prefix
-  0.5, fold 3.'
+description: 'generation spec: conductance dataset from the flyvis conductance model trained
+  on the optic-flow task (flow/2000/001, checkpoint 28), noise 0.05, blank-prefix 0.5, fold
+  3.'
 dataset: flyvis_flowcond_noise_005_blank50_cv03
 simulation:
   connectivity_file: to be specified
@@ -43,7 +43,8 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1

@@ -1,6 +1,6 @@
-description: conductance GNN on the task-trained conductance dataset (flow/2000/001
-  ck28, exponential Euler), coeff_g_phi_input_group_L1 = 0.25, noise free, fold 1,
-  recurrent rollout to K=10.
+description: conductance GNN on the task-trained conductance dataset (flow/2000/001 ck28,
+  exponential Euler), coeff_g_phi_input_group_L1 = 0.25, noise free, fold 1, recurrent rollout
+  to K=10.
 dataset: flyvis_flowcond_noise_free_blank50_cv01
 simulation:
   connectivity_file: to be specified
@@ -38,7 +38,8 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1
