@@ -1,6 +1,6 @@
-description: 'generation spec: current-based dataset from OUR flyvis reference model
-  trained on the optic-flow task (flow/1000/000, checkpoint 56), noise 0.0, blank-prefix
-  0.5, fold 0.'
+description: 'generation spec: current-based dataset from OUR flyvis reference model trained
+  on the optic-flow task (flow/1000/000, checkpoint 56), noise 0.0, blank-prefix 0.5, fold
+  0.'
 dataset: flyvis_flowcur_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -43,7 +43,8 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1

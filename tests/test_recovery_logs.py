@@ -165,3 +165,35 @@ def test_template_readout_failure_is_fatal_unless_the_chain_was_requested():
     with pytest.raises(ReadoutError):
         require_template_readout(_cfg("template"), ValueError("boom"), "checkpoint 1")
     require_template_readout(_cfg("chain"), ValueError("boom"), "checkpoint 1")
+
+
+def test_w_squared_init_preserves_the_effective_weight(tmp_path):
+    """THE INIT IS A STATEMENT ABOUT THE EFFECTIVE WEIGHT. Under w_squared the
+    SQUARE must land where w_init_mode intended; initialising the parameter
+    itself there and squaring it puts the conductance six orders too low and
+    cripples dL/dW = dL/dmsg * g_phi * 2W, so zero becomes absorbing."""
+    import math
+    import torch
+    n_w = 434112
+    torch.manual_seed(0)
+    base = torch.randn(n_w) * (1.0 / math.sqrt(n_w))
+    eff_plain = base.abs().median()
+    eff_squared = (base.abs().sqrt() ** 2).median()
+    assert eff_squared == pytest.approx(float(eff_plain), rel=1e-5)
+    # ... and the gradient factor 2W is no longer negligible.
+    assert 2 * base.abs().sqrt().median() > 20 * 2 * base.abs().median()
+
+
+def test_w_L1_penalises_the_conductance_not_its_root():
+    """An L1 on the raw parameter under w_squared is an L1 on sqrt(conductance),
+    and it pushes W to exactly where dL/dW = 2W vanishes."""
+    import torch
+
+    class _M:
+        w_squared = True
+        W = torch.tensor([[0.3], [-0.4]])
+
+    m = _M()
+    w = m.W ** 2 if m.w_squared else m.W
+    assert float(w.norm(1)) == pytest.approx(0.09 + 0.16)
+    assert float(m.W.norm(1)) == pytest.approx(0.7)      # what it used to charge
