@@ -111,11 +111,10 @@ def main():
                   f"|w| median {np.median(w[w > 0]):.4g}")
         except Exception as exc:
             print(f"{name}: {type(exc).__name__}: {exc}")
-    w_twin = twin_weights(TWIN, args.device)
-    panels.append(("ion_sub twin (known-ODE)\nlearned, generated the campaign data",
-                   "conductance", w_twin))
-    print(f"{TWIN:<16} twin         {w_twin.size:>9} edges  "
-          f"|w| median {np.median(w_twin[w_twin > 0]):.4g}")
+    # THE TWIN'S OWN CHECKPOINT IS NOT DRAWN. Its learned conductances are, to
+    # the digit, the ground truth of the dataset it wrote -- median |W| 2.383e-08
+    # in both -- so the conductance target panel already shows them, and a second
+    # copy invited the reading that two independent things agreed.
     for ds, fam in GT_DATASETS:
         w_gt = gt_weights(ds)
         panels.append((f"{ds}\nground truth the runs are scored against", fam, w_gt))
