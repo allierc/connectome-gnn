@@ -247,7 +247,9 @@ those into the generator's parameters, and they are used in this order:
 So $\tau$ comes straight out of the update fit, $\Wij$ needs the scale from
 \eqref{eq:kid} applied to the edge fit, and $V^{\mathrm{rest}}$ needs the offset
 that \eqref{eq:vrestid} says the update hid in it --- the two corrections below.
-$\Eij$ needs neither.
+$\Eij$ needs neither, for the reason given in \S\ref{sec:Ecorr}; what it needs
+instead is a caveat, because the one error it is exposed to is the one no
+correction can remove.
 
 \paragraph{$\Wij$: divide by the scale.} By \eqref{eq:kid} the message is in
 units of $1/k_i$ with $k_i = \tau_i T_i G_i$, and the fitted $b_2$ inherits that,
@@ -276,6 +278,95 @@ V^{\mathrm{rest},\,\mathrm{corrected}}_i
 \label{eq:vcorr}
 \end{equation}
 %
+
+\subsection{$\Eij$: why there is no correction, and what replaces one}
+\label{sec:Ecorr}
+
+\paragraph{The gauge cancels.} Substituting the gauge \eqref{eq:gauge} into the
+per-edge form \eqref{eq:edgelin} divides the driving-force term by $k_i$ but
+leaves its shape untouched, so the fitted coefficients become
+%
+\begin{equation}
+b_1 = \frac{\Wij \Eij}{k_i}, \qquad
+b_2 = -\frac{\Wij}{k_i}, \qquad
+b_3 = C_{ij},
+\qquad\Longrightarrow\qquad
+-\frac{b_1}{b_2} = \Eij \ \ \text{exactly}.
+\label{eq:Egauge}
+\end{equation}
+%
+$\Wij$ is a coefficient and inherits the $1/k_i$, which is why \eqref{eq:wcorr}
+multiplies it back; $\Eij$ is a \emph{ratio} of two coefficients that carry the
+same factor, so $k_i$ divides out. The offset $\beta_i$ cannot reach it either:
+it is absorbed by the third column. This is the precise content of ``$\Eij$
+needs neither correction''.
+
+\paragraph{But $\Eij$ is exposed to a contamination $\Wij$ is not.} The gauge
+\eqref{eq:gauge} is stated per \emph{neuron}, and nothing in it constrains how
+the model splits that message across the edges feeding $i$. Suppose the model's
+per-edge message carries, besides the driving-force term, a component
+proportional to the drive with no driving force in it:
+%
+\begin{equation}
+\widehat{\msg}_{ij}(t) \;=\; \frac{1}{k_i}\,\Wij\,u_t\,\bigl(\Eij - \vi(t)\bigr)
+   \;+\; C_{ij} \;+\; D_{ij}\,u_t .
+\label{eq:contam}
+\end{equation}
+%
+$D_{ij} u_t$ is exactly the \emph{current} family's form, $W \act(\vj)$, and it
+is collinear with the $\Wij\Eij$ term: both live in the first column of $A$. The
+fit therefore returns
+%
+\begin{equation}
+b_1 = \frac{\Wij\Eij}{k_i} + D_{ij}, \qquad b_2 = -\frac{\Wij}{k_i},
+\qquad\Longrightarrow\qquad
+\Wij^{\mathrm{corrected}} = \Wij \ \ \text{(untouched)}, \qquad
+\Eij^{\mathrm{fit}} = \Eij + \frac{k_i D_{ij}}{\Wij}.
+\label{eq:Ebias}
+\end{equation}
+%
+So a current-form component leaves the conductance \emph{exactly} right and
+biases the reversal, by an amount that grows as $\Wij$ shrinks. This is not a
+gauge and there is no correction for it: $b_1$ is one column's coefficient and
+cannot be split into $\Wij\Eij$ and $k_i D_{ij}$ from a single edge's message.
+The two are unidentifiable together, and any procedure claiming to separate them
+is using an assumption from outside the data.
+
+\paragraph{What is reported instead.} Two numbers, which separate the two ways
+$\Eij$ can be wrong. The \emph{variance} failure --- $b_2$ small because $\vi$
+barely moved, so its reciprocal explodes --- is handled by the $t$-gate
+\eqref{eq:gate} and quantified by the delta-method standard error of the ratio,
+propagated through both coefficients off the same $(A^{\!\top}\!A)^{-1}$:
+%
+\begin{equation}
+\mathrm{var}(\Eij) \;=\; \frac{\hat\sigma^2}{b_2^{\,2}}
+  \Bigl[ V_{11} + \Bigl(\frac{b_1}{b_2}\Bigr)^{\!2} V_{22}
+         - 2\,\frac{b_1}{b_2}\,V_{12} \Bigr],
+\qquad V = (A^{\!\top}\!A)^{-1} .
+\label{eq:seE}
+\end{equation}
+%
+The \emph{bias} failure of \eqref{eq:Ebias} is invisible to that: it shifts the
+estimate without widening it. It shows up only as an observed error far larger
+than \eqref{eq:seE} predicts, which is what the ratio
+$\mathrm{median}|\Eij^{\mathrm{fit}} - \Eij| \big/ \mathrm{median}\,
+\mathrm{se}(\Eij)$ measures. Near $1$, the reversal is recovered as well as the
+data allows and more frames would help. Far above $1$, the message carries a
+term the conductance form has no column for, and more frames will not move it.
+Both are reported per run as \texttt{Eij\_se\_median} and
+\texttt{Eij\_err\_over\_se}, beside the two-form comparison
+(\texttt{current\_form\_r2\_median} against
+\texttt{conductance\_form\_r2\_median}) that says how much the driving-force
+column was worth in the first place.
+
+\paragraph{A consequence worth stating plainly.} $\Wij$ and $\Eij$ fail
+independently and for opposite reasons. $\Wij$ is immune to the contamination
+\eqref{eq:contam} but carries the gauge $k_i$, so it is wrong by one global
+factor whenever the message scale is unpinned. $\Eij$ is immune to the gauge but
+not to the contamination. A run reporting a good $\Eij$ and a $\Wij$ off by a
+uniform factor has a gauge problem; one reporting a good $\Wij$ and a scattered
+$\Eij$ has a message whose form is not purely conductance. The two diagnoses are
+not interchangeable, and neither is read off the other's number.
 
 \section{A worked example}
 
