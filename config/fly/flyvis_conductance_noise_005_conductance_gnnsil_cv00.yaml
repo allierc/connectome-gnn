@@ -89,8 +89,8 @@ training:
   - 0.0
 config_file: fly/flyvis_conductance_noise_005_conductance_gnnsil_cv00
 claude:
-  n_parallel: 6
-  n_iter_block: 18
+  n_parallel: 5
+  n_iter_block: 15
   n_epochs: 3
   data_augmentation_loop: 32
   node_name: a100
