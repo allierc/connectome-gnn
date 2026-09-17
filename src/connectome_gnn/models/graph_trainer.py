@@ -844,7 +844,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # and the panels consume the same arrays.
                 from connectome_gnn.metrics import (
                     extract_recovered_params, extract_template_params,
-                    score_recovery, template_readout_enabled)
+                    require_template_readout, score_recovery,
+                    template_readout_enabled)
                 _rec = extract_recovered_params(
                     model, ode_params, config, edges=edges, x_ts=x_ts,
                     device=device, n_neurons=n_neurons,
@@ -868,9 +869,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                             x_ts=x_ts, device=device, n_neurons=n_neurons,
                             base=_rec)
                     except Exception as _exc:
-                        logger.warning(
-                            f"template readout unavailable at checkpoint, keeping "
-                            f"the correction chain: {type(_exc).__name__}: {_exc}")
+                        # FATAL unless the run asked for the chain. Falling back
+                        # here rewrote four quantities' meaning mid-file: the
+                        # rows above came from the per-edge template fit, the
+                        # rows below from the gain-correction chain, under the
+                        # same Wij_R2 / Eij_R2 / tau_R2 / V_rest_R2 names and
+                        # with only a logger.warning to say so.
+                        require_template_readout(
+                            config, _exc,
+                            f"training checkpoint {regularizer.iter_count}")
                 _scored = score_recovery(_rec, config)
                 _rec_last = _rec
                 _rec_op = ode_params
