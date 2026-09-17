@@ -1,20 +1,24 @@
 #!/usr/bin/env python
 """Build docs/experiment_tables2.pdf -- the conductance-on-conductance campaign.
 
-WHY A SECOND DOCUMENT rather than a section in the first. experiment_tables.tex is
-driven by docs/experiment_manifest.tsv, which lists runs that have FINISHED and
-carries a hand-curated block structure. This campaign is read while it runs: most
-rows have no results/metrics.txt yet, only the per-quantity logs the trainer
-appends during training. Mixing the two would make the first document's "final,
-from metrics.txt" promise false.
+SAME FORMAT AND SAME DISCIPLINE AS experiment_tables.tex, deliberately: landscape,
+fixed column widths so tables line up down the page, every $R^2$ written
+`clean [all] (pct dropped)`, captions above the table, and -- the rule that matters
+-- A RUN THAT HAS NOT FINISHED GETS BLANK CELLS AND A STAR. Its train-split numbers
+exist, in tmp_training/, but printing them in the same column as a held-out number
+invites the comparison the star is there to forbid.
 
-Every row therefore says WHERE its numbers came from -- a finished run's
-metrics.txt, or the last line of tmp_training/<key>.log with the iteration it was
-written at. A number without that provenance is not comparable to one with it.
+The live numbers are not suppressed, they are QUARANTINED: one table at the end,
+its own columns, labelled as the training split with the iteration each number was
+read at. That way the campaign can be read while it runs without any row implying
+a held-out result it does not have.
+
+A SECOND DOCUMENT rather than a section in the first, because the first is driven
+by experiment_manifest.tsv and lists runs that have finished; this one reads the
+log tree directly so it can be regenerated at any moment during the campaign.
 
 Usage:
-    python docs/make_experiment_tables2.py          # writes .tex and compiles
-    python docs/make_experiment_tables2.py --no-pdf # .tex only
+    python docs/make_experiment_tables2.py [--no-pdf]
 """
 
 from __future__ import annotations
@@ -29,37 +33,59 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from connectome_gnn.metrics import recovery_log_columns  # noqa: E402
 
 LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
-DATA = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATE = "2026-09-17"
 
 
-def esc(s: str) -> str:
+# --------------------------------------------------------------------------- #
+#  formatting, matching make_experiment_tables.py                              #
+# --------------------------------------------------------------------------- #
+def esc(s):
     return str(s).replace("_", r"\_").replace("%", r"\%")
 
 
-def fmt(v, nd=3):
-    if v is None or v == "" or str(v).lower() == "nan":
-        return "--"
+def num(v, nd=3):
     try:
         return f"{float(v):.{nd}f}"
     except (TypeError, ValueError):
-        return esc(v)
+        return "--"
 
 
-def colour(v, good=0.5, bad=0.0):
-    """Green above `good`, red below `bad`, plain between. Only ever applied to
-    R2, where the scale is shared and the reader knows what 1.0 would mean."""
+def green(text, value):
+    """Green above 0.5, red below 0. Same thresholds as the first document, so a
+    colour means the same thing in both."""
+    if value is None:
+        return text
+    if value >= 0.5:
+        return rf"\textcolor{{ForestGreen}}{{{text}}}"
+    if value < 0.0:
+        return rf"\textcolor{{BrickRed}}{{{text}}}"
+    return text
+
+
+def r2(clean, allv=None, pct=None):
+    """clean [all] (pct outliers) -- the three numbers metrics.txt keeps apart."""
+    if clean in (None, "", "nan"):
+        return "--"
     try:
-        x = float(v)
+        x = float(clean)
     except (TypeError, ValueError):
         return "--"
-    c = "ForestGreen" if x >= good else ("BrickRed" if x < bad else "black")
-    return rf"\textcolor{{{c}}}{{{x:.3f}}}"
+    s = num(x)
+    if allv not in (None, "", "nan"):
+        s += f" [{num(allv)}]"
+    if pct not in (None, "", "nan"):
+        try:
+            s += f" ({float(pct):.1f})"
+        except ValueError:
+            pass
+    return green(s, x)
 
 
-def read_metrics(run: str) -> dict | None:
-    """results/metrics.txt of a FINISHED run, as a dict."""
+# --------------------------------------------------------------------------- #
+#  reading runs                                                                #
+# --------------------------------------------------------------------------- #
+def metrics(run):
     p = f"{LOG}/{run}/results/metrics.txt"
     if not os.path.exists(p):
         return None
@@ -71,53 +97,105 @@ def read_metrics(run: str) -> dict | None:
     return out
 
 
-def read_live(run: str, key: str) -> tuple[int, dict] | None:
-    """Last row of tmp_training/<key>.log, for a run still training."""
+def live(run, key, col):
     p = f"{LOG}/{run}/tmp_training/{key}.log"
     if not os.path.exists(p):
-        return None
+        return None, None
     rows = [r for r in open(p).read().strip().split("\n") if r]
     if not rows:
-        return None
+        return None, None
     v = rows[-1].split(",")
-    return int(float(v[0])), dict(zip(recovery_log_columns(key), v[1:]))
+    return int(float(v[0])), dict(zip(recovery_log_columns(key), v[1:])).get(col)
 
 
-def row_for(run: str) -> dict:
-    """One table row: finished numbers if there are any, else live ones."""
-    m = read_metrics(run)
-    if m:
-        return dict(source="final", iteration="",
-                    Wij=m.get("Wij_R2"), Eij=m.get("Eij_R2"),
-                    msg=m.get("msg_i_R2"), tau=m.get("tau_R2"),
-                    vrest=m.get("V_rest_R2"), roll=m.get("rollout_r"))
-    got, out = {}, dict(source="live", iteration="")
-    for key, col, name in (("Wij", "Wij_R2", "Wij"), ("Eij", "Eij_R2", "Eij"),
-                           ("msg_i", "msg_i_R2", "msg"), ("tau", "tau_R2", "tau"),
-                           ("V_rest", "V_rest_R2", "vrest")):
-        r = read_live(run, key)
-        if r:
-            got[name] = r[1].get(col)
-            out["iteration"] = f"{r[0]:,}"
-    out.update(got)
-    out.setdefault("roll", None)
-    return out
+ARMS = []
+for _noise, _sig in (("noise_free", "0"), ("noise_005", "0.05")):
+    for _lam, _tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
+        for _cv in (0, 1):
+            ARMS.append(dict(block="lasso", sigma=_sig,
+                             label=rf"$\lambda={_lam}$, fold {_cv:02d}",
+                             run=f"flyvis_flowcond_{_noise}_gnn_{_tag}_cv{_cv:02d}"))
+for _lam, _tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
+    for _cv in (0, 1):
+        ARMS.append(dict(block="rc10", sigma="0",
+                         label=rf"$\lambda={_lam}$, fold {_cv:02d}",
+                         run=f"flyvis_flowcond_noise_free_gnn_{_tag}_rc10_cv{_cv:02d}"))
+for _noise, _sig in (("noise_free", "0"), ("noise_005", "0.05")):
+    for _cv in (0, 1):
+        ARMS.append(dict(block="gsil", sigma=_sig, label=rf"silent anchor, fold {_cv:02d}",
+                         run=f"flyvis_flowcond_{_noise}_gnn_gsil_lasso0_cv{_cv:02d}"))
 
 
-def table(rows, caption, label_head="run"):
-    L = [r"\begin{table}[H]\centering\small",
-         r"\begin{tabular}{l r r r r r r}", r"\toprule",
-         rf"{label_head} & iteration & $R^2_W$ & $R^2_E$ & $R^2_{{msg}}$ & "
-         rf"$R^2_\tau$ & $R^2_{{V_{{rest}}}}$ \\", r"\midrule"]
-    for r in rows:
-        L.append(" & ".join([
-            esc(r["label"]), r.get("iteration", "") or "--",
-            colour(r.get("Wij")), colour(r.get("Eij")), colour(r.get("msg")),
-            colour(r.get("tau")), colour(r.get("vrest")),
-        ]) + r" \\")
-    L += [r"\bottomrule", r"\end{tabular}",
-          rf"\caption*{{{caption}}}", r"\end{table}"]
-    return "\n".join(L)
+def pick(block, sigma=None):
+    return [a for a in ARMS
+            if a["block"] == block and (sigma is None or a["sigma"] == sigma)
+            and os.path.isdir(f"{LOG}/{a['run']}")]
+
+
+# --------------------------------------------------------------------------- #
+#  tables                                                                      #
+# --------------------------------------------------------------------------- #
+def table(entries, caption):
+    """The held-out table. Same column set and widths as the first document."""
+    _R = r">{\raggedleft\arraybackslash}p{2.6cm}"
+    _P = r">{\raggedleft\arraybackslash}p{1.15cm}"
+    ncols = r"p{3.2cm}" + _P * 2 + _R * 5
+    head = ["arm", "one-step $r$", "rollout $r$",
+            r"$W_{ij}$ $R^2$", r"$E_{ij}$ $R^2$", r"$\mathrm{msg}_i$ $R^2$",
+            r"$\tau$ $R^2$", r"$V_{rest}$ $R^2$"]
+    out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
+           r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
+           r"\setlength{\tabcolsep}{3pt}",
+           rf"\begin{{tabular}}{{{ncols}}}", r"\toprule",
+           " & ".join(head) + r" \\", r"\midrule"]
+    for a in entries:
+        m = metrics(a["run"])
+        if m is None:
+            # PENDING: blank cells and a star. Its train-split numbers are in the
+            # quarantined table at the end, never in this column.
+            out.append(esc(a["label"]) + r"$^{*}$" + " & " * 7 + r" \\")
+            out.append(rf"\multicolumn{{8}}{{l}}{{\tiny\texttt{{{esc(a['run'])}}}}} \\")
+            continue
+        cells = [esc(a["label"]),
+                 num(m.get("one_step_r")), num(m.get("rollout_r")),
+                 r2(m.get("Wij_R2"), m.get("Wij_R2_all"), m.get("Wij_pct_outliers")),
+                 r2(m.get("Eij_R2"), m.get("Eij_R2_all"), m.get("Eij_pct_outliers")),
+                 r2(m.get("msg_i_R2"), m.get("msg_i_R2_all"), m.get("msg_i_pct_outliers")),
+                 r2(m.get("tau_R2"), m.get("tau_R2_all"), m.get("tau_pct_outliers")),
+                 r2(m.get("V_rest_R2"), m.get("V_rest_R2_all"), m.get("V_rest_pct_outliers"))]
+        out.append(" & ".join(cells) + r" \\")
+        out.append(rf"\multicolumn{{8}}{{l}}{{\tiny\texttt{{{esc(a['run'])}}}}} \\")
+    out += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(out)
+
+
+def live_table(entries, caption):
+    """QUARANTINED: the training split, with the iteration each number was read
+    at. Separate columns and a separate caption so no row can be mistaken for a
+    held-out result."""
+    _P = r">{\raggedleft\arraybackslash}p{1.6cm}"
+    out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
+           r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
+           r"\setlength{\tabcolsep}{3pt}",
+           rf"\begin{{tabular}}{{p{{5.4cm}}{_P * 6}}}", r"\toprule",
+           " & ".join(["run (training split)", "iteration", r"$W_{ij}$ $R^2$",
+                       r"$W_{ij}$ gain", r"$E_{ij}$ $R^2$",
+                       r"$\mathrm{msg}_i$ $R^2$", r"$\tau$ $R^2$"]) + r" \\",
+           r"\midrule"]
+    for a in entries:
+        if metrics(a["run"]):
+            continue
+        it, w = live(a["run"], "Wij", "Wij_R2")
+        if it is None:
+            continue
+        _, g = live(a["run"], "Wij", "Wij_gain")
+        _, e = live(a["run"], "Eij", "Eij_R2")
+        _, ms = live(a["run"], "msg_i", "msg_i_R2")
+        _, t = live(a["run"], "tau", "tau_R2")
+        out.append(" & ".join([rf"\texttt{{{esc(a['run'])}}}", f"{it:,}",
+                               r2(w), num(g), r2(e), r2(ms), r2(t)]) + r" \\")
+    out += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(out)
 
 
 def main(argv=None) -> int:
@@ -126,130 +204,86 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     L = [r"""\documentclass[10pt,a4paper]{article}
-\usepackage[margin=1.4cm]{geometry}
+\usepackage[margin=0.8cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,array}
 \usepackage[dvipsnames]{xcolor}
 \usepackage[T1]{fontenc}
-\usepackage{caption}
-\setlength{\parskip}{5pt}\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
 \begin{document}
-\begin{center}{\Large Conductance GNN on task-trained conductance data}\\[3pt]""",
-         rf"{{\small {DATE}}}\end{{center}}",
+\begin{center}{\Large Conductance GNN on task-trained conductance data}\\[2pt]""",
+         rf"""{{\small {DATE}. Every $R^2$ is written \emph{{outlier-filtered}} [full sample]
+(\% dropped), final, from \texttt{{results/metrics.txt}} on the held-out test split.
+Rows marked $^{{*}}$ are left blank: those runs are still training and have no
+held-out numbers yet -- their training-split numbers are quarantined in the last
+table.}}\end{{center}}
+\vspace{{4pt}}""",
          r"""
-This campaign asks whether a conductance GNN can recover the parameters of a
-conductance generator whose data was NOT built to match a current model. Every
-earlier conductance result came from a teacher--student twin fitted to reproduce a
-current-based teacher, which is what made the two synapse models hard to separate.
-Here the generator is a flyvis network trained on the optic-flow task, so the
-conductance in the data was shaped by a task rather than by another model.
+The generator is a flyvis network trained on the OPTIC-FLOW TASK
+(\texttt{flow/2000/001}, checkpoint 28), not a teacher--student twin fitted to
+reproduce a current model. Every earlier conductance result came from such a twin,
+which is what made the two synapse models hard to separate; here the conductance in
+the data was shaped by a task instead.
 
-Numbers marked \emph{live} are the last line of
-\texttt{tmp\_training/<key>.log} at the iteration shown, written while the run is
-still training. They are NOT comparable to a finished run's
-\texttt{results/metrics.txt}, and they are not comparable to each other unless the
-iteration matches.
+Ten datasets, five folds at $\sigma=0$ and five at $\sigma=0.05$, 13{,}741 neurons
+and 434{,}112 edges. They integrate with an exponential-Euler step: forward Euler
+contracts only while $(\Delta t/\tau_i)(1+G_i)<2$ and the generating network reaches
+4.4 at $\Delta t = 20$\,ms, so a matched forward-Euler control diverges at frame 8
+and is 95.8\% NaN. For the CURRENT model the two integrators agree to
+$7.2\times10^{-7}$ -- the step is decisive for one model and irrelevant for the other.
 """]
 
-    # ---------------------------------------------------------------- data
-    L.append(r"\section*{The data}")
+    L.append(rf"\section*{{{DATE} --- the lasso sweep}}")
     L.append(r"""
-Ten datasets from \texttt{flow/2000/001} checkpoint 28, the argmin-EPE checkpoint
-of a conductance flyvis model trained on optic flow: five folds at $\sigma = 0$ and
-five at $\sigma = 0.05$, 13{,}741 neurons and 434{,}112 edges.
-
-\medskip
-\begin{table}[H]\centering\small
-\begin{tabular}{l r l l}
-\toprule
-generator & $n$ & finite & voltage range \\
-\midrule
-conductance, exponential Euler & 10 & \textcolor{ForestGreen}{10/10} & $-1.598$ \ldots $3.939$ \\
-conductance, forward Euler (control) & 10 & \textcolor{BrickRed}{0/10} & $-\infty$ \ldots $\infty$, 95.84\% NaN \\
-current, exponential Euler & 1 & 1/1 & $-21.5$ \ldots $378.0$ \\
-current, forward Euler (control) & 1 & 1/1 & $-40.9$ \ldots $392.5$ \\
-\bottomrule
-\end{tabular}
-\caption*{Forward Euler contracts only while $(\Delta t/\tau_i)(1+G_i) < 2$, with
-$G_i$ the total synaptic conductance onto neuron $i$ in units of its leak. The
-generating network reaches $G_i = 3.2$ at $\tau_i = 19$\,ms, giving 4.4 at
-$\Delta t = 20$\,ms. Measured over 300 frames on the real parameters: forward Euler
-diverges at frame 8, exponential Euler stays finite. For the CURRENT model the two
-integrators agree to $7.2\times10^{-7}$, so the step is decisive for one model and
-irrelevant for the other. The current-model range is anomalous and unresolved.}
-\end{table}
+The group lasso over $g_\phi$'s input columns zeroes the $v_i$ and $a_i$ columns,
+which is correct on CURRENT data where the message does not depend on the
+postsynaptic voltage. On conductance data $(E_{ij}-v_i)$ carries the sign of the
+message, so the same penalty removes the term the model needs: $R^2_W$ should fall
+with $\lambda$, and if it does not, the GNN was not using the driving force.
 """)
+    for sig in ("0", "0.05"):
+        e = pick("lasso", sig)
+        if e:
+            L.append(table(e, rf"Conductance GNN on conductance data, $\sigma = {sig}$."))
+    e = pick("rc10")
+    if e:
+        L.append(table(e, r"""As above, $\sigma=0$, under a rollout:
+\texttt{rollout\_horizon\_schedule} $[1,2,4,7,10]$, one entry per epoch. $K=1$ is
+term-for-term the one-step objective, so this is a strict extension of the table
+above rather than a different experiment."""))
+    e = pick("gsil")
+    if e:
+        L.append(table(e, r"""$\lambda=0$ with \texttt{coeff\_g\_phi\_silent} $=5$
+over $[-2,0]$, pinning the message's level where the presynaptic cell is quiet.
+One parameter away from the $\lambda=0$ rows above."""))
 
-    # ---------------------------------------------------------- the GNN runs
-    L.append(r"\section*{The lasso sweep}")
+    L.append(r"\section*{Training split --- not held-out, not comparable to the above}")
     L.append(r"""
-The group lasso over $g_\phi$'s input columns exists to zero the $v_i$ and $a_i$
-columns, which is correct on CURRENT data where the message does not depend on the
-postsynaptic voltage. On conductance data $(E_{ij} - v_i)$ carries the sign of the
-message, so the same penalty removes the term the model needs. The prediction is
-therefore that $R^2_W$ falls monotonically with $\lambda$; if it does not, the GNN
-was not using the driving force.
+Read at the iteration shown, from \texttt{tmp\_training/<key>.log}, on the data the
+model is being fitted to. Two rows are comparable to each other only if their
+iterations match.
 """)
-    for noise, tag in (("noise_free", r"$\sigma = 0$"), ("noise_005", r"$\sigma = 0.05$")):
-        rows = []
-        for lam, lam_tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
-            for cv in (0, 1):
-                run = f"flyvis_flowcond_{noise}_gnn_{lam_tag}_cv{cv:02d}"
-                if not os.path.isdir(f"{LOG}/{run}"):
-                    continue
-                r = row_for(run)
-                r["label"] = rf"$\lambda = {lam}$, fold {cv:02d}"
-                rows.append(r)
-        if rows:
-            L.append(table(rows, rf"Conductance GNN on conductance data, {tag}."))
-
-    # recurrent arm
-    rows = []
-    for lam, lam_tag in ((0, "lasso0"), (0.1, "lasso0p1"), (0.25, "lasso0p25")):
-        for cv in (0, 1):
-            run = f"flyvis_flowcond_noise_free_gnn_{lam_tag}_rc10_cv{cv:02d}"
-            if not os.path.isdir(f"{LOG}/{run}"):
-                continue
-            r = row_for(run)
-            r["label"] = rf"$\lambda = {lam}$, fold {cv:02d}"
-            rows.append(r)
-    if rows:
-        L.append(r"\section*{The same sweep under a rollout}")
-        L.append(table(rows, r"""As above, $\sigma = 0$, with
-\texttt{rollout\_horizon\_schedule} $[1,2,4,7,10]$ -- one entry per epoch, so the
-loss is scored over an unrolled trajectory reaching ten steps. $K=1$ is
-term-for-term the one-step objective, which makes this a strict extension of the
-table above rather than a different experiment."""))
-
-    # silent anchor
-    rows = []
-    for noise in ("noise_free", "noise_005"):
-        for cv in (0, 1):
-            run = f"flyvis_flowcond_{noise}_gnn_gsil_lasso0_cv{cv:02d}"
-            if not os.path.isdir(f"{LOG}/{run}"):
-                continue
-            r = row_for(run)
-            r["label"] = rf"{esc(noise)}, fold {cv:02d}"
-            rows.append(r)
-    if rows:
-        L.append(r"\section*{The silent anchor}")
-        L.append(table(rows, r"""$\lambda = 0$ with
-\texttt{coeff\_g\_phi\_silent} $= 5$ over $[-2, 0]$, which pins the message's level
-where the presynaptic cell is quiet. One parameter away from the $\lambda = 0$ rows
-above."""))
+    L.append(live_table(ARMS, r"""Progress of the runs still training.
+$W_{ij}$ gain is learned/true: a gain far from 1 means the message scale is free
+and $W$ has absorbed it, which is a GAUGE failure rather than a recovery failure --
+$E_{ij}$ can be recovered while $W$ is off by that one factor."""))
 
     L.append(r"""
 \section*{What is already visible}
 
-$R^2_{msg}$ sits at 0.78--0.92 while $R^2_W$ is between $-0.30$ and $+0.15$: the
-GNN reproduces the per-neuron message but not its factorisation into a conductance
-and a reversal. That is the degeneracy the product $W_{ij}\,\mathrm{relu}(v_j)\,
-(E_{ij}-v_i)$ allows, and $R^2_{msg}$ is precisely the quantity that does not care
-how the product is split.
+$R^2_{\mathrm{msg}}$ sits at 0.78--0.92 and $E_{ij}$ at 0.55--0.73 while $R^2_W$ is
+between $-0.30$ and $+0.15$ -- and the $W_{ij}$ gain is 0.21--0.32. The conductances
+are recovered up to a single scale factor of three to five, with a median relative
+error of 0.96 that is almost entirely that factor. This is NOT the $W$--$E$
+degeneracy of the raw product: the template readout fits the generator's own closed
+form per edge, and it recovers $E$. What is free is the message's overall scale,
+which the ODE fixes by requiring $\tau_i\,\partial f_\theta/\partial\mathrm{msg}_i = 1$
+and which nothing in these runs penalises --
+\texttt{coeff\_f\_theta\_msg\_gain} is 0 in all of them.
 
-No verdict on the lasso yet. At comparable iterations the differences between
-$\lambda$ values are smaller than the differences between FOLDS -- at $\lambda=0$,
-$\sigma=0$, fold 00 gives $-0.166$ and fold 01 gives $-0.252$ -- and they do not
-move consistently in one direction. Two folds cannot separate them.
+No verdict on the lasso. At comparable iterations the differences between $\lambda$
+values are smaller than the differences between FOLDS, and they do not move
+consistently in one direction. Two folds cannot separate them.
 \end{document}""")
 
     tex = os.path.join(HERE, "experiment_tables2.tex")
@@ -258,8 +292,7 @@ move consistently in one direction. Two folds cannot separate them.
     if a.no_pdf:
         return 0
     r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                        "experiment_tables2.tex"], cwd=HERE,
-                       capture_output=True, text=True)
+                        "experiment_tables2.tex"], cwd=HERE, capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stdout[-2500:])
         return 1
