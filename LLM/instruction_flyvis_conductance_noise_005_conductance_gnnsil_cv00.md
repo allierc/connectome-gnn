@@ -328,16 +328,25 @@ count here.
 
 | Block | Mode | Focus | Parameters to scan | Ranges |
 | --- | --- | --- | --- | --- |
-| 1 | Robustness | Baseline variance | none — all slots identical | Establish the CV of `Wij_R2`, `tau_R2`, `V_rest_R2`, `msg_i_R2` and the trajectory of the gate. NOTHING LATER MEANS ANYTHING WITHOUT THIS: a block-2 gain smaller than this spread is not a gain |
+| 1 | Robustness | Baseline variance | none — all slots identical | Establish the CV of `Wij_R2`, `tau_R2`, `V_rest_R2`, `msg_i_R2` and the trajectory of the gate. NOTHING LATER MEANS ANYTHING WITHOUT THIS: a later gain smaller than this spread is not a gain |
 | 2 | Exploration | **Batch size** | `batch_size`, `data_augmentation_loop` | bs {2, 4, 8, 16}. Hold the wall-clock target by moving DAL inversely; report the achieved minutes per epoch beside every result |
 | 3 | Exploration | **Learning rates** | `lr_W`, `lr`, `lr_embedding` | as in the parameter table. Record the `lr_W`/`lr` ratio — it, not either rate alone, is what moved earlier explorations |
 | 4 | Exploration | **Recurrent training** | `recurrent_training`, `rollout_horizon_schedule`, `recurrent_training_start_epoch` | The one structural change in this list: it changes the objective, not a coefficient. K=1 reproduces the one-step loss exactly, so a schedule starting at 1 is safe; `time_step` MUST stay 1 or the intermediate frames it supervises do not exist |
 | 5 | Exploration | **Regularisation I — the silent anchor and g_phi shape** | `coeff_g_phi_silent`, `g_phi_silent_range`, `coeff_g_phi_diff`, `coeff_g_phi_norm` | silent {0, 1, 5, 20}; diff {0, 375, 750}; norm {0, 0.45, 0.9} |
-| 6 | Exploration | **Regularisation II — g_phi weights** | `coeff_g_phi_weight_L1/L2`, `coeff_g_phi_input_group_L1` | keep `g_phi_weight_L1` < 0.1, which is known to collapse training at flyvis scale; group lasso {0, 0.25, 1, 5} |
-| 7 | Exploration | **Regularisation III — f_theta weights** | `coeff_f_theta_weight_L1/L2` | L1 {0, 0.025, 0.1}; L2 {0, 5e-4, 5e-3} |
-| 8 | Exploration | **Regularisation IV — W** | `coeff_W_L1`, `coeff_W_L2` | W_L1 {0, 1e-5, 7.5e-5, 3e-4}; W_L2 {0, 7.5e-7, 1e-5}. With `w_squared` both act on the SQUARE ROOT of the conductance |
-| 9 | Exploration | Free — combine | any of the above | Consolidate the best of blocks 2-8. One change per slot still applies |
-| 10 | Robustness | Final validation | none — all slots at the champion | Confirm the CV and that no seed is catastrophic |
+| 6 | Exploration | **Regularisation II — MLP weights** | `coeff_g_phi_weight_L1/L2`, `coeff_f_theta_weight_L1/L2`, `coeff_g_phi_input_group_L1` | keep `g_phi_weight_L1` < 0.1, which is known to collapse training at flyvis scale; f_theta L1 {0, 0.025, 0.1}; group lasso {0, 0.25, 1, 5}. Two penalty families in one block — spend the slots on whichever moved the gate in block 5, not evenly |
+| 7 | Exploration | **Regularisation III — W** | `coeff_W_L1`, `coeff_W_L2` | W_L1 {0, 1e-5, 7.5e-5, 3e-4}; W_L2 {0, 7.5e-7, 1e-5}. With `w_squared` both act on the SQUARE ROOT of the conductance |
+| 8 | Combine + validate | Champion and its variance | any of the above, then none | First two batches consolidate the best of blocks 2-7, one change per slot. THE LAST BATCH IS A ROBUSTNESS TEST: all slots at the champion, different seeds, to confirm the CV and that no seed is catastrophic |
+
+**THE ORDER IS DELIBERATE AND IS NOT YOURS TO REORDER.** Batch size and the learning rates
+come first because they set the optimisation regime every later coefficient is measured
+inside; recurrent training comes next because it changes the objective itself; and the three
+regularisation blocks carry the most weight, because on conductance data the question is
+which penalty makes the message's factorisation identifiable rather than merely fitting the
+trajectory. If a block finds nothing, say so and move on — do not spend a second block on it.
+
+**EIGHT BLOCKS IS THE WHOLE BUDGET.** At 5 slots per batch and 15 iterations per block that
+is three batches a block, about twelve hours each, four days in total. There is no block 9 to
+defer a question to.
 
 **THE ORDER IS DELIBERATE AND IS NOT YOURS TO REORDER.** Batch size and the learning rates
 come first because they set the optimisation regime every later coefficient is measured
