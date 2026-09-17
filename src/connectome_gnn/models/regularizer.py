@@ -338,7 +338,11 @@ class LossRegularizer:
                 self._add('W_L1', regul_term)
                 self._W_L1_applied_this_iter = True
 
-                regul_term = model.W.norm(2) * _ct['W_L2']
+                # ON THE EFFECTIVE WEIGHT TOO, for the same reason as W_L1
+                # just above: under w_squared the conductance is W**2, so a
+                # norm on the raw parameter is a norm on its root and its
+                # gradient carries the same vanishing 2W factor.
+                regul_term = _w.norm(2) * _ct['W_L2']
                 total_regul = total_regul + regul_term
                 self._add('W_L2', regul_term)
 
@@ -540,6 +544,21 @@ class LossRegularizer:
                         self._add('W_sign', regul_term)
             else:
                 # Flyvis version: uses scatter_add
+                # W_sign COUNTS POSITIVE AND NEGATIVE WEIGHTS PER SOURCE
+                # NEURON, so it means nothing under w_squared: the effective
+                # weight is W**2 >= 0, every edge reads as excitatory, and the
+                # penalty would report perfect Dale conformance while measuring
+                # nothing. Refused rather than silently applied -- the sign
+                # lives in g_phi under that parameterisation, and a Dale term
+                # would have to be written against g_phi instead.
+                if getattr(model, 'w_squared', False):
+                    raise ValueError(
+                        "coeff_W_sign is non-zero on a w_squared model. The "
+                        "effective weight W**2 is non-negative by construction, "
+                        "so a sign-consistency penalty on it is vacuous: the "
+                        "sign lives in g_phi. Set coeff_W_sign to 0, or drop "
+                        "w_squared."
+                    )
                 weights = model_W.squeeze() if model_W is not None else model.W.squeeze() # noqa: F821
                 source_neurons = edges[0]
 
