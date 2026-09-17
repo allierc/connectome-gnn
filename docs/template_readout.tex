@@ -84,7 +84,7 @@ Write $u_t = \act(\vj(t))$. The generator's synaptic form, multiplied out, is
 \label{eq:edgelin}
 \end{equation}
 %
-linear in $(b_1,b_2,b_3)$. The target is the model's OWN per-edge message,
+linear in $(b_1,b_2,b_3)$. The target is the model's own per-edge message,
 $\widehat{\msg}_{ij}(t)$, taken from its forward pass, so the fit asks what
 constants the generator would need to produce what the network computes. Stack
 the $n$ usable frames $t_1 \dots t_n$ of this edge into a design matrix $A$ and
@@ -154,57 +154,69 @@ the conductance run used throughout: $432{,}517$ of the $434{,}112$ edges are
 fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversal
 ($93.4\%$ of all edges).
 
-\subsection{Per neuron: $T_i$, $V_i$, $G_i$}
+\subsection{Per neuron: the update fit}
 \label{sec:update}
 
 $f_\theta$ is an MLP: there is no $\tau$ in it to read off, no resting potential,
-no message gain. Write its update the way \eqref{eq:gen} is written, constants
-left open,
+no message gain. What it is, on this data, is close to affine in its inputs --- so
+fit it. Per neuron, taking $f(I)$ linear, regress the model's own $d\vi/dt$ on its
+own inputs:
 %
 \begin{equation}
-\frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
-                              + f(I_i)\Bigr],
-\label{eq:updatetmpl}
-\end{equation}
-%
-Three of the four have counterparts in \eqref{eq:gen} --- $1/\tau_i$, the constant
-level $V^{\mathrm{rest}}_i$ (not the moving state $\vi$), and $f$, linear on this
-data. $G_i$ has none: there the message enters the bracket with a coefficient of
-exactly $1$, and \S\ref{sec:gauge} is about what that freedom costs.
-
-The regression is the primary object here:
-\eqref{eq:updatetmpl} is what it becomes once its coefficients are regrouped.
-Taking $f(I)$ linear, fit the model's own $d\vi/dt$ against its own inputs,
-%
-\begin{equation}
-\widehat{\frac{d\vi}{dt}} \;=\; a_0 + a_1\,\vi + a_2\,\widehat{\msg}_i
-                              + a_3\,I_i ,
-\qquad
-T_i = -a_1 ,\quad V_i = a_0/T_i ,\quad G_i = a_2/T_i ,
+\widehat{\frac{d\vi}{dt}} \;=\;
+   \alpha_0 \;+\; \alpha_1\,\vi \;+\; \alpha_2\,\widehat{\msg}_i
+   \;+\; \alpha_3\,I_i ,
 \label{eq:updatesolve}
 \end{equation}
 %
-again $(A^{\!\top}\!A)^{-1}A^{\!\top}y$, now $4\times4$ per neuron and accumulated
-over frames so nothing of size $N \times n_{\mathrm{frames}}$ is ever held. Any
-affine function of $(\vi, \widehat{\msg}_i, I_i)$ regroups into
-\eqref{eq:updatetmpl}, so writing the model's update that way assumes nothing
-beyond affineness itself --- and that is precisely what the fit's $R^2$ tests. It
-is reported: it is how far the model's update is from affine in the message, and
-a low value invalidates $T$, $V$ and $G$ together.
+again $b = (A^{\!\top}\!A)^{-1}A^{\!\top}y$, now $4\times4$ per neuron and
+accumulated over frames so nothing of size $N \times n_{\mathrm{frames}}$ is ever
+held. Greek, so the coefficients cannot be confused with the per-neuron embedding
+$a_i$ of \eqref{eq:model}. The fit's $R^2$ is reported: it is how far the model's
+update is from affine in the message, and a low value invalidates all four
+coefficients together.
+
+\paragraph{What the generator's coefficients would be.} Divide \eqref{eq:gen} by
+$\tau_i$ and it is already of exactly this form,
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; \frac{V^{\mathrm{rest}}_i}{\tau_i}
+   \;-\; \frac{1}{\tau_i}\,\vi
+   \;+\; \frac{1}{\tau_i}\,\msg_i
+   \;+\; \frac{1}{\tau_i}\,I_i ,
+\label{eq:genexpanded}
+\end{equation}
+%
+so a network obeying it exactly would return
+%
+\begin{equation}
+\alpha_0 = \frac{V^{\mathrm{rest}}_i}{\tau_i}, \qquad
+\alpha_1 = -\frac{1}{\tau_i}, \qquad
+\alpha_2 = +\frac{1}{\tau_i}, \qquad
+\alpha_3 = \frac{1}{\tau_i} .
+\label{eq:gencoeffs}
+\end{equation}
+%
+Read the middle two together: $\alpha_2 = -\alpha_1$, \emph{whatever $\tau_i$ is}.
+The generator has no freedom in how hard the message drives the update --- it
+enters the same bracket as the leak, over the same $\tau$ --- so that equality is
+a property of the equation, not of the circuit, and it holds neuron by neuron.
+The model's $\alpha_2$ is under no such constraint, and \S\ref{sec:gauge} is about
+what that costs.
 
 \subsection{From the fitted coefficients to the circuit}
 \label{sec:gauge}
 
-\paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
-shift a neuron's message, and absorb it in the two constants that multiply and
-offset it:
+\paragraph{The redundancy.} $\alpha_2$ is exactly where the trouble is. Rescale
+and shift a neuron's message, and absorb it in the two coefficients that multiply
+and offset it:
 %
 \begin{equation}
 \widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
 \qquad
-G_i \;\longmapsto\; c\,G_i,
+\alpha_2 \;\longmapsto\; c\,\alpha_2,
 \qquad
-V_i \;\longmapsto\; V_i - c\,G_i\,d ,
+\alpha_0 \;\longmapsto\; \alpha_0 - c\,\alpha_2\,d ,
 \label{eq:gaugetransform}
 \end{equation}
 %
@@ -240,56 +252,56 @@ $k_i \to 1$, \texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoin
 it after training, which is what this document is about, leaves the model
 wherever it landed and measures $(k_i, \beta_i)$ instead.
 
-Substituting \eqref{eq:ansatz} into \eqref{eq:updatetmpl} and expanding puts the
-model's update in terms of the true message,
+Substituting \eqref{eq:ansatz} into the fit \eqref{eq:updatesolve} puts the
+model's update in terms of the \emph{true} message,
 %
 \begin{equation}
-\frac{d\vi}{dt} \;=\; -\,T_i\,\vi
-   \;+\; \frac{T_i G_i}{k_i}\,\msg_i
-   \;+\; T_i\bigl(V_i + G_i \beta_i\bigr)
-   \;+\; T_i f(I_i),
+\frac{d\vi}{dt} \;=\;
+   \bigl(\alpha_0 + \alpha_2 \beta_i\bigr)
+   \;+\; \alpha_1\,\vi
+   \;+\; \frac{\alpha_2}{k_i}\,\msg_i
+   \;+\; \alpha_3\,I_i ,
 \label{eq:updateexpanded}
 \end{equation}
 %
-while the generator \eqref{eq:gen}, divided by $\tau_i$ and grouped the same way,
-reads
-%
-\begin{equation}
-\frac{d\vi}{dt} \;=\; -\,\frac{1}{\tau_i}\,\vi
-   \;+\; \frac{1}{\tau_i}\,\msg_i
-   \;+\; \frac{V^{\mathrm{rest}}_i}{\tau_i}
-   \;+\; \frac{I_i}{\tau_i}.
-\label{eq:genexpanded}
-\end{equation}
-%
-The two hold for every trajectory the network produces, so the coefficients of
-$\vi$, of $\msg_i$ and the constant must agree one by one. Matching them gives
-three identities:
+which is the generator's own form \eqref{eq:genexpanded}. Both hold on every
+trajectory the network produces, so their coefficients must agree one by one, and
+matching them against \eqref{eq:gencoeffs} gives three identities:
 %
 \begin{align}
-\text{message:} && T_i G_i \frac{1}{k_i} &= \frac{1}{\tau_i}
-   &&\Longrightarrow&& k_i = \tau_i\, T_i\, G_i ,
-   \label{eq:kid}\\[2pt]
-\text{leak:}    && T_i &= \frac{1}{\tau_i}
-   &&\Longrightarrow&& \tau_i = 1/T_i ,
+\text{leak:}    && \alpha_1 &= -\frac{1}{\tau_i}
+   &&\Longrightarrow&& \tau_i = -1/\alpha_1 ,
    \label{eq:tauid}\\[2pt]
-\text{constant:}&& T_i V_i + T_i G_i \beta_i &= \frac{V^{\mathrm{rest}}_i}{\tau_i}
-   &&\Longrightarrow&& V^{\mathrm{rest}}_i = \tau_i T_i V_i + k_i \beta_i .
+\text{message:} && \frac{\alpha_2}{k_i} &= \frac{1}{\tau_i}
+   &&\Longrightarrow&& k_i = \tau_i\,\alpha_2 = -\alpha_2/\alpha_1 ,
+   \label{eq:kid}\\[2pt]
+\text{constant:}&& \alpha_0 + \alpha_2 \beta_i &= \frac{V^{\mathrm{rest}}_i}{\tau_i}
+   &&\Longrightarrow&& V^{\mathrm{rest}}_i
+        = \tau_i\bigl(\alpha_0 + \alpha_2 \beta_i\bigr) .
    \label{eq:vrestid}
 \end{align}
 %
+\eqref{eq:kid} is worth reading twice: $k_i = 1$ exactly when
+$\alpha_2 = -\alpha_1$, which is the generator's constraint from
+\eqref{eq:gencoeffs}. The gauge is fixed precisely when the model's two middle
+coefficients are equal and opposite --- which is what
+\texttt{coeff\_f\_theta\_msg\_gain} charges during training, and it needs no
+$\tau$ to do it.
+%
 
-\paragraph{Applying them.} The two fits return numbers about the model: per edge $(b_1,b_2,b_3)$, per neuron
-$(a_0,a_1,a_2,a_3)$, and from them $T_i$, $V_i$, $G_i$, $\Wij^{\mathrm{fit}}$,
-$\Eij$, $C_{ij}$. The identities \eqref{eq:kid}--\eqref{eq:vrestid} are what turn
-those into the generator's parameters, and they are used in this order:
+\paragraph{Applying them.} The two fits return numbers about the model: per edge
+$(b_1,b_2,b_3)$ and from them $\Wij^{\mathrm{fit}}$, $\Eij$, $C_{ij}$; per neuron
+$(\alpha_0,\alpha_1,\alpha_2,\alpha_3)$. The identities
+\eqref{eq:tauid}--\eqref{eq:vrestid} are what turn those into the generator's
+parameters, and they are used in this order:
 %
 \begin{align}
-\text{\eqref{eq:tauid}} && \tau_i &= 1/T_i = -1/a_1
+\text{\eqref{eq:tauid}} && \tau_i &= -1/\alpha_1
   && \text{the time constant, directly},\\[2pt]
-\text{\eqref{eq:kid}}   && k_i &= \tau_i T_i G_i = G_i = a_2/T_i
+\text{\eqref{eq:kid}}   && k_i &= -\alpha_2/\alpha_1
   && \text{the message scale, which $\Wij$ is in units of},\\[2pt]
-\text{\eqref{eq:vrestid}} && V^{\mathrm{rest}}_i &= \tau_i T_i V_i + k_i \beta_i
+\text{\eqref{eq:vrestid}} && V^{\mathrm{rest}}_i
+   &= \tau_i\bigl(\alpha_0 + \alpha_2 \beta_i\bigr)
   && \text{the resting level, offset included}.
 \end{align}
 %
@@ -301,17 +313,17 @@ instead is a caveat, because the one error it is exposed to is the one no
 correction can remove.
 
 \paragraph{$\Wij$: divide by the scale.} By \eqref{eq:kid} the message is in
-units of $1/k_i$ with $k_i = \tau_i T_i G_i$, and the fitted $b_2$ inherits that,
-so the weight in the generator's units is
+units of $1/k_i$, and the fitted $b_2$ inherits that, so the weight in the
+generator's units is
 %
 \begin{equation}
 \Wij^{\mathrm{corrected}} \;=\; k_i \; \Wij^{\mathrm{fit}}
-  \;=\; \tau_i\,T_i\,G_i \; \bigl(-b_2\bigr),
-\qquad \tau_i = 1/T_i \;\Rightarrow\; k_i = G_i ,
+  \;=\; -\frac{\alpha_2}{\alpha_1} \; \bigl(-b_2\bigr),
 \label{eq:wcorr}
 \end{equation}
 %
-where $\tau_i$ is the model's own, from \eqref{eq:tauid}. Without this the same
+both coefficients being the postsynaptic neuron's own, from
+\eqref{eq:updatesolve}. Without this the same
 weights score $R^2 = -2.14$ where the corrected ones score $0.995$ --- the
 uncorrected number is kept as \texttt{Wij\_R2\_uncorrected} so the difference is
 visible rather than assumed.
@@ -322,8 +334,9 @@ offset:
 %
 \begin{equation}
 V^{\mathrm{rest},\,\mathrm{corrected}}_i
-  \;=\; \underbrace{\tau_i T_i V_i}_{\text{from the update fit}}
-  \;+\; \underbrace{k_i \beta_i}_{\textstyle \sum_{j} C_{ij}\ \text{from Stage 1}} ,
+  \;=\; \tau_i\Bigl[\,\underbrace{\alpha_0}_{\text{from the update fit}}
+  \;+\; \underbrace{\alpha_2 \beta_i}_{\textstyle \alpha_2 \sum_{j} C_{ij}\
+        \text{from Stage 1}}\Bigr] ,
 \label{eq:vcorr}
 \end{equation}
 %
@@ -377,7 +390,7 @@ $\Eij - \vi(t)$ separates the two things that multiply it:
 %
 \emph{Step 4 --- read off the coefficients.} The fit \eqref{eq:edgelin} regresses
 $\widehat{\msg}_{ij}$ on the three columns $u_t$, $u_t \vi(t)$ and $1$. Equation
-\eqref{eq:Eexpand} is already in that form, so its three coefficients ARE
+\eqref{eq:Eexpand} is already in that form, so its three coefficients \emph{are}
 $b_1, b_2, b_3$:
 %
 \begin{equation}
@@ -487,25 +500,26 @@ connectome ($N = 13{,}741$ neurons, $434{,}112$ edges).
 in green and model in black, $r = 0.998$. \textbf{(b)}~$d v/dt$ at the true
 voltages, $R^2 = 0.997$. \textbf{(c)}~the total incoming message: the learned one
 after the affine correction of \eqref{eq:ansatz}, against the generator's. The
-heading reports the fitted scale $0.0844$ against $T G \tau = 0.0923$ from panel
+heading reports the fitted scale $0.0844$ against $k = -\alpha_2/\alpha_1 = 0.0923$ from panel
 (e) --- two independent routes to the same number, agreeing to $9\%$ --- and the
 offset $b = -2.334$\,V. \textbf{(d)}~each of the $11$ synapses separately, mean
 removed, on one shared voltage scale so that a synapse the model dropped looks
 flat rather than being magnified to full height. \textbf{(e)}~the update fit of
-\eqref{eq:updatesolve}: $T = 14.79$ against the generator's $1/\tau = 11.11$,
-$G = 0.0693$ against a target of $1$. \textbf{(f)}~per synapse, the generator's
+\eqref{eq:updatesolve}: $-\alpha_1 = 14.79$ against the generator's
+$1/\tau = 11.11$, and $k = -\alpha_2/\alpha_1 = 0.0693$ against a target of $1$. \textbf{(f)}~per synapse, the generator's
 $(W, E, \text{offset}=0)$ against the template fit of \eqref{eq:edgesolve}, and a
 free symbolic search for comparison.}
 \label{fig:panels}
 \end{figure}
 
 \paragraph{The $V^{\mathrm{rest}}$ identity closes.} Equation~\eqref{eq:vrestid}
-predicts $V^{\mathrm{rest}} = \tau T V - b$ where $b = -k\beta$ is the fitted
-offset of panel (c). Substituting: $-0.083 + 2.334 = +2.251$ against the
-generator's $+2.910$ --- $77\%$ of the resting potential recovered, of which
-essentially all comes from the message's offset and almost none from the
-update's own level $V = -0.21$. Reading $V$ alone as $V^{\mathrm{rest}}$, as a
-naive fit of \eqref{eq:updatetmpl} invites, would be wrong by $3$\,V.
+predicts $V^{\mathrm{rest}} = \tau\alpha_0 + \tau\alpha_2\beta$, and the second
+term is the fitted offset of panel (c). Substituting: $-0.083 + 2.334 = +2.251$
+against the generator's $+2.910$ --- $77\%$ of the resting potential recovered,
+of which essentially all comes from the message's offset and almost none from
+$\tau\alpha_0 = -0.083$. Reading $\tau\alpha_0$ alone as $V^{\mathrm{rest}}$,
+which is what dropping the $\alpha_2\beta$ term amounts to, would be wrong by
+$3$\,V.
 
 \paragraph{The per-edge offsets sum to the per-neuron one.} Panel (c) reports
 $+2.334$ measured on the total message against $+1.510$ from summing the eight
