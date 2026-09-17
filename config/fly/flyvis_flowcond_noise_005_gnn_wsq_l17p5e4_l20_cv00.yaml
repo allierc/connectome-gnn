@@ -1,6 +1,6 @@
 description: 'conductance GNN on the task-trained conductance dataset, noise 0.05, fold 0:
-  the w_squared baseline, with no group lasso, no silent-input anchor and no message-gain
-  term.'
+  the w_squared baseline with coeff_W_L1 0.00075 and coeff_W_L2 0, both now charged on the
+  effective weight W**2.'
 dataset: flyvis_flowcond_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -71,8 +71,8 @@ training:
   coeff_f_theta_msg_diff: 0
   coeff_f_theta_weight_L1: 0.025
   coeff_f_theta_weight_L2: 0.0005
-  coeff_W_L1: 7.5e-05
-  coeff_W_L2: 7.5e-07
+  coeff_W_L1: 0.00075
+  coeff_W_L2: 0.0
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
@@ -84,4 +84,4 @@ training:
 analysis:
   neurons:
   - 2895
-config_file: fly/flyvis_flowcond_noise_005_gnn_wsq_cv00
+config_file: fly/flyvis_flowcond_noise_005_gnn_wsq_l17p5e4_l20_cv00

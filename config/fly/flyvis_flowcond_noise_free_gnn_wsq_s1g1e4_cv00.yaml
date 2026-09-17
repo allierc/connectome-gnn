@@ -1,7 +1,7 @@
-description: 'conductance GNN on the task-trained conductance dataset, noise 0.05, fold 0:
-  the w_squared baseline, with no group lasso, no silent-input anchor and no message-gain
-  term.'
-dataset: flyvis_flowcond_noise_005_blank50_cv00
+description: 'conductance GNN on the task-trained conductance dataset, noise free, fold 0:
+  the w_squared baseline plus the two gauge terms, coeff_g_phi_silent 1 and coeff_f_theta_msg_gain
+  0.0001.'
+dataset: flyvis_flowcond_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,7 +18,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
+  noise_model_level: 0.0
   seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
@@ -81,7 +81,9 @@ training:
   n_epochs: 5
   data_augmentation_loop: 100
   coeff_g_phi_input_group_L1: 0.0
+  coeff_g_phi_silent: 1
+  coeff_f_theta_msg_gain: 0.0001
 analysis:
   neurons:
   - 2895
-config_file: fly/flyvis_flowcond_noise_005_gnn_wsq_cv00
+config_file: fly/flyvis_flowcond_noise_free_gnn_wsq_s1g1e4_cv00
