@@ -11,9 +11,9 @@ has to decide whether to trust separately from the numbers.
 
 A run that has not finished gets BLANK CELLS AND A STAR, also from the first
 document. Its train-split numbers exist in tmp_training/ but printing them in the
-same column as a held-out number invites the comparison the star forbids. There is
-no training-split table: a number read at whatever iteration a run happened to have
-reached is not comparable to anything, including the next row.
+same column as a held-out number invites the comparison the star forbids, so they
+are QUARANTINED in a table of their own, with the iteration each was read at and
+no shared column with the tables above.
 
 A SECOND DOCUMENT rather than a section in the first, because the first is driven
 by experiment_manifest.tsv and lists runs that have finished; this one reads the
@@ -29,6 +29,13 @@ import argparse
 import math
 import os
 import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+
+import torch  # noqa: E402  -- only for reading loss_components.pt
+
+from connectome_gnn.metrics import recovery_log_columns  # noqa: E402
 
 LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -126,6 +133,56 @@ def metrics(run):
 # for every neuron whatever its tau. The nominal config carries neither.
 _SIL = [("s1", 1), ("s5", 5), ("s25", 25)]
 _GAIN = [("g1e5", "10^{-5}"), ("g1e4", "10^{-4}"), ("g1e3", "10^{-3}")]
+
+def live(run, key, col):
+    """The last row of tmp_training/<key>.log, by column NAME. `#` lines are the
+    readout descriptor, not data."""
+    p = f"{LOG}/{run}/tmp_training/{key}.log"
+    if not os.path.exists(p):
+        return None, None
+    rows = [r for r in open(p).read().strip().split("\n")
+            if r and not r.startswith("#")]
+    if len(rows) < 2:
+        return None, None
+    v = rows[-1].split(",")
+    return int(float(v[0])), dict(zip(recovery_log_columns(key), v[1:])).get(col)
+
+
+def gauge_k(run):
+    """Measured k_i = tau_i * df/dmsg_i, median over neurons, from gauge_k.json.
+
+    THE QUANTITY THE GRID EXISTS TO MOVE, and the only one that says outright
+    whether the gauge is fixed: k = 1 is fixed, and W is then in the generator's
+    units. Measured by autograd on real frames with the MODEL's own tau (blind --
+    no ground truth in it) by tools/measure_gauge_k.py, cached here because it
+    needs a checkpoint and a data pass and this script must stay instant.
+    """
+    import json
+    p = os.path.join(HERE, "gauge_k.json")
+    if not os.path.exists(p):
+        return None, None
+    d = json.load(open(p)).get(run)
+    return (d["k_median"], d["iteration"]) if d else (None, None)
+
+
+def loss_term(run, name):
+    """The last value of one regularizer component, from loss_components.pt.
+
+    THE COLUMN THAT SAYS WHETHER AN ARM IS AN ARM. A coefficient in the yaml is
+    not a penalty in the loss: the term it multiplies can be so small that the
+    arm is indistinguishable from the control, and reading only the outcome
+    columns would record that as "the term did not help" rather than "the term
+    was never applied".
+    """
+    p = f"{LOG}/{run}/loss_components.pt"
+    if not os.path.exists(p):
+        return None
+    try:
+        v = torch.load(p, map_location="cpu", weights_only=False).get(name)
+        return float(v[-1]) if v is not None and len(v) else None
+    except Exception:
+        return None
+
 
 ARMS = []
 for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
@@ -230,6 +287,40 @@ def table(entries, caption):
 
 
 
+def live_table(entries, caption):
+    """QUARANTINED: the training split, with the iteration each number was read
+    at. Its own columns and its own caption, so no row can be read as held-out.
+    `Wij gain` leads, because that is the quantity the grid is trying to move."""
+    _P = r">{\raggedleft\arraybackslash}p{1.5cm}"
+    out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
+           r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
+           r"\setlength{\tabcolsep}{3pt}",
+           rf"\begin{{tabular}}{{p{{4.0cm}}{_P * 8}}}", r"\toprule",
+           " & ".join(["arm", "iteration", "$k$", r"$W_{ij}$ gain", "gain term",
+                       r"$W_{ij}$ $R^2$", r"$E_{ij}$ $R^2$",
+                       r"$\mathrm{msg}_i$ $R^2$", r"$\tau$ $R^2$"]) + r" \\",
+           r"\midrule"]
+    n = 0
+    for a in entries:
+        it, w = live(a["run"], "Wij", "Wij_R2")
+        if it is None:
+            continue
+        n += 1
+        _, g = live(a["run"], "Wij", "Wij_gain")
+        _, e = live(a["run"], "Eij", "Eij_R2")
+        _, ms = live(a["run"], "msg_i", "msg_i_R2")
+        _, t = live(a["run"], "tau", "tau_R2")
+        gt = loss_term(a["run"], "f_theta_msg_gain")
+        kk, _ = gauge_k(a["run"])
+        out.append(" & ".join([a["label"], f"{it:,}", num(kk), num(g),
+                               "--" if gt is None else f"{gt:.1e}",
+                               num(w), num(e), num(ms), num(t)]) + r" \\")
+    if not n:
+        return ""
+    out += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(out)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--no-pdf", action="store_true")
@@ -263,10 +354,18 @@ held-out numbers yet.}\end{center}
                    "Conductance model on current data with a group lasso "
                    r"$\lambda = 0.1$, $\sigma = 0.05$."))
 
-    # NO TRAINING-SPLIT TABLE. It existed to show a campaign in flight; that
-    # campaign was killed, and the numbers in it were read at whatever iteration
-    # each run had reached. Every row here is blank and starred until the new
-    # batch writes a results/metrics.txt.
+    for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
+        _t = live_table(
+            pick(f"grid_{_ltag}"),
+            "Training split at the iteration shown, group lasso "
+            rf"$\lambda = {_lam}$. `gain term\' is the value "
+            r"\texttt{coeff\_f\_theta\_msg\_gain} contributes to the loss "
+            r"(the per-neuron figure the log stores, $\times\,13{,}741$), against a "
+            r"trajectory loss of order $0.05$. $k = \tau_i\,\partial f_\theta/"
+            r"\partial\mathrm{msg}_i$, median over neurons, by autograd on real "
+            r"frames with the model\'s own $\tau$: the gauge is fixed at $k = 1$.")
+        if _t:
+            L.append(_t)
     L.append(r"\end{document}")
 
     tex = os.path.join(HERE, "experiment_tables2.tex")

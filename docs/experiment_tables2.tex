@@ -97,4 +97,46 @@ fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
 \bottomrule
 \end{tabular}
 \end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Training split at the iteration shown, group lasso $\lambda = 0$. `gain term\' is the value \texttt{coeff\_f\_theta\_msg\_gain} contributes to the loss (the per-neuron figure the log stores, $\times\,13{,}741$), against a trajectory loss of order $0.05$. $k = \tau_i\,\partial f_\theta/\partial\mathrm{msg}_i$, median over neurons, by autograd on real frames with the model\'s own $\tau$: the gauge is fixed at $k = 1$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{4.0cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}}
+\toprule
+arm & iteration & $k$ & $W_{ij}$ gain & gain term & $W_{ij}$ $R^2$ & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ \\
+\midrule
+silent 1, gain $10^{-5}$ & 144,001 & 0.56 & 0.16 & 2.1e-07 & 0.07 & 0.64 & 0.84 & 0.94 \\
+silent 1, gain $10^{-4}$ & 9,601 & -- & 0.23 & 3.6e-06 & -0.04 & 0.65 & 0.89 & 0.68 \\
+silent 1, gain $10^{-3}$ & 112,001 & 0.55 & 0.17 & 1.5e-05 & 0.02 & 0.58 & 0.84 & 0.92 \\
+silent 5, gain $10^{-5}$ & 112,001 & 0.54 & 0.16 & 2.0e-07 & 0.04 & 0.61 & 0.84 & 0.93 \\
+silent 5, gain $10^{-4}$ & 64,001 & -- & 0.17 & 1.8e-06 & 0.09 & 0.54 & 0.84 & 0.93 \\
+silent 5, gain $10^{-3}$ & 64,001 & -- & 0.18 & 9.3e-06 & 0.03 & 0.59 & 0.89 & 0.94 \\
+silent 25, gain $10^{-5}$ & 112,001 & 0.57 & 0.17 & 1.9e-07 & 0.07 & 0.58 & 0.87 & 0.93 \\
+silent 25, gain $10^{-4}$ & 96,001 & -- & 0.15 & 1.9e-06 & 0.04 & 0.61 & 0.87 & 0.94 \\
+silent 25, gain $10^{-3}$ & 80,001 & -- & 0.20 & 1.1e-05 & -0.03 & 0.59 & 0.88 & 0.92 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{1.5pt}
+\caption{Training split at the iteration shown, group lasso $\lambda = 0.1$. `gain term\' is the value \texttt{coeff\_f\_theta\_msg\_gain} contributes to the loss (the per-neuron figure the log stores, $\times\,13{,}741$), against a trajectory loss of order $0.05$. $k = \tau_i\,\partial f_\theta/\partial\mathrm{msg}_i$, median over neurons, by autograd on real frames with the model\'s own $\tau$: the gauge is fixed at $k = 1$.}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{p{4.0cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}}
+\toprule
+arm & iteration & $k$ & $W_{ij}$ gain & gain term & $W_{ij}$ $R^2$ & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ \\
+\midrule
+silent 1, gain $10^{-5}$ & 80,001 & -- & 0.15 & 1.8e-07 & -0.01 & 0.54 & 0.89 & 0.91 \\
+silent 1, gain $10^{-4}$ & 80,001 & -- & 0.22 & 1.5e-06 & -0.02 & 0.58 & 0.85 & 0.85 \\
+silent 1, gain $10^{-3}$ & 80,001 & -- & 0.17 & 1.1e-05 & 0.03 & 0.60 & 0.88 & 0.93 \\
+silent 5, gain $10^{-5}$ & 80,001 & -- & 0.16 & 1.9e-07 & 0.06 & 0.53 & 0.85 & 0.94 \\
+silent 5, gain $10^{-4}$ & 80,001 & -- & 0.14 & 2.0e-06 & 0.03 & 0.46 & 0.83 & 0.93 \\
+silent 5, gain $10^{-3}$ & 80,001 & -- & 0.19 & 1.0e-05 & 0.03 & 0.58 & 0.88 & 0.93 \\
+silent 25, gain $10^{-5}$ & 80,001 & -- & 0.17 & 1.8e-07 & 0.09 & 0.61 & 0.86 & 0.95 \\
+\bottomrule
+\end{tabular}
+\end{table}
 \end{document}
