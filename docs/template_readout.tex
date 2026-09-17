@@ -12,7 +12,7 @@
 \newcommand{\Wij}{W_{ij}}
 \newcommand{\Eij}{E_{ij}}
 \newcommand{\msg}{\mathrm{msg}}
-\newcommand{\act}{\mathrm{act}}
+\newcommand{\act}{\mathrm{relu}}
 
 \title{Circuit parameter extraction}
 \author{}
@@ -35,7 +35,7 @@ The generator is a conductance-based network of $N$ neurons. For neuron $i$,
 \label{eq:gen}
 \end{equation}
 %
-with $\act = \mathrm{relu}$ on this data, $\Wij \ge 0$ a synaptic conductance in
+with $\Wij \ge 0$ a synaptic conductance in
 units of the leak conductance, and $\Eij$ the reversal potential of the channel
 the presynaptic cell opens. The sign of a synapse lives entirely in the driving
 force $\Eij - \vi$, never in $\Wij$.
@@ -54,53 +54,12 @@ where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty.
 
-\paragraph{The redundancy.} Rescale and shift a neuron's message, and change
-$f_\theta$'s sensitivity to it by the reciprocal amount:
-%
-\begin{equation}
-\widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
-\qquad
-\frac{\partial f_\theta}{\partial \widehat{\msg}_i} \;\longmapsto\;
-   c\,\frac{\partial f_\theta}{\partial \widehat{\msg}_i},
-\qquad
-V_i \;\longmapsto\; V_i - G_i d ,
-\label{eq:gaugetransform}
-\end{equation}
-%
-and $d\vi/dt$ is \emph{identically} unchanged --- same trajectory, same loss,
-same everything the training ever sees. A whole two-parameter family of
-$(\widehat{\msg}, f_\theta)$ pairs describes one and the same network. That
-family is the gauge freedom of this parameterisation: a redundancy in the
-description, not a property of the circuit. Training cannot prefer one member of
-it over another, because the objective is constant along it.
-
-\paragraph{The ansatz, which is not the gauge.} Equation \eqref{eq:ansatz} below
-is a different object and it is worth keeping the two apart. It is the
-\emph{supposition} that the trained model landed somewhere on the orbit of the
-truth --- that its message differs from the generator's only by the redundancy
-\eqref{eq:gaugetransform} and not by anything else:
-%
-\begin{equation}
-\widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
-\label{eq:ansatz}
-\end{equation}
-%
-$(k_i, \beta_i)$ are then the \emph{gauge parameters}: the coordinates saying
-which member of the family this particular trained model ended up as. They are
-what the readout measures and undoes. The ansatz can be false --- a model whose
-message is off the orbit is one whose per-edge form is not the generator's at
-all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is tested, by
-the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
-
-There are two ways to deal with the redundancy, and this project uses both.
-\emph{Fixing} the gauge during training adds a term that makes one member the
-only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives $k_i \to 1$ and
-\texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing} it after
-training, which is what this document is about, leaves the model wherever it
-landed and measures $(k_i, \beta_i)$ instead.
-
-Write the model's update in the same form as the generator's, which is what
-the update fit of \S\ref{sec:update} measures:
+\paragraph{Four names for what $f_\theta$ does.} $f_\theta$ is an MLP: it has no
+$\tau$, no resting potential and no leak: nothing in it is labelled. Before the
+model can be compared with the generator at all, we have to ask what the
+generator's update would have to look like to reproduce it. So write \emph{the
+same shape} as \eqref{eq:gen} --- one bracket, one prefactor --- and give its
+four pieces names:
 %
 \begin{equation}
 \frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
@@ -108,6 +67,75 @@ the update fit of \S\ref{sec:update} measures:
 \label{eq:updatetmpl}
 \end{equation}
 %
+Nothing is claimed here; \eqref{eq:updatetmpl} is a \emph{template}, and its four
+pieces are simply names for four numbers that \S\ref{sec:update} will obtain by
+least squares on the model's own inputs and outputs:
+%
+\begin{itemize}[nosep,leftmargin=2.2em]
+\item $T_i$ --- the rate at which neuron $i$ relaxes, in $\mathrm{s}^{-1}$. The
+      generator's counterpart is $1/\tau_i$.
+\item $V_i$ --- the voltage the model relaxes \emph{towards} with no message and
+      no stimulus. A CONSTANT, not the state: $\vi$ (lower case) is the voltage
+      that moves, $V_i$ (upper case) the level it is pulled to. The generator's
+      counterpart is $V^{\mathrm{rest}}_i$.
+\item $G_i$ --- how strongly the message drives the update. This is the one with
+      no generator counterpart, because the generator has no such freedom: in
+      \eqref{eq:gen} the message enters the bracket with a coefficient of exactly
+      $1$. $G_i \ne 1$ is therefore not a parameter of the circuit, it is a
+      statement about the units the model chose for its own message.
+\item $f(\cdot)$ --- whatever the model does with the stimulus. Taken linear,
+      which it is on this data; the fit's $R^2$ reports how well that held.
+\end{itemize}
+
+\paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
+shift a neuron's message, and absorb it in the two constants that multiply and
+offset it:
+%
+\begin{equation}
+\widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
+\qquad
+G_i \;\longmapsto\; c\,G_i,
+\qquad
+V_i \;\longmapsto\; V_i - c\,G_i\,d ,
+\label{eq:gaugetransform}
+\end{equation}
+%
+and the bracket in \eqref{eq:updatetmpl} --- hence $d\vi/dt$, hence the loss ---
+is \emph{identically} unchanged, for any $c \ne 0$ and any $d$. A whole
+two-parameter family of models describes one and the same network. That family
+is the gauge freedom of this parameterisation: a redundancy in the description,
+not a property of the circuit. Training cannot prefer one member of it over
+another, because the objective is constant along the family.
+
+Which member the trained model ended up as is then a question about \emph{this}
+model, and the readout's first job is to answer it. Suppose the model's message
+is the true one seen through such a transformation:
+%
+\begin{equation}
+\widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
+\label{eq:ansatz}
+\end{equation}
+%
+This is \eqref{eq:gaugetransform} with $c = k_i$ and $d = \beta_i$, applied to the
+generator's message --- and the change of letters is the whole point.
+$(c, d)$ are \emph{free}: the transformation holds for every value of them, which
+is what makes the family a family. $(k_i, \beta_i)$ are the \emph{particular}
+values that relate this one trained model to the truth --- one point in that
+family, per neuron, and an unknown to be measured. Writing both with the same
+letter would lose exactly that distinction.
+
+So \eqref{eq:ansatz} is a supposition, not a gauge: it says the model differs
+from the generator \emph{only} by the redundancy and not by anything else. It can be false --- a
+model whose message is off the family is one whose per-edge form is not the
+generator's at all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is
+tested, by the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
+$(k_i, \beta_i)$ are the coordinates on the family, and there are two ways to
+deal with them. \emph{Fixing} the gauge during training adds a term that makes
+one member the only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives
+$k_i \to 1$, \texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing}
+it after training, which is what this document is about, leaves the model
+wherever it landed and measures $(k_i, \beta_i)$ instead.
+
 Substituting \eqref{eq:ansatz} into \eqref{eq:updatetmpl} and expanding puts the
 model's update in terms of the true message,
 %
