@@ -1,0 +1,119 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=1.4cm]{geometry}
+\usepackage{booktabs,float,amsmath,array}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[T1]{fontenc}
+\usepackage{caption}
+\setlength{\parskip}{5pt}\setlength{\parindent}{0pt}
+\begin{document}
+\begin{center}{\Large Conductance GNN on task-trained conductance data}\\[3pt]
+{\small 2026-09-17}\end{center}
+
+This campaign asks whether a conductance GNN can recover the parameters of a
+conductance generator whose data was NOT built to match a current model. Every
+earlier conductance result came from a teacher--student twin fitted to reproduce a
+current-based teacher, which is what made the two synapse models hard to separate.
+Here the generator is a flyvis network trained on the optic-flow task, so the
+conductance in the data was shaped by a task rather than by another model.
+
+Numbers marked \emph{live} are the last line of
+\texttt{tmp\_training/<key>.log} at the iteration shown, written while the run is
+still training. They are NOT comparable to a finished run's
+\texttt{results/metrics.txt}, and they are not comparable to each other unless the
+iteration matches.
+
+\section*{The data}
+
+Ten datasets from \texttt{flow/2000/001} checkpoint 28, the argmin-EPE checkpoint
+of a conductance flyvis model trained on optic flow: five folds at $\sigma = 0$ and
+five at $\sigma = 0.05$, 13{,}741 neurons and 434{,}112 edges.
+
+\medskip
+\begin{table}[H]\centering\small
+\begin{tabular}{l r l l}
+\toprule
+generator & $n$ & finite & voltage range \\
+\midrule
+conductance, exponential Euler & 10 & \textcolor{ForestGreen}{10/10} & $-1.598$ \ldots $3.939$ \\
+conductance, forward Euler (control) & 10 & \textcolor{BrickRed}{0/10} & $-\infty$ \ldots $\infty$, 95.84\% NaN \\
+current, exponential Euler & 1 & 1/1 & $-21.5$ \ldots $378.0$ \\
+current, forward Euler (control) & 1 & 1/1 & $-40.9$ \ldots $392.5$ \\
+\bottomrule
+\end{tabular}
+\caption*{Forward Euler contracts only while $(\Delta t/\tau_i)(1+G_i) < 2$, with
+$G_i$ the total synaptic conductance onto neuron $i$ in units of its leak. The
+generating network reaches $G_i = 3.2$ at $\tau_i = 19$\,ms, giving 4.4 at
+$\Delta t = 20$\,ms. Measured over 300 frames on the real parameters: forward Euler
+diverges at frame 8, exponential Euler stays finite. For the CURRENT model the two
+integrators agree to $7.2\times10^{-7}$, so the step is decisive for one model and
+irrelevant for the other. The current-model range is anomalous and unresolved.}
+\end{table}
+
+\section*{The lasso sweep}
+
+The group lasso over $g_\phi$'s input columns exists to zero the $v_i$ and $a_i$
+columns, which is correct on CURRENT data where the message does not depend on the
+postsynaptic voltage. On conductance data $(E_{ij} - v_i)$ carries the sign of the
+message, so the same penalty removes the term the model needs. The prediction is
+therefore that $R^2_W$ falls monotonically with $\lambda$; if it does not, the GNN
+was not using the driving force.
+
+\begin{table}[H]\centering\small
+\begin{tabular}{l r r r r r r}
+\toprule
+run & iteration & $R^2_W$ & $R^2_E$ & $R^2_{msg}$ & $R^2_\tau$ & $R^2_{V_{rest}}$ \\
+\midrule
+$\lambda = 0$, fold 00 & 192,001 & \textcolor{BrickRed}{-0.166} & \textcolor{ForestGreen}{0.651} & \textcolor{ForestGreen}{0.811} & \textcolor{ForestGreen}{0.841} & \textcolor{ForestGreen}{0.673} \\
+$\lambda = 0$, fold 01 & 192,001 & \textcolor{BrickRed}{-0.252} & \textcolor{ForestGreen}{0.612} & \textcolor{ForestGreen}{0.907} & \textcolor{ForestGreen}{0.634} & \textcolor{ForestGreen}{0.632} \\
+$\lambda = 0.1$, fold 00 & 64,001 & \textcolor{BrickRed}{-0.171} & \textcolor{ForestGreen}{0.632} & \textcolor{ForestGreen}{0.787} & \textcolor{ForestGreen}{0.797} & \textcolor{ForestGreen}{0.647} \\
+$\lambda = 0.1$, fold 01 & 80,001 & \textcolor{BrickRed}{-0.235} & \textcolor{ForestGreen}{0.628} & \textcolor{ForestGreen}{0.918} & \textcolor{black}{0.484} & \textcolor{ForestGreen}{0.608} \\
+$\lambda = 0.25$, fold 00 & 160,001 & \textcolor{BrickRed}{-0.270} & \textcolor{ForestGreen}{0.567} & \textcolor{ForestGreen}{0.783} & \textcolor{ForestGreen}{0.847} & \textcolor{ForestGreen}{0.705} \\
+$\lambda = 0.25$, fold 01 & 144,001 & \textcolor{BrickRed}{-0.155} & \textcolor{ForestGreen}{0.554} & \textcolor{ForestGreen}{0.881} & \textcolor{ForestGreen}{0.740} & \textcolor{ForestGreen}{0.510} \\
+\bottomrule
+\end{tabular}
+\caption*{Conductance GNN on conductance data, $\sigma = 0$.}
+\end{table}
+\begin{table}[H]\centering\small
+\begin{tabular}{l r r r r r r}
+\toprule
+run & iteration & $R^2_W$ & $R^2_E$ & $R^2_{msg}$ & $R^2_\tau$ & $R^2_{V_{rest}}$ \\
+\midrule
+$\lambda = 0$, fold 00 & 192,001 & \textcolor{black}{0.147} & \textcolor{ForestGreen}{0.695} & \textcolor{ForestGreen}{0.840} & \textcolor{ForestGreen}{0.908} & \textcolor{ForestGreen}{0.525} \\
+$\lambda = 0$, fold 01 & 80,001 & \textcolor{black}{0.076} & \textcolor{ForestGreen}{0.627} & \textcolor{ForestGreen}{0.908} & \textcolor{ForestGreen}{0.915} & \textcolor{ForestGreen}{0.607} \\
+$\lambda = 0.25$, fold 00 & 192,001 & \textcolor{black}{0.105} & \textcolor{ForestGreen}{0.725} & \textcolor{ForestGreen}{0.840} & \textcolor{ForestGreen}{0.899} & \textcolor{black}{0.376} \\
+$\lambda = 0.25$, fold 01 & 96,001 & \textcolor{black}{0.145} & \textcolor{ForestGreen}{0.707} & \textcolor{ForestGreen}{0.900} & \textcolor{ForestGreen}{0.908} & \textcolor{ForestGreen}{0.600} \\
+\bottomrule
+\end{tabular}
+\caption*{Conductance GNN on conductance data, $\sigma = 0.05$.}
+\end{table}
+\section*{The same sweep under a rollout}
+\begin{table}[H]\centering\small
+\begin{tabular}{l r r r r r r}
+\toprule
+run & iteration & $R^2_W$ & $R^2_E$ & $R^2_{msg}$ & $R^2_\tau$ & $R^2_{V_{rest}}$ \\
+\midrule
+$\lambda = 0$, fold 00 & 176,001 & \textcolor{BrickRed}{-0.269} & \textcolor{ForestGreen}{0.592} & \textcolor{ForestGreen}{0.808} & \textcolor{ForestGreen}{0.833} & \textcolor{ForestGreen}{0.602} \\
+$\lambda = 0$, fold 01 & 64,001 & \textcolor{BrickRed}{-0.197} & \textcolor{ForestGreen}{0.596} & \textcolor{ForestGreen}{0.916} & \textcolor{ForestGreen}{0.632} & \textcolor{ForestGreen}{0.598} \\
+$\lambda = 0.1$, fold 00 & 12,801 & \textcolor{BrickRed}{-0.255} & \textcolor{ForestGreen}{0.644} & \textcolor{ForestGreen}{0.868} & \textcolor{black}{0.345} & \textcolor{ForestGreen}{0.654} \\
+\bottomrule
+\end{tabular}
+\caption*{As above, $\sigma = 0$, with
+\texttt{rollout\_horizon\_schedule} $[1,2,4,7,10]$ -- one entry per epoch, so the
+loss is scored over an unrolled trajectory reaching ten steps. $K=1$ is
+term-for-term the one-step objective, which makes this a strict extension of the
+table above rather than a different experiment.}
+\end{table}
+
+\section*{What is already visible}
+
+$R^2_{msg}$ sits at 0.78--0.92 while $R^2_W$ is between $-0.30$ and $+0.15$: the
+GNN reproduces the per-neuron message but not its factorisation into a conductance
+and a reversal. That is the degeneracy the product $W_{ij}\,\mathrm{relu}(v_j)\,
+(E_{ij}-v_i)$ allows, and $R^2_{msg}$ is precisely the quantity that does not care
+how the product is split.
+
+No verdict on the lasso yet. At comparable iterations the differences between
+$\lambda$ values are smaller than the differences between FOLDS -- at $\lambda=0$,
+$\sigma=0$, fold 00 gives $-0.166$ and fold 01 gives $-0.252$ -- and they do not
+move consistently in one direction. Two folds cannot separate them.
+\end{document}
