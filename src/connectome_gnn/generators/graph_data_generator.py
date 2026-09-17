@@ -2344,7 +2344,12 @@ def data_generate_voltage(
         # --- Standard flyvis network ---
         config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
         config_net.connectome.extent = extent
-        _chkpt = 0
+        # ONE INDEX FOR EITHER FAMILY. The published models carry exactly one
+        # checkpoint and it is the trained one, which is why this used to be a
+        # hard-coded 0; a TASK-TRAINED run of ours has 65 and 0 is the untrained
+        # network, so generating from it would silently produce data from a model
+        # that never learned anything.
+        _chkpt = int(getattr(sim, "conductance_checkpoint_index", 0))
         if sim.ground_truth_model == "flyvis_conductance":
             # THE SAME TRANSPLANT, WITH THE CONDUCTANCE DYNAMICS. flyvis shares
             # every parameter by cell type and filter tap, so a state dict trained
@@ -2367,7 +2372,6 @@ def data_generate_voltage(
                     value=0.0, reversal_dim=dim, requires_grad=True)
             # NOT checkpoint 0: that is the untrained network. See
             # SimulationConfig.conductance_checkpoint_index.
-            _chkpt = int(getattr(sim, "conductance_checkpoint_index", 0))
         net = Network(**config_net)
         nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
         trained_net = nnv.init_network(checkpoint=_chkpt)
@@ -3405,6 +3409,44 @@ def data_generate_voltage(
         type_list=to_numpy(type_list.squeeze()),
     )
 
+    # THE SAME RENDERER, ONE ROW PER CELL TYPE. `activity.png` samples 12 neurons
+    # by index, which is a thin slice of 65 types; these two answer "what does
+    # every type look like" and "what do the types we always look at look like".
+    # Black rather than green and a dashed stimulus, because at generation time
+    # there is no prediction to contrast a green ground truth against -- the
+    # figure is the data, not a comparison.
+    try:
+        _types = to_numpy(x_ts.neuron_type).astype(int)
+        _first_of_type = {}
+        for _i, _t in enumerate(_types):
+            _first_of_type.setdefault(int(_t), _i)
+        _CURATED = [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]
+        for _name, _ids in (
+            ("activity_all.png", [_first_of_type[t] for t in sorted(_first_of_type)]),
+            ("activity_selected.png",
+             [_first_of_type[t] for t in _CURATED if t in _first_of_type]),
+        ):
+            if not _ids:
+                continue
+            save_trace_figure(
+                graphs_data_path(config.dataset, _name),
+                activity_np[:n_trace_frames][:, _ids],
+                None,
+                stim_np,
+                sim.delta_t,
+                None,
+                n_traces=len(_ids),
+                type_names=index_to_name,
+                type_list=_types[_ids],
+                n_neurons=len(_ids),
+                true_color="black",
+                stim_linestyle="--",
+                figsize=(9.0, 0.28 * len(_ids) + 1.6),
+            )
+            logger.info(f"wrote {_name} ({len(_ids)} cell types)")
+    except Exception as _e:
+        logger.warning(f"per-type trace figures skipped: {type(_e).__name__}: {_e}")
+
     if visualize & (run == run_vizualized):
         logger.info("generating lossless video ...")
 
@@ -3781,7 +3823,7 @@ def _run_ode_generation(
                             # for any G_i >= 0. `_dv` is still the true derivative
                             # and is what gets STORED as the training target; only
                             # the state update changes.
-                            if getattr(pde, "is_conductance", False) and _exp_euler:
+                            if _exp_euler:
                                 x.voltage = pde.step(x, edge_index, _h)
                             elif noise_model_level > 0:
                                 x.voltage = (
@@ -3792,8 +3834,7 @@ def _run_ode_generation(
                                 )
                             else:
                                 x.voltage = x.voltage + _h * _dv
-                            if (getattr(pde, "is_conductance", False) and _exp_euler
-                                    and noise_model_level > 0):
+                            if _exp_euler and noise_model_level > 0:
                                 # Process noise is added AFTER the exact step, with
                                 # the same per-observed-frame variance as the Euler
                                 # branch above.
@@ -3811,7 +3852,7 @@ def _run_ode_generation(
                         # (dt/tau_i)(1 + G_i) < 2 and the generating network reaches
                         # 4.4, which blows every trace up inside ten frames.
                         _exp_euler_1 = getattr(sim, "conductance_exponential_euler", True)
-                        if getattr(pde, "is_conductance", False) and _exp_euler_1:
+                        if _exp_euler_1:
                             x.voltage = pde.step(x, edge_index, sim.delta_t)
                             if noise_model_level > 0:
                                 x.voltage = x.voltage + torch.randn(
