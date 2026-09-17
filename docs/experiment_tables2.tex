@@ -1,62 +1,41 @@
 \documentclass[10pt,a4paper]{article}
 \usepackage[margin=0.8cm,landscape]{geometry}
-\usepackage{booktabs,float,amsmath,array}
-\usepackage[dvipsnames]{xcolor}
+\usepackage{booktabs,float,amsmath,xcolor,array}
 \usepackage[T1]{fontenc}
 \setlength{\parskip}{4pt}
 \setlength{\parindent}{0pt}
 \begin{document}
 \begin{center}{\Large Conductance GNN on task-trained conductance data}\\[2pt]
-{\small 2026-09-17. Every $R^2$ is written \emph{outlier-filtered} [full sample]
-(\% dropped), final, from \texttt{results/metrics.txt} on the held-out test split.
+{\small Every $R^2$ is written \emph{outlier-filtered} [full sample] (\% dropped),
+final, from \texttt{results/metrics.txt} on the held-out test split.
 Rows marked $^{*}$ are left blank: those runs are still training and have no
-held-out numbers yet -- their training-split numbers are quarantined in the last
-table.}\end{center}
+held-out numbers yet.}\end{center}
 \vspace{4pt}
-
-The generator is a flyvis network trained on the OPTIC-FLOW TASK
-(\texttt{flow/2000/001}, checkpoint 28), not a teacher--student twin fitted to
-reproduce a current model. Every earlier conductance result came from such a twin,
-which is what made the two synapse models hard to separate; here the conductance in
-the data was shaped by a task instead.
-
-Ten datasets, five folds at $\sigma=0$ and five at $\sigma=0.05$, 13{,}741 neurons
-and 434{,}112 edges. They integrate with an exponential-Euler step: forward Euler
-contracts only while $(\Delta t/\tau_i)(1+G_i)<2$ and the generating network reaches
-4.4 at $\Delta t = 20$\,ms, so a matched forward-Euler control diverges at frame 8
-and is 95.8\% NaN. For the CURRENT model the two integrators agree to
-$7.2\times10^{-7}$ -- the step is decisive for one model and irrelevant for the other.
-
-\section*{2026-09-17 --- the lasso sweep}
-
-The group lasso over $g_\phi$'s input columns zeroes the $v_i$ and $a_i$ columns,
-which is correct on CURRENT data where the message does not depend on the
-postsynaptic voltage. On conductance data $(E_{ij}-v_i)$ carries the sign of the
-message, so the same penalty removes the term the model needs: $R^2_W$ should fall
-with $\lambda$, and if it does not, the GNN was not using the driving force.
-
+\section*{2026-09-17}
 \begin{table}[H]
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{1.5pt}
-\caption{Conductance GNN on conductance data, $\sigma = 0$.}
+\caption{Conductance model on conductance data with a group lasso, $\sigma = 0$.}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ \\
+arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
 \midrule
 $\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00}} \\[1pt]
 $\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01}} \\[1pt]
 $\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00}} \\[1pt]
 $\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01}} \\[1pt]
 $\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00}} \\[1pt]
 $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -64,20 +43,22 @@ $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{1.5pt}
-\caption{Conductance GNN on conductance data, $\sigma = 0.05$.}
+\caption{Conductance model on conductance data with a group lasso, $\sigma = 0.05$.}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ \\
+arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
 \midrule
 $\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00}} \\[1pt]
 $\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01}} \\[1pt]
 $\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00}} \\[1pt]
 $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -85,73 +66,50 @@ $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{1.5pt}
-\caption{As above, $\sigma=0$, under a rollout:
-\texttt{rollout\_horizon\_schedule} $[1,2,4,7,10]$, one entry per epoch. $K=1$ is
-term-for-term the one-step objective, so this is a strict extension of the table
-above rather than a different experiment.}
+\caption{Conductance model on conductance data with a group lasso and a $K = 10$ rollout, $\sigma = 0$.}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ \\
+arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
 \midrule
 $\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00}} \\[1pt]
 $\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01}} \\[1pt]
 $\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{l}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00}} \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00}} \\[1pt]
+$\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
+\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv01}} \\[1pt]
+\midrule
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
-\section*{Training split --- not held-out, not comparable to the above}
-
-Read at the iteration shown, from \texttt{tmp\_training/<key>.log}, on the data the
-model is being fitted to. Two rows are comparable to each other only if their
-iterations match.
-
 \begin{table}[H]
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{1.5pt}
-\caption{Progress of the runs still training.
-$W_{ij}$ gain is learned/true: a gain far from 1 means the message scale is free
-and $W$ has absorbed it, which is a GAUGE failure rather than a recovery failure --
-$E_{ij}$ can be recovered while $W$ is off by that one factor.}
+\caption{Conductance model on conductance data, training split at the iteration shown.}
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{5.4cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}}
 \toprule
 run (training split) & iteration & $W_{ij}$ $R^2$ & $W_{ij}$ gain & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ \\
 \midrule
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00} & 208,001 & \textcolor{BrickRed}{-0.145} & 0.312 & \textcolor{ForestGreen}{0.644} & \textcolor{ForestGreen}{0.810} & \textcolor{ForestGreen}{0.846} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01} & 208,001 & \textcolor{BrickRed}{-0.242} & 0.124 & \textcolor{ForestGreen}{0.615} & \textcolor{ForestGreen}{0.907} & \textcolor{ForestGreen}{0.622} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00} & 80,001 & \textcolor{BrickRed}{-0.196} & 0.118 & \textcolor{ForestGreen}{0.632} & \textcolor{ForestGreen}{0.799} & \textcolor{ForestGreen}{0.814} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01} & 96,001 & \textcolor{BrickRed}{-0.237} & -0.035 & \textcolor{ForestGreen}{0.635} & \textcolor{ForestGreen}{0.914} & 0.498 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00} & 176,001 & \textcolor{BrickRed}{-0.287} & 0.323 & \textcolor{ForestGreen}{0.556} & \textcolor{ForestGreen}{0.779} & \textcolor{ForestGreen}{0.848} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01} & 160,001 & \textcolor{BrickRed}{-0.153} & 0.187 & \textcolor{ForestGreen}{0.536} & \textcolor{ForestGreen}{0.878} & \textcolor{ForestGreen}{0.746} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00} & 208,001 & 0.145 & 0.220 & \textcolor{ForestGreen}{0.681} & \textcolor{ForestGreen}{0.835} & \textcolor{ForestGreen}{0.911} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01} & 96,001 & 0.105 & 0.222 & \textcolor{ForestGreen}{0.662} & \textcolor{ForestGreen}{0.911} & \textcolor{ForestGreen}{0.915} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00} & 208,001 & 0.105 & 0.211 & \textcolor{ForestGreen}{0.711} & \textcolor{ForestGreen}{0.840} & \textcolor{ForestGreen}{0.872} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01} & 112,001 & 0.147 & 0.238 & \textcolor{ForestGreen}{0.717} & \textcolor{ForestGreen}{0.895} & \textcolor{ForestGreen}{0.906} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00} & 192,001 & \textcolor{BrickRed}{-0.240} & -0.008 & \textcolor{ForestGreen}{0.573} & \textcolor{ForestGreen}{0.810} & \textcolor{ForestGreen}{0.829} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01} & 80,001 & \textcolor{BrickRed}{-0.181} & 0.194 & \textcolor{ForestGreen}{0.621} & \textcolor{ForestGreen}{0.915} & \textcolor{ForestGreen}{0.655} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00} & 16,001 & \textcolor{BrickRed}{-0.179} & 0.101 & \textcolor{ForestGreen}{0.687} & \textcolor{ForestGreen}{0.864} & 0.406 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00} & 256,001 & -0.18 & 0.31 & 0.63 & 0.81 & 0.85 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01} & 256,001 & -0.27 & 0.12 & 0.60 & \textcolor{green!45!black}{0.90} & 0.65 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00} & 112,001 & -0.15 & 0.08 & 0.63 & 0.81 & 0.86 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01} & 128,001 & -0.22 & -0.08 & 0.62 & \textcolor{green!45!black}{0.90} & 0.52 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00} & 208,001 & -0.31 & 0.26 & 0.56 & 0.78 & 0.86 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01} & 192,001 & -0.15 & 0.20 & 0.52 & 0.87 & 0.75 \\
+\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00} & 256,001 & 0.15 & 0.23 & 0.70 & 0.84 & \textcolor{green!45!black}{0.91} \\
+\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01} & 128,001 & 0.12 & 0.22 & 0.66 & \textcolor{green!45!black}{0.91} & \textcolor{green!45!black}{0.92} \\
+\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00} & 256,001 & 0.11 & 0.21 & 0.69 & 0.84 & 0.88 \\
+\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01} & 144,001 & 0.16 & 0.24 & 0.73 & 0.89 & \textcolor{green!45!black}{0.92} \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00} & 240,001 & -0.24 & 0.03 & 0.57 & 0.81 & 0.85 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01} & 128,001 & -0.15 & 0.25 & 0.63 & \textcolor{green!45!black}{0.91} & 0.56 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00} & 64,001 & -0.30 & 0.28 & 0.69 & 0.80 & 0.66 \\
+\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv01} & 12,801 & -0.26 & 0.15 & 0.41 & \textcolor{green!45!black}{0.92} & 0.29 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\section*{What is already visible}
-
-$R^2_{\mathrm{msg}}$ sits at 0.78--0.92 and $E_{ij}$ at 0.55--0.73 while $R^2_W$ is
-between $-0.30$ and $+0.15$ -- and the $W_{ij}$ gain is 0.21--0.32. The conductances
-are recovered up to a single scale factor of three to five, with a median relative
-error of 0.96 that is almost entirely that factor. This is NOT the $W$--$E$
-degeneracy of the raw product: the template readout fits the generator's own closed
-form per edge, and it recovers $E$. What is free is the message's overall scale,
-which the ODE fixes by requiring $\tau_i\,\partial f_\theta/\partial\mathrm{msg}_i = 1$
-and which nothing in these runs penalises --
-\texttt{coeff\_f\_theta\_msg\_gain} is 0 in all of them.
-
-No verdict on the lasso. At comparable iterations the differences between $\lambda$
-values are smaller than the differences between FOLDS, and they do not move
-consistently in one direction. Two folds cannot separate them.
 \end{document}
