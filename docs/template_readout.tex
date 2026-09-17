@@ -54,12 +54,10 @@ where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty.
 
-\paragraph{Four names for what $f_\theta$ does.} $f_\theta$ is an MLP: it has no
-$\tau$, no resting potential and no leak: nothing in it is labelled. Before the
-model can be compared with the generator at all, we have to ask what the
-generator's update would have to look like to reproduce it. So write \emph{the
-same shape} as \eqref{eq:gen} --- one bracket, one prefactor --- and give its
-four pieces names:
+\paragraph{The generator's equation, rewritten for the model.} Nothing in the MLP
+$f_\theta$ is a time constant or a resting potential, so rewrite \eqref{eq:gen}
+in the shape \eqref{eq:model} could take --- one bracket, one prefactor --- with
+its constants left open:
 %
 \begin{equation}
 \frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
@@ -67,25 +65,11 @@ four pieces names:
 \label{eq:updatetmpl}
 \end{equation}
 %
-Nothing is claimed here; \eqref{eq:updatetmpl} is a \emph{template}, and its four
-pieces are simply names for four numbers that \S\ref{sec:update} will obtain by
-least squares on the model's own inputs and outputs:
-%
-\begin{itemize}[nosep,leftmargin=2.2em]
-\item $T_i$ --- the rate at which neuron $i$ relaxes, in $\mathrm{s}^{-1}$. The
-      generator's counterpart is $1/\tau_i$.
-\item $V_i$ --- the voltage the model relaxes \emph{towards} with no message and
-      no stimulus. A CONSTANT, not the state: $\vi$ (lower case) is the voltage
-      that moves, $V_i$ (upper case) the level it is pulled to. The generator's
-      counterpart is $V^{\mathrm{rest}}_i$.
-\item $G_i$ --- how strongly the message drives the update. This is the one with
-      no generator counterpart, because the generator has no such freedom: in
-      \eqref{eq:gen} the message enters the bracket with a coefficient of exactly
-      $1$. $G_i \ne 1$ is therefore not a parameter of the circuit, it is a
-      statement about the units the model chose for its own message.
-\item $f(\cdot)$ --- whatever the model does with the stimulus. Taken linear,
-      which it is on this data; the fit's $R^2$ reports how well that held.
-\end{itemize}
+$T_i$, $V_i$, $G_i$ and $f(\cdot)$ are not claims about the model: they are four
+numbers \S\ref{sec:update} obtains by least squares. Three have counterparts in
+\eqref{eq:gen} --- $1/\tau_i$, the constant level $V^{\mathrm{rest}}_i$ (not the
+moving state $\vi$), and $f$ linear on this data. $G_i$ has none, because there
+the message enters the bracket with a coefficient of exactly $1$.
 
 \paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
 shift a neuron's message, and absorb it in the two constants that multiply and
