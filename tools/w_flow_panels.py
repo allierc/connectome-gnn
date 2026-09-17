@@ -34,7 +34,8 @@ FLOW_RUNS = [(f"flow/1000/{m:03d}", "current") for m in range(6)] + \
 # the generator wrote, holding the W every connectome-gnn run on that dataset is
 # scored against -- so putting it on these axes says whether a flow-trained
 # weight distribution looks anything like the one the campaign has to recover.
-GT_DATASET = "flyvis_noise_005_blank50_cv00"
+GT_DATASETS = [("flyvis_noise_005_blank50_cv00", "target current"),
+               ("flyvis_conductance_ion_sub_noise_005_blank50_cv01", "target conductance")]
 TWIN = "flyvis_current_noise_free_conductance_ion_sub_cv00"
 GRAPHS = os.environ.get(
     "GNN_GRAPHS_ROOT",
@@ -96,8 +97,6 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="figures/w_flow_panels.png")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--gt-dataset", default=GT_DATASET,
-                    help="dataset whose ode_params.pt supplies the ninth panel")
     ap.add_argument("--scale", type=float, default=1.0,
                     help="w_init_scale of the red reference draw")
     args = ap.parse_args()
@@ -117,31 +116,42 @@ def main():
                    "conductance", w_twin))
     print(f"{TWIN:<16} twin         {w_twin.size:>9} edges  "
           f"|w| median {np.median(w_twin[w_twin > 0]):.4g}")
-    w_gt = gt_weights(args.gt_dataset)
-    panels.append((f"{args.gt_dataset}\nground truth the runs are scored against",
-                   "target", w_gt))
-    print(f"{args.gt_dataset:<16} ground truth {w_gt.size:>9} edges  "
-          f"|w| median {np.median(w_gt[w_gt > 0]):.4g}")
+    for ds, fam in GT_DATASETS:
+        w_gt = gt_weights(ds)
+        panels.append((f"{ds}\nground truth the runs are scored against", fam, w_gt))
+        print(f"{ds:<52} {fam:<20} {w_gt.size:>9} edges  "
+              f"|w| median {np.median(w_gt[w_gt > 0]):.4g}")
 
     allw = np.concatenate([np.abs(w[w > 0]) for _, _, w in panels])
     lo, hi = np.percentile(allw, 0.05), allw.max()
     bins = np.logspace(np.log10(max(lo, 1e-12)), np.log10(hi * 1.5), 80)
 
-    fig, axes = plt.subplots(2, 5, figsize=(24, 9), sharex=True, sharey=True)
+    # THE COLOUR IS THE KIND OF THING, not decoration: the six current flow
+    # members, the two conductance ones, the twin that generated the campaign's
+    # data, and the two generator targets those runs are scored against.
+    COLOUR = {"current": "darkblue", "conductance": "tab:blue",
+              "target current": "tab:green", "target conductance": "darkgreen"}
+    n = len(panels)
+    ncol = 4
+    nrow = int(math.ceil(n / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(21, 4.6 * nrow),
+                             sharex=True, sharey=True)
     for ax, (label, family, w) in zip(axes.ravel(), panels):
         ref = init_draw(w.size, args.scale)
-        colour = "tab:green" if family == "target" else "tab:blue"
-        ax.hist(w[w > 0], bins=bins, color=colour, alpha=0.75,
-                label="generator's $|W|$" if family == "target" else "trained $|W|$")
+        target = family.startswith("target")
+        ax.hist(w[w > 0], bins=bins, color=COLOUR.get(family, "tab:blue"), alpha=0.8,
+                label="generator's $|W|$" if target else "trained $|W|$")
         ax.hist(ref[ref > 0], bins=bins, histtype="step", color="tab:red", lw=1.6,
                 label=f"randn-scaled init, scale {args.scale:g}")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.text(0.0, 1.02, f"{label}   ({family})", transform=ax.transAxes,
                 va="bottom", fontsize=10)
-        if family == "target":
+        if target:
             ax.legend(fontsize=9, frameon=False, loc="upper left")
-    for ax in axes[-1]:
+    for ax in axes.ravel()[n:]:
+        ax.set_visible(False)
+    for ax in axes.ravel()[max(n - ncol, 0):n]:
         ax.set_xlabel("|W|", fontsize=12)
     for ax in axes[:, 0]:
         ax.set_ylabel("edges", fontsize=12)
