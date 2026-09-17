@@ -414,6 +414,13 @@ class SimulationConfig(BaseModel):
     # here has 65, and the one worth generating from is the argmin-EPE checkpoint
     # that analysis/checkpoints.csv reports.
     conductance_checkpoint_index: int = 0
+    # WHICH TIME STEP THE CONDUCTANCE GENERATOR TAKES. True (default) solves the
+    # step exactly at frozen coefficients; False is flyvis's plain forward Euler,
+    # which contracts only while (dt/tau_i)(1 + G_i) < 2 and at the measured
+    # G_i of 3.2 with tau_i = 19 ms and dt = 20 ms sits at 4.4 -- more than double
+    # the limit. False therefore EXPECTS to diverge on some neurons; it exists to
+    # measure where and when, against an otherwise identical run.
+    conductance_exponential_euler: bool = True
     # WHETHER A DRIVING FORCE THAT CHANGES SIGN MID-RUN ABORTS GENERATION.
     #
     # True is right for a twin whose reversals were BRACKETED outside the teacher's
