@@ -54,10 +54,11 @@ where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
 $\widehat{\msg}$}, and that is the whole difficulty.
 
-\paragraph{The generator's equation, rewritten for the model.} Nothing in the MLP
-$f_\theta$ is a time constant or a resting potential, so rewrite \eqref{eq:gen}
-in the shape \eqref{eq:model} could take --- one bracket, one prefactor --- with
-its constants left open:
+\paragraph{Describing the model in the generator's terms.} $f_\theta$ is an MLP:
+there is no $\tau$ in it to read off, no resting potential, no message gain. What
+there is, on this data, is a function close to affine in its inputs --- and any
+affine function of $(\vi, \widehat{\msg}_i, I_i)$ can be grouped into the shape of
+\eqref{eq:gen}:
 %
 \begin{equation}
 \frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
@@ -65,11 +66,14 @@ its constants left open:
 \label{eq:updatetmpl}
 \end{equation}
 %
-$T_i$, $V_i$, $G_i$ and $f(\cdot)$ are not claims about the model: they are four
-numbers \S\ref{sec:update} obtains by least squares. Three have counterparts in
-\eqref{eq:gen} --- $1/\tau_i$, the constant level $V^{\mathrm{rest}}_i$ (not the
-moving state $\vi$), and $f$ linear on this data. $G_i$ has none, because there
-the message enters the bracket with a coefficient of exactly $1$.
+So $T_i$, $V_i$, $G_i$ and $f(\cdot)$ are not assumptions about the model, they
+are four numbers measured from it: \S\ref{sec:update} regresses the model's own
+$d\vi/dt$ on $(1, \vi, \widehat{\msg}_i, I_i)$ and regroups the coefficients,
+reporting the $R^2$ that says how well ``close to affine'' held. Three have
+counterparts in \eqref{eq:gen} --- $1/\tau_i$, the constant level
+$V^{\mathrm{rest}}_i$ (not the moving state $\vi$), and $f$ linear on this data.
+$G_i$ has none: there the message enters the bracket with a coefficient of
+exactly $1$.
 
 \paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
 shift a neuron's message, and absorb it in the two constants that multiply and
