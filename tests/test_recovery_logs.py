@@ -221,3 +221,32 @@ def test_W_sign_is_refused_under_w_squared():
     i = src.index("coeff_W_sign is non-zero on a w_squared model")
     guard = src.rindex("if getattr(model, 'w_squared', False):", 0, i)
     assert "raise ValueError" in src[guard:i + 200]
+
+
+def test_eij_log_carries_the_per_edge_form_diagnostics(tmp_path):
+    """msg_form_r2 and the two-form medians come out of the SAME per-edge fit as
+    E_ij and answer what its R2 cannot -- whether the message has the
+    generator's shape, and whether the driving force does any work. They were
+    computed every checkpoint and thrown away, reachable only from metrics.txt
+    and so only for a run that finished."""
+    from connectome_gnn.metrics import (
+        recovery_log_append, recovery_log_columns, training_log_read)
+    cols = recovery_log_columns("Eij")
+    for c in ("msg_form_r2_median", "conductance_form_r2_median",
+              "current_form_r2_median"):
+        assert c in cols, c
+    # Global keys, so NOT prefixed -- unlike every <key>_<stat> beside them.
+    assert "Eij_msg_form_r2_median" not in cols
+    scored = {"Eij_R2": 0.7, "msg_form_r2_median": 0.94,
+              "conductance_form_r2_median": 0.94, "current_form_r2_median": 0.61}
+    recovery_log_append(str(tmp_path), 1000, scored)
+    d = training_log_read(str(tmp_path), "Eij")
+    assert d["msg_form_r2_median"][-1] == pytest.approx(0.94)
+    assert d["current_form_r2_median"][-1] == pytest.approx(0.61)
+
+
+def test_other_quantities_keep_their_columns():
+    """_EXTRA_GLOBAL is per key: adding Eij diagnostics must not shift Wij."""
+    from connectome_gnn.metrics import recovery_log_columns
+    assert recovery_log_columns("Wij")[-1] == "Wij_R2_uncorrected"
+    assert all(c.startswith("tau_") for c in recovery_log_columns("tau"))

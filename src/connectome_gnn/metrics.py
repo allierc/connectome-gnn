@@ -4100,10 +4100,38 @@ _EXTRA_STATS = {
     "V_rest": ("R2_uncorrected",),
 }
 
+# DIAGNOSTICS THAT ARE NOT `<key>_<stat>`, logged against the quantity they
+# describe. These three come out of the SAME per-edge fit that produces E_ij and
+# answer the question its R2 cannot: whether the message has the generator's
+# shape at all, and whether the driving force is doing any work.
+#
+#   msg_form_r2_median          median per-edge R2 of the model's OWN family
+#   conductance_form_r2_median  the same message under W*relu(v_j)*(E - v_i)
+#   current_form_r2_median      ... and under W*relu(v_j), the driving-force
+#                               column deleted. The two together are the
+#                               two-form comparison: a conductance GNN whose
+#                               message the CURRENT form explains just as well
+#                               has not demonstrated a driving force.
+#
+# They were computed at every checkpoint and thrown away -- reachable only from
+# results/metrics.txt, so only for a run that finished. A run stopped early had
+# no way to answer "is the message even the right shape", which is the first
+# question to ask of a conductance model.
+_EXTRA_GLOBAL = {
+    "Eij": ("msg_form_r2_median", "conductance_form_r2_median",
+            "current_form_r2_median"),
+}
+
 
 def recovery_log_columns(key):
-    """The `<key>_<stat>` columns of tmp_training/<key>.log, in file order."""
-    return tuple(f"{key}_{st}" for st in _COMMON_STATS + _EXTRA_STATS.get(key, ()))
+    """The columns of tmp_training/<key>.log, in file order.
+
+    `<key>_<stat>` for the per-quantity statistics, then any `_EXTRA_GLOBAL`
+    diagnostics under their own names -- those are keyed globally in `scored`,
+    not per quantity, so they are NOT prefixed.
+    """
+    return (tuple(f"{key}_{st}" for st in _COMMON_STATS + _EXTRA_STATS.get(key, ()))
+            + _EXTRA_GLOBAL.get(key, ()))
 
 
 def _fmt_metric(v):
