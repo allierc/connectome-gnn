@@ -57,7 +57,6 @@ from connectome_gnn.models.utils import (
     forward_kind,
     model_family,
     r2_color,
-    rmse_color,
     set_trainable_parameters,
 )
 
@@ -1045,12 +1044,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 if "Eij_R2" in _scored:
                     epoch_state.metrics.reversal_rmse = _g("Eij_rmse")
                     epoch_state.metrics.reversal_r2 = _g("Eij_R2")
+                    epoch_state.metrics.n_out_eij = int(_g("Eij_n_outliers", 0) or 0)
+                    epoch_state.metrics.n_total_eij = int(_g("Eij_n", 0) or 0)
                     _e = _rec_last.get("E_ij") if _rec_last is not None else None
                     if _e is not None:
                         epoch_state.metrics.reversal_scale = float(
                             np.max(_e[0]) - np.min(_e[0]))
                 if "msg_i_R2" in _scored:
                     epoch_state.metrics.msgi_r2 = _g("msg_i_R2_scaled", _g("msg_i_R2"))
+                    epoch_state.metrics.n_out_msgi = int(_g("msg_i_n_outliers", 0) or 0)
+                    epoch_state.metrics.n_total_msgi = int(_g("msg_i_n", 0) or 0)
                 epoch_state.metrics.eij_gate = _g("Eij_gate")
                 epoch_state.metrics.eij_pct_wrong_slope = _g("Eij_pct_wrong_slope")
                 logger.info(
@@ -1184,17 +1187,27 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         f"{ANSI_RESET}"
                     )
 
-                # E_ij RMSE, two decimals, coloured as a fraction of the true
-                # E_ij spread max-min (about 39.2 voltage units on the
-                # margin/global conductance datasets) -- an RMSE has units and no
-                # ceiling, so a fixed absolute threshold would mean nothing.
                 if getattr(epoch_state.metrics, "cluster_acc", None) is not None:
                     bar_parts.append(f"cl={epoch_state.metrics.cluster_acc:.2f}")
 
-                if epoch_state.metrics.reversal_rmse is not None:
+                # SAME SHAPE AS Wij, Vr AND tau: the outlier-free R2 with the
+                # share it leaves out. E used to print a bare RMSE, which has
+                # units and no ceiling, so it could not be read against the R2s
+                # beside it -- and on the conductance runs it reaches 2e4 while
+                # the same edges' R2 is -72, two unrelated-looking numbers for
+                # one quantity. The outlier share is the one that matters here:
+                # E = -b1/b2 is a ratio, and half the edges can be dropped by the
+                # filter without the headline moving at all.
+                if epoch_state.metrics.reversal_r2 is not None:
+                    eij_pct = (
+                        100.0 * epoch_state.metrics.n_out_eij / epoch_state.metrics.n_total_eij
+                        if epoch_state.metrics.n_total_eij > 0
+                        else 0.0
+                    )
                     bar_parts.append(
-                        f"{rmse_color(epoch_state.metrics.reversal_rmse, epoch_state.metrics.reversal_scale)}"
-                        f"E={epoch_state.metrics.reversal_rmse:.2f}"
+                        f"{r2_color(epoch_state.metrics.reversal_r2)}"
+                        f"E={fmt_r2_bar(epoch_state.metrics.reversal_r2)}"
+                        f"({eij_pct:.0f}%)"
                         f"{ANSI_RESET}"
                     )
 
@@ -1206,9 +1219,15 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # needs neither a correction nor an estimator choice -- so msg
                 # disagreeing with Wij localises the problem to the correction.
                 if epoch_state.metrics.msgi_r2 is not None:
+                    msgi_pct = (
+                        100.0 * epoch_state.metrics.n_out_msgi / epoch_state.metrics.n_total_msgi
+                        if epoch_state.metrics.n_total_msgi > 0
+                        else 0.0
+                    )
                     bar_parts.append(
                         f"{r2_color(epoch_state.metrics.msgi_r2)}"
-                        f"msg={epoch_state.metrics.msgi_r2:.2f}"
+                        f"msg={fmt_r2_bar(epoch_state.metrics.msgi_r2)}"
+                        f"({msgi_pct:.0f}%)"
                         f"{ANSI_RESET}"
                     )
 
