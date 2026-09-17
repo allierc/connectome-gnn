@@ -3803,7 +3803,21 @@ def _run_ode_generation(
                             if _adapt_g > 0.0:
                                 adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
                     else:
-                        if noise_model_level > 0:
+                        # THE DEFAULT PATH -- `_need_substep_loop` is off unless a
+                        # misspecification test asks for substeps, so this, not the
+                        # branch above, is what almost every dataset is integrated
+                        # with. The conductance generator needs its exact step here
+                        # too: forward Euler contracts only while
+                        # (dt/tau_i)(1 + G_i) < 2 and the generating network reaches
+                        # 4.4, which blows every trace up inside ten frames.
+                        _exp_euler_1 = getattr(sim, "conductance_exponential_euler", True)
+                        if getattr(pde, "is_conductance", False) and _exp_euler_1:
+                            x.voltage = pde.step(x, edge_index, sim.delta_t)
+                            if noise_model_level > 0:
+                                x.voltage = x.voltage + torch.randn(
+                                    n_neurons, dtype=torch.float32, device=device
+                                ) * noise_model_level
+                        elif noise_model_level > 0:
                             x.voltage = (
                                 x.voltage
                                 + sim.delta_t * dv_step
