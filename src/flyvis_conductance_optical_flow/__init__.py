@@ -12,12 +12,14 @@ below is the check worth running after building a network, because the failure
 mode is otherwise a network that trains quietly with no dynamics at all.
 """
 
-# THE `noqa` IS LOAD-BEARING. Neither name is used in this file, so ruff's F401
-# (imported-but-unused) fires on both, and `ruff --fix` would DELETE them -- which
-# removes the only thing that registers the model. The import IS the effect: it
-# puts the two classes into the subclass trees flyvis searches by name.
-from flyvis_conductance_optical_flow.dynamics import ConductanceSynapses  # noqa: F401
-from flyvis_conductance_optical_flow.parameters import ReversalPotential  # noqa: F401
+# THE IMPORT IS THE EFFECT. Neither name is used in this file: importing them
+# executes their `class` statements, which is what puts them into the subclass
+# trees flyvis searches by name. `__all__` below is what keeps them -- it marks
+# both as intentional re-exports, so ruff's F401 does not fire and `ruff --fix`
+# cannot delete the two lines that perform the registration -- verified by running
+# ruff over this file with the unused-import rule selected.
+from flyvis_conductance_optical_flow.dynamics import ConductanceSynapses
+from flyvis_conductance_optical_flow.parameters import ReversalPotential
 
 __all__ = ["ConductanceSynapses", "ReversalPotential", "assert_registered"]
 
