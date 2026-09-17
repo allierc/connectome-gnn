@@ -62,6 +62,8 @@ class TrainingMetrics:
     # which is what the progress bar colours reversal_rmse against.
     reversal_rmse: float | None = None
     reversal_r2: float | None = None
+    n_out_eij: int = 0
+    n_total_eij: int = 0
     reversal_scale: float | None = None
 
     # R2 of the aggregated per-neuron message msg_i, true vs learned. The one
@@ -73,6 +75,8 @@ class TrainingMetrics:
     # the split is wrong, and that is a completely different situation from
     # conn=-5.0 with msg=-0.04, which says nothing is being learned at all.
     msgi_r2: float | None = None
+    n_out_msgi: int = 0
+    n_total_msgi: int = 0
     # Cell-type clustering accuracy from cluster_recovery (regular checkpoints
     # only); None until the first one.
     cluster_acc: float | None = None
