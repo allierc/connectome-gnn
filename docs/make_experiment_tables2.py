@@ -290,9 +290,15 @@ def _training_row(a):
 
 
 def table(entries, caption, training=False):
-    """One table, the shared column set. `training` reads tmp_training/<key>.log
-    and tags each row with the iteration it was read at; otherwise cells come
-    from results/metrics.txt and a run with none gets blanks and a star."""
+    """One table, the shared column set.
+
+    `training` reads tmp_training/<key>.log and tags each row with the iteration
+    it was read at; otherwise cells come from results/metrics.txt and a run with
+    none gets blanks and a star. CURRENTLY OFF EVERYWHERE: a training-split
+    number read at whatever iteration a run happened to reach is not comparable
+    to the row beneath it, let alone to a held-out column, and the campaign was
+    relaunched on corrected configs so nothing on disk describes a live run yet.
+    Flip the flag on the call to bring the numbers back."""
     out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
            r"\setlength{\tabcolsep}{1.5pt}", rf"\caption{{{caption}}}",
            r"\setlength{\tabcolsep}{2pt}",
@@ -365,12 +371,8 @@ held-out numbers yet.}\end{center}
     for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
         _t = table(
             pick(f"grid_{_ltag}"),
-            "Training split at the iteration shown, group lasso "
-            rf"$\lambda = {_lam}$. `gain term\' is the value "
-            r"\texttt{coeff\_f\_theta\_msg\_gain} contributes to the loss "
-            r"(the per-neuron figure the log stores, $\times\,13{,}741$), against a "
-            r"trajectory loss of order $0.05$. Columns the training logs do not "
-            r"carry print `--\'.", training=True)
+            "Conductance model on conductance data, training split, group lasso "
+            rf"$\lambda = {_lam}$, $\sigma = 0.05$.")
         if _t:
             L.append(_t)
     L.append(r"\end{document}")
