@@ -18,24 +18,24 @@ held-out numbers yet.}\end{center}
 \setlength{\tabcolsep}{1.5pt}
 \caption{Conductance model on conductance data with a group lasso, $\sigma = 0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00}} \\[1pt]
-$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01}} \\[1pt]
-$\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00}} \\[1pt]
-$\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01}} \\[1pt]
-$\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00}} \\[1pt]
-$\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01}} \\[1pt]
+$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00}} \\[1pt]
+$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01}} \\[1pt]
+$\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00}} \\[1pt]
+$\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01}} \\[1pt]
+$\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00}} \\[1pt]
+$\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -45,20 +45,20 @@ $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
 \setlength{\tabcolsep}{1.5pt}
 \caption{Conductance model on conductance data with a group lasso, $\sigma = 0.05$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00}} \\[1pt]
-$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01}} \\[1pt]
-$\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00}} \\[1pt]
-$\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01}} \\[1pt]
+$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00}} \\[1pt]
+$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01}} \\[1pt]
+$\lambda=0.25$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00}} \\[1pt]
+$\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -68,47 +68,20 @@ $\lambda=0.25$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
 \setlength{\tabcolsep}{1.5pt}
 \caption{Conductance model on conductance data with a group lasso and a $K = 10$ rollout, $\sigma = 0$.}
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{3.2cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}}
+\begin{tabular}{p{2.8cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{1.15cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.6cm}>{\raggedleft\arraybackslash}p{2.4cm}>{\raggedleft\arraybackslash}p{1.15cm}}
 \toprule
-arm & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ \\
+arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. \\
 \midrule
-$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00}} \\[1pt]
-$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01}} \\[1pt]
-$\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00}} \\[1pt]
-$\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  \\
-\multicolumn{8}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv01}} \\[1pt]
+$\lambda=0$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00}} \\[1pt]
+$\lambda=0$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01}} \\[1pt]
+$\lambda=0.1$, fold 00$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00}} \\[1pt]
+$\lambda=0.1$, fold 01$^{*}$ &  &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{12}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv01}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- \\
-\bottomrule
-\end{tabular}
-\end{table}
-\begin{table}[H]
-\scriptsize
-\raggedright
-\setlength{\tabcolsep}{1.5pt}
-\caption{Conductance model on conductance data, training split at the iteration shown.}
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{5.4cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}>{\raggedleft\arraybackslash}p{1.6cm}}
-\toprule
-run (training split) & iteration & $W_{ij}$ $R^2$ & $W_{ij}$ gain & $E_{ij}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $\tau$ $R^2$ \\
-\midrule
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv00} & 256,001 & -0.18 & 0.31 & 0.63 & 0.81 & 0.85 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_cv01} & 256,001 & -0.27 & 0.12 & 0.60 & \textcolor{green!45!black}{0.90} & 0.65 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv00} & 112,001 & -0.15 & 0.08 & 0.63 & 0.81 & 0.86 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_cv01} & 128,001 & -0.22 & -0.08 & 0.62 & \textcolor{green!45!black}{0.90} & 0.52 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv00} & 208,001 & -0.31 & 0.26 & 0.56 & 0.78 & 0.86 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p25\_cv01} & 192,001 & -0.15 & 0.20 & 0.52 & 0.87 & 0.75 \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv00} & 256,001 & 0.15 & 0.23 & 0.70 & 0.84 & \textcolor{green!45!black}{0.91} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0\_cv01} & 128,001 & 0.12 & 0.22 & 0.66 & \textcolor{green!45!black}{0.91} & \textcolor{green!45!black}{0.92} \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv00} & 256,001 & 0.11 & 0.21 & 0.69 & 0.84 & 0.88 \\
-\texttt{flyvis\_flowcond\_noise\_005\_gnn\_lasso0p25\_cv01} & 144,001 & 0.16 & 0.24 & 0.73 & 0.89 & \textcolor{green!45!black}{0.92} \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv00} & 240,001 & -0.24 & 0.03 & 0.57 & 0.81 & 0.85 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0\_rc10\_cv01} & 128,001 & -0.15 & 0.25 & 0.63 & \textcolor{green!45!black}{0.91} & 0.56 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv00} & 64,001 & -0.30 & 0.28 & 0.69 & 0.80 & 0.66 \\
-\texttt{flyvis\_flowcond\_noise\_free\_gnn\_lasso0p1\_rc10\_cv01} & 12,801 & -0.26 & 0.15 & 0.41 & \textcolor{green!45!black}{0.92} & 0.29 \\
+\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
