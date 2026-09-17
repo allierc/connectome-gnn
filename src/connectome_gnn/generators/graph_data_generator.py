@@ -3502,19 +3502,6 @@ def _run_ode_generation(
     it = it_start
     id_fig = id_fig_start
 
-    # --- NeurIPS-2026 rebuttal: model-misspecification knobs (graded flyvis path) ---
-    # Defaults reproduce the base single-Euler-step generator byte-for-byte.
-    _n_sub = max(1, int(getattr(sim, 'n_generation_substeps', 1)))
-    _fd_target = bool(getattr(sim, 'finite_difference_target', False))
-    _adapt_g = float(getattr(sim, 'adapt_g', 0.0))
-    _adapt_tau_s = float(getattr(sim, 'adapt_tau_ms', 200.0)) / 1000.0  # ms -> same time unit as delta_t (s)
-    _need_substep_loop = (_n_sub > 1) or (_adapt_g > 0.0)
-    adapt_c = None  # latent per-neuron adaptation state c_i (Test 3); persists across the loop
-    if _n_sub > 1 or _fd_target or _adapt_g > 0.0:
-        logger.info(
-            f"\033[95m[misspec] n_substeps={_n_sub}  finite_diff_target={_fd_target}  "
-            f"adapt_g={_adapt_g}  adapt_tau_ms={getattr(sim, 'adapt_tau_ms', 200.0)}\033[0m"
-        )
 
     tile_labels = None
     tile_codes_torch = None
@@ -3576,8 +3563,6 @@ def _run_ode_generation(
             for data_idx, data in enumerate(tqdm(stimulus_sequences, desc="processing stimulus data", ncols=100)):
                 if sim.simulation_initial_state:
                     x.voltage[:] = initial_state
-                    if _adapt_g > 0.0 and adapt_c is not None:
-                        adapt_c[:] = x.voltage  # reset latent adaptation to c_i(0)=v_i(0) on state reset
                     if sim.only_noise_visual_input > 0:
                         x.stimulus[: sim.n_input_neurons] = torch.clamp(
                             torch.relu(
@@ -3768,15 +3753,6 @@ def _run_ode_generation(
 
                     y = pde(x, edge_index, has_field=False)
                     dv_step = y.squeeze()
-                    if _adapt_g > 0.0:
-                        # Subtract latent adaptation current -g_a*c_i/tau_i so the
-                        # stored analytic target y is the TRUE (adaptation-including)
-                        # dv/dt of the observed voltage. c_i is never observed.
-                        if adapt_c is None:
-                            adapt_c = x.voltage.clone()
-                        dv_step = dv_step - _adapt_g * adapt_c / pde.ode_params.tau_i
-                        y = dv_step.unsqueeze(-1)
-
                     # Generate measurement noise for this timestep.
                     # AR(1) recursion when noise_ar1_rho > 0; falls back to i.i.d. otherwise.
                     if measurement_noise_level > 0:
@@ -3797,80 +3773,21 @@ def _run_ode_generation(
                     # Save x[t] BEFORE updating voltage to x[t+1]
                     x_writer.append_state(x)
 
-                    _v_before = x.voltage.clone() if _fd_target else None
-                    if _need_substep_loop:
-                        # Integrate the graded ODE with M Euler substeps of h=delta_t/M
-                        # (Test 1: finer than the delta_t inference step) and/or step the
-                        # latent adaptation state c_i (Test 3). Process noise is scaled by
-                        # 1/sqrt(M) so the per-observed-frame noise variance matches base.
-                        # Stimulus is held constant across substeps (observed cadence=delta_t).
-                        _h = sim.delta_t / _n_sub
-                        _exp_euler = getattr(sim, "conductance_exponential_euler", True)
-                        for _sub in range(_n_sub):
-                            if _sub == 0:
-                                _dv = dv_step  # reuse the derivative already computed above
-                            else:
-                                _dv = pde(x, edge_index, has_field=False).squeeze()
-                                if _adapt_g > 0.0:
-                                    _dv = _dv - _adapt_g * adapt_c / pde.ode_params.tau_i
-                            # EXPONENTIAL EULER ON THE CONDUCTANCE BRANCH. Forward
-                            # Euler contracts only while (h/tau_i)(1 + G_i) < 2, and
-                            # the generating network was measured with a total
-                            # synaptic conductance G_i up to 3.2 -- a factor of 4.4
-                            # at h = 20 ms and tau_i = 19 ms, which is how
-                            # flow/2000/000 died. `pde.step` solves the step exactly
-                            # at frozen coefficients instead, so it is a contraction
-                            # for any G_i >= 0. `_dv` is still the true derivative
-                            # and is what gets STORED as the training target; only
-                            # the state update changes.
-                            if _exp_euler:
-                                x.voltage = pde.step(x, edge_index, _h)
-                            elif noise_model_level > 0:
-                                x.voltage = (
-                                    x.voltage
-                                    + _h * _dv
-                                    + torch.randn(n_neurons, dtype=torch.float32, device=device)
-                                    * noise_model_level / (_n_sub ** 0.5)
-                                )
-                            else:
-                                x.voltage = x.voltage + _h * _dv
-                            if _exp_euler and noise_model_level > 0:
-                                # Process noise is added AFTER the exact step, with
-                                # the same per-observed-frame variance as the Euler
-                                # branch above.
-                                x.voltage = x.voltage + torch.randn(
-                                    n_neurons, dtype=torch.float32, device=device
-                                ) * noise_model_level / (_n_sub ** 0.5)
-                            if _adapt_g > 0.0:
-                                adapt_c = adapt_c + _h * (x.voltage - adapt_c) / _adapt_tau_s
+                    # EXPONENTIAL EULER ON THE CONDUCTANCE BRANCH. Forward Euler
+                    # contracts only while (dt/tau_i)(1 + G_i) < 2 and the generating
+                    # network reaches 4.4 at dt = 20 ms with tau_i = 19 ms, which blows
+                    # every trace up inside ten frames. `pde.step` solves the step
+                    # exactly at frozen coefficients instead, a contraction for any
+                    # G_i >= 0. `dv_step` is still the true derivative and is what gets
+                    # STORED as the training target; only the state update changes.
+                    if getattr(sim, "conductance_exponential_euler", True):
+                        x.voltage = pde.step(x, edge_index, sim.delta_t)
                     else:
-                        # THE DEFAULT PATH -- `_need_substep_loop` is off unless a
-                        # misspecification test asks for substeps, so this, not the
-                        # branch above, is what almost every dataset is integrated
-                        # with. The conductance generator needs its exact step here
-                        # too: forward Euler contracts only while
-                        # (dt/tau_i)(1 + G_i) < 2 and the generating network reaches
-                        # 4.4, which blows every trace up inside ten frames.
-                        _exp_euler_1 = getattr(sim, "conductance_exponential_euler", True)
-                        if _exp_euler_1:
-                            x.voltage = pde.step(x, edge_index, sim.delta_t)
-                            if noise_model_level > 0:
-                                x.voltage = x.voltage + torch.randn(
-                                    n_neurons, dtype=torch.float32, device=device
-                                ) * noise_model_level
-                        elif noise_model_level > 0:
-                            x.voltage = (
-                                x.voltage
-                                + sim.delta_t * dv_step
-                                + torch.randn(n_neurons, dtype=torch.float32, device=device) * noise_model_level
-                            )
-                        else:
-                            x.voltage = x.voltage + sim.delta_t * dv_step
-                    if _fd_target:
-                        # Test 1: overwrite target with the OBSERVED one-step finite
-                        # difference at delta_t (curvature-biased vs the analytic drift).
-                        y = ((x.voltage - _v_before) / sim.delta_t).unsqueeze(-1)
-
+                        x.voltage = x.voltage + sim.delta_t * dv_step
+                    if noise_model_level > 0:
+                        x.voltage = x.voltage + torch.randn(
+                            n_neurons, dtype=torch.float32, device=device
+                        ) * noise_model_level
                     if sim.calcium_type == "leaky":
                         if sim.calcium_activation == "softplus":
                             s = torch.nn.functional.softplus(x.voltage)
