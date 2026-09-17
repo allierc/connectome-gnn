@@ -282,30 +282,86 @@ V^{\mathrm{rest},\,\mathrm{corrected}}_i
 \subsection{$\Eij$: why there is no correction, and what replaces one}
 \label{sec:Ecorr}
 
-\paragraph{The gauge cancels.} Substituting the gauge \eqref{eq:gauge} into the
-per-edge form \eqref{eq:edgelin} divides the driving-force term by $k_i$ but
-leaves its shape untouched, so the fitted coefficients become
+\paragraph{The gauge cancels. The substitution, step by step.} Start from the
+gauge \eqref{eq:gauge}, which is a statement about neuron $i$'s \emph{total}
+incoming message:
+%
+\begin{equation}
+\widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i
+\qquad\text{with}\qquad
+\msg_i = \sum_j \msg_{ij}, \quad \widehat{\msg}_i = \sum_j \widehat{\msg}_{ij} .
+\tag{\ref{eq:gauge}}
+\end{equation}
+%
+\emph{Step 1 --- take it down to one edge.} The fit of \S\ref{sec:edge} works on
+a single synapse, so the gauge has to be read per edge. Assume the model applies
+the same scale $k_i$ to every edge into $i$ and splits the offset among them,
+%
+\begin{equation}
+\widehat{\msg}_{ij}(t) \;=\; \frac{1}{k_i}\,\msg_{ij}(t) \;+\; C_{ij},
+\qquad \sum_j C_{ij} = \beta_i .
+\label{eq:edgegauge}
+\end{equation}
+%
+$k_i$ is a property of the receiving neuron, so carrying one scale across its
+edges is forced; splitting $\beta_i$ into per-edge constants is not, and that
+assumption is exactly what the next paragraph removes.
+
+\emph{Step 2 --- put the generator's synapse in.} The true per-edge message is
+$\msg_{ij}(t) = \Wij\,u_t\,(\Eij - \vi(t))$ with $u_t = \act(\vj(t))$, so
+%
+\begin{equation}
+\widehat{\msg}_{ij}(t)
+  \;=\; \frac{1}{k_i}\,\Wij\,u_t\,\bigl(\Eij - \vi(t)\bigr) \;+\; C_{ij}.
+\end{equation}
+%
+\emph{Step 3 --- multiply out the bracket.} Distributing $u_t$ over
+$\Eij - \vi(t)$ separates the two things that multiply it:
+%
+\begin{equation}
+\widehat{\msg}_{ij}(t)
+  \;=\; \frac{\Wij \Eij}{k_i}\;u_t
+  \;-\; \frac{\Wij}{k_i}\;\bigl(u_t\,\vi(t)\bigr)
+  \;+\; C_{ij}.
+\label{eq:Eexpand}
+\end{equation}
+%
+\emph{Step 4 --- read off the coefficients.} The fit \eqref{eq:edgelin} regresses
+$\widehat{\msg}_{ij}$ on the three columns $u_t$, $u_t \vi(t)$ and $1$. Equation
+\eqref{eq:Eexpand} is already in that form, so its three coefficients ARE
+$b_1, b_2, b_3$:
 %
 \begin{equation}
 b_1 = \frac{\Wij \Eij}{k_i}, \qquad
 b_2 = -\frac{\Wij}{k_i}, \qquad
-b_3 = C_{ij},
-\qquad\Longrightarrow\qquad
--\frac{b_1}{b_2} = \Eij \ \ \text{exactly}.
+b_3 = C_{ij}.
 \label{eq:Egauge}
 \end{equation}
 %
-$\Wij$ is a coefficient and inherits the $1/k_i$, which is why \eqref{eq:wcorr}
-multiplies it back; $\Eij$ is a \emph{ratio} of two coefficients that carry the
-same factor, so $k_i$ divides out. The offset $\beta_i$ cannot reach it either:
-it is absorbed by the third column. This is the precise content of ``$\Eij$
-needs neither correction''.
+\emph{Step 5 --- divide.} Both $b_1$ and $b_2$ carry the same factor $1/k_i$,
+and \eqref{eq:edgesolve} takes their ratio:
+%
+\begin{equation}
+-\frac{b_1}{b_2}
+  \;=\; -\,\frac{\Wij \Eij / k_i}{-\Wij / k_i}
+  \;=\; \frac{\Wij \Eij}{\Wij}\cdot\frac{k_i}{k_i}
+  \;=\; \Eij \ \ \text{exactly, for any } k_i .
+\end{equation}
+%
+$\Wij$ is a single coefficient and keeps the $1/k_i$, which is why
+\eqref{eq:wcorr} multiplies it back; $\Eij$ is a \emph{ratio} of two coefficients
+that carry the same factor, so it divides out. The offset cannot reach $\Eij$
+either --- $C_{ij}$ is $b_3$, and $b_3$ appears in neither $b_1$ nor $b_2$. That
+is the precise content of ``$\Eij$ needs neither correction''.
 
-\paragraph{But $\Eij$ is exposed to a contamination $\Wij$ is not.} The gauge
-\eqref{eq:gauge} is stated per \emph{neuron}, and nothing in it constrains how
-the model splits that message across the edges feeding $i$. Suppose the model's
-per-edge message carries, besides the driving-force term, a component
-proportional to the drive with no driving force in it:
+\paragraph{But $\Eij$ is exposed to a contamination $\Wij$ is not.} Step 1 above
+is where the whole result rests, and it is an assumption. The gauge
+\eqref{eq:gauge} is a statement about neuron $i$'s \emph{total} message; writing
+it per edge as \eqref{eq:edgegauge} adds the claim that whatever the model does
+beyond rescaling is a per-edge \emph{constant}. Nothing in the training
+objective requires that. Relax it in the one direction that matters --- let each
+edge also carry a component proportional to the drive, with no driving force in
+it:
 %
 \begin{equation}
 \widehat{\msg}_{ij}(t) \;=\; \frac{1}{k_i}\,\Wij\,u_t\,\bigl(\Eij - \vi(t)\bigr)
