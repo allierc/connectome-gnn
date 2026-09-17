@@ -52,112 +52,16 @@ The model is a graph network with the same connectivity:
 %
 where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
-$\widehat{\msg}$}, and that is the whole difficulty.
+$\widehat{\msg}$}, and that is the whole difficulty: the message is an internal
+variable, so any rescaling of it that $f_\theta$ can undo leaves the training
+objective exactly unchanged. \S\ref{sec:readout} first measures what the network
+computes; \S\ref{sec:gauge} makes that statement precise and undoes it.
 
-\paragraph{The model's update in the generator's shape.} $f_\theta$ is an MLP:
-there is no $\tau$ in it to read off, no resting potential, no message gain. Write
-its update the way \eqref{eq:gen} is written, constants left open,
-%
-\begin{equation}
-\frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
-                              + f(I_i)\Bigr],
-\label{eq:updatetmpl}
-\end{equation}
-%
-to be measured in \S\ref{sec:update}. Three of the four have counterparts in
-\eqref{eq:gen} --- $1/\tau_i$, the constant level $V^{\mathrm{rest}}_i$ (not the
-moving state $\vi$), and $f$, linear on this data. $G_i$ has none: there the
-message enters the bracket with a coefficient of exactly $1$.
-
-\paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
-shift a neuron's message, and absorb it in the two constants that multiply and
-offset it:
-%
-\begin{equation}
-\widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
-\qquad
-G_i \;\longmapsto\; c\,G_i,
-\qquad
-V_i \;\longmapsto\; V_i - c\,G_i\,d ,
-\label{eq:gaugetransform}
-\end{equation}
-%
-leaving $d\vi/dt$, hence the loss, unchanged for any $c \ne 0$ and any $d$:
-training cannot prefer one member of this two-parameter family over another.
-
-Which member the trained model ended up as is then a question about \emph{this}
-model, and the readout's first job is to answer it. Suppose the model's message
-is the true one seen through such a transformation:
-%
-\begin{equation}
-\widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
-\label{eq:ansatz}
-\end{equation}
-%
-This is \eqref{eq:gaugetransform} with $c = k_i$ and $d = \beta_i$, applied to the
-generator's message --- and the change of letters is the whole point.
-$(c, d)$ are \emph{free}: the transformation holds for every value of them, which
-is what makes the family a family. $(k_i, \beta_i)$ are the \emph{particular}
-values that relate this one trained model to the truth --- one point in that
-family, per neuron, and an unknown to be measured. Writing both with the same
-letter would lose exactly that distinction.
-
-So \eqref{eq:ansatz} is a supposition, not a gauge: it says the model differs
-from the generator \emph{only} by the redundancy and not by anything else. It can be false --- a
-model whose message is off the family is one whose per-edge form is not the
-generator's at all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is
-tested, by the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
-$(k_i, \beta_i)$ are the coordinates on the family, and there are two ways to
-deal with them. \emph{Fixing} the gauge during training adds a term that makes
-one member the only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives
-$k_i \to 1$, \texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing}
-it after training, which is what this document is about, leaves the model
-wherever it landed and measures $(k_i, \beta_i)$ instead.
-
-Substituting \eqref{eq:ansatz} into \eqref{eq:updatetmpl} and expanding puts the
-model's update in terms of the true message,
-%
-\begin{equation}
-\frac{d\vi}{dt} \;=\; -\,T_i\,\vi
-   \;+\; \frac{T_i G_i}{k_i}\,\msg_i
-   \;+\; T_i\bigl(V_i + G_i \beta_i\bigr)
-   \;+\; T_i f(I_i),
-\label{eq:updateexpanded}
-\end{equation}
-%
-while the generator \eqref{eq:gen}, divided by $\tau_i$ and grouped the same way,
-reads
-%
-\begin{equation}
-\frac{d\vi}{dt} \;=\; -\,\frac{1}{\tau_i}\,\vi
-   \;+\; \frac{1}{\tau_i}\,\msg_i
-   \;+\; \frac{V^{\mathrm{rest}}_i}{\tau_i}
-   \;+\; \frac{I_i}{\tau_i}.
-\label{eq:genexpanded}
-\end{equation}
-%
-The two hold for every trajectory the network produces, so the coefficients of
-$\vi$, of $\msg_i$ and the constant must agree one by one. Matching them gives
-three identities:
-%
-\begin{align}
-\text{message:} && T_i G_i \frac{1}{k_i} &= \frac{1}{\tau_i}
-   &&\Longrightarrow&& k_i = \tau_i\, T_i\, G_i ,
-   \label{eq:kid}\\[2pt]
-\text{leak:}    && T_i &= \frac{1}{\tau_i}
-   &&\Longrightarrow&& \tau_i = 1/T_i ,
-   \label{eq:tauid}\\[2pt]
-\text{constant:}&& T_i V_i + T_i G_i \beta_i &= \frac{V^{\mathrm{rest}}_i}{\tau_i}
-   &&\Longrightarrow&& V^{\mathrm{rest}}_i = \tau_i T_i V_i + k_i \beta_i .
-   \label{eq:vrestid}
-\end{align}
-%
 \section{The readout, as least squares}
 \label{sec:readout}
 
-With the identities in hand the question becomes an empirical one: does the
-trained network obey the generator's equation~\eqref{eq:gen} at all, and if so
-with which constants? The two are answered by the same fit. Impose the
+The question is an empirical one: does the trained network obey the generator's
+equation~\eqref{eq:gen} at all, and if so with which constants? The two are answered by the same fit. Impose the
 generator's form on what the network computes, ask least squares for the
 constants that fit it best, and read the residual: the coefficients are the
 recovered parameters, and the $R^2$ is how well the hypothesis holds on that edge
@@ -253,10 +157,24 @@ fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversa
 \subsection{Per neuron: $T_i$, $V_i$, $G_i$}
 \label{sec:update}
 
-The same least-squares approach on the update, and it is the regression that is
-primary: \eqref{eq:updatetmpl} is what it becomes when the coefficients are
-regrouped. Taking $f(I)$ linear, fit the model's own $d\vi/dt$ against its own
-inputs,
+$f_\theta$ is an MLP: there is no $\tau$ in it to read off, no resting potential,
+no message gain. Write its update the way \eqref{eq:gen} is written, constants
+left open,
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; T_i\Bigl[\bigl(V_i - \vi\bigr) + G_i \widehat{\msg}_i
+                              + f(I_i)\Bigr],
+\label{eq:updatetmpl}
+\end{equation}
+%
+Three of the four have counterparts in \eqref{eq:gen} --- $1/\tau_i$, the constant
+level $V^{\mathrm{rest}}_i$ (not the moving state $\vi$), and $f$, linear on this
+data. $G_i$ has none: there the message enters the bracket with a coefficient of
+exactly $1$, and \S\ref{sec:gauge} is about what that freedom costs.
+
+The regression is the primary object here:
+\eqref{eq:updatetmpl} is what it becomes once its coefficients are regrouped.
+Taking $f(I)$ linear, fit the model's own $d\vi/dt$ against its own inputs,
 %
 \begin{equation}
 \widehat{\frac{d\vi}{dt}} \;=\; a_0 + a_1\,\vi + a_2\,\widehat{\msg}_i
@@ -277,7 +195,91 @@ a low value invalidates $T$, $V$ and $G$ together.
 \subsection{From the fitted coefficients to the circuit}
 \label{sec:gauge}
 
-The two fits return numbers about the model: per edge $(b_1,b_2,b_3)$, per neuron
+\paragraph{The redundancy.} $G_i$ is exactly where the trouble is. Rescale and
+shift a neuron's message, and absorb it in the two constants that multiply and
+offset it:
+%
+\begin{equation}
+\widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
+\qquad
+G_i \;\longmapsto\; c\,G_i,
+\qquad
+V_i \;\longmapsto\; V_i - c\,G_i\,d ,
+\label{eq:gaugetransform}
+\end{equation}
+%
+leaving $d\vi/dt$, hence the loss, unchanged for any $c \ne 0$ and any $d$:
+training cannot prefer one member of this two-parameter family over another.
+
+Which member the trained model ended up as is then a question about \emph{this}
+model, and the readout's first job is to answer it. Suppose the model's message
+is the true one seen through such a transformation:
+%
+\begin{equation}
+\widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
+\label{eq:ansatz}
+\end{equation}
+%
+This is \eqref{eq:gaugetransform} with $c = k_i$ and $d = \beta_i$, applied to the
+generator's message --- and the change of letters is the whole point.
+$(c, d)$ are \emph{free}: the transformation holds for every value of them, which
+is what makes the family a family. $(k_i, \beta_i)$ are the \emph{particular}
+values that relate this one trained model to the truth --- one point in that
+family, per neuron, and an unknown to be measured. Writing both with the same
+letter would lose exactly that distinction.
+
+So \eqref{eq:ansatz} is a supposition, not a gauge: it says the model differs
+from the generator \emph{only} by the redundancy and not by anything else. It can be false --- a
+model whose message is off the family is one whose per-edge form is not the
+generator's at all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is
+tested, by the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
+$(k_i, \beta_i)$ are the coordinates on the family, and there are two ways to
+deal with them. \emph{Fixing} the gauge during training adds a term that makes
+one member the only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives
+$k_i \to 1$, \texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing}
+it after training, which is what this document is about, leaves the model
+wherever it landed and measures $(k_i, \beta_i)$ instead.
+
+Substituting \eqref{eq:ansatz} into \eqref{eq:updatetmpl} and expanding puts the
+model's update in terms of the true message,
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; -\,T_i\,\vi
+   \;+\; \frac{T_i G_i}{k_i}\,\msg_i
+   \;+\; T_i\bigl(V_i + G_i \beta_i\bigr)
+   \;+\; T_i f(I_i),
+\label{eq:updateexpanded}
+\end{equation}
+%
+while the generator \eqref{eq:gen}, divided by $\tau_i$ and grouped the same way,
+reads
+%
+\begin{equation}
+\frac{d\vi}{dt} \;=\; -\,\frac{1}{\tau_i}\,\vi
+   \;+\; \frac{1}{\tau_i}\,\msg_i
+   \;+\; \frac{V^{\mathrm{rest}}_i}{\tau_i}
+   \;+\; \frac{I_i}{\tau_i}.
+\label{eq:genexpanded}
+\end{equation}
+%
+The two hold for every trajectory the network produces, so the coefficients of
+$\vi$, of $\msg_i$ and the constant must agree one by one. Matching them gives
+three identities:
+%
+\begin{align}
+\text{message:} && T_i G_i \frac{1}{k_i} &= \frac{1}{\tau_i}
+   &&\Longrightarrow&& k_i = \tau_i\, T_i\, G_i ,
+   \label{eq:kid}\\[2pt]
+\text{leak:}    && T_i &= \frac{1}{\tau_i}
+   &&\Longrightarrow&& \tau_i = 1/T_i ,
+   \label{eq:tauid}\\[2pt]
+\text{constant:}&& T_i V_i + T_i G_i \beta_i &= \frac{V^{\mathrm{rest}}_i}{\tau_i}
+   &&\Longrightarrow&& V^{\mathrm{rest}}_i = \tau_i T_i V_i + k_i \beta_i .
+   \label{eq:vrestid}
+\end{align}
+%
+
+\paragraph{Applying them.} The two fits return numbers about the model: per edge $(b_1,b_2,b_3)$, per neuron
 $(a_0,a_1,a_2,a_3)$, and from them $T_i$, $V_i$, $G_i$, $\Wij^{\mathrm{fit}}$,
 $\Eij$, $C_{ij}$. The identities \eqref{eq:kid}--\eqref{eq:vrestid} are what turn
 those into the generator's parameters, and they are used in this order:
