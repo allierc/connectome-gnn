@@ -84,12 +84,8 @@ V_i \;\longmapsto\; V_i - c\,G_i\,d ,
 \label{eq:gaugetransform}
 \end{equation}
 %
-and the bracket in \eqref{eq:updatetmpl} --- hence $d\vi/dt$, hence the loss ---
-is \emph{identically} unchanged, for any $c \ne 0$ and any $d$. A whole
-two-parameter family of models describes one and the same network. That family
-is the gauge freedom of this parameterisation: a redundancy in the description,
-not a property of the circuit. Training cannot prefer one member of it over
-another, because the objective is constant along the family.
+leaving $d\vi/dt$, hence the loss, unchanged for any $c \ne 0$ and any $d$:
+training cannot prefer one member of this two-parameter family over another.
 
 Which member the trained model ended up as is then a question about \emph{this}
 model, and the readout's first job is to answer it. Suppose the model's message
