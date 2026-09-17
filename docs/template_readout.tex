@@ -171,8 +171,9 @@ the conductance run used throughout: $432{,}517$ of the $434{,}112$ edges are
 fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversal
 ($93.4\%$ of all edges).
 
-\subsection{Per neuron: the update fit}
+\subsection{Per neuron: the update fit, and the gauge it leaves free}
 \label{sec:update}
+\label{sec:gauge}
 
 $f_\theta$ is an MLP: there is no $\tau$ in it to read off, no resting potential,
 no message gain. What it is, on this data, is close to affine in its inputs --- so
@@ -223,9 +224,6 @@ What survives is $\alpha_1 = -1/\tau_i$, which \eqref{eq:gaugetransform} does no
 touch: the time constant is the one thing readable off the fit with no gauge
 argument at all.
 
-\subsection{From the fitted coefficients to the circuit}
-\label{sec:gauge}
-
 \paragraph{The redundancy.} Rescale and shift a neuron's message, and absorb it
 in the two coefficients that multiply and offset it:
 %
@@ -250,25 +248,15 @@ is the true one seen through such a transformation:
 \label{eq:ansatz}
 \end{equation}
 %
-This is \eqref{eq:gaugetransform} with $c = k_i$ and $d = \beta_i$, applied to the
-generator's message --- and the change of letters is the whole point.
-$(c, d)$ are \emph{free}: the transformation holds for every value of them, which
-is what makes the family a family. $(k_i, \beta_i)$ are the \emph{particular}
-values that relate this one trained model to the truth --- one point in that
-family, per neuron, and an unknown to be measured. Writing both with the same
-letter would lose exactly that distinction.
-
-So \eqref{eq:ansatz} is a supposition, not a gauge: it says the model differs
-from the generator \emph{only} by the redundancy and not by anything else. It can be false --- a
-model whose message is off the family is one whose per-edge form is not the
-generator's at all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is
-tested, by the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
-$(k_i, \beta_i)$ are the coordinates on the family, and there are two ways to
-deal with them. \emph{Fixing} the gauge during training adds a term that makes
-one member the only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives
-$k_i \to 1$, \texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing}
-it after training, which is what this document is about, leaves the model
-wherever it landed and measures $(k_i, \beta_i)$ instead.
+That is \eqref{eq:gaugetransform} at $c = k_i$, $d = \beta_i$: different letters
+because $(c, d)$ are free, while $(k_i, \beta_i)$ are the particular pair
+relating this one model to the truth, per neuron, and unknown until measured.
+It is a supposition and it can be false --- a message off the family is one whose
+per-edge form is not the generator's at all, which is \S\ref{sec:Ecorr} --- so it
+is tested by the per-edge $R^2$ rather than assumed. Either \emph{fix} the gauge
+during training, where \texttt{coeff\_f\_theta\_msg\_gain} drives $k_i \to 1$ and
+\texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$, or \emph{undo} it
+afterwards by measuring $(k_i, \beta_i)$. This document does the second.
 
 Substituting \eqref{eq:ansatz} into the fit \eqref{eq:updatesolve} puts the
 model's update in terms of the \emph{true} message,
@@ -352,9 +340,9 @@ offset:
 %
 \begin{equation}
 V^{\mathrm{rest},\,\mathrm{corrected}}_i
-  \;=\; \tau_i\Bigl[\,\underbrace{\alpha_0}_{\text{from the update fit}}
-  \;+\; \underbrace{\alpha_2 \beta_i}_{\textstyle \alpha_2 \sum_{j} C_{ij}\
-        \text{from Stage 1}}\Bigr] ,
+  \;=\; \tau_i\Bigl[\,\underbrace{\alpha_0}_{\text{regression \eqref{eq:updatesolve}}}
+  \;+\; \underbrace{\alpha_2 \textstyle\sum_{j} C_{ij}}
+        _{C_{ij} = b_3 \text{ of \eqref{eq:edgesolve}}}\Bigr] ,
 \label{eq:vcorr}
 \end{equation}
 %
