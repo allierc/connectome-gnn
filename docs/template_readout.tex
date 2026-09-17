@@ -52,16 +52,53 @@ The model is a graph network with the same connectivity:
 %
 where $a_i$ is a learned per-neuron embedding and $\widehat{W}_{ij}$ a learned
 per-edge weight. Only $d\vi/dt$ is supervised. \emph{Nothing in the loss observes
-$\widehat{\msg}$}, and that is the whole difficulty: the message is an internal
-variable, and any transformation of it that $f_\theta$ can undo leaves the
-training objective exactly unchanged. We suppose that the model's message is
-related to the truth by
+$\widehat{\msg}$}, and that is the whole difficulty.
+
+\paragraph{The redundancy.} Rescale and shift a neuron's message, and change
+$f_\theta$'s sensitivity to it by the reciprocal amount:
+%
+\begin{equation}
+\widehat{\msg}_i \;\longmapsto\; \frac{1}{c}\,\widehat{\msg}_i + d,
+\qquad
+\frac{\partial f_\theta}{\partial \widehat{\msg}_i} \;\longmapsto\;
+   c\,\frac{\partial f_\theta}{\partial \widehat{\msg}_i},
+\qquad
+V_i \;\longmapsto\; V_i - G_i d ,
+\label{eq:gaugetransform}
+\end{equation}
+%
+and $d\vi/dt$ is \emph{identically} unchanged --- same trajectory, same loss,
+same everything the training ever sees. A whole two-parameter family of
+$(\widehat{\msg}, f_\theta)$ pairs describes one and the same network. That
+family is the gauge freedom of this parameterisation: a redundancy in the
+description, not a property of the circuit. Training cannot prefer one member of
+it over another, because the objective is constant along it.
+
+\paragraph{The ansatz, which is not the gauge.} Equation \eqref{eq:ansatz} below
+is a different object and it is worth keeping the two apart. It is the
+\emph{supposition} that the trained model landed somewhere on the orbit of the
+truth --- that its message differs from the generator's only by the redundancy
+\eqref{eq:gaugetransform} and not by anything else:
 %
 \begin{equation}
 \widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i .
-\label{eq:gauge}
+\label{eq:ansatz}
 \end{equation}
 %
+$(k_i, \beta_i)$ are then the \emph{gauge parameters}: the coordinates saying
+which member of the family this particular trained model ended up as. They are
+what the readout measures and undoes. The ansatz can be false --- a model whose
+message is off the orbit is one whose per-edge form is not the generator's at
+all, and \S\ref{sec:Ecorr} is about exactly that case --- so it is tested, by
+the per-edge $R^2$ of \S\ref{sec:readout}, rather than assumed.
+
+There are two ways to deal with the redundancy, and this project uses both.
+\emph{Fixing} the gauge during training adds a term that makes one member the
+only minimiser: \texttt{coeff\_f\_theta\_msg\_gain} drives $k_i \to 1$ and
+\texttt{coeff\_g\_phi\_silent} drives $\beta_i \to 0$. \emph{Undoing} it after
+training, which is what this document is about, leaves the model wherever it
+landed and measures $(k_i, \beta_i)$ instead.
+
 Write the model's update in the same form as the generator's, which is what
 the update fit of \S\ref{sec:update} measures:
 %
@@ -71,7 +108,7 @@ the update fit of \S\ref{sec:update} measures:
 \label{eq:updatetmpl}
 \end{equation}
 %
-Substituting \eqref{eq:gauge} into \eqref{eq:updatetmpl} and expanding puts the
+Substituting \eqref{eq:ansatz} into \eqref{eq:updatetmpl} and expanding puts the
 model's update in terms of the true message,
 %
 \begin{equation}
@@ -282,25 +319,25 @@ V^{\mathrm{rest},\,\mathrm{corrected}}_i
 \subsection{$\Eij$: why there is no correction, and what replaces one}
 \label{sec:Ecorr}
 
-\paragraph{The gauge cancels. The substitution, step by step.} Start from the
-gauge \eqref{eq:gauge}, which is a statement about neuron $i$'s \emph{total}
-incoming message:
+\paragraph{The scale $k_i$ divides out. The substitution, step by step.} Start
+from the ansatz \eqref{eq:ansatz}, which is a statement about neuron $i$'s
+\emph{total} incoming message:
 %
 \begin{equation}
 \widehat{\msg}_i \;=\; \frac{1}{k_i}\,\msg_i \;+\; \beta_i
 \qquad\text{with}\qquad
 \msg_i = \sum_j \msg_{ij}, \quad \widehat{\msg}_i = \sum_j \widehat{\msg}_{ij} .
-\tag{\ref{eq:gauge}}
+\tag{\ref{eq:ansatz}}
 \end{equation}
 %
 \emph{Step 1 --- take it down to one edge.} The fit of \S\ref{sec:edge} works on
-a single synapse, so the gauge has to be read per edge. Assume the model applies
+a single synapse, so the ansatz has to be read per edge. Assume the model applies
 the same scale $k_i$ to every edge into $i$ and splits the offset among them,
 %
 \begin{equation}
 \widehat{\msg}_{ij}(t) \;=\; \frac{1}{k_i}\,\msg_{ij}(t) \;+\; C_{ij},
 \qquad \sum_j C_{ij} = \beta_i .
-\label{eq:edgegauge}
+\label{eq:edgeansatz}
 \end{equation}
 %
 $k_i$ is a property of the receiving neuron, so carrying one scale across its
@@ -335,7 +372,7 @@ $b_1, b_2, b_3$:
 b_1 = \frac{\Wij \Eij}{k_i}, \qquad
 b_2 = -\frac{\Wij}{k_i}, \qquad
 b_3 = C_{ij}.
-\label{eq:Egauge}
+\label{eq:Ecoeffs}
 \end{equation}
 %
 \emph{Step 5 --- divide.} Both $b_1$ and $b_2$ carry the same factor $1/k_i$,
@@ -355,9 +392,9 @@ either --- $C_{ij}$ is $b_3$, and $b_3$ appears in neither $b_1$ nor $b_2$. That
 is the precise content of ``$\Eij$ needs neither correction''.
 
 \paragraph{But $\Eij$ is exposed to a contamination $\Wij$ is not.} Step 1 above
-is where the whole result rests, and it is an assumption. The gauge
-\eqref{eq:gauge} is a statement about neuron $i$'s \emph{total} message; writing
-it per edge as \eqref{eq:edgegauge} adds the claim that whatever the model does
+is where the whole result rests, and it is an assumption. The ansatz
+\eqref{eq:ansatz} is a statement about neuron $i$'s \emph{total} message; writing
+it per edge as \eqref{eq:edgeansatz} adds the claim that whatever the model does
 beyond rescaling is a per-edge \emph{constant}. Nothing in the training
 objective requires that. Relax it in the one direction that matters --- let each
 edge also carry a component proportional to the drive, with no driving force in
@@ -417,10 +454,11 @@ column was worth in the first place.
 
 \paragraph{A consequence worth stating plainly.} $\Wij$ and $\Eij$ fail
 independently and for opposite reasons. $\Wij$ is immune to the contamination
-\eqref{eq:contam} but carries the gauge $k_i$, so it is wrong by one global
-factor whenever the message scale is unpinned. $\Eij$ is immune to the gauge but
-not to the contamination. A run reporting a good $\Eij$ and a $\Wij$ off by a
-uniform factor has a gauge problem; one reporting a good $\Wij$ and a scattered
+\eqref{eq:contam} but carries the gauge parameter $k_i$, so it is wrong by one
+global factor whenever the message scale is unpinned. $\Eij$ is immune to $k_i$
+but not to the contamination. A run reporting a good $\Eij$ and a $\Wij$ off by a
+uniform factor has an unfixed-gauge problem; one reporting a good $\Wij$ and a
+scattered
 $\Eij$ has a message whose form is not purely conductance. The two diagnoses are
 not interchangeable, and neither is read off the other's number.
 
@@ -436,7 +474,7 @@ connectome ($N = 13{,}741$ neurons, $434{,}112$ edges).
 \caption{One neuron, term by term. \textbf{(a)}~free-running rollout, generator
 in green and model in black, $r = 0.998$. \textbf{(b)}~$d v/dt$ at the true
 voltages, $R^2 = 0.997$. \textbf{(c)}~the total incoming message: the learned one
-after the affine correction of \eqref{eq:gauge}, against the generator's. The
+after the affine correction of \eqref{eq:ansatz}, against the generator's. The
 heading reports the fitted scale $0.0844$ against $T G \tau = 0.0923$ from panel
 (e) --- two independent routes to the same number, agreeing to $9\%$ --- and the
 offset $b = -2.334$\,V. \textbf{(d)}~each of the $11$ synapses separately, mean
