@@ -397,11 +397,23 @@ class SimulationConfig(BaseModel):
     #   'current'     msg = W * relu(v_j),           W signed
     #   'conductance' msg = W * relu(v_j) * (E_i - v_i), W a non-negative
     #                 conductance and the sign carried by the driving force
-    ground_truth_model: Literal["current", "conductance"] = "current"
+    #   'flyvis_conductance' the SAME message, but with the parameters read off a
+    #                 flyvis network trained on the OPTIC-FLOW TASK rather than
+    #                 fitted to a current-based teacher. Selected by ensemble_id
+    #                 and model_id, exactly as the current-based generator selects
+    #                 its network, so no extra checkpoint path is needed.
+    ground_truth_model: Literal["current", "conductance", "flyvis_conductance"] = "current"
     # Checkpoint of the trained flyvis_conductance_known_ode student whose
     # parameters generate the data. Required when ground_truth_model is
     # 'conductance'; ignored otherwise.
     conductance_checkpoint: str = ""
+    # WHICH checkpoint of the flyvis conductance run generates the data, when
+    # ground_truth_model is 'flyvis_conductance'. NOT 0, which is the UNTRAINED
+    # network -- the current-based path can use 0 only because a published model
+    # carries exactly one checkpoint and it is the trained one. A task-trained run
+    # here has 65, and the one worth generating from is the argmin-EPE checkpoint
+    # that analysis/checkpoints.csv reports.
+    conductance_checkpoint_index: int = 0
     # WHETHER A DRIVING FORCE THAT CHANGES SIGN MID-RUN ABORTS GENERATION.
     #
     # True is right for a twin whose reversals were BRACKETED outside the teacher's
@@ -537,6 +549,12 @@ class SimulationConfig(BaseModel):
         The generator only discovers the missing path when it goes to build the
         parameters, which is after the connectome load and the stimulus
         generation. Fail at config load instead."""
+        if self.ground_truth_model == "flyvis_conductance" and self.conductance_checkpoint:
+            raise ValueError(
+                "simulation.ground_truth_model is 'flyvis_conductance', which reads "
+                "its parameters from the flyvis network named by ensemble_id/model_id; "
+                "conductance_checkpoint belongs to the 'conductance' twin path and "
+                "would be silently ignored here.")
         if self.ground_truth_model == "conductance" and not self.conductance_checkpoint:
             raise ValueError(
                 "simulation.ground_truth_model is 'conductance' but "

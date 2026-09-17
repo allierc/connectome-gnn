@@ -231,6 +231,58 @@ class FlyVisODE(nn.Module):
 
         return dv
 
+    def step(self, state: NeuronState, edge_index: torch.Tensor, dt: float):
+        """Voltage one step later. Exponential Euler on conductance, Euler otherwise.
+
+        WHY THE GENERATOR NEEDS THIS AT ALL. Forward Euler multiplies a deviation
+        from the fixed point by [1 - (dt/tau_i)(1 + G_i)], where
+
+            G_i = sum_j W_ij * relu(v_j)   the total synaptic conductance onto
+                                           neuron i, in units of its own leak,
+
+        a contraction only while (dt/tau_i)(1 + G_i) < 2. The current-based
+        generator has no G_i in that bracket and cannot diverge; this one can, and
+        the model that generates these datasets was measured with G_i up to 3.2,
+        which at dt = 20 ms and tau_i = 19 ms puts the factor at 4.4. Substepping
+        would also fix it, but at ten substeps per frame, and it would still only
+        approximate the step the flyvis model was TRAINED under.
+
+        Over one step the equation is linear in v_i at frozen coefficients, so it
+        is solved exactly:
+
+            tau_eff = tau_i / (1 + G_i)
+            v_inf   = (V_rest + I + sum_j W_ij relu(v_j) E_ij) / (1 + G_i)
+            v(t+dt) = v_inf + (v(t) - v_inf) * exp(-dt / tau_eff)
+
+        which is a contraction for ANY G_i >= 0, has the same fixed point, and
+        agrees with Euler as dt -> 0. On the current-based branch there is no
+        conductance term, so this reduces to the plain step and is not used.
+
+        Returns the next voltage, shaped like `state.voltage`.
+        """
+        v = state.voltage.unsqueeze(-1)
+        if not self.is_conductance:
+            return (v + dt * self.forward(state, edge_index)).squeeze(-1)
+
+        src, dst = edge_index
+        opto = state.optogenetics_stimulus if state.optogenetics_stimulus is not None else 0.0
+        drive = self.ode_params.W[:, None] * self.g_phi(v[src])      # (E, 1) >= 0
+
+        # The two halves of the message, kept apart: the part that multiplies v_i
+        # (the shunt, which shortens tau) and the part that does not (the pull
+        # toward the reversals).
+        shunt = torch.zeros_like(v)
+        pull = torch.zeros_like(v)
+        idx = dst.unsqueeze(1).expand_as(drive)
+        shunt.scatter_add_(0, idx, drive)
+        pull.scatter_add_(0, idx, drive * self._reversal_per_edge[:, None])
+
+        one_plus_G = 1.0 + shunt
+        v_inf = (self.ode_params.V_i_rest[:, None]
+                 + (state.stimulus + opto).unsqueeze(-1) + pull) / one_plus_G
+        decay = torch.exp(-dt * one_plus_G / self.ode_params.tau_i[:, None])
+        return (v_inf + (v - v_inf) * decay).squeeze(-1)
+
     def func(self, u, type, function):
         if function == 'phi':
             if 'multiple_ReLU' in self.model_type:
