@@ -503,3 +503,4 @@ if __name__ == "__main__":
 # python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
 # python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4
 # bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
+# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_flowcond_noise_005_gnn_wsq_cv00"
