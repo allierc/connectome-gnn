@@ -1,5 +1,5 @@
-description: rollout curriculum K=1..5 with uniform step weighting on the no-sparsity
-  conductance GNN, current-generated data, noise 0.05, unfolded nominal.
+description: rollout curriculum K=1..5 with uniform step weighting on the no-sparsity conductance
+  GNN, current-generated data, noise 0.05, unfolded nominal.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -37,7 +37,8 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
+  w_squared: true
 plotting:
   colormap: tab20
   arrow_length: 1

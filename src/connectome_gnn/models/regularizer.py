@@ -325,7 +325,15 @@ class LossRegularizer:
 
             # W_L1: Apply only once per iteration (not per batch item)
             if not self._W_L1_applied_this_iter:
-                regul_term = model.W.norm(1) * _ct['W_L1']
+                # ON THE EFFECTIVE WEIGHT, which is W**2 under w_squared. An
+                # L1 on the raw parameter is then an L1 on the ROOT of the
+                # conductance -- a far harsher sparsifier -- and it pushes W to
+                # exactly the point where dL/dW = 2W vanishes, so the penalty
+                # drives the weight into an absorbing state it cannot leave.
+                _w = model.W
+                if getattr(model, 'w_squared', False):
+                    _w = _w ** 2
+                regul_term = _w.norm(1) * _ct['W_L1']
                 total_regul = total_regul + regul_term
                 self._add('W_L1', regul_term)
                 self._W_L1_applied_this_iter = True
