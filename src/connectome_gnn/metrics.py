@@ -2918,6 +2918,12 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
     rec = RecoveredParams()
+    # THE RUN-LEVEL DESCRIPTOR, set here and overwritten by
+    # `extract_template_params` when it runs on top of this object. One word for
+    # the whole readout, beside the per-quantity `<key>_estimator` strings: those
+    # name the fit, this names which of the two routes the run took. It reaches
+    # metrics.txt and the `#` header of every tmp_training/<key>.log.
+    rec.diagnostics["readout"] = "chain"
     if ode_params is None:
         return rec
     if n_neurons is None:
@@ -3194,10 +3200,58 @@ def template_readout_enabled(config, model) -> bool:
     and its parameters are direct. `recovery.readout: chain` opts a run out.
     """
     from connectome_gnn.models.utils import model_family
-    if getattr(getattr(config, "recovery", None), "readout", "template") != "template":
+    if chain_readout_requested(config):
         return False
     core = getattr(model, "_orig_mod", model)
     return model_family(model) == "gnn" and hasattr(core, "g_phi")
+
+
+def chain_readout_requested(config) -> bool:
+    """Did this run ASK for the gain-correction chain, in writing?
+
+    The difference that matters is between a run configured for the chain and a
+    run that fell back to it. Both used to end with chain numbers under the
+    template's column names; only the first is a result. `recovery.readout:
+    chain` in the yaml is the only way to be in the first case.
+    """
+    return getattr(getattr(config, "recovery", None), "readout", "template") != "template"
+
+
+class ReadoutError(RuntimeError):
+    """The template readout failed on a run that did not ask for the chain.
+
+    Its own class so the broad `except Exception` handlers that wrap extraction
+    -- there to keep a failed diagnostic from killing a training run -- can let
+    this one through. A diagnostic that fails is a missing number; a readout
+    that silently changes is a wrong one.
+    """
+
+
+def require_template_readout(config, exc, where: str):
+    """Re-raise unless the run opted into the chain. Called from the `except` of
+    every template-readout call site.
+
+    THE FALLBACK USED TO BE SILENT AND THE NUMBERS KEPT THEIR NAMES. A checkpoint
+    whose template fit raised wrote the chain's W, E_ij, tau and V_rest into the
+    same tmp_training/<key>.log columns, under a logger.warning nobody reads, and
+    the row was indistinguishable from the 60 template rows above it. A run may
+    not change estimator halfway through without saying so, and the only way to
+    guarantee a log describes one readout is to stop when it cannot.
+    """
+    if chain_readout_requested(config):
+        # This module prints rather than logging -- it is called from the
+        # training loop, from test_plot and from the tests, and the one place
+        # all three are read is the terminal.
+        print(f"\033[91mtemplate readout unavailable at {where}, and "
+              f"recovery.readout is not 'template' -- keeping the "
+              f"gain-correction chain: {type(exc).__name__}: {exc}\033[0m")
+        return
+    raise ReadoutError(
+        f"template readout failed at {where}: {type(exc).__name__}: {exc}. "
+        "Refusing to fall back to the gain-correction chain, which would write "
+        "different numbers under the same <key>_* names. Set recovery.readout: "
+        "chain in the config to ask for the chain deliberately."
+    ) from exc
 
 
 
@@ -3331,6 +3385,11 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec = RecoveredParams(pairs=dict(base.pairs), estimator=dict(base.estimator),
                               correction=dict(base.correction), valid=dict(base.valid),
                               diagnostics=dict(base.diagnostics))
+    # This function is the two-form readout; reaching its body IS the fact the
+    # descriptor records. Set before anything can fail, because a partial
+    # template extraction that raises is caught by require_template_readout and
+    # takes the run down -- it never leaves a half-labelled object behind.
+    rec.diagnostics["readout"] = "template"
 
     # `frame_choice="active"` spends the same number of frames where they are
     # worth spending: a first uniform draw, then frames added from the active
@@ -4011,18 +4070,28 @@ def _fmt_metric(v):
     return str(v)
 
 
-def training_log_append(log_dir, name, iteration, row):
+def training_log_append(log_dir, name, iteration, row, note=None):
     """Append one row to tmp_training/<name>.log, writing the header first.
 
     `row` is an ordered {column: value}; the header is `iteration,` + its keys.
     Readers parse by NAME (training_log_read), never by position, so a column
     can be added without shifting anyone.
+
+    `note` is a provenance descriptor written ONCE, as a `#` line above the
+    header: which estimator produced every row in this file, and what correction
+    it applied. A `<key>.log` is a trajectory a sweep gets read on, and the same
+    column name means a different quantity under a different readout -- W from
+    the template fit is per-edge least squares in the generator's units, W from
+    the correction chain is the model's raw weight scaled by a measured gain.
+    `training_log_read` already skips `#`, so this costs no reader anything.
     """
     tmp = os.path.join(log_dir, "tmp_training")
     os.makedirs(tmp, exist_ok=True)
     path = os.path.join(tmp, f"{name}.log")
     if not os.path.exists(path) or os.path.getsize(path) == 0:
         with open(path, "w") as f:
+            if note:
+                f.write(f"# {note}\n")
             f.write("iteration," + ",".join(row.keys()) + "\n")
     with open(path, "a") as f:
         f.write(f"{int(iteration)}," + ",".join(_fmt_metric(v) for v in row.values()) + "\n")
@@ -4084,8 +4153,16 @@ def recovery_log_append(log_dir, iteration, scored):
         if not present:
             continue
         cols = recovery_log_columns(key)
+        # THE SAME DESCRIPTOR metrics.txt CARRIES, on the trajectory that led to
+        # it: `<key>_estimator` and `<key>_correction`, plus the run's readout.
+        # Written on the first row only -- the readout cannot change mid-run now
+        # that require_template_readout raises rather than falling back, so one
+        # line describes every row beneath it.
+        _note = "; ".join(
+            f"{c}={scored[c]}" for c in ("readout", f"{key}_estimator",
+                                         f"{key}_correction") if c in scored)
         training_log_append(log_dir, key, iteration,
-                            {c: scored.get(c) for c in cols})
+                            {c: scored.get(c) for c in cols}, note=_note or None)
 
 
 def metrics_lines(scored):
@@ -4096,6 +4173,14 @@ def metrics_lines(scored):
     (a diagnostic such as extraction_error) come last, unchanged.
     """
     lines, seen = [], set()
+    # THE DESCRIPTOR FIRST, because it qualifies every `<key>_*` line under it:
+    # `readout: template` is the two-form per-edge fit of the generator's own
+    # closed form, `readout: chain` the gain-correction estimators. Emitted at
+    # the top rather than with the other loose diagnostics at the bottom, where
+    # a reader who stopped at the first Wij line would never reach it.
+    if "readout" in scored:
+        lines.append(f"readout: {_fmt_metric(scored['readout'])}")
+        seen.add("readout")
     for key in RECOVERY_KEYS:
         if f"{key}_R2" not in scored:
             continue
