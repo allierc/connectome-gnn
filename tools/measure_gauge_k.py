@@ -4,26 +4,32 @@ This is the quantity coeff_f_theta_msg_gain exists to drive to 1, measured the
 way the readout measures it -- autograd on frames the network actually visits,
 not a synthetic probe.
 """
-import sys, os, glob, re, numpy as np, torch
-sys.path.insert(0, "src")
-from connectome_gnn.config import NeuralGraphConfig
-from connectome_gnn.models.registry import create_model
-from connectome_gnn.utils import migrate_state_dict
-from connectome_gnn.metrics import _template_gauge
+import glob
+import os
+import re
+import sys
+
+import numpy as np
+import torch
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
+from connectome_gnn.config import NeuralGraphConfig  # noqa: E402
 from connectome_gnn.generators.ode_params import load_ode_params_for_run
+from connectome_gnn.metrics import _template_gauge
+from connectome_gnn.models.registry import create_model
+from connectome_gnn.utils import graphs_data_path, migrate_state_dict, set_data_root
 from connectome_gnn.zarr_io import load_simulation_data
-from connectome_gnn.utils import graphs_data_path, set_data_root
 
 set_data_root("/groups/saalfeld/home/allierc/GraphData")
 LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 import json
+
 OUT = "docs/gauge_k.json"
 cache = json.load(open(OUT)) if os.path.exists(OUT) else {}
 print(f"{'run':30s} {'iter':>8s} {'k median':>9s} {'k IQR':>16s} {'%|k-1|<0.2':>11s}")
 for run in sys.argv[1:]:
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{run}.yaml")
-    import glob, re
     cks = sorted(glob.glob(f"{LOG}/{run}/models/best_model_with_0_graphs_0_*.pt"),
                  key=lambda f: int(re.findall(r"_(\d+)\.pt$", f)[0]))
     if not cks:
