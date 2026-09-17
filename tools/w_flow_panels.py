@@ -96,6 +96,9 @@ def init_draw(n_edges, scale, seed=42):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="figures/w_flow_panels.png")
+    ap.add_argument("--no-init", action="store_true",
+                    help="omit the randn_scaled reference draw, leaving only the "
+                         "trained and generator distributions")
     ap.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--scale", type=float, default=1.0,
                     help="w_init_scale of the red reference draw")
@@ -136,12 +139,13 @@ def main():
     fig, axes = plt.subplots(nrow, ncol, figsize=(21, 4.6 * nrow),
                              sharex=True, sharey=True)
     for ax, (label, family, w) in zip(axes.ravel(), panels):
-        ref = init_draw(w.size, args.scale)
+        ref = None if args.no_init else init_draw(w.size, args.scale)
         target = family.startswith("target")
         ax.hist(w[w > 0], bins=bins, color=COLOUR.get(family, "tab:blue"), alpha=0.8,
                 label="generator's $|W|$" if target else "trained $|W|$")
-        ax.hist(ref[ref > 0], bins=bins, histtype="step", color="tab:red", lw=1.6,
-                label=f"randn-scaled init, scale {args.scale:g}")
+        if ref is not None:
+            ax.hist(ref[ref > 0], bins=bins, histtype="step", color="tab:red", lw=1.6,
+                    label=f"randn-scaled init, scale {args.scale:g}")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.text(0.0, 1.02, f"{label}   ({family})", transform=ax.transAxes,
