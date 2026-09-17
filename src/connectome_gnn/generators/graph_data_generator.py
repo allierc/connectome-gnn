@@ -3763,6 +3763,7 @@ def _run_ode_generation(
                         # 1/sqrt(M) so the per-observed-frame noise variance matches base.
                         # Stimulus is held constant across substeps (observed cadence=delta_t).
                         _h = sim.delta_t / _n_sub
+                        _exp_euler = getattr(sim, "conductance_exponential_euler", True)
                         for _sub in range(_n_sub):
                             if _sub == 0:
                                 _dv = dv_step  # reuse the derivative already computed above
@@ -3780,7 +3781,7 @@ def _run_ode_generation(
                             # for any G_i >= 0. `_dv` is still the true derivative
                             # and is what gets STORED as the training target; only
                             # the state update changes.
-                            if getattr(pde, "is_conductance", False):
+                            if getattr(pde, "is_conductance", False) and _exp_euler:
                                 x.voltage = pde.step(x, edge_index, _h)
                             elif noise_model_level > 0:
                                 x.voltage = (
@@ -3791,7 +3792,8 @@ def _run_ode_generation(
                                 )
                             else:
                                 x.voltage = x.voltage + _h * _dv
-                            if getattr(pde, "is_conductance", False) and noise_model_level > 0:
+                            if (getattr(pde, "is_conductance", False) and _exp_euler
+                                    and noise_model_level > 0):
                                 # Process noise is added AFTER the exact step, with
                                 # the same per-observed-frame variance as the Euler
                                 # branch above.
