@@ -177,13 +177,20 @@ def main(argv=None) -> int:
     ap.add_argument("run", nargs="?", default="flyvis_flowcond_noise_005_gnn_nosq_cv00")
     ap.add_argument("--neuron", type=int, default=2895)
     ap.add_argument("--frames", type=int, default=256)
+    ap.add_argument("--out", default=None,
+                    help="where to write; default <run>/comparison_least_square. "
+                         "Point it at a preserved copy to keep a live run's "
+                         "directory untouched.")
+    ap.add_argument("--models", default=None,
+                    help="directory of checkpoints; default <run>/models")
     a = ap.parse_args(argv)
 
     set_data_root("/groups/saalfeld/home/allierc/GraphData")
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     log_dir = os.path.join(LOG, a.run)
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{a.run}.yaml")
-    cks = sorted(glob.glob(f"{log_dir}/models/*graphs_0_*.pt"),
+    _models = a.models or os.path.join(log_dir, "models")
+    cks = sorted(glob.glob(f"{_models}/*graphs_0_*.pt"),
                  key=lambda f: int(re.findall(r"_(\d+)\.pt$", f)[0]))
     if not cks:
         print(f"{a.run}: no checkpoint")
@@ -204,7 +211,7 @@ def main(argv=None) -> int:
     x_ts = data.x_list[0] if hasattr(data, "x_list") else data.x_ts
     n_neurons = cfg.simulation.n_neurons
 
-    out = os.path.join(log_dir, "comparison_least_square")
+    out = a.out or os.path.join(log_dir, "comparison_least_square")
     os.makedirs(out, exist_ok=True)
     lines = [f"run {a.run}   checkpoint {it}   frames {a.frames}",
              "score_recovery's own numbers, on the readout the trainer and "
