@@ -318,3 +318,50 @@ def test_the_gauge_cancels_in_E_but_not_in_W():
     assert -b[0] / b[1] == pytest.approx(E, rel=1e-9)       # E: k cancelled
     assert -b[1] == pytest.approx(W / k, rel=1e-9)          # W: still in 1/k units
     assert k * -b[1] == pytest.approx(W, rel=1e-9)          # ... until multiplied back
+
+
+def test_the_W_constraint_belongs_to_the_conductance_form_only():
+    """The two generators put the sign in different places:
+
+        conductance   W * relu(v_j) * (E - v_i),  W >= 0, sign in (E - v_i)
+        current       W * relu(v_j),              W SIGNED
+
+    so W >= 0 is part of the conductance equation and would be a falsehood
+    imposed on the current one. The readout constrains the three-column
+    conductance fit and leaves the two-column current fit free.
+    """
+    rng = np.random.default_rng(0)
+    u = np.abs(rng.normal(1.0, 0.4, 4000))
+    vi = rng.normal(0.0, 1.0, 4000)
+
+    # A message that is genuinely CURRENT-form with an inhibitory (negative) W.
+    y = -0.4 * u
+    A2 = np.column_stack([u, np.ones_like(u)])
+    c, *_ = np.linalg.lstsq(A2, y, rcond=None)
+    assert c[0] == pytest.approx(-0.4, rel=1e-9)      # free: recovers the sign
+
+    # The same message read through the CONSTRAINED conductance form. Its free
+    # fit wants W < 0, so the constraint binds, W is clamped to 0 and the
+    # solution collapses to the current form -- which is the precise sense in
+    # which that edge shows no driving force.
+    A3 = np.column_stack([u, u * vi, np.ones_like(u)])
+    b, *_ = np.linalg.lstsq(A3, y, rcond=None)
+    W_free = -b[1]
+    binds = not (b[1] < 0)
+    assert W_free <= 1e-9 or binds        # free W is not positive here
+    W_nn = 0.0 if binds else W_free
+    assert W_nn == pytest.approx(0.0, abs=1e-9)
+
+
+def test_constrained_fit_equals_the_free_one_when_W_is_positive():
+    """Where the constraint is slack the two coincide, so constraining costs
+    nothing on an edge that really is conductance-shaped."""
+    rng = np.random.default_rng(1)
+    u = np.abs(rng.normal(1.0, 0.4, 4000))
+    vi = rng.normal(0.0, 1.0, 4000)
+    y = 0.4 * u * (-3.0 - vi)                          # W = +0.4 > 0
+    A3 = np.column_stack([u, u * vi, np.ones_like(u)])
+    b, *_ = np.linalg.lstsq(A3, y, rcond=None)
+    assert b[1] < 0                                    # constraint slack
+    assert -b[1] == pytest.approx(0.4, rel=1e-9)
+    assert -b[0] / b[1] == pytest.approx(-3.0, rel=1e-9)

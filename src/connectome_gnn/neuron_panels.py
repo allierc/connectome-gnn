@@ -103,8 +103,8 @@ def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
     synapse. The model is fed the TRUE voltages here; panel a's free run is read
     from the rollout bundle instead.
     """
-    from connectome_gnn.models.utils import pad_g_phi_input
     from connectome_gnn.metrics import get_model_W
+    from connectome_gnn.models.utils import pad_g_phi_input
 
     core = getattr(model, "_orig_mod", model)
     op = data.ode_params
@@ -450,13 +450,33 @@ def closed_form_template(g, out):
         idx = int(idx)
         u = np.asarray(g["act_j"][row], dtype=float)
         m = np.asarray(g["m_model"][row], dtype=float)
-        for fam, fcols in (("cond", [u, u * g["v_i"], ones]), ("cur", [u, ones])):
+        # THREE READINGS OF ONE MESSAGE.
+        #   cond    W * relu(v_j) * (E - v_i) + C, W FREE
+        #   condnn  the same with W >= 0, which is the generator's OWN form --
+        #           the free fit may use a negative W, which the conductance
+        #           generator cannot, so it tests a relaxation rather than the
+        #           equation. Where the constraint binds the solution IS the
+        #           current form, which is the precise sense in which that
+        #           synapse shows no driving force.
+        #   cur     W * relu(v_j) + C, W SIGNED -- the CURRENT generator's form,
+        #           where the sign belongs in W, so it is never constrained.
+        for fam, fcols in (("cond", [u, u * g["v_i"], ones]),
+                           ("condnn", [u, u * g["v_i"], ones]),
+                           ("cur", [u, ones])):
             try:
                 bb, *_ = np.linalg.lstsq(np.column_stack(fcols), m, rcond=None)
             except np.linalg.LinAlgError:
                 continue
+            if fam == "condnn" and not (float(bb[1]) < 0):
+                # Constraint active: W = 0, re-solve the remaining two columns.
+                try:
+                    bb2, *_ = np.linalg.lstsq(np.column_stack([u, ones]), m, rcond=None)
+                except np.linalg.LinAlgError:
+                    continue
+                bb = np.array([float(bb2[0]), 0.0, float(bb2[1])])
+                fcols = [u, u * g["v_i"], ones]
             ppred = np.column_stack(fcols) @ bb
-            if fam == "cond":
+            if fam in ("cond", "condnn"):
                 _W = -float(bb[1])
                 _E = (-float(bb[0]) / float(bb[1])) if abs(float(bb[1])) > 1e-12 else None
                 _C = float(bb[2])
@@ -515,6 +535,8 @@ def symbolic_forms(g, cfg):
            # The same message fitted by BOTH families, so the panel can say
            # whether the driving force was worth its column on this synapse.
            "tmpl_cond_W": {}, "tmpl_cond_E": {}, "tmpl_cond_C": {}, "tmpl_cond_r2": {},
+           "tmpl_condnn_W": {}, "tmpl_condnn_E": {}, "tmpl_condnn_C": {},
+           "tmpl_condnn_r2": {},
            "tmpl_cur_W": {}, "tmpl_cur_E": {}, "tmpl_cur_C": {}, "tmpl_cur_r2": {}}
     # THE TEMPLATE ROWS DO NOT NEED PySR, and used to print "[not fitted]"
     # whenever Julia could not start -- next to a generator row that was right
@@ -851,7 +873,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         # hundreds of units from any voltage the cell ever takes.
         _own = "cond" if fm["conductance"] else "cur"
         _alt = "cur" if fm["conductance"] else "cond"
-        _label = {"cond": "conductance template", "cur": "current template"}
+        _label = {"cond": "conductance template", "condnn": "conductance W>=0",
+                  "cur": "current template"}
 
         def _row(famkey, tag):
             W = sr.get(f"tmpl_{famkey}_W", {}).get(idx)
@@ -867,11 +890,18 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             # Only the conductance form has a reversal; the current form's row
             # leaves the column blank rather than printing n/a on every synapse.
             etxt = (("E = " + (f"{E:+8.3f}" if E is not None else "     n/a") + "   ")
-                    if famkey == "cond" else " " * 15)
+                    if famkey in ("cond", "condnn") else " " * 15)
             return (f"{tag:<28}{wtxt}   {etxt}{ctxt}"
                     f"{fmt_r2(sr.get(f'tmpl_{famkey}_r2', {}).get(idx))}")
 
         txt.append(_row(_own, _label[_own]))
+        # THE GENERATOR'S OWN FORM, between the relaxation above and the other
+        # family below. W >= 0 is part of the conductance equation, so the free
+        # row tests something weaker; where the constraint binds this row
+        # collapses onto the current form, and the three read together say
+        # whether the driving force earned its column.
+        if _own == "cond":
+            txt.append(_row("condnn", _label["condnn"]))
         txt.append(_row(_alt, _label[_alt] + " (other form)"))
         eq = sr["edges"].get(idx)
         txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
@@ -971,8 +1001,7 @@ def _test_split(config, data, bundle):
     if bundle is None:
         return data.x_ts, False
     try:
-        from connectome_gnn.models.training_utils import (
-            determine_load_fields, load_flyvis_data)
+        from connectome_gnn.models.training_utils import determine_load_fields, load_flyvis_data
         x_ts, _, _ = load_flyvis_data(config.dataset, split="test",
                                       fields=determine_load_fields(config))
         n_bundle = int(bundle["activity_true"].shape[1])
