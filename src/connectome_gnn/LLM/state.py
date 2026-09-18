@@ -20,6 +20,14 @@ class ExplorationState:
     data_augmentation_loop: int = 25
     n_iter_block: int = 16
     node_name: str = "h100"
+    # WHICH QUEUE TEST+PLOT GOES TO, separately from training. They are different
+    # jobs with different needs: training wants the fastest GPU it can get for
+    # 2.5 hours, test+plot is a rollout and a readout that takes minutes. Sending
+    # both to `node_name` meant a batch held eight A100s to train and then eight
+    # more to plot, and with only so many A100s the slots queue behind each other
+    # -- a batch finishes when its LAST slot does, so the wait is pure loss.
+    # Defaults to node_name so nothing changes unless a config asks.
+    test_plot_node_name: str = ""
     conda_env: str = "connectome-gnn"
     n_cpus: int = 2
     n_parallel: int = 4
