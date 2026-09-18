@@ -102,8 +102,7 @@ Write $u_t = \act(\vj(t))$. The generator's synaptic form, multiplied out, is
 \end{equation}
 %
 linear in $(b_1,b_2,b_3)$. The target is the model's own per-edge message,
-$\widehat{\msg}_{ij}(t)$, taken from its forward pass, so the fit asks what
-constants the generator would need to produce what the network computes. Stack
+$\widehat{\msg}_{ij}(t)$, taken from its forward pass. Stack
 the $n$ usable frames $t_1 \dots t_n$ of this edge into a design matrix $A$ and
 the model's messages into $y$:
 %
