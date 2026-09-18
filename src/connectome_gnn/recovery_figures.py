@@ -203,7 +203,10 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k", config=None,
     pct_out = 100.0 * out_mask.sum() / gt.size
 
     fig = plt.figure(figsize=(10, 9))
-    plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.3, rasterized=True)
+    # edgecolors="none": at s=1 a marker edge is the same size as the marker, so
+    # it only blurs the mark and darkens the dense centre.
+    plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.3,
+                edgecolors="none", rasterized=True)
     if out_mask.any():
         # SAME SIZE AS THE INLIERS. At s=6 against s=1 each red point covered
         # about six times the area of a black one, so a population of 4 edges in
@@ -212,7 +215,7 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k", config=None,
         # only have to be findable, not loud, so colour does the separating and
         # alpha 0.6 keeps them visible on top of the dense centre.
         plt.scatter(gt[out_mask], learned[out_mask], c="red", s=1, alpha=0.6,
-                    rasterized=True)
+                    edgecolors="none", rasterized=True)
     lim = spec.get("lim")
     if lim is None:
         # From the TRUE values plus the inlier spread: a handful of learned

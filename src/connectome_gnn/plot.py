@@ -448,7 +448,8 @@ def plot_weight_scatter(ax, gt_weights, learned_weights, corrected=False,
     mc_in = mc[mask] if mc is not None else None
 
     scatter_color = mc_in if mc_in is not None else 'k'
-    ax.scatter(true_in, learned_in, s=scatter_size, c=scatter_color, alpha=0.04)
+    ax.scatter(true_in, learned_in, s=scatter_size, c=scatter_color, alpha=0.04,
+               edgecolors="none")
     # OUTLIER-FREE FIRST, RAW IN BRACKETS. The headline number is the one the
     # scatter actually draws -- the points beyond outlier_threshold are not on
     # the axes -- so quoting the raw fit as the headline would describe a figure
