@@ -136,11 +136,11 @@ b \;=\; (A^{\!\top}\! A)^{-1} A^{\!\top} y ,
 %
 $A^{\!\top}\!A$ is $3\times3$ whatever $n$ is.
 
-\paragraph{Which rows are usable.} A row constrains $\Wij$ and $\Eij$ only where
+\paragraph{Which rows are usable.} Three unknowns, so the fit requires
+$n_{\min} = 8$ usable rows per edge. A row constrains $\Wij$ and $\Eij$ only where
 the presynaptic cell is active; at $u_t = 0$ it is $[0,\,0,\,1]$ and fixes the
-offset alone. Three unknowns, so the fit requires $n_{\min} = 8$ such rows per
-edge. The activity floor is the median of the positive $\act(\vj)$, pooled over a
-$64$-frame probe, and $u_t$ must exceed it.
+offset alone. The activity floor is the median of the positive $\act(\vj)$, pooled
+over a $64$-frame probe, and $u_t$ must exceed it.
 
 \paragraph{Choosing the frames.} A cell active in $2\%$ of the recording yields
 about five rows in a $256$-frame draw, and a quarter of this connectome's edges
