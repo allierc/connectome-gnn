@@ -1,8 +1,10 @@
 description: 'conductance GNN on the task-trained conductance dataset, noise 0.05, fold 0:
   the baseline plus the two gauge terms, coeff_g_phi_silent 25 and coeff_f_theta_msg_gain
-  0.001. UNSQUARED WEIGHT: msg = W * g_phi^2 with the synapse''s sign in W. Whether the message
-  carries a driving force at all is then an empirical question, read from conductance_nn_form_r2_median
-  against current_form_r2_median and from Eij_pct_wrong_slope, not guaranteed by the parameterisation.'
+  0.001. NEITHER SQUARED: msg = W * g_phi, both free to take any sign. Nothing pins W >= 0
+  and nothing forces g_phi non-negative, so the sign of a synapse may sit in either factor
+  -- which is what lets g_phi represent the driving force (E_ij - v_i), and also what leaves
+  the W/g_phi sign split unidentified. Read conductance_nn_form_r2_median against current_form_r2_median
+  and Eij_pct_wrong_slope to see which the message actually is.'
 dataset: flyvis_flowcond_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -40,7 +42,7 @@ graph_model:
   aggr_type: add
   embedding_dim: 2
   update_type: generic
-  g_phi_positive: true
+  g_phi_positive: false
   w_squared: false
 plotting:
   colormap: tab20
