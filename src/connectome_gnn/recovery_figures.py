@@ -64,8 +64,15 @@ _SCATTER_SPEC = {
                    lim=(-0.025, 0.5), ticks=([0.0, 0.25, 0.5], ["0.0", "0.25", "0.5"])),
     "V_rest": dict(out="V_rest_comparison.png", thresh=VREST_OUTLIER_THRESH,
                    xlabel=r"true $V_{rest}$",   ylabel=r"learned $V_{rest}$"),
+    # FIXED AXES ON BOTH SIDES. E_ij = -b1/b2 is a ratio, so an edge whose
+    # postsynaptic voltage barely moved sends it to 1e4 while the true reversals
+    # live within a few volts; autoscaling then puts every real point on one line
+    # through the origin. +-20 V covers the physiological range with room to
+    # spare, and is the same on x and y so the identity line is the diagonal.
+    # Anything outside is a failed fit, already counted in "outliers: N%".
     "E_ij":   dict(out="Eij_comparison.png",    thresh=5.0,
-                   xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$"),
+                   xlabel=r"true $E_{ij}$",     ylabel=r"learned $E_{ij}$",
+                   lim=(-20.0, 20.0)),
     # THE AGGREGATE THE TRAJECTORY ACTUALLY DEPENDS ON. W and E trade off inside
     # it -- W wrong by 3x with E wrong by 1/3 lands msg_i on the identity line --
     # so a run whose W scatter is a mess and whose msg_i scatter is not has a
