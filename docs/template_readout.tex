@@ -141,12 +141,49 @@ frames stream and nothing of size $n_{\mathrm{edges}} \times n$ is ever held.
 All $434{,}112$ edges are then solved together as a batch of $3\times3$ systems,
 in seconds.
 
-\paragraph{Which rows are usable.} Three unknowns, so eight rows are ample. A
-row is \emph{usable} when the presynaptic cell is above the activity floor,
-$u_t = \act(\vj(t)) > 0$; below it the row is $[0,\,0,\,1]$ and constrains only
-the offset. Frames are drawn where the presynaptic cells are actually on, and a
-second sample tops up the edges still short, so $99.6\%$ of the $434{,}112$ edges
-are fitted.
+\paragraph{Which rows are usable.} A row carries information about $\Wij$ and
+$\Eij$ only when the presynaptic cell is \emph{on}: below the activity floor
+$u_t = 0$, the row is $[0,\,0,\,1]$ and constrains the offset alone. The floor is
+not zero but the median of the positive $\act(\vj)$, measured on a small probe, so
+that ``on'' means carrying real drive rather than numerical dust. Three unknowns
+means eight usable rows are ample, and that threshold, $n_{\min} = 8$, is what the
+sampling has to deliver on every edge.
+
+\paragraph{Why a uniform sample will not.} An edge is measurable only on its own
+presynaptic cell's active frames, and those cells are not equally busy. A cell
+active in $2\%$ of the recording contributes about five rows to a $256$-frame
+draw --- below the eight the fit needs --- and such cells are not a fringe: a
+quarter of this connectome's edges have one. Drawing four times as many frames
+moves that share by about four points, because the extra frames come from the
+same distribution, while the sampler materialises an
+$n_{\mathrm{edges}} \times n$ array and runs out of memory around $n = 4096$.
+Spending more frames uniformly is the one thing that does not work.
+
+\paragraph{Two passes, each aimed at the edges the previous one missed.}
+
+\emph{Pass 1, choosing the frames.} Start from a uniform draw of $n = 256$. Count
+how often each presynaptic cell clears the floor in it, and for the cells still
+short of eight, add frames drawn from \emph{that cell's own} active frames, up to
+a cap of $2048$. The result is a frame set of the same order as the base --- the
+busy cells were already covered by it --- that carries the rare cells to the
+threshold as well.
+
+\emph{Pass 2, topping up the sums.} The first pass still leaves roughly a quarter
+of edges under $n_{\min}$. Rather than re-fit everything, $768$ further frames are
+streamed in chunks of $256$ and their contributions added to the ten
+normal-equation sums \emph{only where the count is short}. This is possible
+because nothing of size $n_{\mathrm{edges}} \times n$ survives the accumulation:
+$A^{\!\top}\!A$ and $A^{\!\top}y$ are sums over frames, so a second sample simply
+adds to them. Edges already well determined are untouched, so their constants
+cannot move.
+
+Together the two passes fit $99.6\%$ of the $434{,}112$ edges. Both are reported
+rather than assumed --- \texttt{tmpl\_pct\_unfitted\_first\_pass} and
+\texttt{tmpl\_pct\_rescued\_second\_pass} say how much of that came from each ---
+because the edges the second pass admits are by construction the MARGINAL ones,
+and buying coverage with them is not free: they arrive with the fewest rows and
+the weakest drive, which is exactly the population $\Eij$ is least identifiable
+on (\S\ref{sec:Ecorr}).
 
 \paragraph{Why $\Eij$ is the fragile one.} $\Wij$ is a coefficient; $\Eij$ is a
 ratio of two, so its relative error is
