@@ -1,28 +1,31 @@
 #!/usr/bin/env python
-"""Fit the per-edge template under three sampling rigs and compare what it recovers.
+"""Run the production readout under three sampling rigs and compare what it recovers.
 
-The readout's constants come from a least squares over (v_i, v_j) samples, so
-WHICH samples are drawn is part of the estimator. This runs the same three-column
-fit on one checkpoint under three rigs and writes the W_ij and E_ij panels for
-each side by side.
+Which (v_i, v_j) samples the per-edge fit sees is part of the estimator, so this
+re-runs the SAME readout on one checkpoint under three rigs and writes each one's
+figures side by side in <run>/comparison_least_square.
 
-    frames        NOMINAL, exactly what production does: real co-occurring
-                  (v_i(t), v_j(t)) pairs from the trajectory, frames chosen by
-                  choose_active_frames -- a uniform base draw topped up per
-                  presynaptic cell. Nothing here can change it; this script
-                  imports the production sampler rather than reimplementing it.
-    grid_minmax   v_i and v_j drawn INDEPENDENTLY and uniformly over each
+    frames        the nominal: real co-occurring (v_i(t), v_j(t)) pairs from the
+                  trajectory, frames chosen by choose_active_frames.
+    grid_minmax   v_i and v_j drawn independently and uniformly over each
                   neuron's own observed [min, max].
-    grid_zeromax  the same over [0, max].
+    grid_zeromax  v_j over [0, max], v_i still over [min, max]. relu(v_j) is zero
+                  below zero, so rows with v_j < 0 carry no drive; v_i keeps its
+                  range because it is the u*v_i column that identifies b_2, and
+                  3.3% of these neurons never rise above zero.
 
-THE TWO GRID RIGS ARE NOT FRAME CHOICES, and the difference is the point. The
-nominal draws pairs the network actually visits; a grid draws pairs it may never
-see. Connected cells are correlated, so the region of the (v_i, v_j) plane the
-data occupy is far from the rectangle spanned by their marginals. A grid
-therefore conditions the fit much better -- v_i sweeps its full range on every
-edge, so the u*v_i column is well separated from u and b_2 is identified -- while
-evaluating g_phi off the distribution it was trained on. Which of those dominates
-is the empirical question this script exists to answer.
+NOTHING IS REIMPLEMENTED HERE. An earlier version carried its own copy of the
+three-column solve and reported W four times too large, because that copy omitted
+the gauge correction W <- k_i * W_fit which extract_template_params applies --
+numbers that disagreed with tmp_training/Wij for a reason having nothing to do
+with the rigs. Now the rig chooses the samples and everything after that is the
+production path: extract_recovered_params, extract_template_params,
+score_recovery, _plot_recovered_scatter and analyse_neurons, the same calls the
+trainer and `-o plot` make. The figures and the numbers are comparable to a run's
+own by construction.
+
+The grid rigs are injected by substituting the sampler extract_template_params
+calls, which is the only way to change the samples without editing it.
 
 Usage:
     python tools/compare_least_square_rigs.py [RUN] [--neuron 2895] [--frames 256]
@@ -31,7 +34,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import glob
+import logging
 import os
 import re
 import sys
@@ -45,137 +50,85 @@ import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
 
+from connectome_gnn import metrics as M  # noqa: E402
 from connectome_gnn.config import NeuralGraphConfig  # noqa: E402
 from connectome_gnn.generators.ode_params import load_ode_params_for_run  # noqa: E402
-from connectome_gnn.metrics import (  # noqa: E402
-    G_PHI_EVAL_CHUNK,
-    choose_active_frames,
-    is_conductance_gnn,
-    pad_g_phi_input,
-    sample_g_phi_vi_vj_observed,
-)
 from connectome_gnn.models.registry import create_model  # noqa: E402
-from connectome_gnn.plot import INDEX_TO_NAME, plot_recovery_panels  # noqa: E402
-from connectome_gnn.utils import (  # noqa: E402
-    graphs_data_path,
-    migrate_state_dict,
-    set_data_root,
-    to_numpy,
-)
-from connectome_gnn.zarr_io import load_simulation_data  # noqa: E402
+from connectome_gnn.models.training_utils import init_training_data  # noqa: E402
+from connectome_gnn.neuron_panels import analyse_neurons  # noqa: E402
+from connectome_gnn.recovery_figures import _plot_recovered_scatter  # noqa: E402
+from connectome_gnn.utils import migrate_state_dict, set_data_root, to_numpy  # noqa: E402
 
 LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
 RIGS = ("frames", "grid_minmax", "grid_zeromax")
 
 
-def _eval_g_phi(model, config, vi, vj, src, dst, device):
-    """g_phi at arbitrary (v_i, v_j) pairs, chunked exactly as the sampler does.
+def _g_phi_at(model, config, vi, vj, src, dst):
+    """g_phi at arbitrary (v_i, v_j), in metrics' own layout and chunk size.
 
-    Same input layout and same g_phi_positive handling as
-    sample_g_phi_vi_vj_observed, so the only thing that differs between rigs is
-    where the pairs came from.
+    Kept here rather than in metrics.py so the production module is untouched.
+    Same input order and same g_phi_positive handling as the real sampler, so a
+    grid sample and a frame sample differ only in where the pairs came from.
     """
     n_e, n_f = vi.shape
     emb = model.a.shape[1]
     ai = model.a[dst].unsqueeze(1).expand(-1, n_f, -1).reshape(-1, emb)
     aj = model.a[src].unsqueeze(1).expand(-1, n_f, -1).reshape(-1, emb)
     vi_f, vj_f = vi.reshape(-1, 1), vj.reshape(-1, 1)
-    cond = is_conductance_gnn(config.graph_model.signal_model_name)
+    cond = M.is_conductance_gnn(config.graph_model.signal_model_name)
     outs = []
     with torch.no_grad():
-        for lo in range(0, vj_f.shape[0], G_PHI_EVAL_CHUNK):
-            hi = lo + G_PHI_EVAL_CHUNK
+        for lo in range(0, vj_f.shape[0], M.G_PHI_EVAL_CHUNK):
+            hi = lo + M.G_PHI_EVAL_CHUNK
             parts = [vj_f[lo:hi], aj[lo:hi]] + ([vi_f[lo:hi], ai[lo:hi]] if cond else [])
-            o = model.g_phi(pad_g_phi_input(torch.cat(parts, dim=1).float(), model))
+            o = model.g_phi(M.pad_g_phi_input(torch.cat(parts, dim=1).float(), model))
             if config.graph_model.g_phi_positive:
                 o = o ** 2
             outs.append(o)
     return torch.cat(outs, dim=0).reshape(n_e, n_f)
 
 
-def draw(rig, model, config, ode_params, edges, x_ts, device, n_frames, seed=0):
-    """(vi, vj, msg, edge_idx) under one rig. `msg` is W * g_phi, the edge message."""
-    n_edges = int(edges.shape[1])
+@contextlib.contextmanager
+def rig_sampler(rig, x_ts, device):
+    """Substitute the (v_i, v_j) sampler for the duration of one readout.
+
+    `frames` yields unchanged, so the nominal runs exactly as it does in
+    training. The grid rigs replace vi and vj with independent uniform draws over
+    each neuron's own observed range and re-evaluate g_phi there, leaving the
+    returned dict's keys, shapes and edge ordering identical so everything
+    downstream is none the wiser.
+    """
     if rig == "frames":
-        # The production path, imported not reimplemented.
-        probe = sample_g_phi_vi_vj_observed(model, config, edges, x_ts,
-                                            n_edges=n_edges, n_frames=64, seed=seed)
-        u0 = np.asarray(ode_params.gt_g_phi_func(probe["vj"].astype(np.float64)))
-        pos = u0[u0 > 0]
-        floor = float(np.quantile(pos, 0.5)) if pos.size else 0.0
-        idx = choose_active_frames(x_ts, to_numpy(edges).reshape(2, -1)[0], floor,
-                                   base=n_frames, per_neuron=8,
-                                   max_frames=max(4 * n_frames, n_frames), seed=seed)
-        res = sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=n_edges,
-                                          n_frames=n_frames, seed=seed, frame_idx=idx)
-        vi, vj, g = res["vi"], res["vj"], res["g_phi"]
-        eid = res["edge_idx"]
-    else:
-        # Independent uniform draws over each neuron's OWN observed range.
-        volt = to_numpy(x_ts.voltage)                       # (T, N)
-        lo_n, hi_n = volt.min(axis=0), volt.max(axis=0)
-        if rig == "grid_zeromax":
-            # A neuron whose voltage never rises above zero has an empty [0, max]
-            # range; clamping to lo collapses it to the single point 0 rather
-            # than inverting the interval. Those neurons contribute u = relu = 0
-            # rows, which the floor discards anyway.
-            lo_n = np.zeros_like(lo_n)
-            hi_n = np.maximum(hi_n, lo_n)
-        e = to_numpy(edges).reshape(2, -1)
-        src_i, dst_i = e[0], e[1]
-        rng = np.random.default_rng(seed)
-        shape = (n_edges, n_frames)
-        vj = rng.uniform(lo_n[src_i, None], hi_n[src_i, None], shape)
-        vi = rng.uniform(lo_n[dst_i, None], hi_n[dst_i, None], shape)
-        g = to_numpy(_eval_g_phi(
-            model, config,
-            torch.as_tensor(vi, dtype=torch.float32, device=device),
-            torch.as_tensor(vj, dtype=torch.float32, device=device),
-            torch.as_tensor(src_i, device=device).long(),
-            torch.as_tensor(dst_i, device=device).long(), device))
-        eid = np.arange(n_edges)
-    from connectome_gnn.metrics import get_model_W
-    W = to_numpy(get_model_W(model)).ravel()[eid]
-    return (vi.astype(np.float64), vj.astype(np.float64),
-            W[:, None] * g.astype(np.float64), eid)
+        yield
+        return
+    original = M.sample_g_phi_vi_vj_observed
+    volt = to_numpy(x_ts.voltage)
+    lo_n, hi_n = volt.min(axis=0), volt.max(axis=0)
 
+    def patched(model, config, edges, x_ts_, n_edges=16, n_frames=2000, seed=0,
+                frame_idx=None):
+        res = original(model, config, edges, x_ts_, n_edges=n_edges,
+                       n_frames=n_frames, seed=seed, frame_idx=frame_idx)
+        n_e, n_f = res["vi"].shape
+        dst, src = res["edge_ij"][:, 0], res["edge_ij"][:, 1]
+        rng = np.random.default_rng(seed + 991)
+        lo_j = np.zeros_like(lo_n) if rig == "grid_zeromax" else lo_n
+        hi_j = np.maximum(hi_n, lo_j)
+        vj = rng.uniform(lo_j[src, None], hi_j[src, None], (n_e, n_f))
+        vi = rng.uniform(lo_n[dst, None], hi_n[dst, None], (n_e, n_f))
+        g = _g_phi_at(model, config,
+                      torch.as_tensor(vi, dtype=torch.float32, device=device),
+                      torch.as_tensor(vj, dtype=torch.float32, device=device),
+                      torch.as_tensor(src, device=device).long(),
+                      torch.as_tensor(dst, device=device).long())
+        res["vi"], res["vj"], res["g_phi"] = vi, vj, to_numpy(g)
+        return res
 
-def fit(vi, vj, msg, ode_params, min_points=8, t_slope=3.0):
-    """The three-column fit, per edge: msg = b1*u + b2*(u*vi) + b3."""
-    u = np.asarray(ode_params.gt_g_phi_func(vj), dtype=np.float64).reshape(vj.shape)
-    pos = u[u > 0]
-    floor = float(np.quantile(pos, 0.5)) if pos.size else 0.0
-    keep = u > max(floor, 1e-6)
-    y = np.where(keep, msg, 0.0)
-    a1 = np.where(keep, u, 0.0)
-    a2 = np.where(keep, u * vi, 0.0)
-    a3 = keep.astype(np.float64)
-    S = dict(n=keep.sum(1).astype(np.float64),
-             S11=(a1 * a1).sum(1), S12=(a1 * a2).sum(1), S22=(a2 * a2).sum(1),
-             S13=(a1 * a3).sum(1), S23=(a2 * a3).sum(1), S33=keep.sum(1).astype(np.float64),
-             S1y=(a1 * y).sum(1), S2y=(a2 * y).sum(1), S3y=(a3 * y).sum(1),
-             Syy=(y * y).sum(1))
-    M = np.stack([np.stack([S["S11"], S["S12"], S["S13"]], -1),
-                  np.stack([S["S12"], S["S22"], S["S23"]], -1),
-                  np.stack([S["S13"], S["S23"], S["S33"]], -1)], -2)
-    r = np.stack([S["S1y"], S["S2y"], S["S3y"]], -1)
-    det = np.linalg.det(M)
-    ok = (S["n"] >= min_points) & np.isfinite(det) & (np.abs(det) > 1e-18)
-    b = np.full(r.shape, np.nan)
-    if ok.any():
-        b[ok] = np.linalg.solve(M[ok], r[ok][:, :, None])[:, :, 0]
-    b1, b2 = b[:, 0], b[:, 1]
-    ss = S["Syy"] - b1 * S["S1y"] - b2 * S["S2y"] - b[:, 2] * S["S3y"]
-    sig2 = np.where(S["n"] > 3, ss / np.maximum(S["n"] - 3, 1), np.nan)
-    v22 = np.full(len(b1), np.nan)
-    if ok.any():
-        v22[ok] = np.linalg.inv(M[ok])[:, 1, 1]
-    se = np.sqrt(np.maximum(sig2 * v22, 0.0))
-    t = np.where(se > 0, np.abs(b2) / se, np.nan)
-    W = -b2
-    E = np.where((np.abs(W) > 1e-12) & (t >= t_slope), b1 / W, np.nan)
-    r2 = np.where(ok & (S["Syy"] > 0), 1.0 - ss / S["Syy"], np.nan)
-    return W, E, r2, S["n"], ok
+    M.sample_g_phi_vi_vj_observed = patched
+    try:
+        yield
+    finally:
+        M.sample_g_phi_vi_vj_observed = original
 
 
 def main(argv=None) -> int:
@@ -187,11 +140,13 @@ def main(argv=None) -> int:
 
     set_data_root("/groups/saalfeld/home/allierc/GraphData")
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    log_dir = os.path.join(LOG, a.run)
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{a.run}.yaml")
-    cks = sorted(glob.glob(f"{LOG}/{a.run}/models/*graphs_0_*.pt"),
+    cks = sorted(glob.glob(f"{log_dir}/models/*graphs_0_*.pt"),
                  key=lambda f: int(re.findall(r"_(\d+)\.pt$", f)[0]))
     if not cks:
-        print(f"{a.run}: no checkpoint"); return 1
+        print(f"{a.run}: no checkpoint")
+        return 1
     it = int(re.findall(r"_(\d+)\.pt$", cks[-1])[0])
     sd = torch.load(cks[-1], map_location=dev, weights_only=False)
     migrate_state_dict(sd)
@@ -203,45 +158,46 @@ def main(argv=None) -> int:
     model.eval()
     cfg.dataset = "fly/" + cfg.dataset
     op = load_ode_params_for_run(cfg, device=dev)
-    x_ts = load_simulation_data(graphs_data_path(cfg.dataset, "x_list_train")).truncate_frames(4000)
-    edges = torch.load(f"{LOG}/{a.run}/training_edges.pt", map_location=dev, weights_only=False)
-    model.edges = edges
-
-    out = os.path.join(LOG, a.run, "comparison_least_square")
-    os.makedirs(out, exist_ok=True)
+    data = init_training_data(cfg, dev, log_dir, logging.getLogger("rigs"))
+    model.edges = data.edges
+    x_ts = data.x_list[0] if hasattr(data, "x_list") else data.x_ts
     n_neurons = cfg.simulation.n_neurons
-    gt_W = np.asarray(op.effective_true_weights(
-        to_numpy(op.W), to_numpy(edges), n_neurons))
-    gt_E = np.asarray(to_numpy(op.reversal_per_edge())).ravel()
-    types = to_numpy(x_ts.neuron_type).ravel().astype(int) if hasattr(x_ts, "neuron_type") else None
-    dst = to_numpy(edges).reshape(2, -1)[1]
 
-    lines = [f"run {a.run}   checkpoint {it}   frames {a.frames}", ""]
+    out = os.path.join(log_dir, "comparison_least_square")
+    os.makedirs(out, exist_ok=True)
+    lines = [f"run {a.run}   checkpoint {it}   frames {a.frames}",
+             "score_recovery's own numbers, on the readout the trainer and "
+             "-o plot use", ""]
+
     for rig in RIGS:
-        vi, vj, msg, eid = draw(rig, model, cfg, op, edges, x_ts, dev, a.frames)
-        W, E, r2, n, ok = fit(vi, vj, msg, op)
-        tW, tE = gt_W[eid], gt_E[eid]
-        fin = np.isfinite(W) & np.isfinite(tW)
-        gain = (float(np.dot(tW[fin], W[fin]) / np.dot(tW[fin], tW[fin]))
-                if fin.any() else float("nan"))
-        efin = np.isfinite(E) & np.isfinite(tE)
-        grp = types[dst[eid]] if types is not None else None
-        plot_recovery_panels(tW, np.abs(W), os.path.join(out, f"Wij_{rig}.png"),
-                             symbol="|W_{ij}|", groups=grp, group_names=INDEX_TO_NAME,
-                             outlier_threshold=1.0, violin_log_y=True)
-        plot_recovery_panels(tE, E, os.path.join(out, f"Eij_{rig}.png"),
-                             symbol="E_{ij}", groups=grp, group_names=INDEX_TO_NAME,
-                             outlier_threshold=5.0, scatter_ylim=(-10.0, 10.0))
+        with rig_sampler(rig, x_ts, dev):
+            rec = M.extract_recovered_params(
+                model, op, cfg, edges=data.edges, x_ts=x_ts, device=dev,
+                n_neurons=n_neurons, need=("W", "tau", "V_rest", "E_ij", "msg_i"))
+            rec = M.extract_template_params(
+                model, op, config=cfg, edges=data.edges, x_ts=x_ts, device=dev,
+                n_neurons=n_neurons, base=rec, n_frames=a.frames)
+            scored = M.score_recovery(rec, cfg)
+            for q, key in (("W", "Wij"), ("E_ij", "Eij")):
+                try:
+                    _plot_recovered_scatter(
+                        rec, scored, q, out, config=cfg,
+                        out_path=os.path.join(out, f"{key}_{rig}.png"))
+                except Exception as exc:
+                    lines.append(f"    {key} figure skipped: {type(exc).__name__}: {exc}")
+            try:
+                analyse_neurons(cfg, model, data, log_dir, device=dev, out_dir=out,
+                                tag=rig, sr_enabled=False, use_rollout=False, quiet=True)
+            except Exception as exc:
+                lines.append(f"    panel skipped: {type(exc).__name__}: {exc}")
+        g = scored.get
+        nan = float("nan")
         lines.append(
-            f"{rig:13s} fitted {int(ok.sum()):7d}/{len(W)}  E identified {int(efin.sum()):7d}"
-            f"  |W| gain {gain:7.3f}  median fit R2 {np.nanmedian(r2):6.3f}"
-            f"  W<0 {100 * np.mean(W[fin] < 0):5.1f}%")
-        # the panel's per-synapse table, for one neuron
-        rows = np.where(dst[eid] == a.neuron)[0]
-        order = rows[np.argsort(-np.abs(tW[rows]))][:8]
-        lines.append(f"    neuron {a.neuron}: " + "  ".join(
-            f"[W {tW[i]:.3f}->{W[i]:+.3f} | E {tE[i]:+.2f}->{E[i]:+.2f}]" for i in order))
-        lines.append("")
+            f"{rig:13s} Wij_R2 {g('Wij_R2', nan):+7.3f}  gain {g('Wij_gain', nan):6.3f}"
+            f"  pearson {g('Wij_pearson', nan):+6.3f}  |  "
+            f"Eij_R2 {g('Eij_R2', nan):+8.3f}  n {int(g('Eij_n', 0) or 0):7d}"
+            f"  wrong {g('Eij_pct_wrong_slope', nan):5.1f}%  |  "
+            f"msg_form_r2 {g('msg_form_r2_median', nan):.3f}")
     txt = "\n".join(lines)
     open(os.path.join(out, "summary.txt"), "w").write(txt + "\n")
     print(txt)
