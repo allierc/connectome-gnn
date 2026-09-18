@@ -123,13 +123,25 @@ COLOR_TRUE, COLOR_PRED, COLOR_STIM = "tab:green", "black", "tab:red"
 
 @torch.no_grad()
 def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
-                    has_visual_field=False, hn=None):
+                    has_visual_field=False, hn=None, x_ts_truth=None):
     """Free-run the student from one observed frame and score it against the teacher.
 
     Free-run means x.voltage is NEVER reset from ground truth after the first
     frame -- only the stimulus is fed from data, exactly as graph_tester's rollout
     does. A version that re-anchored the voltage would report the one-step error
     and call it a rollout.
+
+    `x_ts_truth`, when given, supplies the SCORING TARGET while `x_ts` still
+    supplies the initial frame, the stimulus and everything else the model is
+    driven by. It exists because `noise_model_level` is process noise: it is added
+    to the voltage at every integration step of the generator, so the stored
+    trajectory is one stochastic path that a deterministic rollout cannot
+    reproduce however good the model is. On
+    flyvis_flowcond_noise_005_blank50_cv00 the correlation between the noisy
+    trajectory and its noise-free twin is 0.820, and 22 arms of a sweep all
+    reported rollout_r in 0.813-0.820 while Wij_R2 ranged over 0.27-0.48 -- the
+    metric was reading the noise, not the model. Scoring against the twin
+    restores a ceiling of 1.0.
 
     Returns (r_fisher, rmse, true (T,N), pred (T,N), stim (T,), score) where
     score is score_rollout's dict (or None when no frames ran). r_fisher is the
@@ -139,8 +151,11 @@ def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
     from connectome_gnn.utils import to_numpy
 
     n_frames = int(min(n_frames, x_ts.n_frames - start - 1))
+    if x_ts_truth is not None:
+        n_frames = int(min(n_frames, x_ts_truth.n_frames - start - 1))
     if n_frames < 2:
         return float("nan"), float("nan"), None, None, None, None
+    x_true = x_ts if x_ts_truth is None else x_ts_truth
 
     x = x_ts.frame(start)
     x.voltage = x.voltage.clone()
@@ -149,7 +164,7 @@ def teacher_rollout(model, x_ts, edges, sim, device, n_frames=1000, start=0,
     true_l, pred_l, stim_l = [], [], []
     for k in range(start, start + n_frames):
         pred_l.append(to_numpy(x.voltage))
-        true_l.append(to_numpy(x_ts.frame(k).voltage))
+        true_l.append(to_numpy(x_true.frame(k).voltage))
 
         frame_k = x_ts.frame(k)
         x.stimulus = frame_k.stimulus.clone()
@@ -246,7 +261,8 @@ def save_trace_figure(path, true, pred, stim, delta_t, r, n_traces=12,
 
 def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration,
                              n_frames=1000, has_visual_field=False, hn=None,
-                             type_names=None, type_list=None, make_figure=True):
+                             type_names=None, type_list=None, make_figure=True,
+                             x_ts_truth=None):
     """One checkpoint's worth: score the rollout, log it, draw the traces.
 
     `make_figure` separates the two. The rollout itself always runs and always
@@ -260,7 +276,7 @@ def evaluate_teacher_rollout(model, x_ts, edges, sim, device, log_dir, iteration
     try:
         r, rmse, true, pred, stim, score = teacher_rollout(
             model, x_ts, edges, sim, device, n_frames=n_frames,
-            has_visual_field=has_visual_field, hn=hn)
+            has_visual_field=has_visual_field, hn=hn, x_ts_truth=x_ts_truth)
     finally:
         if was_training:
             model.train()
