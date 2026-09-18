@@ -177,7 +177,7 @@ _L2 = [("l20", "0"), ("l27p5e7", r"7.5\times10^{-7}"), ("l27p5e6", r"7.5\times10
 # only while z < 2, so M=2 is the arm that should still fail.
 _SUB = [(2, 2.21), (3, 1.47), (5, 0.88), (10, 0.44)]
 
-_B = "flyvis_flowcond_noise_005_gnn_wsq"
+_B = "flyvis_flowcond_noise_005_gnn_nosq"
 ARMS = [dict(block="base", label="baseline", run=f"{_B}_cv00")]
 for _stag, _sil in _SIL:
     for _gtag, _g in _GAIN:
@@ -192,6 +192,12 @@ for _l1t, _l1 in _L1:
 for _m, _z in _SUB:
     ARMS.append(dict(block="sub", label=rf"$M = {_m}$ \tiny($z = {_z}$)",
                      run=f"{_B}_sub{_m}_cv00"))
+# THE SAME M=5 ARM AT THREE SEEDS, because the substep arms showed the widest
+# spread of the campaign: at 20k iterations the three sat at Wij_R2 +0.150,
+# -0.861 and -0.230. A single substep number cannot be read without them.
+for _tag, _lab in (("sub5", "seed 42"), ("sub5_s2", "seed 43"), ("sub5_s3", "seed 44")):
+    ARMS.append(dict(block="subseed", label=rf"$M = 5$, \tiny{_lab}",
+                     run=f"{_B}_{_tag}_cv00"))
 
 
 def pick(block):
@@ -347,27 +353,30 @@ def main(argv=None) -> int:
 {\small Every $R^2$ is written \emph{outlier-filtered} [full sample] (\% dropped),
 final, from \texttt{results/metrics.txt} on the held-out test split.
 Rows marked $^{*}$ are left blank: those runs have no held-out numbers yet.
-All arms share one fold (cv00), $\sigma = 0.05$, and the squared-weight
-parameterisation $\widehat{W}^2 g_\phi$ with $g_\phi$ free to change sign.}\end{center}
+All arms share one fold (cv00), $\sigma = 0.05$, and the unsquared
+parameterisation $\mathrm{msg} = W g_\phi$: neither factor is squared, so the sign of a
+synapse may sit in either, and $|W|$ is what the readout reports.}\end{center}
 \vspace{4pt}""",
          rf"\section*{{{DATE}}}"]
 
     # THE FIRST DOCUMENT'S CAPTION TEMPLATE, unchanged:
     # "<Model> model on <data> data with <knob>, $\sigma = <noise>$."
     L.append(table(pick("base"),
-                   "Conductance model on conductance data with the squared weight "
-                   r"parameterisation, $\sigma = 0.05$."))
+                   "Conductance model on conductance data with neither factor "
+                   r"squared, $\sigma = 0.05$."))
     L.append(table(pick("gauge"),
                    "Conductance model on conductance data with a silent-input "
                    r"anchor and a message-gain term, $\sigma = 0.05$."))
     L.append(table(pick("wl"),
                    r"Conductance model on conductance data with $W$ penalties "
-                   r"$\lambda_1$ (L1) and $\lambda_2$ (L2) on $\widehat{W}^2$, "
+                   r"$\lambda_1$ (L1) and $\lambda_2$ (L2) on $W$, "
                    r"$\sigma = 0.05$."))
     L.append(table(pick("sub"),
                    r"Conductance model on conductance data integrated as $M$ "
                    r"sub-steps of $20/M$ ms, $\sigma = 0.05$. Forward Euler "
                    r"contracts only while $z < 2$."))
+    L.append(table(pick("subseed"),
+                   r"The $M = 5$ sub-step arm at three seeds, $\sigma = 0.05$."))
     L.append(r"\end{document}")
 
     tex = os.path.join(HERE, "experiment_tables2.tex")
