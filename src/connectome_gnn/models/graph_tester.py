@@ -29,6 +29,7 @@ from connectome_gnn.generators.graph_data_generator import (
 from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, load_edge_index
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
+from connectome_gnn.models.substep import integrate_frame, substep_report
 from connectome_gnn.models.utils import (
     ANSI_ORANGE,
     ANSI_RESET,
@@ -582,6 +583,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     stimuli_pred_list = []   # SIREN predicted stimulus (input neurons only)
 
     with torch.no_grad():
+        _int_method = getattr(tc, 'integration_method', 'euler')
+        _n_sub = max(1, int(getattr(tc, 'n_rollout_substeps', 5)))
+        logger.info(substep_report(_int_method, _n_sub, sim.delta_t))
         for k in trange(n_eval_frames - 1, ncols=100, desc="rollout"):
             # Collect state before integration
             rollout_pred_list.append(to_numpy(x.voltage))
@@ -643,11 +647,22 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             else:
                 y = model(x, edges, data_id=data_id, return_all=False)
 
-            # Integration step
+            # Integration step. `mlp_ode` returns an already-integrated delta,
+            # so it is added as-is; every other family returns dv/dt and goes
+            # through integrate_frame, which is one Euler step at
+            # n_rollout_substeps=1 and M steps of delta_t/M above that. The GNN
+            # branch is the only one that can re-evaluate its own derivative, so
+            # it is the only one that gets a `forward`; the rest fall back to the
+            # single step whatever M says, because sub-stepping an RNN's hidden
+            # state or a latent EED rollout is a different question.
             if _fk == 'mlp_ode':
                 x.voltage = x.voltage + y.squeeze(-1)
+            elif _fk in ('rnn', 'lstm') or is_eed:
+                integrate_frame(x, None, sim.delta_t, "euler", dvdt=y)
             else:
-                x.voltage = x.voltage + sim.delta_t * y.squeeze(-1)
+                integrate_frame(
+                    x, lambda st: model(st, edges, data_id=data_id, return_all=False),
+                    sim.delta_t, _int_method, _n_sub, dvdt=y)
 
             # Update hidden neuron voltages via SIREN or keep silent
             hn.inject_hidden(model, x, k + 1, True)

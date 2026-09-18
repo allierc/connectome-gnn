@@ -1832,6 +1832,31 @@ class TrainingConfig(BaseModel):
     # rather than lengthen the horizon; this knob lengthens the horizon at fixed dt.
     # Requires time_step == 1 (enforced in data_train_gnn) so intermediate frames exist.
     rollout_horizon_schedule: List[int] = Field(default_factory=list)
+
+    # HOW THE MODEL'S OWN ODE IS ADVANCED BY ONE OBSERVED FRAME. delta_t stays
+    # the observed cadence (20 ms) in both cases -- this chooses only how the
+    # model gets across it.
+    #
+    #   euler           one forward-Euler step of delta_t. The base behaviour.
+    #   multi_substeps  n_rollout_substeps steps of delta_t / n_rollout_substeps,
+    #                   with the MESSAGE RECOMPUTED at each one.
+    #
+    # WHY THE CHOICE EXISTS. The conductance generator is integrated with
+    # exponential Euler: exact at frozen coefficients, a contraction for any
+    # synaptic conductance. Forward Euler at the same delta_t contracts only
+    # while z = (delta_t / tau_i)(1 + G_i) < 2, and the generating network was
+    # measured at z = 4.4. So a GNN that learned the generator EXACTLY would
+    # diverge in rollout, and the rollout correlations we report are partly a
+    # reward for failing to learn the stiff part. Sub-stepping divides z by M:
+    # 4.42 at M=1, 2.21 at M=2 (still diverges), 1.47 at M=3, 0.88 at M=5.
+    #
+    # It needs no retraining and does not touch the readout: f_theta predicts an
+    # instantaneous dv/dt, which carries no step size, so it may legitimately be
+    # integrated at any h.
+    integration_method: Literal["euler", "multi_substeps"] = "euler"
+    # M, used only when integration_method is multi_substeps. delta_t is
+    # UNCHANGED -- this splits the frame, it does not shorten it.
+    n_rollout_substeps: int = 5
     # Cap on iterations for epochs with K > 1, so the rollout phase can be a SHORT
     # tail fine-tune rather than the bulk of training. The reference spends 96.5% of its
     # updates at K=1 and only 3.5% ramping K upward, at an LR ~3300x below peak;

@@ -72,6 +72,18 @@ import torch
 from connectome_gnn.models.utils import _batch_frames, fit_residual_loss
 
 
+def _scatter_voltage(state_batch, pred_x, neurons_per_sample):
+    """Write a batched (N*B, 1) voltage back onto the per-sample states.
+
+    The sub-step path needs the model re-run on the intermediate state, and the
+    model takes per-sample states, so the batched column has to go back first.
+    Same slicing the frame advance below uses.
+    """
+    for b_idx in range(len(state_batch)):
+        s_, e_ = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
+        state_batch[b_idx].voltage = pred_x[s_:e_].squeeze()
+
+
 def recurrent_loss(
     model,
     x_ts,
@@ -249,6 +261,9 @@ def _dense_rollout_loss(
     update_regul = regularizer.compute_update_regul(model, in_features, ids_batch, device)
     loss = loss + update_regul
 
+    _int_method = getattr(tc, "integration_method", "euler")
+    _n_sub = max(1, int(getattr(tc, "n_rollout_substeps", 5)))
+
     for step in range(n_steps):
         # Score the derivative, exactly as the one-step path does. At step 0 the
         # state is the observed v(k), so K=1 is term-for-term one-step training.
@@ -274,12 +289,27 @@ def _dense_rollout_loss(
         if step == n_steps - 1:
             break
 
-        # --- integrate one step to get the next state ---
-        if step == 0:
-            pred_x = (batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred
-                      + tc.noise_recurrent_level * torch.randn_like(pred))
+        # --- integrate one OBSERVED FRAME to get the next state ---
+        # `euler` is one step of delta_t and is what this has always done.
+        # `multi_substeps` crosses the same delta_t as M steps of delta_t/M with
+        # the message RECOMPUTED at each: the generator uses exponential Euler,
+        # and forward Euler at delta_t contracts only while
+        # z = (delta_t/tau_i)(1 + G_i) < 2 while the generating network reaches
+        # 4.4 -- so a model that learned the generator exactly would diverge
+        # here. Sub-stepping divides z by M. Process noise is added once per
+        # observed frame in both paths, so the two differ only in the integrator.
+        _v0 = (batched_state.voltage.unsqueeze(-1) if step == 0 else pred_x)
+        if _int_method == "multi_substeps" and _n_sub > 1:
+            _h = sim.delta_t / _n_sub
+            pred_x = _v0 + _h * pred
+            for _sub in range(_n_sub - 1):
+                _scatter_voltage(state_batch, pred_x, neurons_per_sample)
+                _bs, _be = _batch_frames(state_batch, edges)
+                _p, _, _ = model(_bs, _be, data_id=data_id, return_all=True)
+                pred_x = pred_x + _h * _p
         else:
-            pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
+            pred_x = _v0 + sim.delta_t * pred
+        pred_x = pred_x + tc.noise_recurrent_level * torch.randn_like(pred_x)
 
         # "pushforward" (bptt_window=1): cut the gradient every m steps so no
         # chain is longer than m. The model still SEES its drifted state -- that is
