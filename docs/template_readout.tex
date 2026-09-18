@@ -142,10 +142,10 @@ the presynaptic cell is active; at $u_t = 0$ it is $[0,\,0,\,1]$ and fixes the
 offset alone. The activity floor is the median of the positive $\act(\vj)$, pooled
 over a $64$-frame probe, and $u_t$ must exceed it.
 
-\paragraph{Choosing the frames.} A cell active in $2\%$ of the recording yields
-about five rows in a $256$-frame draw, and a quarter of this connectome's edges
-have such a cell; a uniform draw four times larger moves that share by about four
-points, and the sampler exhausts memory near $n = 4096$. Two passes instead:
+\paragraph{Choosing the frames.} A quarter of this connectome's edges have a
+presynaptic cell active in about $2\%$ of the frames, which yields some five rows
+in a $256$-frame draw. A uniform draw four times larger moves that share by about
+four points, and the sampler exhausts memory near $n = 4096$. Two passes instead:
 
 \begin{enumerate}[nosep,leftmargin=1.6em]
 \item A uniform draw of $n = 256$, then, for each presynaptic cell seen active
