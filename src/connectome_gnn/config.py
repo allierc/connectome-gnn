@@ -1769,6 +1769,20 @@ class TrainingConfig(BaseModel):
 
     rollout_train_steps: int = 1  # multi-step rollout training: unroll K steps and backprop
 
+    # EDGE DROPOUT: the fraction of incoming edges whose message is zeroed, per
+    # batch, during training only. The loss sees only the SUM of a neuron's
+    # incoming messages, msg_i = sum_j W_ij g_phi(v_j, v_i), so any reallocation
+    # among its ~19 incoming edges that leaves the sum unchanged costs nothing --
+    # which is why msg_i_R2 reaches 0.94 on this data while Wij_R2 stalls near
+    # 0.4-0.57. Natural video makes it worse: neighbouring ommatidia see almost
+    # the same thing, so those columns are strongly collinear. Dropping edges at
+    # random is the standard remedy for collinear regressors: a weight that is
+    # right only in combination with its neighbours is exposed when they are
+    # absent. Inverted, i.e. the survivors are scaled by 1/(1 - p), so E[msg_i]
+    # is unchanged and the model cannot recover by inflating W -- without that
+    # scaling every weight would grow by 1/(1 - p) and the gauge would absorb it.
+    edge_dropout: float = 0.0
+
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
     recurrent_loop: int = 0

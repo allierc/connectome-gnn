@@ -196,7 +196,7 @@ for _m, _z in _SUB:
 # spread of the campaign: at 20k iterations the three sat at Wij_R2 +0.150,
 # -0.861 and -0.230. A single substep number cannot be read without them.
 for _tag, _lab in (("sub5", "seed 42"), ("sub5_s2", "seed 43"), ("sub5_s3", "seed 44")):
-    ARMS.append(dict(block="subseed", label=rf"$M = 5$, \tiny{_lab}",
+    ARMS.append(dict(block="subseed", label=rf"$M = 5$, \tiny {_lab}",
                      run=f"{_B}_{_tag}_cv00"))
 
 
