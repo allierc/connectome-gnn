@@ -3239,7 +3239,7 @@ def _error_violin_by_group(ax, error, groups, true, group_names=None, symbol='',
 def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
                          group_names=None, outlier_threshold=None,
                          violin_log_y=False, corrected=False, extra_paths=(),
-                         scatter_ylim=None, draw=True):
+                         scatter_lim=None, draw=True):
     """The 2x2 recovery figure used for EVERY parameter the trainer recovers.
 
     One template for W_ij, E_ij, tau and V_rest, so the four are read the same
@@ -3321,7 +3321,8 @@ def plot_recovery_panels(true, learned, out_path, *, symbol, groups=None,
     r2, slope = plot_weight_scatter(
         ax_sc, gt_weights=true, learned_weights=learned,
         corrected=corrected, scatter_size=1.5,
-        outlier_threshold=outlier_threshold, ylim=scatter_ylim,
+        outlier_threshold=outlier_threshold,
+        xlim=scatter_lim, ylim=scatter_lim,
         metrics_fontsize=_METRIC_FS, tick_fontsize=_TICK_FS,
         extra_lines=[f'RMSE: {float(np.sqrt(np.mean(err ** 2))):.4g}'])
     star = '^*' if corrected else ''
@@ -3450,7 +3451,10 @@ def plot_msg_recovery(model, ode_params, x_ts, edges, device, log_dir, epoch, N,
 # RecoveryConfig.Eij_outlier_thresh so the figure and tmp_training/Eij.log agree;
 # the axis is the physiological range a reversal can plausibly sit in.
 EIJ_OUTLIER_THRESH = 5.0
-EIJ_SCATTER_YLIM = (-10.0, 10.0)
+# BOTH AXES, same limit, so the identity line is the diagonal. Matches
+# recovery_figures' E_ij `lim`, so the tmp_training panel and the results/ one
+# put the same quantity on the same scale.
+EIJ_SCATTER_LIM = (-20.0, 20.0)
 
 
 def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
@@ -3495,12 +3499,12 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
     # which DISAGREED with the Eij_R2 in tmp_training/Eij.log, computed at
     # Eij_outlier_thresh. One number, one meaning, in both places.
     #
-    # AND A BOUNDED Y-AXIS. E_ij = -b1/b2 is a ratio, so an edge whose
-    # postsynaptic voltage barely moved sends it to 1e4 while the true reversals
-    # live within a few volts. Autoscaling then compresses every real point onto
-    # a line through the origin. +-10 V covers the physiological range with room
-    # to spare; anything outside is a failed fit, counted in the outlier share
-    # rather than plotted.
+    # AND BOUNDED AXES. E_ij = -b1/b2 is a ratio, so an edge whose postsynaptic
+    # voltage barely moved sends it to 1e4 while the true reversals live within a
+    # few volts. Autoscaling then compresses every real point onto a line through
+    # the origin. +-20 V on BOTH axes covers the physiological range with room to
+    # spare and keeps the identity line on the diagonal; anything outside is a
+    # failed fit, counted in the outlier share rather than plotted.
     plot_recovery_panels(
         rev_metrics["true"],
         rev_metrics["learned"],
@@ -3509,7 +3513,7 @@ def plot_reversal_scatter(rev_metrics, log_dir, epoch, N):
         groups=rev_metrics.get("edge_type"),
         group_names=INDEX_TO_NAME,
         outlier_threshold=rev_metrics.get("outlier_threshold", EIJ_OUTLIER_THRESH),
-        scatter_ylim=EIJ_SCATTER_YLIM,
+        scatter_lim=EIJ_SCATTER_LIM,
     )
 
 
