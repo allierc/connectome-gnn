@@ -3559,6 +3559,31 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             # W*E and k*D, they are one column's coefficient -- so it is
             # measured rather than corrected: an |E - E_true| far above se(E) is
             # a current-form component in the message, not sampling noise.
+            # THE GENERATOR'S FORM INCLUDES W >= 0, so the honest question is
+            # whether the message obeys W*relu(v_j)*(E - v_i) WITH THAT
+            # CONSTRAINT. The free fit answers a weaker one: it may use a
+            # negative W, which the generator cannot, so it is strictly more
+            # expressive than the equation it claims to be testing and its R2
+            # flatters the model. That matters most for the two-form comparison,
+            # where "the conductance form fits at 0.998" is not a statement about
+            # the conductance form if part of the fit is a sign the conductance
+            # form forbids.
+            #
+            # THE CONSTRAINED SOLVE IS ALREADY HALF-COMPUTED. With one inequality
+            # on one coefficient, the solution is the free one where it already
+            # satisfies b2 <= 0, and otherwise the constraint is ACTIVE: set
+            # b2 = 0 and re-solve the remaining two columns [u, 1] -- which is
+            # exactly the current-form fit (c1, c3) below. So the constrained
+            # conductance form and the current form COINCIDE on every edge whose
+            # free fit wanted W < 0, which is the precise sense in which such an
+            # edge shows no driving force.
+            #
+            # Nothing is hidden by constraining: an edge that needed W < 0 now
+            # fits WORSE, and says so in its own R2 rather than in a separate
+            # counter. `Eij_pct_wrong_slope` still reports how often it happens.
+            _binds = ~(b2 < 0)                      # free fit wanted W <= 0
+            W_nn = np.where(_binds, 0.0, -b2)
+            E_nn = np.where(_binds, np.nan, b1 / np.where(_binds, 1.0, -b2))
             _ratio = np.where(np.abs(b2) > 1e-12, b1 / b2, np.nan)
             se_E = np.sqrt(np.maximum(
                 sigma2 / np.maximum(b2 ** 2, 1e-24)
@@ -3574,6 +3599,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             b2 = np.zeros(n_e)
             W_fit, E_fit = b1, np.full(n_e, np.nan)
             se_E = np.full(n_e, np.nan)
+            W_nn, E_nn = b1, np.full(n_e, np.nan)
+            _binds = np.zeros(n_e, dtype=bool)
             ss_res = Syy - b1 * S1y - b3 * S3y
         # UNCENTRED R2, against zero rather than against the edge's mean message:
         # the template has no intercept, a synapse with no drive must send no
@@ -3599,6 +3626,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             c3 = np.where(ok2, (S11 * S3y - S13 * S1y) / _den2, np.nan)
         cur_r2 = np.where(ok2 & (Syy > 0), 1.0 - (Syy - c1 * S1y - c3 * S3y) / Syy,
                           np.nan)
+        # THE CONSTRAINED CONDUCTANCE FORM'S OWN R2. Where W >= 0 is slack it is
+        # the free fit's; where it binds the solution IS the current form, so
+        # cur_r2 is the constrained fit's residual by construction. This is the
+        # number that answers "does the message obey the generator's equation",
+        # as opposed to "does it obey a relaxation of it".
+        cond_nn_r2 = np.where(_binds, cur_r2, fit_r2)
         if cond:
             cond_r2 = fit_r2
             cb1, cb2 = b1, b2
@@ -3698,10 +3731,28 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
 
     gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
     r2_med = float(np.nanmedian(fit_r2_full)) if np.isfinite(fit_r2_full).any() else float("nan")
+    # |W| ON THE CONDUCTANCE FAMILY, because the generator's W_ij is a
+    # conductance and is non-negative by construction. The template fit is free
+    # to return a negative W -- that is how a wrong sign in g_phi shows up -- but
+    # scattering a signed estimate against a non-negative truth reports the SIGN
+    # error as a MAGNITUDE error, and a sign-flipped edge of the right size then
+    # reads as an edge of the wrong size. Taking the modulus separates them: the
+    # scatter, the R2 and the progress bar describe how well the conductance's
+    # size is recovered, and `Wij_pct_W_negative` says how often the sign went
+    # the way the generator forbids.
+    #
+    # THE CURRENT FAMILY IS LEFT SIGNED. Its generator is W * relu(v_j) with the
+    # sign living in W, so there |W| would discard the polarity the readout is
+    # supposed to recover.
+    if cond:
+        W_learned = np.abs(W_learned)
     rec.pairs["W"] = _pair(gt_W, W_learned)
     rec.estimator["W"] = "template_fit"
-    rec.correction["W"] = (f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
-                           f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)")
+    rec.correction["W"] = (
+        f"msg_ij = W*act(v_j)*(E - v_i) per edge; "
+        f"W_ij scaled by k_i = tau_i * dftheta_dmsg_i ({gauge_tau} tau)"
+        + ("; |W| reported, the generator's conductance being non-negative"
+           if cond else "; signed, the current generator's W carries the sign"))
     rec.diagnostics["_W_learned_full"] = W_learned
     # THE TEMPLATE'S W CARRIES THE TEMPLATE'S OWN GATE, and must say so. On a
     # conductance run `extract_recovered_params` has already set
@@ -3737,6 +3788,20 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # conductance model emits.
     rec.diagnostics["current_form_r2_median"] = (
         float(np.nanmedian(cur_r2)) if np.isfinite(cur_r2).any() else float("nan"))
+    # THE CONSTRAINED FORM, beside the free one. The generator has W_ij >= 0, so
+    # this is the median R2 of the equation actually being tested;
+    # `conductance_form_r2_median` is the median R2 of a relaxation that may use
+    # a sign the generator forbids. The GAP between them is how much of the
+    # apparent conductance fit rests on that extra freedom, and
+    # `Wij_pct_W_negative` is how often it is used at all.
+    rec.diagnostics["conductance_nn_form_r2_median"] = (
+        float(np.nanmedian(cond_nn_r2)) if np.isfinite(cond_nn_r2).any()
+        else float("nan"))
+    rec.diagnostics["Wij_pct_W_negative"] = (
+        float(100.0 * np.mean(_binds[np.isfinite(b2)]))
+        if np.isfinite(b2).any() else float("nan"))
+    rec.diagnostics["_W_nn_full"] = _scatter(W_nn)
+    rec.diagnostics["_E_nn_full"] = _scatter(E_nn)
     rec.diagnostics["conductance_form_r2_median"] = (
         float(np.nanmedian(cond_r2)) if np.isfinite(cond_r2).any() else float("nan"))
     # MEAN AND SD, NOT THE MEDIAN, for the gain. Most of the 434k edges carry a

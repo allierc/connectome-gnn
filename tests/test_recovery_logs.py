@@ -304,3 +304,20 @@ def test_unknown_integration_method_raises():
     from connectome_gnn.models.substep import integrate_frame
     with pytest.raises(ValueError, match="unknown integration_method"):
         integrate_frame(None, None, 0.02, "rk4")
+
+
+def test_abs_W_is_conductance_only():
+    """The conductance generator's W_ij is a conductance, non-negative by
+    construction, so the scatter and its R2 report |W|: a sign-flipped edge of
+    the right size is a SIGN error and must not read as a size error. The
+    current generator's W carries the synapse's sign, so there |W| would discard
+    the polarity the readout exists to recover. The correction string says which
+    was applied."""
+    import inspect
+
+    from connectome_gnn import metrics
+    src = inspect.getsource(metrics)
+    i = src.index("W_learned = np.abs(W_learned)")
+    guard = src.rindex("if cond:", 0, i)
+    assert i - guard < 40, "np.abs must sit under the conductance guard"
+    assert "|W| reported" in src and "the current generator's W carries the sign" in src
