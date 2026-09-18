@@ -701,6 +701,20 @@ def _print_training_metrics(log_dirs, slots_active, prefix='  [metrics]'):
                   f"{r['iter_str']:<{iter_w}}  " + '  '.join(parts))
 
 
+# How long a poll outage the loop rides out before giving up. Doubling from 30 s
+# and capped at 10 min, 12 attempts is about 75 minutes -- longer than a laptop
+# sleeping through lunch or a VPN reconnect, shorter than a real cluster outage
+# worth a human's attention.
+_BJOBS_MAX_RETRIES = 12
+_BJOBS_RETRY_BASE_S = 30
+_BJOBS_RETRY_CAP_S = 600
+
+
+def _bjobs_retry_budget_min():
+    return sum(min(_BJOBS_RETRY_BASE_S * (2 ** i), _BJOBS_RETRY_CAP_S)
+               for i in range(_BJOBS_MAX_RETRIES)) / 60.0
+
+
 def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
                                        metrics_interval=300,
                                        job_prefix='cluster_train'):
@@ -728,10 +742,31 @@ def wait_for_cluster_jobs_with_metrics(job_ids, log_dirs, poll_interval=60,
         # Run bjobs.
         ids_str = ' '.join(pending.values())
         ssh_cmd = f"ssh {CLUSTER_SSH} \"bjobs {ids_str}\""
-        out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
-        if out.returncode != 0 and not out.stdout.strip():
+        # A FAILED POLL IS NOT A FAILED RUN. The jobs are on the cluster and keep
+        # going whatever happens to this process's SSH; raising on the first bad
+        # bjobs threw away a whole campaign on 2026-09-18 when the forwarded
+        # agent died mid-poll ("ssh_askpass: exec(/usr/bin/ssh-askpass): No such
+        # file or directory"), after the batch had already trained. So retry,
+        # with a backoff long enough to outlive a laptop sleeping or a VPN
+        # reconnect, and only give up when the outage is longer than any
+        # plausible interruption.
+        out = None
+        for _attempt in range(_BJOBS_MAX_RETRIES):
+            out = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True)
+            if out.returncode == 0 or out.stdout.strip():
+                break
+            _wait = min(_BJOBS_RETRY_BASE_S * (2 ** _attempt), _BJOBS_RETRY_CAP_S)
+            print(f"\033[93m  bjobs poll failed (rc={out.returncode}): "
+                  f"{(out.stderr or '').strip().splitlines()[-1] if out.stderr.strip() else '(no output)'}"
+                  f" -- retry {_attempt + 1}/{_BJOBS_MAX_RETRIES} in {_wait}s; "
+                  f"the cluster jobs are unaffected\033[0m", flush=True)
+            time.sleep(_wait)
+        else:
             raise RuntimeError(
-                f"bjobs failed (rc={out.returncode}): {out.stderr.strip() or '(no output)'}"
+                f"bjobs failed {_BJOBS_MAX_RETRIES} times over "
+                f"~{_bjobs_retry_budget_min():.0f} min (rc={out.returncode}): "
+                f"{out.stderr.strip() or '(no output)'}. The cluster jobs are "
+                f"probably still running; restart with --resume once SSH works."
             )
 
         just_finished = []
