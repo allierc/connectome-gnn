@@ -353,6 +353,34 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             f"its own rollout step (only 'gnn' is implemented here). Set "
             f"rollout_frames: 0 to silence this; `-o test` still rolls this model out.")
 
+    # THE IN-TRAINING ROLLOUT IS SCORED AGAINST THE NOISE-FREE TWIN, for the same
+    # reason graph_tester's is: `noise_model_level` is process noise baked into
+    # voltage.zarr, so the stored trajectory is one stochastic path and the
+    # correlation between it and its noise-free twin -- 0.820 on
+    # flyvis_flowcond_noise_005_blank50_cv00 -- is a ceiling no deterministic
+    # rollout can pass. Loaded once here rather than per checkpoint; the model is
+    # still DRIVEN by the noisy x_ts it was trained on, only the target changes.
+    _rollout_truth = None
+    if _rollout_ok and float(getattr(sim, "noise_model_level", 0.0)) > 0:
+        from connectome_gnn.template_rollout import noise_free_dataset
+        from connectome_gnn.zarr_io import load_simulation_data
+        _nf = noise_free_dataset(config.dataset)
+        if _nf != config.dataset and os.path.isdir(graphs_data_path(_nf)):
+            try:
+                _rollout_truth = load_simulation_data(
+                    graphs_data_path(_nf, 'x_list_train'), fields=['voltage']).to(device)
+                logger.info(f'in-training rollout scored against the noise-free twin '
+                            f'{_nf}; process noise {sim.noise_model_level} caps '
+                            f'rollout_r at ~0.82 against the noisy trajectory')
+            except Exception as _exc:
+                logger.warning(f'noise-free twin {_nf} not loadable, in-training '
+                               f'rollout_r stays capped by the process noise: '
+                               f'{type(_exc).__name__}: {_exc}')
+        else:
+            logger.warning(f'no noise-free twin for {config.dataset}; in-training '
+                           f'rollout_r is capped by the process noise and is not a '
+                           f'model comparison')
+
     # =====================================================================
     # EPOCH LOOP
     # =====================================================================
@@ -777,6 +805,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                         regularizer.iter_count,
                         n_frames=_rollout_frames,
                         has_visual_field=train.has_visual_field, hn=hn,
+                        x_ts_truth=_rollout_truth,
                         type_names=getattr(ode_params, "type_names", None)
                         if not isinstance(ode_params, dict) else ode_params.get("type_names"),
                         type_list=type_list,
