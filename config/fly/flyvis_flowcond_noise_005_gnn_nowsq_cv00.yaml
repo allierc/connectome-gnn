@@ -65,9 +65,9 @@ training:
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 375
-  coeff_g_phi_norm: 0.45
-  coeff_g_phi_weight_L1: 0.14
+  coeff_g_phi_diff: 0.0
+  coeff_g_phi_norm: 0.0
+  coeff_g_phi_weight_L1: 0.0
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_msg_diff: 0
   coeff_f_theta_weight_L1: 0.025
