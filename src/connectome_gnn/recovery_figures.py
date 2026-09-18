@@ -203,18 +203,22 @@ def _plot_recovered_scatter(rec, scored, quantity, log_dir, mc="k", config=None,
     pct_out = 100.0 * out_mask.sum() / gt.size
 
     fig = plt.figure(figsize=(10, 9))
-    # edgecolors="none": at s=1 a marker edge is the same size as the marker, so
-    # it only blurs the mark and darkens the dense centre.
-    plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.3,
+    # ALPHA 0.04, the same as the tmp_training 2x2 panels. The two families drew
+    # the same quantities at 0.3 and 0.04, so a scatter here and a scatter there
+    # showed the same cloud at eight times the density and could not be read
+    # against each other. edgecolors="none" because at s=1 a marker edge is the
+    # size of the marker and only blurs it.
+    plt.scatter(gt[~out_mask], learned[~out_mask], c=mc, s=1, alpha=0.04,
                 edgecolors="none", rasterized=True)
     if out_mask.any():
         # SAME SIZE AS THE INLIERS. At s=6 against s=1 each red point covered
         # about six times the area of a black one, so a population of 4 edges in
         # 434,112 -- 0.001% -- drew the eye as if it were a visible fraction of
         # the cloud. The share is stated in the "outliers: N%" text; the marks
-        # only have to be findable, not loud, so colour does the separating and
-        # alpha 0.6 keeps them visible on top of the dense centre.
-        plt.scatter(gt[out_mask], learned[out_mask], c="red", s=1, alpha=0.6,
+        # only have to be findable, not loud, so colour does the separating.
+        # Twice the inliers' alpha, keeping the 0.6-against-0.3 ratio that made
+        # them visible on top of the dense centre.
+        plt.scatter(gt[out_mask], learned[out_mask], c="red", s=1, alpha=0.08,
                     edgecolors="none", rasterized=True)
     lim = spec.get("lim")
     if lim is None:
