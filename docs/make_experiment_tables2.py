@@ -131,40 +131,6 @@ def metrics(run):
 # where the true message is exactly zero; `coeff_f_theta_msg_gain` pins its
 # SCALE (k_i -> 1) by charging df/dmsg + df/dv, which the generator makes zero
 # for every neuron whatever its tau. The nominal config carries neither.
-_SIL = [("s1", 1), ("s5", 5), ("s25", 25)]
-_GAIN = [("g1e5", "10^{-5}"), ("g1e4", "10^{-4}"), ("g1e3", "10^{-3}")]
-
-def live(run, key, col):
-    """The last row of tmp_training/<key>.log, by column NAME. `#` lines are the
-    readout descriptor, not data."""
-    p = f"{LOG}/{run}/tmp_training/{key}.log"
-    if not os.path.exists(p):
-        return None, None
-    rows = [r for r in open(p).read().strip().split("\n")
-            if r and not r.startswith("#")]
-    if len(rows) < 2:
-        return None, None
-    v = rows[-1].split(",")
-    return int(float(v[0])), dict(zip(recovery_log_columns(key), v[1:])).get(col)
-
-
-def gauge_k(run):
-    """Measured k_i = tau_i * df/dmsg_i, median over neurons, from gauge_k.json.
-
-    THE QUANTITY THE GRID EXISTS TO MOVE, and the only one that says outright
-    whether the gauge is fixed: k = 1 is fixed, and W is then in the generator's
-    units. Measured by autograd on real frames with the MODEL's own tau (blind --
-    no ground truth in it) by tools/measure_gauge_k.py, cached here because it
-    needs a checkpoint and a data pass and this script must stay instant.
-    """
-    import json
-    p = os.path.join(HERE, "gauge_k.json")
-    if not os.path.exists(p):
-        return None, None
-    d = json.load(open(p)).get(run)
-    return (d["k_median"], d["iteration"]) if d else (None, None)
-
-
 def loss_term(run, name):
     """The last value of one regularizer component, from loss_components.pt.
 
@@ -172,7 +138,8 @@ def loss_term(run, name):
     not a penalty in the loss: the term it multiplies can be so small that the
     arm is indistinguishable from the control, and reading only the outcome
     columns would record that as "the term did not help" rather than "the term
-    was never applied".
+    was never applied". Note the log stores the PER-NEURON figure, so the value
+    the loss actually saw is this times n_neurons.
     """
     p = f"{LOG}/{run}/loss_components.pt"
     if not os.path.exists(p):
@@ -184,24 +151,51 @@ def loss_term(run, name):
         return None
 
 
-ARMS = []
-for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
-    for _stag, _sil in _SIL:
-        for _gtag, _g in _GAIN:
-            ARMS.append(dict(
-                block=f"grid_{_ltag}", sigma="0.05",
-                label=rf"silent {_sil}, gain ${_g}$",
-                run=f"flyvis_flowcond_noise_005_gnn_{_stag}{_gtag}_{_ltag}_cv00"))
-# The conductance model on CURRENT data at lasso 0.1, two folds: the one cell
-# missing from the group-lasso sweep of the first document.
-for _cv in (0, 1):
-    ARMS.append(dict(block="cur0p1", sigma="0.05", label=rf"fold {_cv:02d}",
-                     run=f"flyvis_current_noise_005_conductance_lasso_0p1_cv{_cv:02d}"))
+def gauge_k(run):
+    """Measured k_i = tau_i * df/dmsg_i, median over neurons, from gauge_k.json.
+
+    THE QUANTITY THE GAUGE GRID EXISTS TO MOVE, and the only one that says
+    outright whether the gauge is fixed: k = 1 is fixed, and W is then in the
+    generator's units. Measured by autograd on real frames with the MODEL's own
+    tau (blind -- no ground truth in it) by tools/measure_gauge_k.py, cached
+    because it needs a checkpoint and a data pass and this script must stay
+    instant. Absent cache -> the column prints `--`.
+    """
+    import json
+    p = os.path.join(HERE, "gauge_k.json")
+    if not os.path.exists(p):
+        return None, None
+    d = json.load(open(p)).get(run)
+    return (d["k_median"], d["iteration"]) if d else (None, None)
 
 
-def pick(block, sigma=None):
-    return [a for a in ARMS
-            if a["block"] == block and (sigma is None or a["sigma"] == sigma)]
+_SIL = [("s1", 1), ("s5", 5), ("s25", 25)]
+_GAIN = [("g1e5", "10^{-5}"), ("g1e4", "10^{-4}"), ("g1e3", "10^{-3}")]
+_L1 = [("l10", "0"), ("l17p5e5", r"7.5\times10^{-5}"), ("l17p5e4", r"7.5\times10^{-4}")]
+_L2 = [("l20", "0"), ("l27p5e7", r"7.5\times10^{-7}"), ("l27p5e6", r"7.5\times10^{-6}")]
+# M, and z = (delta_t/tau)(1+G) at the stiffest neuron. Forward Euler contracts
+# only while z < 2, so M=2 is the arm that should still fail.
+_SUB = [(2, 2.21), (3, 1.47), (5, 0.88), (10, 0.44)]
+
+_B = "flyvis_flowcond_noise_005_gnn_wsq"
+ARMS = [dict(block="base", label="baseline", run=f"{_B}_cv00")]
+for _stag, _sil in _SIL:
+    for _gtag, _g in _GAIN:
+        ARMS.append(dict(block="gauge", label=rf"silent {_sil}, gain ${_g}$",
+                         run=f"{_B}_{_stag}{_gtag}_cv00"))
+for _l1t, _l1 in _L1:
+    for _l2t, _l2 in _L2:
+        run = f"{_B}_{_l1t}_{_l2t}_cv00" if not (_l1t == "l17p5e5" and _l2t == "l27p5e7") \
+            else f"{_B}_cv00"
+        ARMS.append(dict(block="wl", label=rf"$\lambda_1 = {_l1}$, $\lambda_2 = {_l2}$",
+                         run=run))
+for _m, _z in _SUB:
+    ARMS.append(dict(block="sub", label=rf"$M = {_m}$ \tiny($z = {_z}$)",
+                     run=f"{_B}_sub{_m}_cv00"))
+
+
+def pick(block):
+    return [a for a in ARMS if a["block"] == block]
 
 
 # --------------------------------------------------------------------------- #
@@ -352,29 +346,28 @@ def main(argv=None) -> int:
 \begin{center}{\Large Conductance GNN on task-trained conductance data}\\[2pt]
 {\small Every $R^2$ is written \emph{outlier-filtered} [full sample] (\% dropped),
 final, from \texttt{results/metrics.txt} on the held-out test split.
-Rows marked $^{*}$ are left blank: those runs are still training and have no
-held-out numbers yet.}\end{center}
+Rows marked $^{*}$ are left blank: those runs have no held-out numbers yet.
+All arms share one fold (cv00), $\sigma = 0.05$, and the squared-weight
+parameterisation $\widehat{W}^2 g_\phi$ with $g_\phi$ free to change sign.}\end{center}
 \vspace{4pt}""",
          rf"\section*{{{DATE}}}"]
 
     # THE FIRST DOCUMENT'S CAPTION TEMPLATE, unchanged:
     # "<Model> model on <data> data with <knob>, $\sigma = <noise>$."
-    for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
-        L.append(table(pick(f"grid_{_ltag}"),
-                       "Conductance model on conductance data with a silent-input "
-                       "anchor and a message-gain term, group lasso "
-                       rf"$\lambda = {_lam}$, $\sigma = 0.05$."))
-    L.append(table(pick("cur0p1"),
-                   "Conductance model on current data with a group lasso "
-                   r"$\lambda = 0.1$, $\sigma = 0.05$."))
-
-    for _ltag, _lam in (("lasso0", "0"), ("lasso0p1", "0.1")):
-        _t = table(
-            pick(f"grid_{_ltag}"),
-            "Conductance model on conductance data, training split, group lasso "
-            rf"$\lambda = {_lam}$, $\sigma = 0.05$.")
-        if _t:
-            L.append(_t)
+    L.append(table(pick("base"),
+                   "Conductance model on conductance data with the squared weight "
+                   r"parameterisation, $\sigma = 0.05$."))
+    L.append(table(pick("gauge"),
+                   "Conductance model on conductance data with a silent-input "
+                   r"anchor and a message-gain term, $\sigma = 0.05$."))
+    L.append(table(pick("wl"),
+                   r"Conductance model on conductance data with $W$ penalties "
+                   r"$\lambda_1$ (L1) and $\lambda_2$ (L2) on $\widehat{W}^2$, "
+                   r"$\sigma = 0.05$."))
+    L.append(table(pick("sub"),
+                   r"Conductance model on conductance data integrated as $M$ "
+                   r"sub-steps of $20/M$ ms, $\sigma = 0.05$. Forward Euler "
+                   r"contracts only while $z < 2$."))
     L.append(r"\end{document}")
 
     tex = os.path.join(HERE, "experiment_tables2.tex")
