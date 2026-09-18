@@ -854,6 +854,22 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         """
         return f"{w:8.4f}" if abs(w) >= 5e-5 or w == 0 else f"{w:8.2e}"
 
+    # ONE LAYOUT FOR EVERY ROW, so W sits under W and E under E all the way down
+    # the block. The generator row used a 12-character prefix while the fitted
+    # rows used 28, and "current template (other form)" is 29 and overflowed its
+    # own field -- three different left edges in a four-line stanza whose whole
+    # purpose is that the constants can be read down a column.
+    _TAG_W = 30
+    _E_W = 15          # "E = " + 8 + three trailing spaces, or blank
+
+    def _cells(tag, W, E, C, r2_txt):
+        """`tag`, then W, then E (blank when the form has none), then the offset."""
+        wtxt = "W = " + (fmt_W(W) if W is not None else "     n/a")
+        etxt = (("E = " + (f"{E:+8.3f}" if E is not None else "     n/a") + "   ")
+                if E is not None else " " * _E_W)
+        ctxt = "offset = " + (fmt_W(C) if C is not None else "     n/a")
+        return f"{tag:<{_TAG_W}}{wtxt}   {etxt}{ctxt}{r2_txt}"
+
     for row in range(n_edges):
         idx = int(g["edge_ids"][row])
         if fm["conductance"]:
@@ -861,10 +877,9 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             # W * relu(v_j) * (E - v_i) vanishes whenever the sender is silent.
             # Printing the zero is the point -- it is what the fitted C is to be
             # read against.
-            txt = [f"generator   W = {fmt_W(fm['W'][idx])}   E = {fm['E'][idx]:+8.3f}"
-                   f"   offset =   0.0000"]
+            txt = [_cells("generator", fm["W"][idx], fm["E"][idx], 0.0, "")]
         else:
-            txt = [f"generator   W = {fmt_W(fm['W'][idx])}   offset =   0.0000"]
+            txt = [_cells("generator", fm["W"][idx], None, 0.0, "")]
         # BOTH TEMPLATES, THE GENERATOR'S FAMILY FIRST. Same constants, same
         # columns, so the rows can be read down: the family this data was made
         # with, then the other family fitted to the same message. The second row
@@ -882,17 +897,14 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
             C = sr.get(f"tmpl_{famkey}_C", {}).get(idx)
             if W is None and C is None:
                 note = sr.get("tmpl_notes", {}).get(idx) or "not fitted"
-                return f"{tag:<28}[{note}]"
+                return f"{tag:<{_TAG_W}}[{note}]"
             Wc = W if (W is None or kW is None) else W * kW
             Cc = C if (C is None or kW is None) else C * kW
-            wtxt = "W = " + (fmt_W(Wc) if Wc is not None else "     n/a")
-            ctxt = "offset = " + (fmt_W(Cc) if Cc is not None else "     n/a")
-            # Only the conductance form has a reversal; the current form's row
-            # leaves the column blank rather than printing n/a on every synapse.
-            etxt = (("E = " + (f"{E:+8.3f}" if E is not None else "     n/a") + "   ")
-                    if famkey in ("cond", "condnn") else " " * 15)
-            return (f"{tag:<28}{wtxt}   {etxt}{ctxt}"
-                    f"{fmt_r2(sr.get(f'tmpl_{famkey}_r2', {}).get(idx))}")
+            # Only the conductance forms have a reversal; the current row leaves
+            # the column blank rather than printing n/a on every synapse.
+            _E = E if famkey in ("cond", "condnn") else None
+            return _cells(tag, Wc, _E, Cc,
+                          fmt_r2(sr.get(f"tmpl_{famkey}_r2", {}).get(idx)))
 
         txt.append(_row(_own, _label[_own]))
         # THE GENERATOR'S OWN FORM, between the relaxation above and the other
