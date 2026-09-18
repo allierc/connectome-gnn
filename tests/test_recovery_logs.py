@@ -250,3 +250,57 @@ def test_other_quantities_keep_their_columns():
     from connectome_gnn.metrics import recovery_log_columns
     assert recovery_log_columns("Wij")[-1] == "Wij_R2_uncorrected"
     assert all(c.startswith("tau_") for c in recovery_log_columns("tau"))
+
+
+def test_euler_and_multi_substeps_are_the_two_integrators():
+    """The generator uses exponential Euler; forward Euler at the same delta_t
+    contracts only while z = (delta_t/tau)(1+G) < 2 and the network reaches 4.4.
+    Sub-stepping divides z by M. M=2 is NOT enough (z=2.21); M=3 clears it."""
+    import torch
+
+    from connectome_gnn.models.substep import integrate_frame, substep_report
+
+    class _X:
+        def __init__(self):
+            self.voltage = torch.ones(3)
+
+    k = 4.2 / 0.019                       # a/tau at the stiffest neuron
+    fwd = lambda st: (-k * st.voltage).unsqueeze(-1)  # noqa: E731
+
+    x = _X()
+    for _ in range(6):
+        integrate_frame(x, fwd, 0.020, "euler")
+    assert float(x.voltage.abs().max()) > 100          # diverges
+
+    x = _X()
+    for _ in range(6):
+        integrate_frame(x, fwd, 0.020, "multi_substeps", 5)
+    assert float(x.voltage.abs().max()) < 1e-6         # contracts
+
+    assert "DIVERGES" in substep_report("euler", 5, 0.020)
+    assert "contracts" in substep_report("multi_substeps", 5, 0.020)
+    assert "DIVERGES" in substep_report("multi_substeps", 2, 0.020)
+
+
+def test_multi_substeps_at_M1_is_euler():
+    """A config saying multi_substeps with M=1 is saying two things; it takes the
+    Euler path rather than erroring, and the stability line reports z at M=1."""
+    import torch
+
+    from connectome_gnn.models.substep import integrate_frame
+
+    class _X:
+        def __init__(self):
+            self.voltage = torch.tensor([1.0])
+
+    fwd = lambda st: torch.tensor([[2.0]])  # noqa: E731
+    a, b = _X(), _X()
+    integrate_frame(a, fwd, 0.020, "euler")
+    integrate_frame(b, fwd, 0.020, "multi_substeps", 1)
+    assert float(a.voltage[0]) == pytest.approx(float(b.voltage[0]))
+
+
+def test_unknown_integration_method_raises():
+    from connectome_gnn.models.substep import integrate_frame
+    with pytest.raises(ValueError, match="unknown integration_method"):
+        integrate_frame(None, None, 0.02, "rk4")

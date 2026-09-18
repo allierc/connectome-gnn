@@ -357,12 +357,31 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     # EPOCH LOOP
     # =====================================================================
 
+    from connectome_gnn.models.substep import substep_report
+    logger.info(substep_report(getattr(training, "integration_method", "euler"),
+                               getattr(training, "n_rollout_substeps", 5),
+                               sim.delta_t))
+
     for epoch in range(start_epoch, training.n_epochs):
         # -----------------------------------------------------------------
         # Rollout horizon for this epoch
         # -----------------------------------------------------------------
 
         rollout_horizon = horizon_schedule[epoch] if horizon_schedule is not None else None
+
+        # SUB-STEP TRAINING NEEDS A HORIZON OF AT LEAST 2. recurrent_loss scores
+        # the derivative at each step and only INTEGRATES between them, so at
+        # K=1 it returns before ever crossing a frame and the sub-steps would
+        # never run -- the config would say multi_substeps and the training would
+        # be single-step, silently. Two is the smallest horizon that crosses one
+        # observed frame.
+        if (getattr(training, "integration_method", "euler") == "multi_substeps"
+                and not training.neural_ODE_training and rollout_horizon is None):
+            rollout_horizon = 2
+            if epoch == start_epoch:
+                logger.info("integration_method=multi_substeps with no "
+                            "rollout_horizon_schedule: using horizon 2, the "
+                            "smallest that crosses an observed frame")
 
         if rollout_horizon is not None:
             logger.info(f"epoch {epoch}: rollout horizon = {rollout_horizon} step(s)")
@@ -566,7 +585,22 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             # own ~250-line copy of that tail, so the two drifted apart: the copy
             # never gained within-epoch checkpoints or the g_phi discard panel.
 
-            if training.recurrent_training and not training.neural_ODE_training:
+            # THREE BODIES NOW, all returning the loss for the shared tail.
+            # Sub-step training is the recurrent path with a different
+            # integrator, not a separate rollout: `recurrent_loss` owns the
+            # rollout and crosses each observed frame as M steps of delta_t/M
+            # when integration_method says so. Routing it here rather than
+            # asking the user to set recurrent_training as well means the
+            # integrator is chosen in one place, and a run cannot end up
+            # sub-stepping its test rollout while training on single Euler
+            # steps -- which is the asymmetry the whole thing exists to remove.
+            _substep_training = (
+                getattr(training, "integration_method", "euler") == "multi_substeps"
+                and not training.neural_ODE_training
+            )
+
+            if _substep_training or (training.recurrent_training
+                                     and not training.neural_ODE_training):
                 loss = run_recurrent_train_step(
                     model=model,
                     x_ts=x_ts,
