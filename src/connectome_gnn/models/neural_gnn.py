@@ -256,6 +256,13 @@ class NeuralGNN(nn.Module):
                 "and let g_phi carry the sign, or leave w_squared false and let W."
             )
         self.n_g_phi_noise_inputs = getattr(model_config, "n_g_phi_noise_inputs", 0)
+        self.edge_dropout = float(getattr(config.training, "edge_dropout", 0.0))
+        if not 0.0 <= self.edge_dropout < 1.0:
+            raise ValueError(
+                f"edge_dropout must be in [0, 1), got {self.edge_dropout}: it is the "
+                f"FRACTION of incoming edges whose message is zeroed, and 1.0 would "
+                f"delete every message."
+            )
 
         self.batch_size = config.training.batch_size
         self.update_type = model_config.update_type
@@ -748,6 +755,22 @@ class NeuralGNN(nn.Module):
         if self.w_squared:
             W_edge = W_edge ** 2
         edge_msg = W_edge * g_phi_out  # (E, 1)
+
+        # EDGE DROPOUT, training only. The loss sees only the SUM of a neuron's
+        # incoming messages, so any reallocation among its edges that leaves the
+        # sum unchanged is free -- which is why msg_i_R2 reaches 0.94 on this data
+        # while Wij_R2 stalls near 0.4-0.57. Dropping edges at random is the
+        # standard remedy for collinear regressors: a weight that is right only in
+        # combination with its neighbours is exposed when they are absent.
+        #
+        # INVERTED, so the survivors are scaled by 1/(1 - p) and E[msg_i] is
+        # unchanged. Without that scaling every W would grow by 1/(1 - p) to
+        # compensate and the per-neuron gauge k_i would absorb it, leaving the
+        # regularisation with no effect on Wij_R2 and a shifted message scale.
+        if self.training and self.edge_dropout > 0:
+            keep = (torch.rand(edge_msg.shape[0], 1, device=edge_msg.device)
+                    >= self.edge_dropout).to(edge_msg.dtype)
+            edge_msg = edge_msg * keep / (1.0 - self.edge_dropout)
 
         # aggregate: scatter_add messages to destination nodes
         msg = torch.zeros(v.shape[0], edge_msg.shape[1], device=self.device, dtype=v.dtype)
