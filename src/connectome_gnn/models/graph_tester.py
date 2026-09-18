@@ -438,15 +438,18 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                         f'({x_ts_train.n_frames} frames available, using {n_eval_frames})')
             x_ts_eval = x_ts_train
             y_ts_eval = y_ts_train
+            _eval_split = 'x_list_train'
         else:
             logger.warning('x_list_train not found, falling back to test data')
             x_ts_eval = x_ts
             y_ts_eval = y_ts
             n_eval_frames = n_frames
+            _eval_split = 'x_list_test'
     else:
         x_ts_eval = x_ts
         y_ts_eval = y_ts
         n_eval_frames = n_frames
+        _eval_split = 'x_list_test'
 
     # Load edges: prefer training_edges.pt (handles fully connected mode),
     # fall back to data folder edge_index.pt / ode_params.pt
@@ -580,11 +583,27 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         _nf = noise_free_dataset(test_ds)
         if _nf != test_ds and os.path.isdir(graphs_data_path(_nf)):
             try:
-                _rollout_truth = load_simulation_data(
-                    graphs_data_path(_nf, 'x_list_train'), fields=['voltage']).to(device)
+                # The twin must come from the SAME SPLIT the rollout is driven
+                # by: `x_ts_eval` is x_list_train when a field INR is learned and
+                # x_list_test otherwise, and the two splits are different
+                # trajectories, not two views of one.
+                _tw = load_simulation_data(
+                    graphs_data_path(_nf, _eval_split), fields=['voltage']).to(device)
+                if tc.training_selected_neurons:
+                    _tw = _tw.subset_neurons(selected_neuron_ids)
+                if _tw.voltage.shape[1] != x_ts_eval.voltage.shape[1]:
+                    raise ValueError(
+                        f'twin has {_tw.voltage.shape[1]} neurons, the driving '
+                        f'trajectory has {x_ts_eval.voltage.shape[1]}')
+                if _tw.n_frames < n_eval_frames:
+                    raise ValueError(
+                        f'twin has {_tw.n_frames} frames, the rollout needs '
+                        f'{n_eval_frames}')
+                _rollout_truth = _tw
                 logger.info(f'rollout scored against the noise-free twin {_nf} '
-                            f'(process noise {sim.noise_model_level} caps r at ~0.82 '
-                            f'against the noisy trajectory)')
+                            f'({_eval_split}; process noise '
+                            f'{sim.noise_model_level} caps r at ~0.82 against the '
+                            f'noisy trajectory)')
             except Exception as _exc:
                 logger.warning(f'noise-free twin {_nf} not loadable, scoring against '
                                f'the noisy trajectory: {type(_exc).__name__}: {_exc}')
