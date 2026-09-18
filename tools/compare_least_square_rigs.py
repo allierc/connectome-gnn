@@ -89,7 +89,7 @@ def _g_phi_at(model, config, vi, vj, src, dst):
 
 
 @contextlib.contextmanager
-def rig_sampler(rig, x_ts, device):
+def rig_sampler(rig, x_ts, device, config_ref=(None,)):
     """Substitute the (v_i, v_j) sampler for the duration of one readout.
 
     `frames` yields unchanged, so the nominal runs exactly as it does in
@@ -124,11 +124,52 @@ def rig_sampler(rig, x_ts, device):
         res["vi"], res["vj"], res["g_phi"] = vi, vj, to_numpy(g)
         return res
 
+    # AND `gather`, which the neuron panel uses. analyse_neurons does NOT go
+    # through the sampler above -- it runs its own forward passes over
+    # consecutive real frames -- so patching only the sampler left the three
+    # panels byte-identical apart from their titles, three names for one figure.
+    import connectome_gnn.neuron_panels as NP
+    original_gather = NP.gather
+
+    def patched_gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
+        g = original_gather(model, data, neuron, start, n_frames,
+                            device=device, x_ts=x_ts)
+        inc = g["edge_ids"]
+        if len(inc) == 0:
+            return g
+        n = len(g["v_i"])
+        rng = np.random.default_rng(1234)
+        e = to_numpy(model.edges).reshape(2, -1)
+        src = e[0][inc].astype(int)
+        lo_j = np.zeros_like(lo_n) if rig == "grid_zeromax" else lo_n
+        hi_j = np.maximum(hi_n, lo_j)
+        g["v_i"] = rng.uniform(lo_n[neuron], hi_n[neuron], n)
+        g["v_j"] = rng.uniform(lo_j[src, None], hi_j[src, None], (len(inc), n))
+        op = data.ode_params
+        g["act_j"] = np.asarray(op.gt_g_phi_func(g["v_j"]), dtype=float).reshape(g["v_j"].shape)
+        fm = g["forms"]
+        g["m_true"] = np.stack([
+            fm["W"][int(i)] * g["act_j"][k]
+            * ((fm["E"][int(i)] - g["v_i"]) if fm["conductance"] else 1.0)
+            for k, i in enumerate(inc)])
+        gp = to_numpy(_g_phi_at(
+            model, config_ref[0],
+            torch.as_tensor(np.tile(g["v_i"], (len(inc), 1)), dtype=torch.float32,
+                            device=device),
+            torch.as_tensor(g["v_j"], dtype=torch.float32, device=device),
+            torch.as_tensor(src, device=device).long(),
+            torch.as_tensor(np.full(len(inc), neuron), device=device).long()))
+        g["m_model"] = g["W_model"][:, None] * gp
+        g["msg_model"] = g["m_model"].sum(axis=0)
+        return g
+
     M.sample_g_phi_vi_vj_observed = patched
+    NP.gather = patched_gather
     try:
         yield
     finally:
         M.sample_g_phi_vi_vj_observed = original
+        NP.gather = original_gather
 
 
 def main(argv=None) -> int:
@@ -170,7 +211,7 @@ def main(argv=None) -> int:
              "-o plot use", ""]
 
     for rig in RIGS:
-        with rig_sampler(rig, x_ts, dev):
+        with rig_sampler(rig, x_ts, dev, config_ref=(cfg,)):
             rec = M.extract_recovered_params(
                 model, op, cfg, edges=data.edges, x_ts=x_ts, device=dev,
                 n_neurons=n_neurons, need=("W", "tau", "V_rest", "E_ij", "msg_i"))
