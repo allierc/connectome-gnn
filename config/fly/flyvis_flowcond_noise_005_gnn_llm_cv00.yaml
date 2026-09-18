@@ -93,6 +93,7 @@ claude:
   n_iter_block: 24
   n_parallel: 8
   node_name: a100
+  test_plot_node_name: l4
   n_cpus: 2
   conda_env: connectome-gnn
   generate_data: false

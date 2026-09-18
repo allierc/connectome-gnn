@@ -24,10 +24,10 @@ synapse may sit in either, and $|W|$ is what the readout reports.}\end{center}
 \toprule
 arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
 \midrule
-baseline$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+baseline & 0.45 & 0.79 & 0.99 & 0.99 & 0.36 [-0.35] (0.0) & 0.87 [-2.46] (4.1) & 0.60 [-2555] (40.9) & 0.51 [-2.18] (10.9) & 0.66 [-10609] (39.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.69 & -- & 0.44 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & 0.45 $\pm$ 0.00 & 0.79 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.36 $\pm$ 0.00 & 0.87 $\pm$ 0.00 & 0.60 $\pm$ 0.00 & 0.51 $\pm$ 0.00 & 0.66 $\pm$ 0.00 & -- & 0.69 $\pm$ 0.00 & -- & 0.44 $\pm$ 0.00 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -41,26 +41,26 @@ baseline$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
 \toprule
 arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
 \midrule
-silent 1, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 1, gain $10^{-5}$ & 0.40 & 0.57 & 0.99 & 0.99 & 0.32 [-6.63] (0.3) & 0.17 [0.18] (11.0) & 0.54 [-4.38] (41.9) & 0.89 [0.89] (0.2) & 0.60 [-6.07] (35.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.62 & -- & 0.76 & 1e-07 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s1g1e5\_cv00}} \\[1pt]
-silent 1, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 1, gain $10^{-4}$ & 0.51 & 0.82 & 0.99 & 0.99 & 0.33 [0.18] (0.0) & 0.74 [0.42] (9.6) & 0.64 [-4.47] (43.9) & 0.89 [0.89] (0.3) & 0.60 [-6.87] (35.1) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.78 & -- & 0.56 & 2e-06 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s1g1e4\_cv00}} \\[1pt]
-silent 1, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 1, gain $10^{-3}$ & 0.45 & 0.75 & 0.99 & 0.99 & 0.40 [0.32] (0.0) & 0.78 [0.40] (9.2) & 0.58 [-5.54] (48.6) & \textcolor{green!45!black}{0.93 [0.92] (1.2)} & 0.65 [-13.84] (35.3) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.78 & -- & 0.53 & 9e-06 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s1g1e3\_cv00}} \\[1pt]
-silent 5, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 5, gain $10^{-5}$ & 0.47 & 0.60 & 0.99 & 0.99 & 0.25 [-1.08] (0.1) & 0.65 [0.51] (9.4) & 0.65 [-4.31] (38.7) & \textcolor{green!45!black}{0.93 [0.90] (0.8)} & 0.63 [-9.92] (39.8) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.76 & -- & 0.73 & 3e-07 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s5g1e5\_cv00}} \\[1pt]
-silent 5, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 5, gain $10^{-4}$ & 0.90 & 0.86 & 0.99 & 1.00 & 0.31 [-0.04] (0.1) & 0.77 [0.69] (5.6) & 0.70 [-5.04] (41.6) & \textcolor{green!45!black}{0.91 [0.87] (2.1)} & 0.62 [-24.12] (34.1) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.79 & -- & 0.58 & 3e-06 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s5g1e4\_cv00}} \\[1pt]
-silent 5, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 5, gain $10^{-3}$ & 0.50 & 0.68 & 0.99 & 0.99 & -0.09 [-41.68] (0.2) & 0.42 [0.32] (11.0) & 0.73 [-19.68] (56.4) & \textcolor{green!45!black}{0.91 [0.91] (0.1)} & 0.61 [-6132] (31.2) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.76 & -- & 0.88 & 3e-05 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s5g1e3\_cv00}} \\[1pt]
-silent 25, gain $10^{-5}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 25, gain $10^{-5}$ & 0.90 & 0.87 & 0.99 & 0.99 & 0.38 [0.21] (0.0) & 0.87 [0.63] (6.2) & 0.70 [-3.95] (40.1) & \textcolor{green!45!black}{0.91 [0.90] (0.3)} & 0.60 [-8.74] (39.2) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.81 & -- & 0.48 & 3e-07 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s25g1e5\_cv00}} \\[1pt]
-silent 25, gain $10^{-4}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 25, gain $10^{-4}$ & 0.88 & 0.87 & 0.99 & 0.99 & 0.42 [0.40] (0.0) & 0.61 [0.51] (6.3) & 0.69 [-5.41] (44.3) & \textcolor{green!45!black}{0.90 [0.86] (2.3)} & 0.62 [-3.86] (29.1) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.81 & -- & 0.56 & 3e-06 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s25g1e4\_cv00}} \\[1pt]
-silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+silent 25, gain $10^{-3}$ & 0.51 & 0.85 & 0.99 & 0.99 & 0.42 [0.36] (0.0) & 0.70 [0.59] (6.6) & 0.67 [-6.20] (41.9) & \textcolor{green!45!black}{0.94 [0.91] (1.3)} & 0.66 [-51.55] (29.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.80 & -- & 0.59 & 3e-05 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_s25g1e3\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & 0.61 $\pm$ 0.20 & 0.76 $\pm$ 0.11 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.30 $\pm$ 0.15 & 0.64 $\pm$ 0.20 & 0.66 $\pm$ 0.06 & 0.91 $\pm$ 0.02 & 0.62 $\pm$ 0.02 & -- & 0.77 $\pm$ 0.06 & -- & 0.63 $\pm$ 0.12 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -74,26 +74,26 @@ silent 25, gain $10^{-3}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
 \toprule
 arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
 \midrule
-$\lambda_1 = 0$, $\lambda_2 = 0$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 0$, $\lambda_2 = 0$ & 0.87 & 0.87 & 0.99 & 1.00 & 0.37 [0.35] (0.0) & 0.57 [0.38] (11.5) & 0.39 [-9.99] (45.8) & 0.56 [0.34] (8.6) & 0.70 [-56.74] (38.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.63 & -- & 0.45 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l10\_l20\_cv00}} \\[1pt]
-$\lambda_1 = 0$, $\lambda_2 = 7.5\times10^{-7}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 0$, $\lambda_2 = 7.5\times10^{-7}$ & 0.86 & 0.86 & 0.99 & 0.99 & 0.29 [0.23] (0.0) & 0.35 [0.33] (11.4) & 0.45 [-9.66] (46.4) & 0.69 [0.38] (7.7) & 0.69 [-80.68] (42.7) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.61 & -- & 0.47 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l10\_l27p5e7\_cv00}} \\[1pt]
-$\lambda_1 = 0$, $\lambda_2 = 7.5\times10^{-6}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 0$, $\lambda_2 = 7.5\times10^{-6}$ & 0.86 & 0.86 & 1.00 & 0.99 & 0.36 [0.33] (0.0) & 0.45 [0.23] (12.4) & 0.43 [-9.86] (46.6) & 0.66 [0.38] (8.2) & 0.71 [-20.36] (42.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} & 0.60 & -- & 0.45 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l10\_l27p5e6\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 0$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 0$ & 0.89 & 0.78 & 0.99 & 0.99 & 0.29 [-0.17] (0.0) & 0.82 [0.36] (3.6) & 0.62 [-9.22] (41.2) & 0.33 [-0.47] (15.1) & 0.69 [-69838] (44.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.61 & -- & 0.39 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l17p5e5\_l20\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 7.5\times10^{-7}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 7.5\times10^{-7}$ & 0.45 & 0.79 & 0.99 & 0.99 & 0.36 [-0.35] (0.0) & 0.87 [-2.46] (4.1) & 0.60 [-2555] (40.9) & 0.51 [-2.18] (10.9) & 0.66 [-10609] (39.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.69 & -- & 0.44 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 7.5\times10^{-6}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-5}$, $\lambda_2 = 7.5\times10^{-6}$ & 0.88 & 0.86 & 0.99 & 0.99 & 0.35 [0.32] (0.0) & 0.85 [0.72] (4.3) & 0.63 [-5.23] (38.9) & 0.30 [0.01] (13.5) & 0.69 [-96020] (44.0) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.98} & 0.60 & -- & 0.40 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l17p5e5\_l27p5e6\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 0$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 0$ & 0.49 & 0.89 & 0.99 & 0.99 & 0.28 [0.24] (0.0) & 0.73 [0.34] (10.9) & 0.67 [-5.70] (44.7) & 0.14 [0.17] (8.7) & 0.48 [-40.08] (45.0) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.96} & 0.72 & -- & 0.33 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l17p5e4\_l20\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 7.5\times10^{-7}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 7.5\times10^{-7}$ & 0.50 & 0.89 & 0.99 & 0.99 & 0.26 [0.24] (0.0) & 0.73 [0.21] (11.1) & 0.69 [-4.32] (40.4) & 0.21 [0.22] (7.5) & 0.54 [-20958] (45.9) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{0.96} & 0.74 & -- & 0.30 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l17p5e4\_l27p5e7\_cv00}} \\[1pt]
-$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 7.5\times10^{-6}$$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 7.5\times10^{-6}$ & 0.90 & 0.91 & 0.99 & 0.99 & 0.30 [0.29] (0.0) & 0.90 [0.75] (4.7) & 0.72 [-6.90] (38.9) & 0.20 [0.27] (8.3) & 0.63 [-19.25] (48.6) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.97} & 0.74 & -- & 0.36 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_l17p5e4\_l27p5e6\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & 0.74 $\pm$ 0.19 & 0.85 $\pm$ 0.04 & 0.99 $\pm$ 0.00 & 0.99 $\pm$ 0.00 & 0.32 $\pm$ 0.04 & 0.70 $\pm$ 0.19 & 0.58 $\pm$ 0.11 & 0.40 $\pm$ 0.20 & 0.64 $\pm$ 0.08 & -- & 0.66 $\pm$ 0.06 & -- & 0.40 $\pm$ 0.05 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -107,16 +107,16 @@ $\lambda_1 = 7.5\times10^{-4}$, $\lambda_2 = 7.5\times10^{-6}$$^{*}$ &  &  &  & 
 \toprule
 arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
 \midrule
-$M = 2$ \tiny($z = 2.21$)$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 2$ \tiny($z = 2.21$) & 0.30 & 0.77 & 0.99 & 0.96 & 0.32 [0.19] (0.0) & 0.65 [0.41] (10.5) & 0.50 [-7.54] (59.5) & 0.65 [0.46] (4.9) & 0.72 [-8197] (44.8) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.96} & 0.70 & -- & 0.67 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub2\_cv00}} \\[1pt]
-$M = 3$ \tiny($z = 1.47$)$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 3$ \tiny($z = 1.47$) & 0.75 & 0.56 & 0.99 & 0.92 & 0.16 [0.03] (0.0) & 0.46 [0.35] (11.0) & 0.58 [-11.72] (61.8) & 0.67 [0.34] (5.0) & 0.72 [-29970] (43.9) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.96} & 0.68 & -- & 0.83 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub3\_cv00}} \\[1pt]
-$M = 5$ \tiny($z = 0.88$)$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 5$ \tiny($z = 0.88$) & 0.76 & 0.57 & 0.99 & 0.92 & 0.25 [-0.03] (0.0) & 0.64 [0.44] (9.9) & 0.38 [-8.61] (61.1) & 0.64 [0.47] (4.5) & 0.75 [-10.04] (45.2) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.96} & 0.68 & -- & 0.77 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub5\_cv00}} \\[1pt]
 $M = 10$ \tiny($z = 0.44$)$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub10\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & 0.60 $\pm$ 0.21 & 0.63 $\pm$ 0.10 & 0.99 $\pm$ 0.00 & 0.93 $\pm$ 0.02 & 0.24 $\pm$ 0.06 & 0.59 $\pm$ 0.09 & 0.49 $\pm$ 0.08 & 0.65 $\pm$ 0.01 & 0.73 $\pm$ 0.01 & -- & 0.69 $\pm$ 0.01 & -- & 0.75 $\pm$ 0.07 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -130,14 +130,14 @@ $M = 10$ \tiny($z = 0.44$)$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
 \toprule
 arm & fit roll $r$ \tiny same form & fit roll $r$ \tiny other form & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $E_{ij}$ $R^2$ & fit $R^2$ \tiny upd/cond/cur & cluster acc. & $k$ & $W_{ij}$ gain & gain term \\
 \midrule
-$M = 5$, \tiny seed 42$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 5$, \tiny seed 42 & 0.76 & 0.57 & 0.99 & 0.92 & 0.25 [-0.03] (0.0) & 0.64 [0.44] (9.9) & 0.38 [-8.61] (61.1) & 0.64 [0.47] (4.5) & 0.75 [-10.04] (45.2) & \textcolor{green!45!black}{0.99} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.96} & 0.68 & -- & 0.77 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub5\_cv00}} \\[1pt]
-$M = 5$, \tiny seed 43$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 5$, \tiny seed 43 & 0.63 & 0.38 & 0.99 & 0.90 & -0.38 [-1.08] (0.2) & 0.47 [0.43] (8.8) & 0.40 [-21.96] (67.7) & 0.85 [0.82] (1.6) & 0.60 [-66450] (41.0) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.93} & 0.75 & -- & 1.25 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub5\_s2\_cv00}} \\[1pt]
-$M = 5$, \tiny seed 44$^{*}$ &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+$M = 5$, \tiny seed 44 & -- & -- & 0.98 & 0.92 & -0.06 [-0.56] (0.2) & 0.32 [0.26] (11.2) & 0.56 [-16.40] (61.6) & \textcolor{green!45!black}{0.92 [0.70] (3.9)} & 0.72 [-68374] (44.4) & \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{1.00} / \textcolor{green!45!black}{0.97} & 0.73 & -- & 1.06 & 0e+00 \\
 \multicolumn{15}{@{}l@{}}{\tiny\texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_sub5\_s3\_cv00}} \\[1pt]
 \midrule
-\textbf{mean} $\pm$ SD & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\textbf{mean} $\pm$ SD & 0.69 $\pm$ 0.06 & 0.48 $\pm$ 0.10 & 0.99 $\pm$ 0.00 & 0.91 $\pm$ 0.01 & -0.06 $\pm$ 0.26 & 0.48 $\pm$ 0.13 & 0.45 $\pm$ 0.08 & 0.80 $\pm$ 0.12 & 0.69 $\pm$ 0.06 & -- & 0.72 $\pm$ 0.03 & -- & 1.03 $\pm$ 0.20 & -- \\
 \bottomrule
 \end{tabular}
 \end{table}

@@ -121,6 +121,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
         data_augmentation_loop=claude_cfg.get('data_augmentation_loop', 25),
         n_iter_block=claude_cfg.get('n_iter_block', 16),
         node_name=getattr(args, 'node', None) or claude_cfg.get('node_name', 'h100'),
+        test_plot_node_name=claude_cfg.get('test_plot_node_name', ''),
         conda_env=claude_cfg.get('conda_env', 'connectome-gnn'),
         n_cpus=claude_cfg.get('n_cpus', 2),
         n_parallel=claude_cfg.get('n_parallel', 4),
@@ -1020,7 +1021,9 @@ def _print_batch_results(state: ExplorationState, batch: BatchInfo):
 def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
     """PHASE 3.2: Submit test+plot jobs to cluster for all successful slots, then print results."""
     successful_slots = [s for s in range(batch.n_slots) if batch.job_results.get(s, False)]
-    print(f"\n\033[93mPHASE 3.2: Submitting {len(successful_slots)} test+plot jobs to cluster (gpu_{state.node_name})\033[0m")
+    _node = state.test_plot_node_name or state.node_name
+    print(f"\n\033[93mPHASE 3.2: Submitting {len(successful_slots)} test+plot jobs "
+          f"to cluster (gpu_{_node})\033[0m")
 
     job_ids = {}
     for slot_idx, iteration in enumerate(batch.iterations):
@@ -1035,7 +1038,7 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
             analysis_log_path=state.analysis_log_paths[slot],
             config_file_field=config.config_file,
             log_dir=state.log_dir,
-            node_name=state.node_name,
+            node_name=_node,
             conda_env=state.conda_env,
             n_cpus=state.n_cpus,
             device=config.training.device,
@@ -1068,7 +1071,7 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
                     analysis_log_path=state.analysis_log_paths[slot],
                     config_file_field=config.config_file,
                     log_dir=state.log_dir,
-                    node_name=state.node_name,
+                    node_name=_node,
                     conda_env=state.conda_env,
                     n_cpus=state.n_cpus,
                     device=config.training.device,
