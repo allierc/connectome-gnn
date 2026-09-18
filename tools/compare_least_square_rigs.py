@@ -89,7 +89,7 @@ def _g_phi_at(model, config, vi, vj, src, dst):
 
 
 @contextlib.contextmanager
-def rig_sampler(rig, x_ts, device, config_ref=(None,)):
+def rig_sampler(rig, x_ts, device, config_ref=(None,), model_ref=(None,), op_ref=(None,)):
     """Substitute the (v_i, v_j) sampler for the duration of one readout.
 
     `frames` yields unchanged, so the nominal runs exactly as it does in
@@ -124,52 +124,68 @@ def rig_sampler(rig, x_ts, device, config_ref=(None,)):
         res["vi"], res["vj"], res["g_phi"] = vi, vj, to_numpy(g)
         return res
 
-    # AND `gather`, which the neuron panel uses. analyse_neurons does NOT go
+    # AND the neuron panel's own least squares. analyse_neurons does not go
     # through the sampler above -- it runs its own forward passes over
-    # consecutive real frames -- so patching only the sampler left the three
-    # panels byte-identical apart from their titles, three names for one figure.
-    import connectome_gnn.neuron_panels as NP
-    original_gather = NP.gather
+    # consecutive real frames.
+    #
+    # THE RIG REPLACES THE FIT'S ROWS, NEVER THE PANEL'S TRACES. An earlier
+    # version patched `gather` instead, which is what supplies v_i, v_j and both
+    # messages to the plot as well as to the fit: the grid panels then drew
+    # uniform random draws on a time axis as if they were the recording, so
+    # panel a showed a voltage the neuron never had, panel d's green traces were
+    # noise, and the update fit collapsed to R2 +0.003 and rescaled every model
+    # trace to near-flat. Those figures described the rig, not the network.
+    # `closed_form_template` is the one function that turns rows into constants,
+    # so patching it alone moves the per-synapse W, E and offset onto the rig's
+    # samples while every plotted trace stays the recorded one.
+    import copy
 
-    def patched_gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
-        g = original_gather(model, data, neuron, start, n_frames,
-                            device=device, x_ts=x_ts)
-        inc = g["edge_ids"]
-        if len(inc) == 0:
-            return g
+    import connectome_gnn.neuron_panels as NP
+    original_cft = NP.closed_form_template
+
+    def patched_cft(g, out):
+        out = original_cft(g, out)                       # real rows: traces, update
+        inc = g.get("edge_ids", [])
+        if len(inc) == 0 or "act_j" not in g:
+            return out
         n = len(g["v_i"])
         rng = np.random.default_rng(1234)
-        e = to_numpy(model.edges).reshape(2, -1)
-        src = e[0][inc].astype(int)
+        e = to_numpy(model_ref[0].edges).reshape(2, -1)
+        src = e[0][np.asarray(inc, dtype=int)].astype(int)
+        dst = int(e[1][int(inc[0])])
         lo_j = np.zeros_like(lo_n) if rig == "grid_zeromax" else lo_n
         hi_j = np.maximum(hi_n, lo_j)
-        g["v_i"] = rng.uniform(lo_n[neuron], hi_n[neuron], n)
-        g["v_j"] = rng.uniform(lo_j[src, None], hi_j[src, None], (len(inc), n))
-        op = data.ode_params
-        g["act_j"] = np.asarray(op.gt_g_phi_func(g["v_j"]), dtype=float).reshape(g["v_j"].shape)
-        fm = g["forms"]
-        g["m_true"] = np.stack([
-            fm["W"][int(i)] * g["act_j"][k]
-            * ((fm["E"][int(i)] - g["v_i"]) if fm["conductance"] else 1.0)
-            for k, i in enumerate(inc)])
+        r = dict(g)
+        r["v_i"] = rng.uniform(lo_n[dst], hi_n[dst], n)
+        r["v_j"] = rng.uniform(lo_j[src, None], hi_j[src, None], (len(inc), n))
+        op = op_ref[0]
+        if op is not None:
+            r["act_j"] = np.asarray(op.gt_g_phi_func(r["v_j"]),
+                                    dtype=float).reshape(r["v_j"].shape)
+        else:
+            r["act_j"] = np.maximum(r["v_j"], 0.0)
         gp = to_numpy(_g_phi_at(
-            model, config_ref[0],
-            torch.as_tensor(np.tile(g["v_i"], (len(inc), 1)), dtype=torch.float32,
+            model_ref[0], config_ref[0],
+            torch.as_tensor(np.tile(r["v_i"], (len(inc), 1)), dtype=torch.float32,
                             device=device),
-            torch.as_tensor(g["v_j"], dtype=torch.float32, device=device),
+            torch.as_tensor(r["v_j"], dtype=torch.float32, device=device),
             torch.as_tensor(src, device=device).long(),
-            torch.as_tensor(np.full(len(inc), neuron), device=device).long()))
-        g["m_model"] = g["W_model"][:, None] * gp
-        g["msg_model"] = g["m_model"].sum(axis=0)
-        return g
+            torch.as_tensor(np.full(len(inc), dst), device=device).long()))
+        r["m_model"] = g["W_model"][:, None] * gp
+        r["msg_model"] = r["m_model"].sum(axis=0)
+        rig_out = original_cft(r, copy.deepcopy(out))
+        for k, v in rig_out.items():
+            if k.startswith("tmpl") and not k.startswith("update_"):
+                out[k] = v
+        return out
 
     M.sample_g_phi_vi_vj_observed = patched
-    NP.gather = patched_gather
+    NP.closed_form_template = patched_cft
     try:
         yield
     finally:
         M.sample_g_phi_vi_vj_observed = original
-        NP.gather = original_gather
+        NP.closed_form_template = original_cft
 
 
 def main(argv=None) -> int:
@@ -218,7 +234,7 @@ def main(argv=None) -> int:
              "-o plot use", ""]
 
     for rig in RIGS:
-        with rig_sampler(rig, x_ts, dev, config_ref=(cfg,)):
+        with rig_sampler(rig, x_ts, dev, config_ref=(cfg,), model_ref=(model,), op_ref=(op,)):
             rec = M.extract_recovered_params(
                 model, op, cfg, edges=data.edges, x_ts=x_ts, device=dev,
                 n_neurons=n_neurons, need=("W", "tau", "V_rest", "E_ij", "msg_i"))
