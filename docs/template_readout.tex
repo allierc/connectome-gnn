@@ -134,11 +134,7 @@ b \;=\; (A^{\!\top}\! A)^{-1} A^{\!\top} y ,
 \label{eq:edgesolve}
 \end{equation}
 %
-$A^{\!\top}\!A$ is $3\times3$ whatever $n$ is, and its six distinct entries are
-sums over frames --- $\sum u^2$, $\sum u^2 \vi$, $\sum u$, and so on --- so the
-frames stream and nothing of size $n_{\mathrm{edges}} \times n$ is ever held.
-All $434{,}112$ edges are then solved together as a batch of $3\times3$ systems,
-in seconds.
+$A^{\!\top}\!A$ is $3\times3$ whatever $n$ is.
 
 \paragraph{Which rows are usable.} A row constrains $\Wij$ and $\Eij$ only where
 the presynaptic cell is active; at $u_t = 0$ it is $[0,\,0,\,1]$ and fixes the
