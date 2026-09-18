@@ -58,7 +58,7 @@ per-edge weight.
 conductance by construction, matching $\Wij \ge 0$, and leaves $g_\phi$ free to
 be negative --- which it must be, since the factor it has to reproduce is
 $\act(\vj)\,(\Eij - \vi)$ and the driving force is negative on an inhibitory
-synapse. The alternative pairing, $\widehat{W}_{ij}\,g_\phi^2$, is the CURRENT
+synapse. The alternative pairing, $\widehat{W}_{ij}\,g_\phi^2$, is the current
 generator's convention, where the true weight is itself signed; used on
 conductance data it forbids $g_\phi$ from ever changing sign, so no inhibitory
 driving force can be represented and the polarity is pushed into
@@ -141,30 +141,22 @@ frames stream and nothing of size $n_{\mathrm{edges}} \times n$ is ever held.
 All $434{,}112$ edges are then solved together as a batch of $3\times3$ systems,
 in seconds.
 
-\paragraph{Which rows are usable.} A row carries information about $\Wij$ and
-$\Eij$ only when the presynaptic cell is \emph{on}: at $u_t = 0$ the row is
-$[0,\,0,\,1]$ and constrains the offset alone.
+\paragraph{Which rows are usable.} Three unknowns means eight usable rows are
+ample, and that threshold, $n_{\min} = 8$, is what the sampling has to deliver on
+every edge. A row carries information about $\Wij$ and $\Eij$ only when the
+presynaptic cell is \emph{on}: at $u_t = 0$ the row is $[0,\,0,\,1]$ and
+constrains the offset alone.
 
-The threshold for ``on'' is not $u_t > 0$. It is the \emph{median of the positive}
+The threshold for ``on'' is not $u_t > 0$. It is the median of the positive
 $\act(\vj)$, pooled over every edge and frame of a short probe, so the weaker half
 of the non-zero rows is discarded. The reason is that $\act(\vj) > 0$ whenever
 $\vj$ is above zero at all, and a cell sitting idle still crosses zero on about
 half its frames --- with a tiny $u_t$. Such rows are not wrong, they are
 uninformative: they barely move either $u$ or $u\,\vi$, so they add almost nothing
-to $A^{\!\top}\!A$, yet they DO count toward $n$. Without a floor an edge can reach
-the row count on eight nearly silent frames and return a confident-looking fit off
-no drive at all --- which is exactly the regime where $b_2 \to 0$ and
+to $A^{\!\top}\!A$, yet they still count toward $n$. Without a floor an edge can
+reach the row count on eight nearly silent frames and return a confident-looking
+fit off no drive at all --- which is exactly the regime where $b_2 \to 0$ and
 $\Eij = -b_1/b_2$ diverges (\S\ref{sec:Ecorr}).
-
-Two consequences. The threshold is GLOBAL, not per edge, so a systematically quiet
-cell can have every one of its rows fall below it --- the floor bites hardest on
-the cells the sampling already struggles with. And the probe and the fit share the
-same number, so the sampler's ``active'' and the fit's ``usable'' cannot diverge;
-were they to, the sampler would spend frames topping up edges the fit then throws
-away.
-
-Three unknowns means eight usable rows are ample, and that threshold,
-$n_{\min} = 8$, is what the sampling has to deliver on every edge.
 
 \paragraph{Why a uniform sample will not.} An edge is measurable only on its own
 presynaptic cell's active frames, and those cells are not equally busy. A cell
@@ -197,7 +189,7 @@ cannot move.
 Together the two passes fit $99.6\%$ of the $434{,}112$ edges. Both are reported
 rather than assumed --- \texttt{tmpl\_pct\_unfitted\_first\_pass} and
 \texttt{tmpl\_pct\_rescued\_second\_pass} say how much of that came from each ---
-because the edges the second pass admits are by construction the MARGINAL ones,
+because the edges the second pass admits are by construction the marginal ones,
 and buying coverage with them is not free: they arrive with the fewest rows and
 the weakest drive, which is exactly the population $\Eij$ is least identifiable
 on (\S\ref{sec:Ecorr}).
