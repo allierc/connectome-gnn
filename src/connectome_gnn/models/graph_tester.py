@@ -560,6 +560,38 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     results_dir = os.path.join(log_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
 
+    # THE ROLLOUT IS SCORED AGAINST THE NOISE-FREE TWIN when one exists.
+    # `noise_model_level` is PROCESS noise: it is added to the voltage at every
+    # integration step and baked into voltage.zarr, so the stored trajectory is a
+    # stochastic path that a deterministic rollout cannot reproduce by
+    # construction. Measured on flyvis_flowcond_noise_005_blank50_cv00, the
+    # correlation between the noisy trajectory and its noise-free twin is 0.820
+    # -- and every arm of a 22-run sweep reported rollout_r between 0.812 and
+    # 0.820 while Wij_R2 ranged from -0.08 to +0.41. The metric was pinned to the
+    # noise ceiling and carrying no information about the model.
+    #
+    # Scoring against the twin restores a ceiling of 1.0. Only the TARGET
+    # changes: the rollout still starts from, and is driven by, the data the
+    # model was trained on. `template_rollout` has used this convention all
+    # along; this brings the tester into line with it.
+    _rollout_truth = x_ts_eval
+    if getattr(sim, "noise_model_level", 0.0) > 0:
+        from connectome_gnn.template_rollout import noise_free_dataset
+        _nf = noise_free_dataset(test_ds)
+        if _nf != test_ds and os.path.isdir(graphs_data_path(_nf)):
+            try:
+                _rollout_truth = load_simulation_data(
+                    graphs_data_path(_nf, 'x_list_train'), fields=['voltage']).to(device)
+                logger.info(f'rollout scored against the noise-free twin {_nf} '
+                            f'(process noise {sim.noise_model_level} caps r at ~0.82 '
+                            f'against the noisy trajectory)')
+            except Exception as _exc:
+                logger.warning(f'noise-free twin {_nf} not loadable, scoring against '
+                               f'the noisy trajectory: {type(_exc).__name__}: {_exc}')
+        else:
+            logger.warning(f'no noise-free twin for {test_ds}; rollout_r is capped '
+                           f'by the process noise and is not a model comparison')
+
     x = x_ts_eval.frame(0)
     with torch.no_grad():
         hn.inject_hidden(model, x, 0, True)
@@ -589,7 +621,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         for k in trange(n_eval_frames - 1, ncols=100, desc="rollout"):
             # Collect state before integration
             rollout_pred_list.append(to_numpy(x.voltage))
-            rollout_true_list.append(to_numpy(x_ts_eval.frame(k).voltage))
+            rollout_true_list.append(to_numpy(_rollout_truth.frame(k).voltage))
 
             # Set stimulus from rollout data
             frame_k = x_ts_eval.frame(k)
