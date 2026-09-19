@@ -77,7 +77,7 @@ training:
   seed: 1044
   deterministic: true
   n_epochs: 5
-  data_augmentation_loop: 125
+  data_augmentation_loop: 55
   coeff_g_phi_input_group_L1: 0.0
   coeff_g_phi_silent: 25
   coeff_f_theta_msg_gain: 1.0e-05
