@@ -120,6 +120,9 @@ the sign having moved into $(E_i - v_i)$.}
 
 \begin{frame}{Reversal potentials by cell type}
 \srcpath{flyvis/results/flow/2000/001/analysis/reversals.png}
+{\centering\small
+$\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
+ + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(\mathbf{E_i} - v_i) + I_i(t)$\\[2pt]}
 \begin{columns}[T]
 \begin{column}{0.68\textwidth}
 \panel{checkpoint 28}{Fig/reversals.png}
@@ -181,46 +184,9 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \section{Conductance model on current data}
 % ===================================================================
 
-\begin{frame}{Conductance model fitted to current-generated data}
-% TODO: 1-3 slides. Source: config/fly/archive_7/flyvis_current_*_conductance_*.
-\end{frame}
-
-% ===================================================================
-\section{Known-ODE on conductance data}
-% ===================================================================
-
-\begin{frame}{The identifiability ceiling}
-% TODO: 10 folds RUNNING as of 2026-09-21
-% flyvis_flowcond_{noise_005,noise_free}_conductance_knownode_cv0{0..4}.
-% The known-ODE has the generator's structure and learns only its parameters,
-% so it separates the inverse problem from the readout.
-\end{frame}
-
-% ===================================================================
-\section{Conductance GNN on conductance data}
-% ===================================================================
-
-\begin{frame}{What the GNN recovers}
-% TODO: Wij_R2 peak 0.433 +- 0.074 (n=22 seeds), msg_i_R2 0.90-0.94,
-% rollout_r 0.99 and saturated. The sum of a neuron's messages is recovered;
-% its decomposition into edges is not.
-\end{frame}
-
-\begin{frame}{Two failure modes}
-% TODO: sign-flip basin ~41% of seeds (k_i negative, wrong-slope 65-68%,
-% |W| and hence Wij_R2 unharmed); W-scale overshoot (gain -> 1, tau_R2 0.30).
-\end{frame}
-
-% ===================================================================
-\section{Perspectives}
-% ===================================================================
-
 \begin{frame}{Before and after the derivative-target fix}
 \srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
-\vspace{0.15cm}
-{\centering\scriptsize
-$y[t] = (v[t{+}1]-v[t])/\Delta t = f(v[t]) + \xi_t/\Delta t$, not the stored
-\texttt{y\_list} $= f(v[t])$\\[4pt]}
+\vspace{0.2cm}
 \centering\tiny
 \setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{llcccccccc}
@@ -262,6 +228,40 @@ $^{*}$fold 0, lasso $\lambda = 1$; $\lambda = 10$ gives $R^2_{\hat W} = 0.97$.
 Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-09-09.
 \end{minipage}
 \end{frame}
+
+\begin{frame}{Conductance model fitted to current-generated data}
+% TODO: 1-3 slides. Source: config/fly/archive_7/flyvis_current_*_conductance_*.
+\end{frame}
+
+% ===================================================================
+\section{Known-ODE on conductance data}
+% ===================================================================
+
+\begin{frame}{The identifiability ceiling}
+% TODO: 10 folds RUNNING as of 2026-09-21
+% flyvis_flowcond_{noise_005,noise_free}_conductance_knownode_cv0{0..4}.
+% The known-ODE has the generator's structure and learns only its parameters,
+% so it separates the inverse problem from the readout.
+\end{frame}
+
+% ===================================================================
+\section{Conductance GNN on conductance data}
+% ===================================================================
+
+\begin{frame}{What the GNN recovers}
+% TODO: Wij_R2 peak 0.433 +- 0.074 (n=22 seeds), msg_i_R2 0.90-0.94,
+% rollout_r 0.99 and saturated. The sum of a neuron's messages is recovered;
+% its decomposition into edges is not.
+\end{frame}
+
+\begin{frame}{Two failure modes}
+% TODO: sign-flip basin ~41% of seeds (k_i negative, wrong-slope 65-68%,
+% |W| and hence Wij_R2 unharmed); W-scale overshoot (gain -> 1, tau_R2 0.30).
+\end{frame}
+
+% ===================================================================
+\section{Perspectives}
+% ===================================================================
 
 \begin{frame}{Regularisation}
 \srcpath{LLM/instruction\_flyvis\_flowcond\_noise\_005\_gnn\_llm\_cv00.md}
