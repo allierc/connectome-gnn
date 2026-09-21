@@ -139,6 +139,23 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
   \texttt{flow/2000/001}, checkpoint 28, held-out Sintel; EPE 5.390}
 \end{frame}
 
+\begin{frame}{Generation --- current flyvis}
+\srcpath{graphs\_data/fly/flyvis\_noise\_005\_blank50\_cv00/noise\_005\_blank50\_cv00.mp4}
+\panelboxfull
+\playmovie{Movies/generation_current}{%
+  \texttt{flyvis\_noise\_005\_blank50\_cv00} --- current generator, forward Euler}
+\end{frame}
+
+\begin{frame}{Generation --- conductance flyvis}
+\srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
+\begin{center}
+\panelboxfull
+\playmovie{Movies/generation_flowcond}{%
+  \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- conductance generator,
+  exponential Euler}
+\end{center}
+\end{frame}
+
 \begin{frame}{Activity: noise free and $\sigma = 0.05$}
 \srcpath{graphs\_data/fly/flyvis\_flowcond\_noise\_\{free,005\}\_blank50\_cv00/activity.png}
 \begin{columns}[T]
@@ -149,16 +166,6 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \panel{$\sigma = 0.05$ process noise}{Fig/activity_noise005.png}
 \end{column}
 \end{columns}
-\end{frame}
-
-\begin{frame}{Generation}
-\srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
-\begin{center}
-\panelboxfull
-\playmovie{Movies/generation_flowcond}{%
-  13{,}741 neurons, 434{,}112 edges, 64{,}000 frames, $\Delta t = 20$\,ms,
-  DAVIS, 50\% blank prefix, exponential Euler}
-\end{center}
 \end{frame}
 
 % ===================================================================
