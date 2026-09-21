@@ -59,8 +59,8 @@
       contrast $\sigma\!=\!0.2$, brightness $\sigma\!=\!0.1$, white noise $0.08$
 \item \textbf{Rollout} --- 19 frames resampled to $\Delta t = 20$\,ms
       $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated through all
-\item \textbf{$E_i = \mathrm{bias}_i + \mathrm{band}$}, excursion $1.0$, bands
-      $[1.5, 6.0]$ / $[-6.0, -0.5]$: 66 free variables, \textbf{130 reversals} (bias is per type)
+\item \textbf{$E_i = V^{\mathrm{rest}}_i + \mathrm{band}$}, excursion $1.0$, bands
+      $[1.5, 6.0]$ / $[-6.0, -0.5]$: 66 free variables, \textbf{130 reversals} ($V^{\mathrm{rest}}$ is per type)
 \item \textbf{Optimiser} --- Adam, $\mathrm{lr} = 5\times10^{-5}$, batch 4,
       250{,}000 iterations, 65 checkpoints; H100, 5.5\,h
 \item \textbf{Loss} $\ell_2$ on decoded flow: $1214.7 \rightarrow 1175.3$,
@@ -81,6 +81,15 @@ our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$
 \bottomrule
 \end{tabular}\\[1pt]
 {\tiny mean $\pm$ SD over ensemble members, each at its argmin-EPE checkpoint}
+\end{center}
+\end{frame}
+
+\begin{frame}{$W_{ij}$ distributions}
+\srcpath{graphs\_data/fly/flyvis\_\{noise\_005,flowcond\_noise\_005\}\_blank50\_cv00/ode\_params.pt}
+\begin{center}
+\includegraphics[height=0.76\textheight]{Fig/Wij_distributions.png}\\[1pt]
+{\tiny 434{,}112 edges. Current: $-1.503$ to $+4.173$. Conductance: $0$ to $1.210$,
+the sign having moved into $(E_i - v_i)$.}
 \end{center}
 \end{frame}
 
