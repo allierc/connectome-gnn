@@ -385,16 +385,16 @@ Known-ODE & task-trained & $0.05$
   & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
   & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ & $0.74{\pm}0.01$ \\
 GNN & task-trained & $0.05$
-  & \good{$1.00$} & \good{$0.99$}
-  & $\mathbf{0.44{\pm}0.06}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ & \multicolumn{1}{c}{---} \\
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08\,(5.8)$ & $0.61{\pm}0.06\,(40.2)$ & $0.65{\pm}0.07$ \\
 \midrule
 \multicolumn{3}{l}{GNN, 21 training seeds, one dataset}
   & \multicolumn{1}{c}{---} & \good{$0.99 - 1.00$}
   & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ & \multicolumn{1}{c}{---} \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny 5 folds except $\sigma = 0$ (2 of 5 landed). Folds share the training seed
-and differ only in the data seed; the GNN row varies the training seed instead.}
+{\tiny 5 folds except $\sigma = 0$ (3 of 5 landed); GNN row is 8 training seeds,
+final. Folds share the training seed and differ only in the data seed.}
 \end{frame}
 
 \begin{frame}{Regularisation: current vs conductance}
