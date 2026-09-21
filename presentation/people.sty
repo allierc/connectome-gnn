@@ -1,0 +1,890 @@
+% the various libraries we will be using
+\usepackage{xfp}
+\usepackage[overlay,absolute]{textpos}
+
+\newcommand{\credit}[4][0]{%
+\begin{textblock}{3}(\fpeval{15-1.2*(#2)},\fpeval{1.5*(#1)})
+\Tiny\includegraphics[width=1cm]{figures/people/#3}
+\setlength\fboxsep{1pt}%
+\setlength\baselineskip{0pt}%
+
+\begin{beamercolorbox}[sep=0em,wd=1cm]{normal text}%
+\centering\strut #4
+\end{beamercolorbox}%
+\end{textblock}%
+}%
+
+\newcommand{\creditSup}[4][0]{%
+\begin{textblock}{3}(\fpeval{15-1.2*(#2)},\fpeval{1.5*(#1)})
+\setlength{\fboxsep}{-0.5mm}%
+\setlength{\fboxrule}{0.5mm}%
+{\color{HHMIBlue}\fbox{\includegraphics[width=1cm]{figures/people/#3}}}
+\Tiny%
+\setlength\fboxsep{1pt}%
+\setlength\baselineskip{0pt}%
+
+\begin{beamercolorbox}[sep=0em,wd=1cm]{normal text}%
+\centering\strut #4
+\end{beamercolorbox}%
+\end{textblock}%
+}%
+
+\newcommand{\creditLab}[4][0]{%
+\begin{textblock}{3}(\fpeval{15-1.2*(#2)},\fpeval{1.5*(#1)})
+\setlength{\fboxsep}{-0.5mm}%
+\setlength{\fboxrule}{0.5mm}%
+{\color{HHMIOrange}\fbox{\includegraphics[width=1cm]{figures/people/#3}}}
+\Tiny%
+\setlength\fboxsep{1pt}%
+\setlength\baselineskip{0pt}%
+
+\begin{beamercolorbox}[sep=0em,wd=1cm]{normal text}%
+\centering\strut #4
+\end{beamercolorbox}%
+\end{textblock}%
+}%
+
+\renewcommand{\creditSup}[4][0]{%
+\credit[#1]{#2}{#3}{#4}%
+}
+
+\renewcommand{\creditLab}[4][0]{%
+\credit[#1]{#2}{#3}{#4}%
+}
+
+\newcommand{\creditFunkeLab}[2][0]{%
+\creditSup[#1]{#2}{funkej.png}{J. Funke}%
+}%
+
+\newcommand{\creditFunke}[2][0]{%
+\credit[#1]{#2}{funkej.jpg}{J. Funke}%
+}%
+
+\newcommand{\creditBock}[2][0]{%
+\credit[#1]{#2}{bock.jpeg}{D. Bock}%
+}%
+
+\newcommand{\creditTuraga}[2][0]{%
+\credit[#1]{#2}{turagas.jpg}{S. Turaga}%
+}%
+
+\newcommand{\creditPape}[2][0]{%
+\creditLab[#1]{#2}{papec.jpeg}{C. Pape}%
+}%
+
+\newcommand{\creditHeinrich}[2][0]{%
+\creditLab[#1]{#2}{heinrichl.jpg}{L. Heinrich}%
+}%
+
+\newcommand{\creditSheridan}[2][0]{%
+\credit[#1]{#2}{sheridan.jpg}{A. Sheridan}%
+}%
+
+\newcommand{\creditLauritzen}[2][0]{%
+\credit[#1]{#2}{lauritzen.jpg}{S. Lauritzen}%
+}%
+
+\newcommand{\creditOrdish}[2][0]{%
+\credit[#1]{#2}{ordish.jpeg}{C. Ordish}%
+}%
+
+\newcommand{\creditHaddad}[2][0]{%
+\creditLab[#1]{#2}{haddada.png}{A. Haddad}%
+}%
+
+\newcommand{\creditBuhmann}[2][0]{%
+\credit[#1]{#2}{buhmann.png}{J. Buhmann}%
+}%
+
+\newcommand{\creditPerlman}[2][0]{%
+\credit[#1]{#2}{perlman.jpeg}{E. Perlman}%
+}%
+
+\newcommand{\creditHanslovsky}[2][0]{%
+\creditLab[#1]{#2}{hanslovsky.jpg}{P. Hanslovsky}%
+}%
+
+\newcommand{\creditJNI}[2][0]{%
+\creditLab[#1]{#2}{jni.jpeg}{JNI}%
+}%
+
+\newcommand{\creditBogovic}[2][0]{%
+\creditLab[#1]{#2}{bogovic.jpeg}{J. Bogovic}%
+}%
+
+\newcommand{\creditJeter}[2][0]{%
+\credit[#1]{#2}{jeter.jpg}{J. Jeter}%
+}%
+
+\newcommand{\creditMeissner}[2][0]{%
+\credit[#1]{#2}{meissner.png}{G. Meissner}%
+}%
+
+\newcommand{\creditAso}[2][0]{%
+\credit[#1]{#2}{aso.jpg}{Y. Aso}%
+}%
+
+\newcommand{\creditPisarev}[2][0]{%
+\credit[#1]{#2}{pisarev.jpeg}{I. Pisarev}%
+}%
+
+\newcommand{\creditPatrick}[2][0]{%
+\creditLab[#1]{#2}{patrick.png}{C. Patrick}%
+}%
+
+\newcommand{\creditOFlynn}[2][0]{%
+\creditLab[#1]{#2}{oflynn.png}{E. O'Flynn}%
+}%
+
+\newcommand{\creditHess}[2][0]{%
+\credit[#1]{#2}{hess.png}{H. Hess}%
+}%
+
+\newcommand{\creditXu}[2][0]{%
+\credit[#1]{#2}{xuc.jpg}{C. S. Xu}%
+}%
+
+\newcommand{\creditPang}[2][0]{%
+\credit[#1]{#2}{pang.jpg}{S. Pang}%
+}%
+
+\newcommand{\creditShtengel}[2][0]{%
+\credit[#1]{#2}{shtengel.jpg}{G. Shtengel}%
+}%
+
+
+\newcommand{\creditParkG}[2][0]{%
+\credit[#1]{#2}{parkg.jpg}{G. Park}%
+}%
+
+\newcommand{\creditPetruncio}[2][0]{%
+\credit[#1]{#2}{petruncio.png}{A. Petruncio}%
+}%
+
+\newcommand{\creditArruda}[2][0]{%
+\credit[#1]{#2}{arruda.jpg}{R. Arruda}%
+}%
+
+\newcommand{\creditWeigel}[2][0]{%
+\credit[#1]{#2}{weigela.jpg}{A. Weigel}%
+}%
+
+\newcommand{\creditBennett}[2][0]{%
+\credit[#1]{#2}{bennett.jpg}{D. Bennett}%
+}%
+
+\newcommand{\creditAckerman}[2][0]{%
+\creditSup[#1]{#2}{ackermand.jpg}{D. Ackerman}
+}%
+
+\newcommand{\creditBetzig}[2][0]{%
+\credit[#1]{#2}{betzig.jpg}{E. Betzig}%
+}%
+
+\newcommand{\creditHoffman}[2][0]{%
+\credit[#1]{#2}{hoffmand.jpeg}{D. Hoffman}%
+}%
+
+\newcommand{\creditKorff}[2][0]{%
+\credit[#1]{#2}{korff.jpg}{W. Korff}%
+}%
+
+\newcommand{\creditJLS}[2][0]{%
+\credit[#1]{#2}{jls.jpg}{JLS}%
+}%
+
+\newcommand{\creditMorris}[2][0]{%
+\creditLab[#1]{#2}{morriss.jpg}{S. Morris}%
+}%
+
+\newcommand{\creditSvoboda}[2][0]{%
+\credit[#1]{#2}{svoboda.png}{K. Svoboda}%
+}%
+
+\newcommand{\creditWangT}[2][0]{%
+\credit[#1]{#2}{wangt.png}{T. Wang}%
+}%
+
+\newcommand{\creditWeigert}[2][0]{%
+\creditLab[#1]{#2}{weigert.jpg}{M. Weigert}%
+}%
+
+\newcommand{\creditSchmidt}[2][0]{%
+\creditLab[#1]{#2}{schmidt.jpg}{U. Schmidt}%
+}%
+
+\newcommand{\creditAsano}[2][0]{%
+\credit[#1]{#2}{asano.jpg}{S. Asano}%
+}%
+
+\newcommand{\creditGao}[2][0]{%
+\credit[#1]{#2}{gao.jpg}{R. Gao}%
+}%
+
+\newcommand{\creditMilkie}[2][0]{%
+\credit[#1]{#2}{milkie.jpg}{D. Milkie}%
+}%
+
+\newcommand{\creditFetter}[2][0]{%
+\credit[#1]{#2}{fetter.png}{R. Fetter}%
+}%
+
+\newcommand{\creditKarsh}[2][0]{%
+\credit[#1]{#2}{karsh.jpeg}{B. Karsh}%
+}%
+
+\newcommand{\creditKhairy}[2][0]{%
+\credit[#1]{#2}{khairy.jpeg}{K. Khairy}%
+}%
+
+\newcommand{\creditRobinson}[2][0]{%
+\credit[#1]{#2}{robinson.jpg}{C. Robinson}%
+}%
+
+\newcommand{\creditTrautman}[2][0]{%
+\creditSup[#1]{#2}{trautman.jpg}{E. Trautman}%
+}%
+
+\newcommand{\creditZheng}[2][0]{%
+\credit[#1]{#2}{zheng.jpg}{Z. Zheng}%
+}%
+
+\newcommand{\creditKainmueller}[2][0]{%
+\creditSup[#1]{#2}{kainmueller.jpeg}{D. Kainmueller}%
+}%
+
+\newcommand{\creditScheffer}[2][0]{%
+\credit[#1]{#2}{scheffer.png}{L. Scheffer}%
+}%
+
+\newcommand{\creditHayworth}[2][0]{%
+\credit[#1]{#2}{hayworth.png}{K. Hayworth}%
+}%
+
+\newcommand{\creditLu}[2][0]{%
+\credit[#1]{#2}{lu.jpeg}{Z. Lu}%
+}%
+
+\newcommand{\creditPlaza}[2][0]{%
+\credit[#1]{#2}{plaza.jpeg}{S. Plaza}%
+}%
+
+\newcommand{\creditColonell}[2][0]{%
+\credit[#1]{#2}{colonell.jpeg}{J. Colonell}%
+}%
+
+\newcommand{\creditNern}[2][0]{%
+\credit[#1]{#2}{nern.jpeg}{A. Nern}%
+}%
+
+\newcommand{\creditPreibisch}[2][0]{%
+\credit[#1]{#2}{preibisch.jpeg}{S. Preibisch}%
+}%
+
+\newcommand{\creditPreibischLab}[2][0]{%
+\creditSup[#1]{#2}{preibisch.jpeg}{S. Preibisch}%
+}%
+
+\newcommand{\creditHarrington}[2][0]{%
+\creditSup[#1]{#2}{harrington.png}{K. Harrington}%
+}%
+
+\newcommand{\creditHuang}[2][0]{%
+\credit[#1]{#2}{huang.png}{G. Huang}%
+}%
+
+\newcommand{\creditClements}[2][0]{%
+\credit[#1]{#2}{clementsj.jpg}{J. Clements}%
+}%
+
+\newcommand{\creditAWS}[2][0]{%
+\credit[#1]{#2}{aws.png}{AWS}%
+}%
+
+\newcommand{\creditGoogle}[2][0]{%
+\credit[#1]{#2}{google.jpg}{Google}%
+}%
+
+\newcommand{\creditEckstein}[2][0]{%
+\credit[#1]{#2}{ecksteinn.jpeg}{N. Eckstein}%
+}%
+
+\newcommand{\creditForknall}[2][0]{%
+\credit[#1]{#2}{forknall.jpg}{N. Forknall}%
+}%
+
+\newcommand{\creditLudwig}[2][0]{%
+\credit[#1]{#2}{ludwig.jpg}{H. Ludwig}%
+}%
+
+\newcommand{\creditRymer}[2][0]{%
+\credit[#1]{#2}{rymer.jpg}{T. Rymer}%
+}%
+
+\newcommand{\creditPatton}[2][0]{%
+\credit[#1]{#2}{patton.jpeg}{W. Patton}%
+}%
+
+\newcommand{\creditParekh}[2][0]{%
+\credit[#1]{#2}{parekh.jpg}{R. Parekh}%
+}%
+
+\newcommand{\creditSchneider}[2][0]{%
+\creditSup[#1]{#2}{schneiderm2.jpg}{M. Schneider}%
+}%
+
+\newcommand{\creditBranson}[2][0]{%
+\credit[#1]{#2}{bransonk.png}{K. Branson}%
+}%
+
+\newcommand{\creditRomani}[2][0]{%
+\credit[#1]{#2}{romanis.jpg}{S. Romani}%
+}%
+
+\newcommand{\creditHermundstad}[2][0]{%
+\credit[#1]{#2}{hermundstada.jpg}{A.~Hermundstad}%
+}%
+
+\newcommand{\creditFitzgerald}[2][0]{%
+\credit[#1]{#2}{fitzgeraldj.jpg}{J. Fitzgerald}%
+}%
+
+\newcommand{\creditStringer}[2][0]{%
+\credit[#1]{#2}{stringerc.jpg}{C. Stringer}%
+}%
+
+\newcommand{\creditSgro}[2][0]{%
+\credit[#1]{#2}{sgroa.jpg}{A. Sgro}%
+}%
+
+\newcommand{\creditKoay}[2][0]{%
+\credit[#1]{#2}{koays.jpg}{S. Koay}%
+}%
+
+\newcommand{\creditPachitariu}[2][0]{%
+\credit[#1]{#2}{pachitarium.jpg}{M. Pachitariu}%
+}%
+
+\newcommand{\creditCeric}[2][0]{%
+\credit[#1]{#2}{cericg.jpg}{G. Ceric}%
+}%
+
+\newcommand{\creditZari}[2][0]{%
+\credit[#1]{#2}{zavalaruizz.jpg}{Z. Zavala-Ruiz}%
+}%
+
+\newcommand{\creditBraverman}[2][0]{%
+\credit[#1]{#2}{bravermand.jpg}{D. Braverman}%
+}%
+
+\newcommand{\creditSaalfeld}[2][0]{%
+\credit[#1]{#2}{saalfeld.jpg}{S. Saalfeld}%
+}%
+
+\newcommand{\creditRobie}[2][0]{%
+\credit[#1]{#2}{robiea.jpg}{A. Robie}%
+}%
+
+\newcommand{\creditKwak}[2][0]{%
+\credit[#1]{#2}{kwaki.jpg}{I. Kwak}%
+}%
+
+\newcommand{\creditEgnor}[2][0]{%
+\credit[#1]{#2}{egnorr.png}{R. Egnor}%
+}%
+
+\newcommand{\creditPatil}[2][0]{%
+\credit[#1]{#2}{patilr.jpg}{R. Patil}%
+}%
+
+\newcommand{\creditStanoev}[2][0]{%
+\credit[#1]{#2}{stanoeva.jpg}{A. Stanoev}%
+}%
+
+\newcommand{\creditBriguglio}[2][0]{%
+\credit[#1]{#2}{briguglioj.jpg}{J. Briguglio}%
+}%
+
+\newcommand{\creditHoeller}[2][0]{%
+\credit[#1]{#2}{hoellerj.jpg}{J. Hoeller}%
+}%
+
+\newcommand{\creditFontolan}[2][0]{%
+\credit[#1]{#2}{fontolanl.jpg}{L. Fontolan}%
+}%
+
+\newcommand{\creditDeb}[2][0]{%
+\credit[#1]{#2}{debd.jpg}{D. Deb}%
+}%
+
+\newcommand{\creditKlapoetke}[2][0]{%
+\credit[#1]{#2}{klapoetken.jpg}{N. Klapoetke}%
+}%
+
+\newcommand{\creditVaxenburg}[2][0]{%
+\credit[#1]{#2}{vaxenburgr.jpg}{R. Vaxenburg}%
+}%
+
+\newcommand{\creditNoorman}[2][0]{%
+\credit[#1]{#2}{noormanm.jpg}{M. Noorman}%
+}%
+
+\newcommand{\creditMa}[2][0]{%
+\credit[#1]{#2}{mat.jpg}{T. Ma}%
+}%
+
+\newcommand{\creditGuo}[2][0]{%
+\credit[#1]{#2}{guoy.jpeg}{Y. Guo}%
+}%
+
+\newcommand{\creditAdeyefaolasupo}[2][0]{%
+\credit[#1]{#2}{adeyefaolasupoi.png}{\hspace*{-0.5em}I.~Adeyefa-Olasupo}%
+}%
+
+\newcommand{\creditZhong}[2][0]{%
+\credit[#1]{#2}{zhongl.jpg}{L. Zhong}%
+}%
+
+\newcommand{\creditNunez}[2][0]{%
+\credit[#1]{#2}{nunezm.jpg}{M. Nunez}%
+}%
+
+\newcommand{\creditJames}[2][0]{%
+\credit[#1]{#2}{jamesb.jpg}{B. James}%
+}%
+
+\newcommand{\creditNatrajan}[2][0]{%
+\credit[#1]{#2}{natrajanm.jpg}{M. Natrajan}%
+}%
+
+\newcommand{\creditBiswas}[2][0]{%
+\credit[#1]{#2}{biswast.jpg}{T. Biswas}%
+}%
+
+\newcommand{\creditHillsley}[2][0]{%
+\credit[#1]{#2}{hillsleya.jpg}{A. Hillsley}%
+}%
+
+\newcommand{\creditAdjavon}[2][0]{%
+\credit[#1]{#2}{adjavond.jpg}{D. Adjavon}%
+}%
+
+\newcommand{\creditMehta}[2][0]{%
+\credit[#1]{#2}{mehtay.jpg}{Y. Mehta}%
+}%
+
+\newcommand{\creditSingh}[2][0]{%
+\credit[#1]{#2}{singha.jpg}{A. Singh}%
+}%
+
+\newcommand{\creditDu}[2][0]{%
+\credit[#1]{#2}{duf.jpg}{F. Du}%
+}%
+
+\newcommand{\creditWickramatunga}[2][0]{%
+\credit[#1]{#2}{wickramatungas.png}{\hspace*{-0.4em}S.~Wickramatunga}%
+}%
+
+\newcommand{\creditParkS}[2][0]{%
+\credit[#1]{#2}{parks.jpg}{S. Park}%
+}%
+
+\newcommand{\creditOReilly}[2][0]{%
+\credit[#1]{#2}{oreillyb.jpg}{B. O'Reilly}%
+}%
+
+\newcommand{\creditHulbert}[2][0]{%
+\creditLab[#1]{#2}{hulbert.jpeg}{C. Hulbert}%
+}%
+
+\newcommand{\creditBishop}[2][0]{%
+\credit[#1]{#2}{bishopw.jpg}{W. Bishop}%
+}%
+
+\newcommand{\creditPopovych}[2][0]{%
+\credit[#1]{#2}{popovychs.jpg}{S. Popovych}%
+}%
+
+\newcommand{\creditMacrina}[2][0]{%
+\credit[#1]{#2}{macrinat.jpg}{T. Macrina}%
+}%
+
+\newcommand{\creditSeung}[2][0]{%
+\credit[#1]{#2}{seungs.jpg}{S. Seung}%
+}%
+
+\newcommand{\creditWangY}[2][0]{%
+\credit[#1]{#2}{wangy.jpeg}{Y. Wang}%
+}%
+
+\newcommand{\creditSternson}[2][0]{%
+\credit[#1]{#2}{sternsons.jpg}{S. Sternson}%
+}%
+
+\newcommand{\creditTilberg}[2][0]{%
+\credit[#1]{#2}{tilbergp.jpeg}{P. Tilberg}%
+}%
+
+\newcommand{\creditLillvis}[2][0]{%
+\creditLab[#1]{#2}{lillvisj.jpg}{J. Lillvis}%
+}%
+
+\newcommand{\creditKapner}[2][0]{%
+\credit[#1]{#2}{kapnerd.jpeg}{D. Kapner}%
+}%
+
+\newcommand{\creditSeshamani}[2][0]{%
+\credit[#1]{#2}{seshamanis.jpg}{S. Seshamani}%
+}%
+
+\newcommand{\creditTorres}[2][0]{%
+\credit[#1]{#2}{torresr.jpg}{R. Torres}%
+}%
+
+\newcommand{\creditMahalingam}[2][0]{%
+\credit[#1]{#2}{mahalingamg.jpg}{G. Mahalingam}%
+}%
+
+\newcommand{\creditCollman}[2][0]{%
+\credit[#1]{#2}{collmanf.jpg}{F. Collman}%
+}%
+
+\newcommand{\creditPietzsch}[2][0]{%
+\credit[#1]{#2}{pietzsch.png}{T. Pietzsch}%
+}%
+
+\newcommand{\creditPietzschLab}[2][0]{%
+\creditSup[#1]{#2}{pietzsch.png}{T. Pietzsch}%
+}%
+
+\newcommand{\creditNovak}[2][0]{%
+\credit[#1]{#2}{novak.jpeg}{A. Novak}%
+}%
+
+\newcommand{\creditThistlethwaite}[2][0]{%
+\creditLab[#1]{#2}{thistlethwaiten.jpg}{Neil}%
+}%
+
+\newcommand{\creditAllier}[2][0]{%
+\creditLab[#1]{#2}{allierc.jpg}{C. Allier}%
+}%
+
+\newcommand{\creditGillette}[2][0]{%
+\credit[#1]{#2}{gillettee.jpg}{E. Gillette}%
+}%
+
+\newcommand{\creditLalit}[2][0]{%
+\credit[#1]{#2}{lalitm.jpg}{M. Lalit}%
+}%
+
+\newcommand{\creditAbdelrahman}[2][0]{%
+\credit[#1]{#2}{abdelrahmann.jpg}{\mbox{N. Abdelrahman}}%
+}%
+
+\newcommand{\creditBulanchuk}[2][0]{%
+\credit[#1]{#2}{bulanchukp.jpg}{\mbox{P. Bulanchuk}}%
+}%
+
+\newcommand{\creditTutt}[2][0]{%
+\credit[#1]{#2}{tutta.jpg}{\mbox{A. Tutt}}%
+}%
+
+\newcommand{\creditZhang}[2][0]{%
+\credit[#1]{#2}{zhangq.jpg}{\mbox{Q. Zhang}}%
+}%
+
+\newcommand{\creditLustig}[2][0]{%
+\credit[#1]{#2}{lustigb.jpg}{\mbox{B. Lustig}}%
+}%
+
+\newcommand{\creditSmith}[2][0]{%
+\credit[#1]{#2}{smithb.jpg}{\mbox{B. Smith}}%
+}%
+
+\newcommand{\creditAronson}[2][0]{%
+\credit[#1]{#2}{aronsonm.jpg}{\mbox{M. Aronson}}%
+}%
+
+\newcommand{\creditSyeda}[2][0]{%
+\credit[#1]{#2}{syedaa.jpg}{\mbox{A. Syeda}}%
+}%
+
+\newcommand{\creditJoyce}[2][0]{%
+\credit[#1]{#2}{joycej.jpg}{\mbox{J. Joyce}}%
+}%
+
+\newcommand{\creditKoberstein}[2][0]{%
+\credit[#1]{#2}{kobersteinj.jpg}{\mbox{J. Koberstein}}%
+}%
+
+\newcommand{\creditNielson}[2][0]{%
+\credit[#1]{#2}{nielsone.jpg}{\mbox{E. Nielson}}%
+}%
+
+\newcommand{\creditCarlile}[2][0]{%
+\credit[#1]{#2}{carlilek.png}{\mbox{K. Carlile}}%
+}%
+
+\newcommand{\creditSoules}[2][0]{%
+\credit[#1]{#2}{soulesn.jpg}{\mbox{N. Soules}}%
+}%
+
+\newcommand{\creditLines}[2][0]{%
+\credit[#1]{#2}{linesr.jpg}{\mbox{R. Lines}}%
+}%
+
+\newcommand{\creditDolafi}[2][0]{%
+\credit[#1]{#2}{dolafit.png}{\mbox{T. Dolafi}}%
+}%
+
+\newcommand{\creditNardin}[2][0]{%
+\credit[#1]{#2}{nardinm.jpg}{M. Nardin}%
+}%
+
+\newcommand{\creditAhamed}[2][0]{%
+\credit[#1]{#2}{ahamedt.jpg}{T. Ahamed}%
+}%
+
+\newcommand{\creditPrice}[2][0]{%
+\credit[#1]{#2}{price.jpg}{J. Price}%
+}%
+
+\newcommand{\creditRamirez}[2][0]{%
+\credit[#1]{#2}{ramirez.jpg}{D. Ramirez}%
+}%
+
+\newcommand{\creditRhoades}[2][0]{%
+\credit[#1]{#2}{rhoades.jpg}{J. Rhoades}%
+}%
+
+\newcommand{\creditVorimo}[2][0]{%
+\credit[#1]{#2}{vorimo.jpg}{R. Vorimo}%
+}%
+
+\newcommand{\creditZubov}[2][0]{%
+\credit[#1]{#2}{zubov.jpg}{Y. Zubov}%
+}%
+
+\newcommand{\creditAhrens}[2][0]{%
+\credit[#1]{#2}{ahrens.png}{M. Ahrens}%
+}%
+
+\newcommand{\creditBleck}[2][0]{%
+\credit[#1]{#2}{bleck.png}{C. Bleck}%
+}%
+
+\newcommand{\creditChew}[2][0]{%
+\credit[#1]{#2}{chew.jpg}{T.-L. Chew}%
+}%
+
+\newcommand{\creditFeliciano}[2][0]{%
+\credit[#1]{#2}{feliciano.jpg}{D. Feliciano}%
+}%
+
+\newcommand{\creditLiu}[2][0]{%
+\credit[#1]{#2}{liu.jpg}{J. Z. Liu}%
+}%
+
+\newcommand{\creditPedram}[2][0]{%
+\credit[#1]{#2}{pedram.jpg}{K. Pedram}%
+}%
+
+\newcommand{\creditVale}[2][0]{%
+\credit[#1]{#2}{vale.jpg}{R. Vale}%
+}%
+
+
+\def\creditSaalfeldlab{%
+%\creditSaalfeld{6}%
+\creditAllier{5}%
+\creditBogovic{4}%
+\creditHeinrich{3}%
+\creditHulbert{2}%
+\creditLillvis{1}%
+\creditMorris{0}%
+}%
+
+\def\creditBransonlab{%
+\creditBranson{5}%
+\creditEgnor{4}%
+\creditKwak{3}%
+\creditPatil{2}%
+\creditRobie{1}%
+\creditGillette{0}%
+}%
+
+\def\creditRomanilab{%
+\creditRomani{6}
+\creditBriguglio{5}
+\creditBulanchuk{4}
+\creditHoeller{3}
+\creditLustig{2}
+\creditStanoev{1}
+\creditMorris{0}
+}%
+
+\def\creditTuragalab{%
+\creditTuraga{6}
+\creditDeb{5}
+\creditJoyce{4}
+\creditKlapoetke{3}
+\creditKoberstein{2}
+\creditVaxenburg{1}
+\creditMorris{0}
+}%
+
+\def\creditHermundstadlab{%
+\creditHermundstad{5}
+\creditAbdelrahman{4}
+\creditGuo{3}
+\creditMa{2}
+\creditNoorman{1}
+\creditMorris{0}
+}%
+
+\def\creditPachitariulab{%
+\creditPachitariu{6}
+\creditAdeyefaolasupo{5}
+\creditNunez{4}
+\creditWangT{3}
+\creditZhang{2}
+\creditZhong{1}
+\creditGillette{0}
+}%
+
+\def\creditFitzgeraldlab{%
+\creditFitzgerald{4}
+\creditBiswas{3}
+\creditJames{2}
+\creditNatrajan{1}
+\creditMorris{0}
+}%
+
+\def\creditFunkelab{%
+\creditFunke{5}
+\creditAdjavon{4}
+\creditHillsley{3}
+\creditLalit{2}
+\creditMehta{1}
+\creditMorris{0}
+}%
+
+\def\creditStringerlab{%
+\creditStringer{5}
+\creditAdeyefaolasupo{4}
+\creditDu{3}
+\creditSingh{2}
+\creditSyeda{1}
+\creditGillette{0}
+}%
+
+\def\creditKoaylab{%
+\creditKoay{4}
+\creditBulanchuk{3}
+\creditWickramatunga{2}
+\creditParkS{1}
+\creditTutt{0}
+}%
+
+\def\creditSgrolab{%
+\creditSgro{2}
+\creditAronson{1}
+\creditSmith{0}
+}%
+
+\def\creditSciCompSys{%
+\creditCeric{5}
+\creditCarlile{4}
+\creditDolafi{3}
+\creditLines{2}
+\creditNielson{1}
+\creditSoules{0}
+}%
+
+
+
+
+\def\candt{%
+
+\creditBranson[0]{0}%
+\creditEgnor[1]{0}%
+\creditKwak[2]{0}%
+\creditPatil[3]{0}%
+\creditRobie[4]{0}%
+
+\creditSaalfeld[0]{1}%
+\creditAllier[1]{1}%
+\creditBogovic[2]{1}%
+\creditHeinrich[3]{1}%
+\creditHulbert[4]{1}%
+\creditLillvis[5]{1}%
+
+\creditRomani[0]{2}%
+\creditBriguglio[1]{2}%
+\creditBulanchuk[2]{2}%
+\creditHoeller[3]{2}%
+\creditLustig[4]{2}%
+\creditStanoev[5]{2}%
+
+\creditTuraga[0]{3}%
+\creditDeb[1]{3}%
+\creditJoyce[2]{3}%
+\creditKlapoetke[3]{3}%
+\creditKoberstein[4]{3}%
+\creditVaxenburg[5]{3}%
+
+\creditHermundstad[0]{4}%
+\creditAbdelrahman[1]{4}%
+\creditGuo[2]{4}%
+\creditMa[3]{4}%
+\creditNoorman[4]{4}%
+
+\creditPachitariu[0]{5}%
+\creditAdeyefaolasupo[1]{5}%
+\creditNunez[2]{5}%
+\creditWangT[3]{5}%
+\creditZhang[4]{5}%
+\creditZhong[5]{5}%
+
+\creditFitzgerald[0]{6}%
+\creditBiswas[1]{6}%
+\creditJames[2]{6}%
+\creditNatrajan[3]{6}%
+
+\creditFunke[0]{7}%
+\creditAdjavon[1]{7}%
+\creditHillsley[2]{7}%
+\creditLalit[3]{7}%
+\creditMehta[4]{7}%
+
+\creditStringer[0]{8}%
+\creditAdeyefaolasupo[1]{8}%
+\creditDu[2]{8}%
+\creditSingh[3]{8}%
+\creditSyeda[4]{8}%
+
+\creditKoay[0]{9}%
+\creditBulanchuk[1]{9}%
+\creditWickramatunga[2]{9}%
+\creditParkS[3]{9}%
+
+\creditSgro[0]{10}%
+\creditAronson[1]{10}%
+
+\creditSchneider[0]{11}%
+\creditNardin[1]{11}%
+\creditAhamed[2]{11}%
+
+\creditGillette[4]{10}%
+\creditMorris[4]{11}%
+\creditTutt[5]{10}%
+\creditSmith[5]{11}%
+
+\creditCeric[0]{12}%
+\creditCarlile[1]{12}%
+\creditDolafi[2]{12}%
+\creditLines[3]{12}%
+\creditNielson[4]{12}%
+\creditSoules[5]{12}%
+
+}%
