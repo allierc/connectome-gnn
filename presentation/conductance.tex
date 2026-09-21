@@ -61,7 +61,7 @@
 % ====================
 \section{Current model}
 % ====================
-\begin{frame}{Before and after the derivative-target fix}
+\begin{frame}{Before and after the derivative-target fix \textnormal{\small(chain readout)}}
 \label{sl:beforeafter}
 \srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
 \vspace{0.2cm}
@@ -431,6 +431,54 @@ $\mathrm{msg}_\theta = \mathrm{msg}/c,\ \
  \ \Rightarrow\ \dot v_i \text{ unchanged}$ \\
 \bottomrule
 \end{tabular}
+\end{frame}
+
+\begin{frame}{Template readout}
+\srcpath{docs/template\_readout.pdf}
+\vspace*{0.4cm}
+\centering\small
+\begin{tabular}{@{}l@{}}
+\toprule
+affine message ansatz \\
+\midrule
+$\widehat{\mathrm{msg}}_{ij}(t) = \dfrac{1}{k_i}\,\mathrm{msg}_{ij}(t) + C_{ij}$
+ \qquad $k_i$ per postsynaptic neuron \\
+\midrule
+per-edge template fit, $u_t = \mathrm{relu}(v_j(t))$ \\
+\midrule
+$\mathrm{msg}_{ij} = W_{ij}\,u_t\,(E_i - v_i) + C_{ij}
+ = \underbrace{\tfrac{W_{ij}E_i}{k_i}}_{b_1} u_t
+ \;\underbrace{-\tfrac{W_{ij}}{k_i}}_{b_2} (u_t v_i)
+ \;+\; \underbrace{C_{ij}}_{b_3}$ \\[6pt]
+$\Rightarrow\quad W^{\mathrm{fit}}_{ij} = -b_2, \qquad E_i = -b_1/b_2, \qquad C_{ij} = b_3$ \\
+\midrule
+per-neuron update fit on $[\,1,\ v_i,\ \mathrm{msg}_i,\ I_i\,]$ \\
+\midrule
+$\dot v_i = \alpha_0 + \alpha_1 v_i + \alpha_2 \widehat{\mathrm{msg}}_i + \alpha_3 I_i$
+ \qquad
+$\tau_i = -1/\alpha_1, \quad k_i = \tau_i\alpha_2 = -\alpha_2/\alpha_1$ \\[6pt]
+$V^{\mathrm{rest}}_i = \tau_i(\alpha_0 + \alpha_2\beta_i), \qquad
+ W^{\mathrm{corrected}}_{ij} = k_i\,W^{\mathrm{fit}}_{ij}$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Chain readout vs template readout}
+\srcpath{log/fly/archive\_*/flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}
+\vspace*{0.4cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{lccc}
+\toprule
+ & chain readout & template readout \\
+\midrule
+$R^2_{\hat W}$                    & $0.968{\pm}0.007$ & \textit{running} \\
+$R^2_{\hat\tau}$                  & $0.930{\pm}0.036$ & \textit{running} \\
+$R^2_{\hat V^{\mathrm{rest}}}$    & $0.257{\pm}0.238$ & \textit{running} \\
+cluster                           & $0.883{\pm}0.010$ & \textit{running} \\
+\bottomrule
+\end{tabular}\\[5pt]
+{\tiny same 4 checkpoints, $\sigma = 0.05$, re-analysed}
 \end{frame}
 
 \begin{frame}{Regularisation: current vs conductance}
