@@ -482,22 +482,34 @@ $V^{\mathrm{rest}}_i = \tau_i(\alpha_0 + \alpha_2\beta_i), \qquad
 \end{tabular}
 \end{frame}
 
-\begin{frame}{Chain readout vs template readout}
-\srcpath{log/fly/archive\_*/flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}
-\vspace*{0.4cm}
-\centering\scriptsize
-\setlength{\tabcolsep}{7pt}
-\begin{tabular}{lccc}
+\begin{frame}{Readout comparison, same four checkpoints}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}
+\vspace*{0.35cm}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccccc}
 \toprule
- & chain readout & template readout \\
+ & \multicolumn{4}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+readout & \shortstack{fit roll $r$\\cond.\ form} & \shortstack{fit roll $r$\\curr.\ form}
+  & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
+  & $R^2_{\mathrm{msg}_i}$ \\
 \midrule
-$R^2_{\hat W}$                    & $0.968{\pm}0.007$ & \textit{running} \\
-$R^2_{\hat\tau}$                  & $0.930{\pm}0.036$ & \textit{running} \\
-$R^2_{\hat V^{\mathrm{rest}}}$    & $0.257{\pm}0.238$ & \textit{running} \\
-cluster                           & $0.883{\pm}0.010$ & \textit{running} \\
+chain (NeurIPS) & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.968{\pm}0.007$} & \good{$0.930{\pm}0.036$} & \bad{$0.257{\pm}0.238$}
+  & \multicolumn{1}{c}{---} \\
+template, conductance form & \textit{running} & \textit{running}
+  & \textit{running} & \textit{running} & \textit{running} & \textit{running}
+  & \textit{running} & \textit{running} \\
+template, current form & \textit{running} & \textit{running}
+  & \textit{running} & \textit{running} & \textit{running} & \textit{running}
+  & \textit{running} & \textit{running} \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny same 4 checkpoints, $\sigma = 0.05$, re-analysed}
+{\tiny $k_i$ (mean\,$\pm$\,SD over neurons): cv01 $0.390{\pm}0.206$,
+cv02 $-0.386{\pm}0.173$, cv03 \textit{running}, cv04 \textit{running}}
 \end{frame}
 
 % ====================
