@@ -96,6 +96,24 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 \bottomrule
 \end{tabular}\end{frame}
 
+\begin{frame}{Recovery errors, chain target}
+\srcpath{log/fly/archive\_*/flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_unified\_cv0*}
+\vspace*{0.5cm}
+\begin{center}
+\setlength{\panelbox}{0.60\textheight}
+\fitgfx{Fig/errors_before.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Recovery errors, finite-difference target}
+\srcpath{log/fly/archive\_*/flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_unified\_fd\_cv0*}
+\vspace*{0.5cm}
+\begin{center}
+\setlength{\panelbox}{0.60\textheight}
+\fitgfx{Fig/errors_after.png}
+\end{center}
+\end{frame}
+
 \begin{frame}{Measurement noise: recurrent training}
 \label{sl:measnoise}
 \srcpath{log/fly/flyvis\_noise\_005\_meas\_\{010,020\}\_gnn\_rc*\_cv00}
