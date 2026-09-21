@@ -97,7 +97,7 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 \end{tabular}\end{frame}
 
 \begin{frame}{Recovery errors, before the fix}
-\srcpath{log/fly/archive\_*/flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_unified\_cv0*}
+\srcpath{data \texttt{flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_cv0*} \textbar{} training \texttt{*\_blank50\_unified\_cv0*}}
 \vspace*{0.5cm}
 \begin{center}
 \setlength{\panelbox}{0.60\textheight}
@@ -106,7 +106,7 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 \end{frame}
 
 \begin{frame}{Recovery errors, after the fix}
-\srcpath{log/fly/archive\_*/flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_unified\_fd\_cv0*}
+\srcpath{data \texttt{flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_cv0*} \textbar{} training \texttt{*\_blank50\_unified\_fd\_cv0*}}
 \vspace*{0.5cm}
 \begin{center}
 \setlength{\panelbox}{0.60\textheight}
@@ -116,7 +116,7 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 
 \begin{frame}{Measurement noise: recurrent training}
 \label{sl:measnoise}
-\srcpath{log/fly/flyvis\_noise\_005\_meas\_\{010,020\}\_gnn\_rc*\_cv00}
+\srcpath{data \texttt{flyvis\_noise\_005\_\{010,020\}\_blank50\_cv00} \textbar{} training \texttt{flyvis\_noise\_005\_meas\_\{010,020\}\_gnn\_rc*\_cv00}}
 \vspace*{0.25cm}
 {\centering\scriptsize model noise $\sigma = 0.05$ throughout\\[3pt]}
 \begin{center}\setlength{\panelbox}{0.30\textheight}
@@ -353,7 +353,7 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 
 \begin{frame}{Conductance GNN on current data}
 \label{sl:lasso}
-\srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
+\srcpath{data \texttt{flyvis\_noise\_005\_blank50\_cv0*} \textbar{} training \texttt{flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}}
 \vspace{0.1cm}
 {\centering\scriptsize
 $\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
@@ -383,7 +383,7 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \end{tabular}\end{frame}
 
 \begin{frame}{Training on conductance data}
-\srcpath{log/fly/flyvis\_flowcond\_\{noise\_free,noise\_005\}\_conductance\_knownode\_cv0*}
+\srcpath{data \texttt{flyvis\_flowcond\_\{noise\_free,noise\_005\}\_blank50\_cv0*} \textbar{} training \texttt{*\_conductance\_knownode\_cv0*}, \texttt{*\_gnn\_llm\_cv00}}
 \vspace*{0.35cm}
 \centering\tiny
 \setlength{\tabcolsep}{3pt}
@@ -514,33 +514,33 @@ $V^{\mathrm{rest}}_i = \tau_i(\alpha_0 + \alpha_2\beta_i), \qquad
 \end{frame}
 
 \begin{frame}{Readout comparison, same four checkpoints}
-\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}
+\srcpath{data \texttt{flyvis\_noise\_005\_blank50\_cv0\{1..4\}} \textbar{} training \texttt{flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}}
 \vspace*{0.35cm}
 \centering\tiny
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccccc}
+\begin{tabular}{lccccccccc}
 \toprule
- & \multicolumn{4}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
-\cmidrule(lr){2-5}\cmidrule(lr){6-9}
+ & \multicolumn{4}{c}{prediction} & \multicolumn{5}{c}{parameter recovery} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-10}
 readout & \shortstack{fit roll $r$\\cond.\ form} & \shortstack{fit roll $r$\\curr.\ form}
   & one-step $r$ & rollout $r$
   & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
-  & $R^2_{\mathrm{msg}_i}$ \\
+  & $R^2_{\mathrm{msg}_i}$ & cluster \\
 \midrule
 chain (NeurIPS) & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.968{\pm}0.007$} & \good{$0.930{\pm}0.036$} & \bad{$0.257{\pm}0.238$}
-  & \multicolumn{1}{c}{---} \\
-template, conductance form & \textit{running} & \textit{running}
-  & \textit{running} & \textit{running} & \textit{running} & \textit{running}
-  & \textit{running} & \textit{running} \\
-template, current form & \textit{running} & \textit{running}
-  & \textit{running} & \textit{running} & \textit{running} & \textit{running}
-  & \textit{running} & \textit{running} \\
+  & \multicolumn{1}{c}{---} & $0.883{\pm}0.010$ \\
+template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.947{\pm}0.017$} & \good{$0.953{\pm}0.027$} & $0.847{\pm}0.037$
+  & \good{$0.978{\pm}0.005$} & $0.883{\pm}0.018$ \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny $k_i$ (mean\,$\pm$\,SD over neurons): cv01 $0.390{\pm}0.206$,
-cv02 $-0.386{\pm}0.173$, cv03 \textit{running}, cv04 \textit{running}}
+{\tiny $k_i$ over folds: $0.179 \pm 0.377$ --- cv01 $+0.390$, cv02 $-0.386$:
+opposite signs on two folds of one config. The conductance form is unavailable
+here: the generator is current-based, so there is no reversal for the third
+column to fit.}
 \end{frame}
 
 % ====================
