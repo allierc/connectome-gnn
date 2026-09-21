@@ -185,6 +185,7 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 % ===================================================================
 
 \begin{frame}{Before and after the derivative-target fix}
+\label{sl:beforeafter}
 \srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
 \vspace{0.2cm}
 \centering\tiny
@@ -256,6 +257,7 @@ GNN\qquad\;\;
 \end{frame}
 
 \begin{frame}{Conductance GNN on current data: the group lasso}
+\label{sl:lasso}
 \srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
 \vspace{0.1cm}
 {\centering\scriptsize
@@ -297,7 +299,7 @@ driving-force column stops absorbing weight.
 \end{minipage}
 \end{frame}
 
-\begin{frame}{The regularisation behind slides 11 and 12}
+\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
 \srcpath{src/connectome\_gnn/models/regularizer.py}
 \vspace*{0.45cm}
 {\centering\tiny
@@ -313,7 +315,7 @@ $+\;\underbrace{\lambda_1\lVert\phi\rVert_1
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{llccc}
 \toprule
- & config name & slide 11 & \multicolumn{2}{c}{slide 12} \\
+ & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
 \cmidrule(lr){4-5}
  & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
 \midrule
@@ -333,7 +335,7 @@ $\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdo
 \begin{minipage}{0.93\textwidth}\tiny
 $\mu_1$: monotonicity prior $\partial g_\phi/\partial v_j \ge 0$. $\mu_2$: pins $g_\phi$
 at a probe voltage, removing the $\hat W \!\leftrightarrow\! g_\phi$ scale degeneracy.
-\textbf{Slide 12 is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
+\textbf{Slide \ref{sl:lasso} is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
 $\lambda_1 = 0.14$ and the sweep sets it to $0$, trading one $\ell_1$ for the other.
 \end{minipage}
 \end{frame}
