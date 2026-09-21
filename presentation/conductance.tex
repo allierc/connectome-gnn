@@ -223,7 +223,7 @@ GNN\qquad\;\;
 \end{tabular}
 \end{frame}
 
-\begin{frame}{Conductance GNN on current data: the group lasso}
+\begin{frame}{Conductance GNN on current data}
 \label{sl:lasso}
 \srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
 \vspace{0.1cm}
@@ -240,7 +240,7 @@ $\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\
 $\lambda_1$ & folds & one-step $r$ & rollout $r$
   & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
 \midrule
-$0$ (none) & 5 & --- & \good{$1.00{\pm}0.00$}
+$0$ (no lasso) & 5 & --- & \good{$1.00{\pm}0.00$}
   & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
 \midrule
 $0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ \\
