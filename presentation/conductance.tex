@@ -126,7 +126,7 @@ mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.
 \end{tabular}\end{frame}
 
 \begin{frame}{Voltage and calcium}
-\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/\{kernel,calcium\_trace\}.png}
+\srcpath{branch \textbf{feat/calcium} \textbar{} graphs\_data/fly/flyvis\_noise\_005\_kernel/\{kernel,calcium\_trace\}.png}
 \vspace*{0.4cm}
 {\centering\scriptsize
 $C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
@@ -142,7 +142,7 @@ $\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
 \end{frame}
 
 \begin{frame}{Deconvolution, noise free}
-\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig.png}
+\srcpath{branch \textbf{neurips2026} \textbar{} connectome-gnn-cx/neurips\_review/calcium\_fig.png}
 \vspace*{0.5cm}
 {\centering\scriptsize
 $\gamma = 0$ ($\infty$\,dB), $\lambda = 10^{-6}$, model noise $\sigma = 0.05$:
@@ -154,7 +154,7 @@ $\gamma = 0$ ($\infty$\,dB), $\lambda = 10^{-6}$, model noise $\sigma = 0.05$:
 \end{frame}
 
 \begin{frame}{Deconvolution at $40$\,dB}
-\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
+\srcpath{branch \textbf{neurips2026} \textbar{} connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
 \vspace*{0.5cm}
 {\centering\scriptsize
 $\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
@@ -166,7 +166,7 @@ $\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma
 \end{frame}
 
 \begin{frame}{Calcium observation model}
-\srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
+\srcpath{branch \textbf{neurips2026} \textbar{} GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_*.yaml}
 \vspace*{0.25cm}
 {\centering\scriptsize
 $C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
@@ -254,6 +254,43 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \bottomrule
 \end{tabular}\end{frame}
 
+\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
+$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
+   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
+   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
+\\[6pt]}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
+\toprule
+ & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
+\cmidrule(lr){4-5}
+ & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
+\midrule
+$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
+\midrule
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
+$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
+                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
+\bottomrule
+\end{tabular}\end{frame}
+
+% ====================
+\section{GNN recovery}
+% ====================
 % ====================
 \section{Conductance model}
 % ====================
@@ -379,7 +416,7 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \section{Conductance model on current data}
 % ===================================================================
 
-\begin{frame}{The identifiability ceiling on \texttt{flowcond}}
+\begin{frame}{Training on conductance data}
 \srcpath{log/fly/flyvis\_flowcond\_\{noise\_005,noise\_free\}\_conductance\_knownode\_cv0*}
 \vspace*{0.35cm}
 \centering\tiny
@@ -391,61 +428,24 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 model & data & one-step $r$ & rollout $r$
   & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
 \midrule
-Known-ODE & \texttt{ion\_sub} twin, $\sigma = 0.05$
+Known-ODE & teacher--student, $\sigma = 0.05$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$} \\
 \midrule
-Known-ODE & \texttt{flowcond}, $\sigma = 0.05$
+Known-ODE & task-trained, $\sigma = 0.05$
   & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
   & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ \\
-GNN       & \texttt{flowcond}, $\sigma = 0.05$
+GNN       & task-trained, $\sigma = 0.05$
   & \good{$1.00$} & \good{$0.99$}
   & $\mathbf{0.43{\pm}0.07}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ \\
 \midrule
-Known-ODE & \texttt{flowcond}, $\sigma = 0$
+Known-ODE & task-trained, $\sigma = 0$
   & \multicolumn{5}{c}{\itshape 5 folds training} \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny Known-ODE \texttt{flowcond}: 4 of 5 folds. GNN: 22 seeds, peak.}
+{\tiny Known-ODE task-trained: 4 of 5 folds. GNN: 22 seeds, peak.}
 \end{frame}
 
-\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
-\srcpath{src/connectome\_gnn/models/regularizer.py}
-\vspace*{0.45cm}
-{\centering\tiny
-$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
- + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
- + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
-$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
-   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
-   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
-   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
-\\[6pt]}
-\centering\tiny
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llccc}
-\toprule
- & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
-\cmidrule(lr){4-5}
- & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
-\midrule
-$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
-$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
-\midrule
-$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
-$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
-$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
-$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
-                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
-\midrule
-$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
-$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
-\bottomrule
-\end{tabular}\end{frame}
-
-% ====================
-\section{GNN recovery}
-% ====================
 \begin{frame}{The identifiability ceiling}
 % TODO: 10 folds RUNNING as of 2026-09-21
 % flyvis_flowcond_{noise_005,noise_free}_conductance_knownode_cv0{0..4}.
