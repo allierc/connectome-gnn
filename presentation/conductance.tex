@@ -188,12 +188,24 @@ $\tau_{\mathrm{decay}} = 400$\,ms\\[3pt]}
 \end{center}
 \end{frame}
 
+\begin{frame}{Deconvolution at $40$\,dB}
+\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
+\vspace*{0.35cm}
+{\centering\scriptsize
+$\gamma/\mathrm{SD} = 0.01$, $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
+\quad $r(v) = 0.9797$, \quad $r(\dot v) = 0.4353$\\[3pt]}
+\begin{center}
+\panelboxfull
+\fitgfx{Fig/calcium_deconv_CD.png}
+\end{center}
+\end{frame}
+
 \begin{frame}{Calcium observation model}
 \srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
 \vspace*{0.25cm}
 {\centering\scriptsize
 $C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
-$\tau_{\mathrm{decay}} = 400$\,ms
+$\tau_{\mathrm{decay}} = 400$\,ms, \quad model noise $\sigma = 0.05$
 \qquad
 $\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\bar{\hat K}\,\hat C}{|\hat K|^2 + \lambda}\right]$
 \\[5pt]}
