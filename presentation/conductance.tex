@@ -177,40 +177,6 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \bottomrule
 \end{tabular}\end{frame}
 
-\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
-\srcpath{src/connectome\_gnn/models/regularizer.py}
-\vspace*{0.45cm}
-{\centering\tiny
-$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
- + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
- + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
-$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
-   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
-   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
-   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
-\\[6pt]}
-\centering\tiny
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llccc}
-\toprule
- & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
-\cmidrule(lr){4-5}
- & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
-\midrule
-$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
-$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
-\midrule
-$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
-$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
-$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
-$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
-                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
-\midrule
-$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
-$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
-\bottomrule
-\end{tabular}\end{frame}
-
 % ====================
 \section{Conductance model}
 % ====================
@@ -358,6 +324,40 @@ Known-ODE curr.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$
 \midrule
 Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0$    & \multicolumn{5}{c}{\itshape 5 folds training} \\
 Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0.05$ & \multicolumn{5}{c}{\itshape 5 folds training} \\
+\bottomrule
+\end{tabular}\end{frame}
+
+\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
+$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
+   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
+   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
+\\[6pt]}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
+\toprule
+ & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
+\cmidrule(lr){4-5}
+ & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
+\midrule
+$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
+\midrule
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
+$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
+                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
 \bottomrule
 \end{tabular}\end{frame}
 
