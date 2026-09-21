@@ -452,6 +452,37 @@ $\mathrm{msg}_\theta = \mathrm{msg}/c,\ \
 \end{tabular}
 \end{frame}
 
+\begin{frame}{Chain readout \textnormal{\small(NeurIPS version)}}
+\srcpath{src/connectome\_gnn/metrics.py \textbar{} \texttt{extract\_recovered\_params}}
+\vspace*{0.4cm}
+\centering\small
+\begin{tabular}{@{}l@{}}
+\toprule
+$W$ reaches $\dot v$ through two learned functions \\
+\midrule
+$\mathrm{msg}_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$,
+ \qquad $\dot v_i = f_\theta(v_i, \mathbf{a}_i, \mathrm{msg}_i, I_i)$ \\
+\midrule
+divide out both gains \\
+\midrule
+$W^{\mathrm{corrected}}_{ij}
+ = -\,\hat W_{ij}\;
+ \dfrac{\partial f_\theta/\partial \mathrm{msg}_i}
+       {\partial f_\theta/\partial v_i}\;
+ \dfrac{\partial g_\phi}{\partial v_j}$ \\[8pt]
+$\partial f_\theta/\partial v_i \approx -1/\tau_i$ \quad(the leak)\quad
+ $\Rightarrow$ \quad $\tau_i$ cancels in the ratio \\
+\midrule
+$\tau$ and $V^{\mathrm{rest}}$ from $f_\theta$'s local linearisation \\
+\midrule
+$f_\theta(v_i, \cdot) \approx s_i\,(v_i - V^{\mathrm{rest}}_i),
+ \qquad \tau_i = -1/s_i$ \\
+\midrule
+three gradients, one per synapse, no fit \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 \begin{frame}{Template readout}
 \srcpath{docs/template\_readout.pdf}
 \vspace*{0.4cm}
