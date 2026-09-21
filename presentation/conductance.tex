@@ -71,6 +71,7 @@
 
 \begin{frame}{Training the conductance flyvis model}
 \srcpath{src/flyvis\_conductance\_optical\_flow/train.py \textbar{} flyvis/results/flow/2000/001/\_meta.yaml}
+\vspace{0.45cm}
 \scriptsize
 \setlength{\itemsep}{1pt}
 \begin{itemize}\itemsep1pt
@@ -117,7 +118,7 @@ the sign having moved into $(E_i - v_i)$.}
 \srcpath{flyvis/results/flow/2000/001/analysis/reversals.png}
 \begin{columns}[T]
 \begin{column}{0.68\textwidth}
-\panel{\texttt{flow/2000/001}, checkpoint 28}{Fig/reversals.png}
+\panel{checkpoint 28}{Fig/reversals.png}
 \end{column}
 \begin{column}{0.30\textwidth}
 \scriptsize
@@ -135,31 +136,28 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \begin{frame}{Optic-flow inference --- current flyvis}
 \srcpath{flyvis/results/flow/1000/000/analysis/rollout.mp4}
 \panelboxfull
-\playmovie{Movies/flow_inference_current}{input \textbar{} target \textbar{} prediction ---
-  \texttt{flow/1000/000}, checkpoint 56, held-out Sintel; EPE 5.436}
+\playmovie{Movies/flow_inference_current}{input \textbar{} target \textbar{} prediction
+  --- checkpoint 56, held-out Sintel; EPE 5.436}
 \end{frame}
 
 \begin{frame}{Optic-flow inference --- conductance flyvis}
 \srcpath{flyvis/results/flow/2000/001/analysis/rollout.mp4}
 \panelboxfull
-\playmovie{Movies/flow_inference}{input \textbar{} target \textbar{} prediction ---
-  \texttt{flow/2000/001}, checkpoint 28, held-out Sintel; EPE 5.390}
+\playmovie{Movies/flow_inference}{input \textbar{} target \textbar{} prediction
+  --- checkpoint 28, held-out Sintel; EPE 5.390}
 \end{frame}
 
 \begin{frame}{Generation --- current flyvis}
 \srcpath{graphs\_data/fly/flyvis\_noise\_005\_blank50\_cv00/noise\_005\_blank50\_cv00.mp4}
 \panelboxfull
-\playmovie{Movies/generation_current}{%
-  \texttt{flyvis\_noise\_005\_blank50\_cv00} --- current generator, forward Euler}
+\playmovie{Movies/generation_current}{current generator, forward Euler}
 \end{frame}
 
 \begin{frame}{Generation --- conductance flyvis}
 \srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
 \begin{center}
 \panelboxfull
-\playmovie{Movies/generation_flowcond}{%
-  \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- conductance generator,
-  exponential Euler}
+\playmovie{Movies/generation_flowcond}{conductance generator, exponential Euler}
 \end{center}
 \end{frame}
 
