@@ -177,6 +177,17 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \bottomrule
 \end{tabular}\end{frame}
 
+\begin{frame}{Voltage and calcium}
+\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/calcium\_trace.png}
+{\centering\scriptsize
+$C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
+$\tau_{\mathrm{decay}} = 400$\,ms\\[3pt]}
+\begin{center}
+\panelboxfull
+\fitgfx{Fig/calcium_trace.png}
+\end{center}
+\end{frame}
+
 \begin{frame}{Calcium observation model}
 \srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
 \vspace*{0.25cm}
