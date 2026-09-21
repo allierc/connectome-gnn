@@ -38,41 +38,59 @@
 \section{Generating conductance training data}
 % ===================================================================
 
-\begin{frame}{A conductance flyvis model, and how its data is made}
-\begin{columns}[T]
-\begin{column}{0.52\textwidth}
-{\small\textbf{Nominal flyvis} --- current-based synapse:}
+\begin{frame}{A conductance flyvis model}
+\vfill
+{\small\textbf{Nominal current flyvis}}
 \[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i(t) \]
-{\small\textbf{This model} --- conductance synapse, $W_{ij}\ge 0$:}
+\vfill
+{\small\textbf{New conductance flyvis}, $W_{ij}\ge 0$}
 \[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i(t) \]
-{\small The polarity of a synapse moves out of $W$ and into the driving force
-$(E_i-v_i)$: $W$ becomes a non-negative conductance and the sign is carried by
-the postsynaptic reversal potential.}
-\end{column}
-\begin{column}{0.46\textwidth}
-{\small\textbf{Integration: exponential Euler.}\\[3pt]
-Collecting the terms in $v_i$,
-\[ \tau_i \dot v_i = -(1+G_i)\,v_i + b_i, \qquad G_i=\textstyle\sum_j W_{ij}\mathrm{relu}(v_j) \]
-is linear at frozen coefficients, so the step is exact:
-\[ v_i \leftarrow v_i^{\infty} + (v_i - v_i^{\infty})e^{-z_i},\quad z_i=\tfrac{\Delta t}{\tau_i}(1+G_i) \]
-\textbf{Why it matters.} Forward Euler contracts only while $z<2$; this network
-reaches $z=4.42$. A model that learned the generator exactly would still diverge
-in a forward-Euler rollout at $\Delta t = 20$\,ms.}
-\end{column}
-\end{columns}
+\vfill
+\end{frame}
+
+\begin{frame}{Training the conductance flyvis model}
+\begin{itemize}\small
+\item \textbf{Stimuli} --- Sintel, \texttt{original\_sampling}; box filter extent 15,
+      kernel 13; 19 frames, 3 vertical splits, centre crop 0.7; augmentation
+      flip / rotate $p=0.5$, contrast $\sigma\!=\!0.2$, brightness
+      $\sigma\!=\!0.1$, white noise $0.08$
+\item \textbf{Rollout} --- 19 Sintel frames resampled to $\Delta t = 20$\,ms
+      $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated
+      through all of them
+\item \textbf{$E_i$ anchored on the learned per-type bias} through a sigmoid
+      band, excursion $1.0$:
+      $E_{\mathrm{exc}} \in [1.5, 6.0]$ (1 global),
+      $E_{\mathrm{inh}} \in [-6.0, -0.5]$ (65 per type)
+      $\Rightarrow$ 66 learnable reversals
+\item \textbf{Optimiser} --- Adam, $\mathrm{lr} = 5\times10^{-5}$, batch 4,
+      250{,}000 iterations, 65 checkpoints; H100, 5.5\,h
+\item \textbf{Loss} $\ell_2$ norm on decoded flow: $1214.7 \rightarrow 1175.3$,
+      \textbf{min 1147.1 at checkpoint 28}
+\item \textbf{EPE} $= \big\langle \lVert \hat{\mathbf{f}} - \mathbf{f} \rVert_2 \big\rangle$,
+      mean over hexagonal pixels and frames:
+      $5.785 \rightarrow 5.454$, \textbf{min 5.390 at checkpoint 28}
+\end{itemize}
+\vspace{2pt}
+\centering\small
+\begin{tabular}{lccc}
+\toprule
+ & $n$ & $\ell_2$ norm & EPE \\
+\midrule
+published flyvis, current & 50 & $1150.2 \pm 17.2$ & $5.410 \pm 0.103$ \\
+our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$ \\
+\textbf{our conductance}  &  2 & $1153.0 \pm \phantom{0}8.3$ & $5.397 \pm 0.010$ \\
+\bottomrule
+\end{tabular}\\[2pt]
+{\scriptsize mean $\pm$ SD over ensemble members, each at its own argmin-EPE checkpoint}
 \end{frame}
 
 \begin{frame}{Reversal potentials by cell type}
-\begin{center}
 % TODO asset: E_i vs postsynaptic type for the flowcond generator.
 % reversals.png exists only for flyvis_conductance_ion_sub_*, a DIFFERENT
 % dataset (the teacher-student twin) -- do not substitute it here.
-% The values live in graphs_data/fly/flyvis_flowcond_*/ode_params.pt.
-\fbox{\parbox[c][4.5cm][c]{0.7\textwidth}{\centering
-  \textbf{asset missing}\\[4pt]
-  \texttt{reversals.png} has never been written for the \texttt{flowcond}
-  series --- only for the \texttt{ion\_sub} twin.\\
-  $E_i$ per type is in \texttt{ode\_params.pt}.}}
+% E_i per type is in graphs_data/fly/flyvis_flowcond_*/ode_params.pt.
+\begin{center}
+\fbox{\parbox[c][4.5cm][c]{0.6\textwidth}{\centering asset to generate}}
 \end{center}
 \end{frame}
 
@@ -88,17 +106,17 @@ in a forward-Euler rollout at $\Delta t = 20$\,ms.}
 \end{column}
 \end{columns}
 \vspace{4pt}
-{\scriptsize The noise is added to the voltage at every integration step, so the
-stored trajectory is one stochastic path. It lives in the TRAIN split only: the
-test split is identical to the noise-free twin to $2.6\times10^{-6}$.}
+{\scriptsize Process noise, added at every integration step. Train split only:
+$\max|v_{\sigma} - v_0| = 1.75$ on train, $2.6\times10^{-6}$ on test.
+$r(v_{\sigma}, v_0) = 0.820$.}
 \end{frame}
 
 \begin{frame}{Generation}
 \begin{center}
 \playmovie[0.62\textwidth]{Movies/generation_flowcond}{%
   \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- 13{,}741 neurons,
-  434{,}112 edges, 64{,}000 frames at $\Delta t = 20$\,ms, DAVIS video with a
-  50\% blank prefix.}
+  434{,}112 edges, 64{,}000 frames, $\Delta t = 20$\,ms, DAVIS, 50\% blank prefix,
+  exponential Euler.}
 \end{center}
 \end{frame}
 
