@@ -529,18 +529,19 @@ readout & \shortstack{fit roll $r$\\cond.\ form} & \shortstack{fit roll $r$\\cur
 \midrule
 chain (NeurIPS) & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.968{\pm}0.007$} & \good{$0.930{\pm}0.036$} & \bad{$0.257{\pm}0.238$}
+  & \good{$0.968{\pm}0.007$} & \good{$0.941{\pm}0.038$} & $0.733{\pm}0.049$
   & \multicolumn{1}{c}{---} & $0.883{\pm}0.010$ \\
 template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.947{\pm}0.017$} & \good{$0.953{\pm}0.027$} & $0.847{\pm}0.037$
+  & \good{$0.932{\pm}0.035$} & \good{$0.953{\pm}0.027$} & $0.847{\pm}0.037$
   & \good{$0.978{\pm}0.005$} & $0.883{\pm}0.018$ \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny $k_i$ over folds: $0.179 \pm 0.377$ --- cv01 $+0.390$, cv02 $-0.386$:
-opposite signs on two folds of one config. The conductance form is unavailable
-here: the generator is current-based, so there is no reversal for the third
-column to fit.}
+{\tiny $R^2_{\hat W}$ full sample, $R^2_{\hat\tau}$ and
+$R^2_{\hat V^{\mathrm{rest}}}$ outlier-free: the chain's \texttt{metrics.txt}
+carries no outlier-free $W$. $k_i$ over folds $0.179 \pm 0.377$ --- cv01
+$+0.390$, cv02 $-0.386$. No conductance-form row: the generator is
+current-based, so there is no reversal for the third column.}
 \end{frame}
 
 % ====================
