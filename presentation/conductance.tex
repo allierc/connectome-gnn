@@ -252,14 +252,7 @@ GNN\qquad\;\;
   $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
    m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j, \mathbf{\underline{v_i, a_i}})$ \\
 \bottomrule
-\end{tabular}\\[8pt]
-\begin{minipage}{0.90\textwidth}\footnotesize
-The GNN is given the edge list and nothing else: $\hat W_{ij}$ is a free per-edge
-scalar and $g_\phi$ is one MLP shared by every synapse. The \emph{only} structural
-difference between the two families is that the conductance $g_\phi$ also sees the
-postsynaptic state --- it has to discover the driving force $(E_i - v_i)$, the
-rectifier and the conductance inside that one surface.
-\end{minipage}
+\end{tabular}
 \end{frame}
 
 \begin{frame}{Conductance GNN on current data: the group lasso}
