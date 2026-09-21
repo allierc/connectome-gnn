@@ -379,41 +379,6 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \bottomrule
 \end{tabular}\end{frame}
 
-\begin{frame}{Regularisation: current vs conductance}
-\srcpath{src/connectome\_gnn/models/regularizer.py}
-\vspace*{0.45cm}
-{\centering\tiny
-$\mathcal{L} = \lVert \dot v - f_\theta \rVert^2
- + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
- + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}
- + \underbrace{\mu_1\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\rVert
-   + \mu_2\lVert g_\phi(v_\star)-v_\star\rVert
-   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2
-   + \mu_{\mathrm{sil}}}_{g_\phi}
- + \underbrace{\mu_{\mathrm{gain}}}_{\text{gauge}}$\\[6pt]}
-\centering\scriptsize
-\setlength{\tabcolsep}{7pt}
-\begin{tabular}{llcc}
-\toprule
- & config name & current training & conductance training \\
-\midrule
-$\gamma_0$ & \texttt{coeff\_W\_L1} & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
-$\gamma_1$ & \texttt{coeff\_W\_L2} & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
-\midrule
-$\mu_1$ & \texttt{coeff\_g\_phi\_diff}           & $375$  & $\mathbf{0}$ \\
-$\mu_2$ & \texttt{coeff\_g\_phi\_norm}           & $0.45$ & $\mathbf{0}$ \\
-$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1} & $\mathbf{25}$ & $0$ \\
-$\mu_{\mathrm{sil}}$ & \texttt{coeff\_g\_phi\_silent}  & $0$ & $\mathbf{25}$ \\
-$\mu_{\mathrm{gain}}$ & \texttt{coeff\_f\_theta\_msg\_gain} & $0$ & $\mathbf{10^{-5}}$ \\
-\midrule
-$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.025$ & $0.025$ \\
-$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
-\bottomrule
-\end{tabular}\\[5pt]
-{\tiny bs $4$, $\mathrm{lr}_W\,9{\cdot}10^{-4}$, lr $1.8{\cdot}10^{-3}$,
-$\mathrm{lr}_{\mathrm{emb}}\,2.3{\cdot}10^{-3}$ on both}
-\end{frame}
-
 \begin{frame}{Training on conductance data}
 \srcpath{log/fly/flyvis\_flowcond\_\{noise\_005,noise\_free\}\_conductance\_knownode\_cv0*}
 \vspace*{0.35cm}
@@ -449,36 +414,39 @@ Known-ODE & task-trained, $\sigma = 0$
 \section{Conductance GNN on conductance data}
 % ===================================================================
 
-\begin{frame}{Current data vs conductance data}
-\srcpath{log/fly/\{archive\_*,\}/flyvis\_\{noise\_005,flowcond\_noise\_005\}\_*/results/metrics.txt}
-\vspace*{0.35cm}
-\centering\tiny
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llccccc}
+\begin{frame}{Regularisation: current vs conductance}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \lVert \dot v - f_\theta \rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}
+ + \underbrace{\mu_1\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\rVert
+   + \mu_2\lVert g_\phi(v_\star)-v_\star\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2
+   + \mu_{\mathrm{sil}}}_{g_\phi}
+ + \underbrace{\mu_{\mathrm{gain}}}_{\text{gauge}}$\\[6pt]}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{llcc}
 \toprule
- & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-7}
-data & model & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+ & config name & current training & conductance training \\
 \midrule
-current & Known-ODE current & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.95{\pm}0.00$} & \good{$0.97{\pm}0.00\,(0.0)$} & \good{$0.92{\pm}0.00\,(8.8)$} \\
-        & GNN current       & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.97{\pm}0.01$} & \good{$0.95{\pm}0.03\,(0.4)$} & $0.77{\pm}0.08\,(10.5)$ \\
-        & GNN conductance, no lasso & \multicolumn{1}{c}{---} & \good{$1.00{\pm}0.00$}
-  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
-        & GNN conductance, $\lambda_{\mathrm{grp}} = 25$ & \good{$1.00$} & \good{$1.00$}
-  & \good{$0.98$} & \good{$0.99$} & \good{$0.91$} \\
+$\gamma_0$ & \texttt{coeff\_W\_L1} & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2} & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
 \midrule
-conductance & Known-ODE conductance & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
-  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ \\
-(task-trained) & GNN conductance & \good{$1.00$} & \good{$0.99$}
-  & $\mathbf{0.43{\pm}0.07}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ \\
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}           & $375$  & $\mathbf{0}$ \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}           & $0.45$ & $\mathbf{0}$ \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1} & $\mathbf{25}$ & $0$ \\
+$\mu_{\mathrm{sil}}$ & \texttt{coeff\_g\_phi\_silent}  & $0$ & $\mathbf{25}$ \\
+$\mu_{\mathrm{gain}}$ & \texttt{coeff\_f\_theta\_msg\_gain} & $0$ & $\mathbf{10^{-5}}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.025$ & $0.025$ \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
 \bottomrule
 \end{tabular}\\[5pt]
-{\tiny $\sigma = 0.05$. 5 folds except the $\lambda_{\mathrm{grp}}$ row (fold 0)
-and the GNN conductance row (22 seeds, peak).}
+{\tiny bs $4$, $\mathrm{lr}_W\,9{\cdot}10^{-4}$, lr $1.8{\cdot}10^{-3}$,
+$\mathrm{lr}_{\mathrm{emb}}\,2.3{\cdot}10^{-3}$ on both}
 \end{frame}
-
 
 \end{document}
