@@ -141,15 +141,27 @@ $\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
 \end{columns}
 \end{frame}
 
+\begin{frame}{Deconvolution, noise free}
+\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig.png}
+\vspace*{0.5cm}
+{\centering\scriptsize
+$\gamma = 0$ ($\infty$\,dB), $\lambda = 10^{-6}$, model noise $\sigma = 0.05$:
+\quad $r(v) = 0.9998$, \quad $r(\dot v) = 0.9933$\\[5pt]}
+\begin{center}
+\setlength{\panelbox}{0.62\textheight}
+\fitgfx{Fig/deconv_inf.png}
+\end{center}
+\end{frame}
+
 \begin{frame}{Deconvolution at $40$\,dB}
 \srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
 \vspace*{0.5cm}
 {\centering\scriptsize
-$\gamma/\mathrm{SD} = 0.01$, $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
+$\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
 \quad $r(v) = 0.9797$, \quad $r(\dot v) = 0.4353$\\[5pt]}
 \begin{center}
-\panelboxfull
-\fitgfx{Fig/calcium_deconv_CD.png}
+\setlength{\panelbox}{0.62\textheight}
+\fitgfx{Fig/deconv_40db.png}
 \end{center}
 \end{frame}
 
