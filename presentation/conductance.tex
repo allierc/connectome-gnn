@@ -167,60 +167,43 @@ $\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma
 
 \begin{frame}{Calcium observation model}
 \srcpath{branch \textbf{neurips2026} \textbar{} GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_*.yaml}
-\vspace*{0.25cm}
+\vspace*{0.3cm}
 {\centering\scriptsize
-$C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
-$\tau_{\mathrm{decay}} = 400$\,ms, \quad model noise $\sigma = 0.05$
+$C = K * v + \gamma\,\eta$, \quad GCaMP6f, \quad model noise $\sigma = 0.05$
 \qquad
 $\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\overline{\hat K}\,\hat C}
- {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$
-\\[5pt]}
-\centering\scriptsize
-\setlength{\tabcolsep}{7pt}
-\begin{tabular}{lccccccccc}
+ {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$\\[5pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccccc}
 \toprule
- & & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{GNN} & \multicolumn{2}{c}{Known-ODE} \\
-\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
-$\gamma/\mathrm{SD}$ & SNR & $\lambda$ & $r(v)$ & $r(\dot v)$
-  & rollout $r$ & $R^2_{\hat W}$ & rollout $r$ & $R^2_{\hat W}$ \\
+ & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{prediction}
+ & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-10}
+model & $\gamma/\mathrm{SD}$ (SNR) & $r(v)$ & $r(\dot v)$
+  & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ & cluster \\
 \midrule
-$0$    & $\infty$   & $10^{-6}$ & \good{$0.9998$} & \good{$0.9933$}
-  & \good{$0.992$} & \good{$0.969$} & \good{$0.991$} & \good{$0.915$} \\
-$0.01$ & $40$\,dB   & $10^{-3}$ & \good{$0.9797$} & $0.4353$
-  & $0.667$ & \bad{$0.183$} & $0.654$ & $0.383$ \\
-$0.03$ & $30$\,dB   & $10^{-2}$ & \good{$0.9695$} & \bad{$0.2803$}
-  & $0.403$ & \bad{$-1.270$} & $0.402$ & \bad{$0.181$} \\
-$0.10$ & $20$\,dB   & $10^{-1}$ & \good{$0.9562$} & \bad{$0.1719$}
-  & \bad{$0.115$} & \bad{$-0.794$} & \bad{$0.015$} & \bad{$-0.060$} \\
+GNN & $0$ ($\infty$) & \good{$0.9998$} & \good{$0.9933$}
+  & \good{$0.974$} & \good{$0.992$} & \good{$0.969$} & \good{$0.96$} & $0.85$ & $0.87$ \\
+    & $0.01$ ($40$)  & \good{$0.9797$} & $0.4353$
+  & $0.656$ & $0.667$ & \bad{$0.183$} & $0.37$ & $0.46$ & $0.76$ \\
+    & $0.03$ ($30$)  & \good{$0.9695$} & \bad{$0.2803$}
+  & $0.550$ & $0.403$ & \bad{$-1.270$} & $0.61$ & $0.66$ & $0.73$ \\
+    & $0.10$ ($20$)  & \good{$0.9562$} & \bad{$0.1719$}
+  & $0.414$ & \bad{$0.115$} & \bad{$-0.794$} & \multicolumn{1}{c}{---} & $0.54$ & $0.68$ \\
+\midrule
+Known-ODE & $0$ ($\infty$) & \good{$0.9998$} & \good{$0.9933$}
+  & \good{$0.972$} & \good{$0.991$} & \good{$0.915$} & \good{$0.95$} & $0.80$ & \good{$0.90$} \\
+    & $0.01$ ($40$)  & \good{$0.9797$} & $0.4353$
+  & $0.643$ & $0.654$ & $0.383$ & \bad{$0.30$} & $0.64$ & $0.86$ \\
+    & $0.03$ ($30$)  & \good{$0.9695$} & \bad{$0.2803$}
+  & $0.536$ & $0.402$ & \bad{$0.181$} & \bad{$-0.08$} & $0.63$ & $0.82$ \\
+    & $0.10$ ($20$)  & \good{$0.9562$} & \bad{$0.1719$}
+  & $0.400$ & \bad{$0.015$} & \bad{$-0.060$} & \bad{$-8.67$} & $0.56$ & $0.74$ \\
 \bottomrule
-\end{tabular}\\[5pt]
+\end{tabular}\\[4pt]
 {\tiny $\lambda$ by $\max_\lambda r(\dot v)$, per noise level}
-\end{frame}
-
-\begin{frame}{Current vs conductance model}
-\srcpath{src/connectome\_gnn/models/neural\_gnn.py}
-\vspace{0.1cm}
-\centering\small
-\begin{tabular}{@{}l@{}}
-\toprule
-\textbf{current} \\
-\midrule
-generator\quad
-  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i$ \\[4pt]
-GNN\qquad\;\;
-  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
-   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$ \\
-\midrule
-\textbf{conductance} \\
-\midrule
-generator\quad
-  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
-   + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i$,\quad $W_{ij} \ge 0$ \\[4pt]
-GNN\qquad\;\;
-  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
-   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j, \mathbf{\underline{v_i, a_i}})$ \\
-\bottomrule
-\end{tabular}
 \end{frame}
 
 % ====================
@@ -358,24 +341,24 @@ $\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\
 \\[4pt]}
 \centering\tiny
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccc}
+\begin{tabular}{lccccccc}
 \toprule
- & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-8}
 $\lambda_1$ & folds & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
 \midrule
 $0$ (no lasso) & 5 & --- & \good{$1.00{\pm}0.00$}
-  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
+  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ & $0.86{\pm}0.03$ \\
 \midrule
-$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ \\
-$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} \\
-$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ \\
-$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ \\
-$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} \\
-$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} \\
+$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ & \good{$0.90$} \\
+$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} & $0.89$ \\
+$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & $0.87$ \\
+$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ & $0.90$ \\
+$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} & $0.89$ \\
+$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} & \good{$0.91$} \\
 $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
-  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
+  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} & $\mathbf{0.88}$ \\
 \bottomrule
 \end{tabular}\end{frame}
 
@@ -384,30 +367,30 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \vspace*{0.35cm}
 \centering\tiny
 \setlength{\tabcolsep}{5pt}
-\begin{tabular}{llcccccc}
+\begin{tabular}{llccccccc}
 \toprule
- & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
-\cmidrule(lr){4-5}\cmidrule(lr){6-8}
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
 model & data & $\sigma$ & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
 \midrule
 Known-ODE & task-trained & $0$
   & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$}
-  & \bad{$-0.22{\pm}0.01$} & $0.76{\pm}0.01\,(19.4)$ & $0.88{\pm}0.00\,(36.8)$ \\
+  & \bad{$-0.22{\pm}0.01$} & $0.76{\pm}0.01\,(19.4)$ & $0.88{\pm}0.00\,(36.8)$ & $0.47{\pm}0.02$ \\
 \midrule
 Known-ODE & teacher--student & $0.05$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$} \\
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$} & $0.62{\pm}0.02$ \\
 Known-ODE & task-trained & $0.05$
   & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
-  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ \\
+  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ & $0.74{\pm}0.01$ \\
 GNN & task-trained & $0.05$
   & \good{$1.00$} & \good{$0.99$}
-  & $\mathbf{0.44{\pm}0.06}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ \\
+  & $\mathbf{0.44{\pm}0.06}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ & \multicolumn{1}{c}{---} \\
 \midrule
 \multicolumn{3}{l}{GNN, 21 training seeds, one dataset}
   & \multicolumn{1}{c}{---} & \good{$0.99 - 1.00$}
-  & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ \\
+  & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ & \multicolumn{1}{c}{---} \\
 \bottomrule
 \end{tabular}\\[5pt]
 {\tiny 5 folds except $\sigma = 0$ (2 of 5 landed). Folds share the training seed
