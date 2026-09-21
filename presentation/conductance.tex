@@ -397,6 +397,40 @@ GNN & task-trained & $0.05$
 final. Folds share the training seed and differ only in the data seed.}
 \end{frame}
 
+\begin{frame}{The two conductance-specific terms}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+\centering\small
+\begin{tabular}{@{}l@{}}
+\toprule
+$\mu_{\mathrm{sil}}$ \quad silent anchor \quad \texttt{coeff\_g\_phi\_silent} \\
+\midrule
+$\mathcal{L}_{\mathrm{sil}} = \mu_{\mathrm{sil}}
+ \bigl\lVert\, g_\phi(\tilde v_j, \mathbf{a}_j, v_i, \mathbf{a}_i) \,\bigr\rVert_2 ,
+ \qquad \tilde v_j \sim \mathcal{U}[-2, 0]$ \\[6pt]
+$\mathrm{relu}(v_j) = 0 \ \Rightarrow\ \mathrm{msg}_{ij} = 0
+ \quad\text{for every } E_i, v_i$ \\
+\midrule
+$\mu_{\mathrm{gain}}$ \quad message gain \quad \texttt{coeff\_f\_theta\_msg\_gain} \\
+\midrule
+$\mathcal{L}_{\mathrm{gain}} = \mu_{\mathrm{gain}}
+ \left\lVert \dfrac{\partial f_\theta/\partial \mathrm{msg}_i
+   \;+\; \partial f_\theta/\partial v_i}
+  {\bigl\langle (\partial f_\theta/\partial v_i)^2 \bigr\rangle^{1/2}}
+ \right\rVert_2$ \\[8pt]
+$\tau_i \dot v_i = V^{\mathrm{rest}}_i - v_i + \mathrm{msg}_i + I_i
+ \ \Rightarrow\
+ \dfrac{\partial f_\theta}{\partial \mathrm{msg}_i} = \dfrac{1}{\tau_i},\quad
+ \dfrac{\partial f_\theta}{\partial v_i} = -\dfrac{1}{\tau_i}$ \\[4pt]
+$\Rightarrow\ \partial f_\theta/\partial \mathrm{msg}_i
+ + \partial f_\theta/\partial v_i = 0 \quad \forall\, \tau_i$ \\[6pt]
+$\mathrm{msg}_\theta = \mathrm{msg}/c,\ \
+ \partial f_\theta/\partial \mathrm{msg} = c/\tau_i
+ \ \Rightarrow\ \dot v_i \text{ unchanged}$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 \begin{frame}{Regularisation: current vs conductance}
 \srcpath{src/connectome\_gnn/models/regularizer.py}
 \vspace*{0.45cm}
