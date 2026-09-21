@@ -120,6 +120,59 @@ mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.
 \bottomrule
 \end{tabular}\end{frame}
 
+\begin{frame}{Voltage and calcium}
+\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/calcium\_trace.png}
+\vspace*{0.4cm}
+{\centering\scriptsize
+$C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
+$\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
+\begin{center}
+\fitgfx{Fig/calcium_trace.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Deconvolution at $40$\,dB}
+\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
+\vspace*{0.35cm}
+{\centering\scriptsize
+$\gamma/\mathrm{SD} = 0.01$, $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
+\quad $r(v) = 0.9797$, \quad $r(\dot v) = 0.4353$\\[3pt]}
+\begin{center}
+\panelboxfull
+\fitgfx{Fig/calcium_deconv_CD.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Calcium observation model}
+\srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
+\vspace*{0.25cm}
+{\centering\scriptsize
+$C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
+$\tau_{\mathrm{decay}} = 400$\,ms, \quad model noise $\sigma = 0.05$
+\qquad
+$\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\bar{\hat K}\,\hat C}{|\hat K|^2 + \lambda}\right]$
+\\[5pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccccc}
+\toprule
+ & & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{GNN} & \multicolumn{2}{c}{Known-ODE} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+$\gamma/\mathrm{SD}$ & SNR & $\lambda$ & $r(v)$ & $r(\dot v)$
+  & rollout $r$ & $R^2_{\hat W}$ & rollout $r$ & $R^2_{\hat W}$ \\
+\midrule
+$0$    & $\infty$   & $10^{-6}$ & \good{$0.9998$} & \good{$0.9933$}
+  & \good{$0.992$} & \good{$0.969$} & \good{$0.991$} & \good{$0.915$} \\
+$0.01$ & $40$\,dB   & $10^{-3}$ & \good{$0.9797$} & $0.4353$
+  & $0.667$ & \bad{$0.183$} & $0.654$ & $0.383$ \\
+$0.03$ & $30$\,dB   & $10^{-2}$ & \good{$0.9695$} & \bad{$0.2803$}
+  & $0.403$ & \bad{$-1.270$} & $0.402$ & \bad{$0.181$} \\
+$0.10$ & $20$\,dB   & $10^{-1}$ & \good{$0.9562$} & \bad{$0.1719$}
+  & \bad{$0.115$} & \bad{$-0.794$} & \bad{$0.015$} & \bad{$-0.060$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 \begin{frame}{Current vs conductance model}
 \srcpath{src/connectome\_gnn/models/neural\_gnn.py}
 \vspace{0.1cm}
@@ -176,59 +229,6 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
   & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
 \bottomrule
 \end{tabular}\end{frame}
-
-\begin{frame}{Voltage and calcium}
-\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/calcium\_trace.png}
-\vspace*{0.4cm}
-{\centering\scriptsize
-$C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
-$\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
-\begin{center}
-\fitgfx{Fig/calcium_trace.png}
-\end{center}
-\end{frame}
-
-\begin{frame}{Deconvolution at $40$\,dB}
-\srcpath{connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
-\vspace*{0.35cm}
-{\centering\scriptsize
-$\gamma/\mathrm{SD} = 0.01$, $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
-\quad $r(v) = 0.9797$, \quad $r(\dot v) = 0.4353$\\[3pt]}
-\begin{center}
-\panelboxfull
-\fitgfx{Fig/calcium_deconv_CD.png}
-\end{center}
-\end{frame}
-
-\begin{frame}{Calcium observation model}
-\srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
-\vspace*{0.25cm}
-{\centering\scriptsize
-$C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
-$\tau_{\mathrm{decay}} = 400$\,ms, \quad model noise $\sigma = 0.05$
-\qquad
-$\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\bar{\hat K}\,\hat C}{|\hat K|^2 + \lambda}\right]$
-\\[5pt]}
-\centering\tiny
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lccccccccc}
-\toprule
- & & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{GNN} & \multicolumn{2}{c}{Known-ODE} \\
-\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
-$\gamma/\mathrm{SD}$ & SNR & $\lambda$ & $r(v)$ & $r(\dot v)$
-  & rollout $r$ & $R^2_{\hat W}$ & rollout $r$ & $R^2_{\hat W}$ \\
-\midrule
-$0$    & $\infty$   & $10^{-6}$ & \good{$0.9998$} & \good{$0.9933$}
-  & \good{$0.992$} & \good{$0.969$} & \good{$0.991$} & \good{$0.915$} \\
-$0.01$ & $40$\,dB   & $10^{-3}$ & \good{$0.9797$} & $0.4353$
-  & $0.667$ & \bad{$0.183$} & $0.654$ & $0.383$ \\
-$0.03$ & $30$\,dB   & $10^{-2}$ & \good{$0.9695$} & \bad{$0.2803$}
-  & $0.403$ & \bad{$-1.270$} & $0.402$ & \bad{$0.181$} \\
-$0.10$ & $20$\,dB   & $10^{-1}$ & \good{$0.9562$} & \bad{$0.1719$}
-  & \bad{$0.115$} & \bad{$-0.794$} & \bad{$0.015$} & \bad{$-0.060$} \\
-\bottomrule
-\end{tabular}
-\end{frame}
 
 % ====================
 \section{Conductance model}
