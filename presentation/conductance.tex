@@ -16,6 +16,8 @@
 \usepackage{amsmath,amssymb}
 \usepackage{multimedia}
 \usepackage{tabularx,booktabs}
+\definecolor{goodgreen}{rgb}{0.0,0.45,0.0}
+\newcommand{\good}[1]{\textcolor{goodgreen}{#1}}
 \usepackage{helvet}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
@@ -211,9 +213,77 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \section{Perspectives}
 % ===================================================================
 
-\begin{frame}{Where the ceiling comes from, and what would move it}
-% TODO: separable g_phi = phi(v_j)*psi(v_i); decorrelating stimuli;
-% presynaptic silencing in the generator.
+\begin{frame}{Known-ODE and GNN, 5-fold CV}
+\srcpath{log/fly/\{archive\_*,\}/*/results/metrics.txt}
+\vspace{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccc}
+\toprule
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-8}
+model & data & $\sigma$
+  & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ \\
+\midrule
+Known-ODE cond. & conductance & $0$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
+Known-ODE cond. & conductance & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
+Known-ODE cond. & current     & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & $-0.03{\pm}0.00$ & \good{$0.95{\pm}0.00$} & $0.67{\pm}0.01$ \\
+Known-ODE curr. & conductance & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $-27.4{\pm}0.1$ & \good{$1.00{\pm}0.00$} & $0.89{\pm}0.00$ \\
+\midrule
+GNN cond. & current, lasso $1$   & $0.05$
+  & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.90$} \\
+GNN cond. & current, lasso $10$  & $0.05$
+  & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} \\
+GNN cond. & flowcond             & $0.05$
+  & \good{$1.00$} & \good{$0.99$} & $0.43{\pm}0.07$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ \\
+\bottomrule
+\end{tabular}\\[4pt]
+{\tiny 5 folds, mean\,$\pm$\,SD, except the lasso rows (fold 0) and the flowcond GNN
+(22 seeds, peak $R^2_{\hat W}$). \good{Green}: $>0.9$. Rows for the
+\texttt{flowcond} Known-ODE are pending --- 10 folds still training.}
+\end{frame}
+
+\begin{frame}{Regularisation}
+\srcpath{LLM/instruction\_flyvis\_flowcond\_noise\_005\_gnn\_llm\_cv00.md}
+\vspace{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+ & & \multicolumn{3}{c}{learning rates}
+   & \multicolumn{2}{c}{$g_\phi$ reg} & \multicolumn{1}{c}{$f_\theta$ reg}
+   & \multicolumn{2}{c}{$\hat{\mathbf W}$ reg} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}\cmidrule(lr){8-8}\cmidrule(lr){9-10}
+condition & bs & $\text{lr}_W$ & lr & $\text{lr}_{\text{emb}}$
+  & silent & $\mu_1$ & gain & $\gamma_0$ & $\gamma_1$ \\
+\midrule
+inherited (failed)   & $4$ & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\cdot}10^{-3}$
+  & $0$  & $375$ & $0$              & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-7}$ \\
+$\mu_1,\mu_2$ zeroed & $4$ & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\cdot}10^{-3}$
+  & $0$  & $0$   & $0$              & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-7}$ \\
+gauge terms added    & $4$ & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\cdot}10^{-3}$
+  & $25$ & $0$   & $1.0{\cdot}10^{-5}$ & $0$ & $0$ \\
+\midrule
+\textbf{parent (used)} & $\mathbf{4}$ & $\mathbf{9.0{\cdot}10^{-4}}$ & $\mathbf{1.8{\cdot}10^{-3}}$ & $\mathbf{2.3{\cdot}10^{-3}}$
+  & $\mathbf{25}$ & $\mathbf{0}$ & $\mathbf{1.0{\cdot}10^{-5}}$ & $\mathbf{0}$ & $\mathbf{0}$ \\
+\bottomrule
+\end{tabular}\\[4pt]
+\begin{minipage}{0.92\textwidth}\tiny
+$\mu_1$ is a positive-monotonicity prior on $\partial g_\phi/\partial v_j$; at its
+inherited $375$ it fights the driving force and held $R^2_{\hat W}$ gain at $0.075$.
+The agentic loop then found the silent anchor, the message gain, the learning rates
+and the $W$ initialisation all \emph{neutral} on the peak over 120 iterations ---
+the levers that work are the two gauge terms, and they act on the sign, not the peak.
+\end{minipage}
 \end{frame}
 
 \end{document}
