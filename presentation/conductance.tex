@@ -379,9 +379,9 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \section{Conductance model on current data}
 % ===================================================================
 
-\begin{frame}{Conductance Known-ODE on conductance data}
-\srcpath{log/fly/archive\_*/flyvis\_conductance\_noise\_\{free,005\}\_conductance\_knownode\_cv0*}
-\vspace*{0.3cm}
+\begin{frame}{The identifiability ceiling on \texttt{flowcond}}
+\srcpath{log/fly/flyvis\_flowcond\_\{noise\_005,noise\_free\}\_conductance\_knownode\_cv0*}
+\vspace*{0.35cm}
 \centering\tiny
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{llccccc}
@@ -389,20 +389,25 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
  & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
 \cmidrule(lr){3-4}\cmidrule(lr){5-7}
 model & data & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ \\
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
 \midrule
-\multicolumn{7}{l}{\itshape diagonal --- the form matches the generator} \\
-Known-ODE cond.\ & conductance, $\sigma=0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
-Known-ODE cond.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
+Known-ODE & \texttt{ion\_sub} twin, $\sigma = 0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$} \\
 \midrule
-\multicolumn{7}{l}{\itshape off-diagonal --- the form is wrong} \\
-Known-ODE cond.\ & current, $\sigma=0.05$     & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \bad{$-0.03{\pm}0.00$} & \good{$0.95{\pm}0.00$} & $0.67{\pm}0.01$ \\
-Known-ODE curr.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \bad{$-27.4{\pm}0.1$} & \good{$1.00{\pm}0.00$} & $0.89{\pm}0.00$ \\
+Known-ODE & \texttt{flowcond}, $\sigma = 0.05$
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ \\
+GNN       & \texttt{flowcond}, $\sigma = 0.05$
+  & \good{$1.00$} & \good{$0.99$}
+  & $\mathbf{0.43{\pm}0.07}$ & \good{$0.93{\pm}0.03$} & $0.60{\pm}0.05$ \\
 \midrule
-Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0$    & \multicolumn{5}{c}{\itshape 5 folds training} \\
-Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0.05$ & \multicolumn{5}{c}{\itshape 5 folds training} \\
+Known-ODE & \texttt{flowcond}, $\sigma = 0$
+  & \multicolumn{5}{c}{\itshape 5 folds training} \\
 \bottomrule
-\end{tabular}\end{frame}
+\end{tabular}\\[5pt]
+{\tiny Known-ODE \texttt{flowcond}: 4 of 5 folds. GNN: 22 seeds, peak.}
+\end{frame}
 
 \begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
 \srcpath{src/connectome\_gnn/models/regularizer.py}
