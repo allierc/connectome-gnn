@@ -98,8 +98,13 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 
 \begin{frame}{Measurement noise: recurrent training}
 \label{sl:measnoise}
-\srcpath{log/fly/flyvis\_noise\_005\_meas\_\{010,020,050\}\_gnn\_rc*\_cv00}
-\vspace*{0.3cm}
+\srcpath{log/fly/flyvis\_noise\_005\_meas\_\{010,020\}\_gnn\_rc*\_cv00}
+\vspace*{0.25cm}
+{\centering\scriptsize model noise $\sigma = 0.05$ throughout\\[3pt]}
+\begin{center}\setlength{\panelbox}{0.30\textheight}
+\fitgfx{Fig/meas_noise_panels.png}
+\end{center}
+\vspace{-0.15cm}
 \centering\tiny
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{llcccccc}
@@ -110,7 +115,7 @@ condition & $\gamma$ & one-step $r$ & rollout $r$
   & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
 \midrule
 \multicolumn{8}{l}{\itshape published, one-step training, 5-fold} \\
-low model noise & $0$   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
+no meas.\ noise & $0$   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
 low meas.\ noise & $0.1$ & \good{$0.99{\pm}0.00$} & $0.85{\pm}0.24$ & $0.63{\pm}0.02$ & \bad{$0.28{\pm}0.02\,(8.9)$} & $0.63{\pm}0.04\,(30.4)$ & $0.87{\pm}0.01$ \\
 mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.38{\pm}0.01$ & \bad{$0.08{\pm}0.01\,(9.7)$} & $0.61{\pm}0.04\,(49.1)$ & $0.85{\pm}0.01$ \\
 \midrule
@@ -121,14 +126,19 @@ mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.
 \end{tabular}\end{frame}
 
 \begin{frame}{Voltage and calcium}
-\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/calcium\_trace.png}
+\srcpath{graphs\_data/fly/flyvis\_noise\_005\_kernel/\{kernel,calcium\_trace\}.png}
 \vspace*{0.4cm}
 {\centering\scriptsize
 $C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
 $\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
-\begin{center}
-\fitgfx{Fig/calcium_trace.png}
-\end{center}
+\begin{columns}[c]
+\begin{column}{0.24\textwidth}
+\centering\setlength{\panelbox}{0.42\textheight}\fitgfx{Fig/gcamp_kernel.png}
+\end{column}
+\begin{column}{0.74\textwidth}
+\centering\setlength{\panelbox}{0.62\textheight}\fitgfx{Fig/calcium_trace.png}
+\end{column}
+\end{columns}
 \end{frame}
 
 \begin{frame}{Deconvolution at $40$\,dB}
