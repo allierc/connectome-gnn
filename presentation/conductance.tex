@@ -175,8 +175,8 @@ $\tau_{\mathrm{decay}} = 400$\,ms, \quad model noise $\sigma = 0.05$
 $\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\overline{\hat K}\,\hat C}
  {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$
 \\[5pt]}
-\centering\tiny
-\setlength{\tabcolsep}{4pt}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
 \begin{tabular}{lccccccccc}
 \toprule
  & & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{GNN} & \multicolumn{2}{c}{Known-ODE} \\
@@ -193,14 +193,8 @@ $0.03$ & $30$\,dB   & $10^{-2}$ & \good{$0.9695$} & \bad{$0.2803$}
 $0.10$ & $20$\,dB   & $10^{-1}$ & \good{$0.9562$} & \bad{$0.1719$}
   & \bad{$0.115$} & \bad{$-0.794$} & \bad{$0.015$} & \bad{$-0.060$} \\
 \bottomrule
-\end{tabular}\\[6pt]
-{\scriptsize
-$\hat D$: first-difference operator, so the prior penalises $\dot{\hat v}$\\[2pt]
-$\lambda \in \{10^{-6}, 10^{-5}, 10^{-4}, 3{\cdot}10^{-4}, 10^{-3},
- 3{\cdot}10^{-3}, 10^{-2}, 3{\cdot}10^{-2}, 10^{-1}\}$,
-chosen by $\displaystyle\max_\lambda \; r(\dot v)$ on a $250$-neuron,
-$32{,}000$-frame probe\\[2pt]
-per noise level, not a fixed filter}
+\end{tabular}\\[5pt]
+{\tiny $\lambda$ by $\max_\lambda r(\dot v)$, per noise level}
 \end{frame}
 
 \begin{frame}{Current vs conductance model}
