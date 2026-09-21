@@ -20,9 +20,29 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
 
-\newcommand{\playmovie}[3][\textwidth]{%
-  \href{run:#2.mp4?autostart&loop&noprogress}{\includegraphics[width=#1]{#2.png}}%
-  \\[2pt]{\scriptsize #3}}
+% ------------------------------------------------------------------
+% FITTING GRAPHICS. Every figure is bounded in BOTH directions with
+% keepaspectratio, so LaTeX shrinks whichever dimension binds: a portrait image
+% is limited by height, a landscape one by width, and neither can ever overflow
+% the frame. Sizing by width alone is what pushed the reversals panel over the
+% title band and the Wij panel off the slide.
+%
+%   \panelbox   the height a graphic may occupy. Default leaves room for a
+%               title line above and a caption below; \panelboxfull is for a
+%               graphic that has neither.
+\newlength{\panelbox}
+\setlength{\panelbox}{0.68\textheight}
+\newcommand{\panelboxfull}{\setlength{\panelbox}{0.74\textheight}}
+\newcommand{\fitgfx}[2][\linewidth]{%
+  \includegraphics[width=#1,height=\panelbox,keepaspectratio]{#2}}
+% A titled panel: title ABOVE the panel, which is the convention here.
+\newcommand{\panel}[3][\linewidth]{%
+  \centering{\scriptsize #2}\\[2pt]\fitgfx[#1]{#3}}
+% A movie: same fitting, over the poster PNG that pdfpc swaps for the video.
+\newcommand{\playmovie}[3][\linewidth]{%
+  \centering{\scriptsize #3}\\[2pt]%
+  \href{run:#2.mp4?autostart&loop&noprogress}{\fitgfx[#1]{#2.png}}}
+% ------------------------------------------------------------------
 
 \title{Recovering synaptic conductances from dynamics}
 \subtitle{A conductance GNN on task-trained \emph{Drosophila} visual circuitry}
@@ -87,7 +107,7 @@ our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$
 \begin{frame}{$W_{ij}$ distributions}
 \srcpath{graphs\_data/fly/flyvis\_\{noise\_005,flowcond\_noise\_005\}\_blank50\_cv00/ode\_params.pt}
 \begin{center}
-\includegraphics[height=0.76\textheight]{Fig/Wij_distributions.png}\\[1pt]
+\fitgfx{Fig/Wij_distributions.png}\\[1pt]
 {\tiny 434{,}112 edges. Current: $-1.503$ to $+4.173$. Conductance: $0$ to $1.210$,
 the sign having moved into $(E_i - v_i)$.}
 \end{center}
@@ -97,9 +117,7 @@ the sign having moved into $(E_i - v_i)$.}
 \srcpath{flyvis/results/flow/2000/001/analysis/reversals.png}
 \begin{columns}[T]
 \begin{column}{0.68\textwidth}
-\centering
-{\scriptsize \texttt{flow/2000/001}, checkpoint 28}\\[2pt]
-\includegraphics[height=0.64\textheight]{Fig/reversals.png}
+\panel{\texttt{flow/2000/001}, checkpoint 28}{Fig/reversals.png}
 \end{column}
 \begin{column}{0.30\textwidth}
 \scriptsize
@@ -118,12 +136,10 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \srcpath{graphs\_data/fly/flyvis\_flowcond\_noise\_\{free,005\}\_blank50\_cv00/activity.png}
 \begin{columns}[T]
 \begin{column}{0.5\textwidth}
-\centering{\scriptsize noise free}\\[2pt]
-\includegraphics[width=\textwidth]{Fig/activity_noisefree.png}
+\panel{noise free}{Fig/activity_noisefree.png}
 \end{column}
 \begin{column}{0.5\textwidth}
-\centering{\scriptsize $\sigma = 0.05$ process noise}\\[2pt]
-\includegraphics[width=\textwidth]{Fig/activity_noise005.png}
+\panel{$\sigma = 0.05$ process noise}{Fig/activity_noise005.png}
 \end{column}
 \end{columns}
 \vspace{4pt}
@@ -135,10 +151,10 @@ $r(v_{\sigma}, v_0) = 0.820$.}
 \begin{frame}{Generation}
 \srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
 \begin{center}
-\playmovie[0.62\textwidth]{Movies/generation_flowcond}{%
-  \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- 13{,}741 neurons,
-  434{,}112 edges, 64{,}000 frames, $\Delta t = 20$\,ms, DAVIS, 50\% blank prefix,
-  exponential Euler.}
+\panelboxfull
+\playmovie{Movies/generation_flowcond}{%
+  13{,}741 neurons, 434{,}112 edges, 64{,}000 frames, $\Delta t = 20$\,ms,
+  DAVIS, 50\% blank prefix, exponential Euler}
 \end{center}
 \end{frame}
 
