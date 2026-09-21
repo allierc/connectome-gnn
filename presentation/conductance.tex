@@ -94,18 +94,7 @@ GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{
 \multicolumn{2}{l}{GNN cond.\ on \emph{current}$^{*}$} & $0.05$
   & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & \multicolumn{1}{c}{---} \\
 \bottomrule
-\end{tabular}\\[3pt]
-\begin{minipage}{0.95\textwidth}\tiny
-5-fold CV, mean\,$\pm$\,SD; parenthesised values are the mean outlier percentage.
-\good{Green}: $>0.9$. At $\sigma = 0$ the finite difference \emph{is} the analytic
-drift, so that row is the control and must not move --- and does not. The leak shows
-at $\sigma > 0$ and lands hardest on $V^{\mathrm{rest}}$: raw
-$R^2_{\hat V^{\mathrm{rest}}}$ falls $0.951 \rightarrow 0.672$ for the Known-ODE and
-$0.758 \rightarrow 0.314$ for the GNN at $\sigma = 0.05$.
-$^{*}$fold 0, lasso $\lambda = 1$; $\lambda = 10$ gives $R^2_{\hat W} = 0.97$.
-Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-09-09.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
 \begin{frame}{Measurement noise: recurrent training}
 \label{sl:measnoise}
@@ -129,15 +118,9 @@ mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.
 \texttt{rc40} & $0.1$ & \good{$0.99$} & \good{$0.99$} & $\mathbf{0.78}$ & $0.68\,(4.9)$ & $0.71\,(22.8)$ & $0.82$ \\
 \texttt{rc20} & $0.2$ & \good{$0.96$} & \good{$0.98$} & $\mathbf{0.61}$ & \bad{$0.22\,(9.7)$} & $0.64\,(34.6)$ & $0.81$ \\
 \bottomrule
-\end{tabular}\\[5pt]
-\begin{minipage}{0.90\textwidth}\tiny
-Model noise $\sigma = 0.05$ throughout; $\gamma$ is measurement noise.
-$R^2_{\hat W}$: $0.63 \rightarrow 0.78$ at $\gamma = 0.1$ and
-$0.38 \rightarrow 0.61$ at $\gamma = 0.2$. $R^2_{\hat\tau}$ does not recover.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
-\begin{frame}{What the GNN is asked to discover}
+\begin{frame}{Current vs conductance model}
 \srcpath{src/connectome\_gnn/models/neural\_gnn.py}
 \vspace{0.1cm}
 \centering\small
@@ -170,8 +153,7 @@ GNN\qquad\;\;
 {\centering\scriptsize
 $\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
  \bigl\lVert \mathbf{W}^{(0)}_{:,\,g} \bigr\rVert_2$
-\\[2pt] one $\ell_2$ group per input block of $g_\phi$'s first layer, summed as
-$\ell_1$: a whole input can be driven to zero\\[4pt]}
+\\[4pt]}
 \centering\tiny
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{lcccccc}
@@ -193,18 +175,7 @@ $10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \go
 $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
   & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
 \bottomrule
-\end{tabular}\\[4pt]
-\begin{minipage}{0.93\textwidth}\tiny
-$\sigma = 0.05$ throughout. The $\lambda_1 = 0$ row is 5-fold mean\,$\pm$\,SD; the
-sweep is fold 0 only. \good{Green}: $>0.9$. Prediction is saturated at every
-$\lambda_1$ and says nothing --- the lasso buys \emph{recovery}:
-$R^2_{\hat W}$ climbs $0.80 \rightarrow 0.98$ and its fold-to-fold spread
-($\pm 0.15$ without) is larger than the whole effect of $\lambda_1$ below $10$.
-The generator here is current-based, so $g_\phi$ has no use for $v_i$ or $a_i$;
-the lasso removes those input groups, and $R^2_{\hat W}$ rises because the
-driving-force column stops absorbing weight.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
 \begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
 \srcpath{src/connectome\_gnn/models/regularizer.py}
@@ -238,14 +209,7 @@ $\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
 $\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
 $\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
 \bottomrule
-\end{tabular}\\[4pt]
-\begin{minipage}{0.93\textwidth}\tiny
-$\mu_1$: monotonicity prior $\partial g_\phi/\partial v_j \ge 0$. $\mu_2$: pins $g_\phi$
-at a probe voltage, removing the $\hat W \!\leftrightarrow\! g_\phi$ scale degeneracy.
-\textbf{Slide \ref{sl:lasso} is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
-$\lambda_1 = 0.14$ and the sweep sets it to $0$, trading one $\ell_1$ for the other.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
 % ====================
 \section{Conductance model}
@@ -395,16 +359,7 @@ Known-ODE curr.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$
 Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0$    & \multicolumn{5}{c}{\itshape 5 folds training} \\
 Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0.05$ & \multicolumn{5}{c}{\itshape 5 folds training} \\
 \bottomrule
-\end{tabular}\\[5pt]
-\begin{minipage}{0.90\textwidth}\tiny
-5-fold CV, mean\,$\pm$\,SD. The Known-ODE has the generator's structure and learns
-only its parameters, so the diagonal is the identifiability ceiling and the
-off-diagonal is what a wrong structural assumption costs: a conductance form on
-current data has a driving force that collapses, a current form on conductance data
-cannot represent one at all. Prediction is \good{$1.00$} on every row, including
-both failures.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
 % ====================
 \section{GNN recovery}
@@ -459,14 +414,6 @@ gauge terms added    & $4$ & $9.0{\cdot}10^{-4}$ & $1.8{\cdot}10^{-3}$ & $2.3{\c
 \textbf{parent (used)} & $\mathbf{4}$ & $\mathbf{9.0{\cdot}10^{-4}}$ & $\mathbf{1.8{\cdot}10^{-3}}$ & $\mathbf{2.3{\cdot}10^{-3}}$
   & $\mathbf{25}$ & $\mathbf{0}$ & $\mathbf{1.0{\cdot}10^{-5}}$ & $\mathbf{0}$ & $\mathbf{0}$ \\
 \bottomrule
-\end{tabular}\\[4pt]
-\begin{minipage}{0.92\textwidth}\tiny
-$\mu_1$ is a positive-monotonicity prior on $\partial g_\phi/\partial v_j$; at its
-inherited $375$ it fights the driving force and held $R^2_{\hat W}$ gain at $0.075$.
-The agentic loop then found the silent anchor, the message gain, the learning rates
-and the $W$ initialisation all \emph{neutral} on the peak over 120 iterations ---
-the levers that work are the two gauge terms, and they act on the sign, not the peak.
-\end{minipage}
-\end{frame}
+\end{tabular}\end{frame}
 
 \end{document}
