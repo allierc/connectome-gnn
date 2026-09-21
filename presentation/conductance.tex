@@ -386,27 +386,28 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \srcpath{log/fly/flyvis\_flowcond\_\{noise\_free,noise\_005\}\_conductance\_knownode\_cv0*}
 \vspace*{0.35cm}
 \centering\tiny
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llccccccc}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccccccccc}
 \toprule
- & & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
-\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{5}{c}{parameter recovery} & \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-10}
 model & data & $\sigma$ & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
+  & $R^2_{\mathrm{msg}_i}$ & $k_i$ & cluster \\
 \midrule
 Known-ODE & task-trained & $0$
   & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$}
-  & \bad{$-0.22{\pm}0.01$} & $0.76{\pm}0.01\,(19.4)$ & $0.88{\pm}0.00\,(36.8)$ & $0.47{\pm}0.02$ \\
+  & \bad{$-0.22{\pm}0.01$} & $0.76{\pm}0.01$ & $0.88{\pm}0.00$ & $0.80{\pm}0.02$ & \multicolumn{1}{c}{---} & $0.47{\pm}0.02$ \\
 \midrule
 Known-ODE & teacher--student & $0.05$
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
-  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$} & $0.62{\pm}0.02$ \\
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \multicolumn{1}{c}{---} & $0.62{\pm}0.02$ \\
 Known-ODE & task-trained & $0.05$
   & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
-  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00\,(2.7)$ & $0.86{\pm}0.00\,(31.3)$ & $0.74{\pm}0.01$ \\
+  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00$ & $0.86{\pm}0.00$ & $0.85{\pm}0.01$ & \multicolumn{1}{c}{---} & $0.74{\pm}0.01$ \\
 GNN & task-trained & $0.05$
   & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
-  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08\,(5.8)$ & $0.61{\pm}0.06\,(40.2)$ & $0.65{\pm}0.07$ \\
+  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08$ & $0.61{\pm}0.06$ & $0.87{\pm}0.08$ & \multicolumn{1}{c}{---} & $0.65{\pm}0.07$ \\
 \midrule
 \multicolumn{3}{l}{GNN, 21 training seeds, one dataset}
   & \multicolumn{1}{c}{---} & \good{$0.99 - 1.00$}
@@ -497,6 +498,40 @@ cluster                           & $0.883{\pm}0.010$ & \textit{running} \\
 \bottomrule
 \end{tabular}\\[5pt]
 {\tiny same 4 checkpoints, $\sigma = 0.05$, re-analysed}
+\end{frame}
+
+% ====================
+\section{Appendix}
+% ====================
+
+\begin{frame}{Appendix}
+\vspace*{0.4cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lll}
+\toprule
+ & branch & where \\
+\midrule
+derivative-target fix & \texttt{fix/measurement-noise-target}
+  & \texttt{816ca34d}, merged 2026-09-09 \\
+before/after tables & \texttt{neurips2026}
+  & \texttt{figures/flyvis/fd\_table1\_before\_after.tex} \\
+calcium deconvolution & \texttt{neurips2026}
+  & \texttt{neurips\_review/\{calcium\_note,reply\_all\}} \\
+calcium observable & \texttt{feat/calcium}
+  & \texttt{f874b52}, unmerged \\
+conductance flyvis model & \texttt{feat/flyvis-flow-conductance-E}
+  & \texttt{src/flyvis\_conductance\_optical\_flow/} \\
+substeps, template readout & \texttt{feat/substep-rollout}
+  & \texttt{docs/template\_readout.tex} \\
+agentic loop & \texttt{feat/substep-rollout}
+  & \texttt{LLM/instruction\_flyvis\_flowcond\_*.md} \\
+\midrule
+flyvis models & & \texttt{flyvis/results/flow/\{1000,2000\}/*} \\
+datasets & & \texttt{graphs\_data/fly/flyvis\_flowcond\_*} \\
+runs & & \texttt{log/fly/}, archived in \texttt{archive\_\{2..7\}/} \\
+\bottomrule
+\end{tabular}
 \end{frame}
 
 \begin{frame}{Regularisation: current vs conductance}
