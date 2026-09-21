@@ -229,13 +229,47 @@ Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-0
 \end{minipage}
 \end{frame}
 
-\begin{frame}{Conductance model fitted to current-generated data}
-% TODO: 1-3 slides. Source: config/fly/archive_7/flyvis_current_*_conductance_*.
+\begin{frame}{Conductance GNN on current data: the group lasso}
+\srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
+\vspace{0.1cm}
+{\centering\scriptsize
+$\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
+ \bigl\lVert \mathbf{W}^{(0)}_{:,\,g} \bigr\rVert_2$
+\\[2pt] one $\ell_2$ group per input block of $g_\phi$'s first layer, summed as
+$\ell_1$: a whole input can be driven to zero\\[4pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+$\lambda_1$ & folds & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+\midrule
+$0$ (none) & 5 & --- & \good{$1.00{\pm}0.00$}
+  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
+\midrule
+$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ \\
+$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} \\
+$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ \\
+$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ \\
+$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} \\
+$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} \\
+$\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
+  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
+\bottomrule
+\end{tabular}\\[4pt]
+\begin{minipage}{0.93\textwidth}\tiny
+$\sigma = 0.05$ throughout. The $\lambda_1 = 0$ row is 5-fold mean\,$\pm$\,SD; the
+sweep is fold 0 only. \good{Green}: $>0.9$. Prediction is saturated at every
+$\lambda_1$ and says nothing --- the lasso buys \emph{recovery}:
+$R^2_{\hat W}$ climbs $0.80 \rightarrow 0.98$ and its fold-to-fold spread
+($\pm 0.15$ without) is larger than the whole effect of $\lambda_1$ below $10$.
+The generator here is current-based, so $g_\phi$ has no use for $v_i$ or $a_i$;
+the lasso removes those input groups, and $R^2_{\hat W}$ rises because the
+driving-force column stops absorbing weight.
+\end{minipage}
 \end{frame}
-
-% ===================================================================
-\section{Known-ODE on conductance data}
-% ===================================================================
 
 \begin{frame}{The identifiability ceiling}
 % TODO: 10 folds RUNNING as of 2026-09-21
