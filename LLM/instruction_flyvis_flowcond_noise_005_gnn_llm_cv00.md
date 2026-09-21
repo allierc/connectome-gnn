@@ -220,9 +220,10 @@ sweeping a number that never reaches the loss.
   for `Wij_R2` and damage `msg_i_R2`. Leave them at the parent's values.
 - `integration_method`, `n_rollout_substeps` — the substep arms need 35–70 hours per run at
   this iteration budget and belong on a separate track.
-- `coeff_g_phi_diff`, `coeff_g_phi_norm` — both 0 and they stay 0. `coeff_g_phi_diff` is a
-  positive-monotonicity prior on `d g_phi / d v_j` that fights the driving force; at its
-  inherited value of 375 it held `Wij_gain` at 0.075.
+- `coeff_g_phi_diff`, `coeff_g_phi_norm` — frozen at 0 UNTIL BLOCK 7, which is the block
+  that scans them. `coeff_g_phi_diff` is a positive-monotonicity prior on `d g_phi / d v_j`
+  that fights the driving force; at its inherited value of 375 it held `Wij_gain` at 0.075,
+  which is why it starts at 0 rather than at the current-data value.
 - **`g_phi_positive` and `w_squared`** — this exploration is defined by both being FALSE.
   Flipping either changes what `W` means and makes every earlier iteration incomparable.
 - `simulation.seed`, `training.seed` — overwritten every batch with `iteration*1000 + slot`
@@ -251,7 +252,8 @@ a `>>> BLOCK END <<<` marker are injected into your prompt.
 | 4 | Exploration | **Learning rates** | `lr_W`, `lr`, `lr_embedding` | as in the parameter table. Record the `lr_W`/`lr` ratio — it, not either rate alone, is what moved earlier explorations |
 | 5 | Exploration | **W initialisation** | `w_init_scale`, `w_init_mode` | scale {1, 5, 20, 60}, mode {randn_scaled, uniform_scaled, zeros}. `Wij_gain` sits at 0.42–0.61, i.e. the learned W is systematically small; this block asks whether the initialisation is why |
 | 6 | Exploration | **MLP capacity — the last untested hyperparameter** | `hidden_dim`, `n_layers`, `hidden_dim_update`, `n_layers_update` | width {80, 128, 192, 256} and depth {3, 4, 5}, on g_phi first and then f_theta. Blocks 2–5 found the silent anchor, message gain, learning rates and W initialisation ALL neutral on the peak, and `W` L1/L2 was already dead, so capacity is the only hyperparameter left that has never been moved: g_phi has sat at 3 layers of 80 units for every run in this project's history. Scan g_phi width and depth before touching f_theta, and change ONE of the four per slot. Hold the wall-clock target with `data_augmentation_loop` if a wider net slows the iteration, and report the achieved minutes beside every result |
-| 7 | Combine + validate | Champion and its variance | any of the above, then none | First two batches consolidate the best of blocks 2–6, ONE change per slot. THE LAST BATCH IS A ROBUSTNESS TEST: all 8 slots at the champion with different seeds, to confirm the CV and that no seed is catastrophic |
+| 7 | Exploration | **The never-swept coefficients** | `coeff_g_phi_diff`, `coeff_g_phi_norm`, `coeff_f_theta_weight_L1`, `coeff_f_theta_weight_L2` | These four have never been moved on this data. `coeff_g_phi_diff` and `coeff_g_phi_norm` are frozen at 0 because they were inherited at 375 and 0.45 from the CURRENT-data recipe, where they help; nobody has asked what they do at other values HERE, and a monotonicity prior that fights the driving force may still help at a small value. Scan diff {0, 10, 50, 150, 375}, norm {0, 0.05, 0.2, 0.45}, f_theta L1 {0, 0.025, 0.1}, f_theta L2 {0, 5e-4, 5e-3}. ONE change per slot |
+| 8 | Combine + validate | Champion and its variance | any of the above, then none | First two batches consolidate the best of blocks 2–7, ONE change per slot. THE LAST BATCH IS A ROBUSTNESS TEST: all 8 slots at the champion with different seeds, to confirm the CV and that no seed is catastrophic |
 
 **WHY CAPACITY IS A LIVE HYPOTHESIS AND NOT JUST THE NEXT KNOB.** `g_phi` must represent `relu(v_j) * (E_i - v_i)` -- a product of a rectifier in the presynaptic voltage and an affine function of the postsynaptic one, with `E_i` varying by cell type -- from a 3-layer, 80-unit MLP over `[v_j, a_j, v_i, a_i]`. If that surface is underparameterised, the network cannot hold the two factors apart, which is exactly the failure the sign-flip basin shows: the reversals come out with the wrong sign in ~41% of seeds while `|W|`, and therefore `Wij_R2`, is unharmed. So report `Eij_pct_wrong_slope` and the sign of `k_median` for every capacity arm, not only the peak. A capacity that lowers the flip RATE is a finding even if the peak does not move.
 

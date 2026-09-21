@@ -447,25 +447,31 @@ $\mathcal{L} = \lVert \dot v - f_\theta \rVert^2
  + \underbrace{\mu_{\mathrm{gain}}}_{\text{gauge}}$\\[6pt]}
 \centering\scriptsize
 \setlength{\tabcolsep}{7pt}
-\begin{tabular}{llcc}
+\begin{tabular}{llccl}
 \toprule
- & config name & current training & conductance training \\
+ & config name & current & conductance & swept over \\
 \midrule
-$\gamma_0$ & \texttt{coeff\_W\_L1} & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
-$\gamma_1$ & \texttt{coeff\_W\_L2} & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
+$\gamma_0$ & \texttt{coeff\_W\_L1} & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ & $0 \rightarrow 7.5{\cdot}10^{-4}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2} & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ & $0 \rightarrow 7.5{\cdot}10^{-6}$ \\
 \midrule
-$\mu_1$ & \texttt{coeff\_g\_phi\_diff}           & $375$  & $\mathbf{0}$ \\
-$\mu_2$ & \texttt{coeff\_g\_phi\_norm}           & $0.45$ & $\mathbf{0}$ \\
-$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1} & $\mathbf{25}$ & $0$ \\
-$\mu_{\mathrm{sil}}$ & \texttt{coeff\_g\_phi\_silent}  & $0$ & $\mathbf{25}$ \\
-$\mu_{\mathrm{gain}}$ & \texttt{coeff\_f\_theta\_msg\_gain} & $0$ & $\mathbf{10^{-5}}$ \\
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}           & $375$  & $\mathbf{0}$ & \textbf{??} \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}           & $0.45$ & $\mathbf{0}$ & \textbf{??} \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1} & $\mathbf{25}$ & $0$
+  & $0.25 \rightarrow 25$ \\
+$\mu_{\mathrm{sil}}$ & \texttt{coeff\_g\_phi\_silent}  & $0$ & $\mathbf{25}$
+  & $5 \rightarrow 200$ \\
+$\mu_{\mathrm{gain}}$ & \texttt{coeff\_f\_theta\_msg\_gain} & $0$ & $\mathbf{10^{-5}}$
+  & $10^{-6} \rightarrow 10^{-3}$ \\
 \midrule
-$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.025$ & $0.025$ \\
-$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.025$ & $0.025$ & \textbf{??} \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ & \textbf{??} \\
 \bottomrule
 \end{tabular}\\[5pt]
 {\tiny bs $4$, $\mathrm{lr}_W\,9{\cdot}10^{-4}$, lr $1.8{\cdot}10^{-3}$,
-$\mathrm{lr}_{\mathrm{emb}}\,2.3{\cdot}10^{-3}$ on both}
+$\mathrm{lr}_{\mathrm{emb}}\,2.3{\cdot}10^{-3}$ on both. Sweeps: $\lambda_{\mathrm{grp}}$
+by hand, $\mu_{\mathrm{sil}}$ and $\mu_{\mathrm{gain}}$ by the agentic loop
+(blocks 2 and 3, 24 and 22 seeds) --- neither beat baseline by one CV.
+\textbf{??}: never swept on this data.}
 \end{frame}
 
 \end{document}
