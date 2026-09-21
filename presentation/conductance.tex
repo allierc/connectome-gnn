@@ -229,6 +229,39 @@ Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-0
 \end{minipage}
 \end{frame}
 
+\begin{frame}{What the GNN is asked to discover}
+\srcpath{src/connectome\_gnn/models/neural\_gnn.py}
+\vspace{0.1cm}
+\centering\small
+\begin{tabular}{@{}l@{}}
+\toprule
+\textbf{current} \\
+\midrule
+generator\quad
+  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i$ \\[4pt]
+GNN\qquad\;\;
+  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
+   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$ \\
+\midrule
+\textbf{conductance} \\
+\midrule
+generator\quad
+  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
+   + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i$,\quad $W_{ij} \ge 0$ \\[4pt]
+GNN\qquad\;\;
+  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
+   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j, \mathbf{\underline{v_i, a_i}})$ \\
+\bottomrule
+\end{tabular}\\[8pt]
+\begin{minipage}{0.90\textwidth}\footnotesize
+The GNN is given the edge list and nothing else: $\hat W_{ij}$ is a free per-edge
+scalar and $g_\phi$ is one MLP shared by every synapse. The \emph{only} structural
+difference between the two families is that the conductance $g_\phi$ also sees the
+postsynaptic state --- it has to discover the driving force $(E_i - v_i)$, the
+rectifier and the conductance inside that one surface.
+\end{minipage}
+\end{frame}
+
 \begin{frame}{Conductance GNN on current data: the group lasso}
 \srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
 \vspace{0.1cm}
@@ -268,6 +301,47 @@ $R^2_{\hat W}$ climbs $0.80 \rightarrow 0.98$ and its fold-to-fold spread
 The generator here is current-based, so $g_\phi$ has no use for $v_i$ or $a_i$;
 the lasso removes those input groups, and $R^2_{\hat W}$ rises because the
 driving-force column stops absorbing weight.
+\end{minipage}
+\end{frame}
+
+\begin{frame}{The regularisation behind slides 11 and 12}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
+$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
+   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
+   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
+\\[6pt]}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
+\toprule
+ & config name & slide 11 & \multicolumn{2}{c}{slide 12} \\
+\cmidrule(lr){4-5}
+ & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
+\midrule
+$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
+\midrule
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
+$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
+                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
+\bottomrule
+\end{tabular}\\[4pt]
+\begin{minipage}{0.93\textwidth}\tiny
+$\mu_1$: monotonicity prior $\partial g_\phi/\partial v_j \ge 0$. $\mu_2$: pins $g_\phi$
+at a probe voltage, removing the $\hat W \!\leftrightarrow\! g_\phi$ scale degeneracy.
+\textbf{Slide 12 is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
+$\lambda_1 = 0.14$ and the sweep sets it to $0$, trading one $\ell_1$ for the other.
 \end{minipage}
 \end{frame}
 
