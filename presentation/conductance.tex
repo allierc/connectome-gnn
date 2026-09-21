@@ -1,0 +1,148 @@
+%!TEX program = pdflatex
+% Compile in Kile with -shell-escape (minted) and biber; present with pdfpc.
+% Movies follow the deck convention: an MP4 and a same-basename PNG poster in
+% Movies/, embedded as a run: link annotation that pdfpc turns into the video.
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Janelia}
+\usepackage{people}
+
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[overlay,absolute]{textpos}
+\setlength{\TPHorizModule}{1cm}
+\setlength{\TPVertModule}{1cm}
+
+\usepackage{amsmath,amssymb}
+\usepackage{multimedia}
+\usepackage{tabularx,booktabs}
+\usepackage{helvet}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
+\newcommand{\playmovie}[3][\textwidth]{%
+  \href{run:#2.mp4?autostart&loop&noprogress}{\includegraphics[width=#1]{#2.png}}%
+  \\[2pt]{\scriptsize #3}}
+
+\title{Recovering synaptic conductances from dynamics}
+\subtitle{A conductance GNN on task-trained \emph{Drosophila} visual circuitry}
+\author{Cedric Allier}
+\institute{Saalfeld lab, Janelia}
+\date{\today}
+
+\begin{document}
+
+\frame{\titlepage}
+
+% ===================================================================
+\section{Generating conductance training data}
+% ===================================================================
+
+\begin{frame}{A conductance flyvis model, and how its data is made}
+\begin{columns}[T]
+\begin{column}{0.52\textwidth}
+{\small\textbf{Nominal flyvis} --- current-based synapse:}
+\[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i(t) \]
+{\small\textbf{This model} --- conductance synapse, $W_{ij}\ge 0$:}
+\[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i(t) \]
+{\small The polarity of a synapse moves out of $W$ and into the driving force
+$(E_i-v_i)$: $W$ becomes a non-negative conductance and the sign is carried by
+the postsynaptic reversal potential.}
+\end{column}
+\begin{column}{0.46\textwidth}
+{\small\textbf{Integration: exponential Euler.}\\[3pt]
+Collecting the terms in $v_i$,
+\[ \tau_i \dot v_i = -(1+G_i)\,v_i + b_i, \qquad G_i=\textstyle\sum_j W_{ij}\mathrm{relu}(v_j) \]
+is linear at frozen coefficients, so the step is exact:
+\[ v_i \leftarrow v_i^{\infty} + (v_i - v_i^{\infty})e^{-z_i},\quad z_i=\tfrac{\Delta t}{\tau_i}(1+G_i) \]
+\textbf{Why it matters.} Forward Euler contracts only while $z<2$; this network
+reaches $z=4.42$. A model that learned the generator exactly would still diverge
+in a forward-Euler rollout at $\Delta t = 20$\,ms.}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Reversal potentials by cell type}
+\begin{center}
+% TODO asset: E_i vs postsynaptic type for the flowcond generator.
+% reversals.png exists only for flyvis_conductance_ion_sub_*, a DIFFERENT
+% dataset (the teacher-student twin) -- do not substitute it here.
+% The values live in graphs_data/fly/flyvis_flowcond_*/ode_params.pt.
+\fbox{\parbox[c][4.5cm][c]{0.7\textwidth}{\centering
+  \textbf{asset missing}\\[4pt]
+  \texttt{reversals.png} has never been written for the \texttt{flowcond}
+  series --- only for the \texttt{ion\_sub} twin.\\
+  $E_i$ per type is in \texttt{ode\_params.pt}.}}
+\end{center}
+\end{frame}
+
+\begin{frame}{Activity: noise free and $\sigma = 0.05$}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\centering\includegraphics[width=\textwidth]{Fig/activity_noisefree.png}\\[2pt]
+{\scriptsize noise free}
+\end{column}
+\begin{column}{0.5\textwidth}
+\centering\includegraphics[width=\textwidth]{Fig/activity_noise005.png}\\[2pt]
+{\scriptsize $\sigma = 0.05$ process noise}
+\end{column}
+\end{columns}
+\vspace{4pt}
+{\scriptsize The noise is added to the voltage at every integration step, so the
+stored trajectory is one stochastic path. It lives in the TRAIN split only: the
+test split is identical to the noise-free twin to $2.6\times10^{-6}$.}
+\end{frame}
+
+\begin{frame}{Generation}
+\begin{center}
+\playmovie[0.62\textwidth]{Movies/generation_flowcond}{%
+  \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- 13{,}741 neurons,
+  434{,}112 edges, 64{,}000 frames at $\Delta t = 20$\,ms, DAVIS video with a
+  50\% blank prefix.}
+\end{center}
+\end{frame}
+
+% ===================================================================
+\section{Conductance model on current data}
+% ===================================================================
+
+\begin{frame}{Conductance model fitted to current-generated data}
+% TODO: 1-3 slides. Source: config/fly/archive_7/flyvis_current_*_conductance_*.
+\end{frame}
+
+% ===================================================================
+\section{Known-ODE on conductance data}
+% ===================================================================
+
+\begin{frame}{The identifiability ceiling}
+% TODO: 10 folds RUNNING as of 2026-09-21
+% flyvis_flowcond_{noise_005,noise_free}_conductance_knownode_cv0{0..4}.
+% The known-ODE has the generator's structure and learns only its parameters,
+% so it separates the inverse problem from the readout.
+\end{frame}
+
+% ===================================================================
+\section{Conductance GNN on conductance data}
+% ===================================================================
+
+\begin{frame}{What the GNN recovers}
+% TODO: Wij_R2 peak 0.433 +- 0.074 (n=22 seeds), msg_i_R2 0.90-0.94,
+% rollout_r 0.99 and saturated. The sum of a neuron's messages is recovered;
+% its decomposition into edges is not.
+\end{frame}
+
+\begin{frame}{Two failure modes}
+% TODO: sign-flip basin ~41% of seeds (k_i negative, wrong-slope 65-68%,
+% |W| and hence Wij_R2 unharmed); W-scale overshoot (gain -> 1, tau_R2 0.30).
+\end{frame}
+
+% ===================================================================
+\section{Perspectives}
+% ===================================================================
+
+\begin{frame}{Where the ceiling comes from, and what would move it}
+% TODO: separable g_phi = phi(v_j)*psi(v_i); decorrelating stimuli;
+% presynaptic silencing in the generator.
+\end{frame}
+
+\end{document}
