@@ -117,29 +117,36 @@ expect. Quote them as context, never as this iteration's result.
 
 | quantity | value | where |
 | --- | --- | --- |
-| best `Wij_R2` peak seen | 0.483 (`s25g1e5`), reproduced across three launches | 22-arm sweep |
-| baseline `Wij_R2` peak | 0.399 | `cv00` |
-| `Wij_R2` peaks at | iteration 16k–24k, then decays | baseline trajectory |
+| baseline `Wij_R2` peak | **0.433 ± 0.074, CV 17.1% (n = 22 seeds)** | block 1, measured |
+| a real gain must clear | **one CV, ~0.074 absolute**, on a fresh-seed replicate | block 1 |
+| `Wij_R2` peaks at | **seed-dependent, 8k–340k. There is NO peak window** | block 1 |
+| sign-flip basin | **~41% of seeds**: `k_i` negative, `Eij_pct_wrong_slope` 65–68%, `Wij_R2` UNHARMED because `|W|` is reported | blocks 1–5 |
+| W-scale overshoot | `Wij_gain` -> ~1, `tau_R2` 0.30–0.55, `Wij_R2` negative, signs clean. Provoked by raising `lr_W` or `w_init_scale` | blocks 4–5 |
 | `tau_R2` plateaus at | iteration 160k, around 0.87 | baseline trajectory |
 | `V_rest_R2` plateaus at | iteration 120k, around 0.60 | baseline trajectory |
 | `Eij_pct_wrong_slope` | 31.6% best, 40% baseline, 44% worst | 22-arm sweep |
 | `rollout_r` | **0.990–0.996 on every non-diverged arm** | after the noise-free-twin fix |
 | `msg_i_R2` | 0.94 with the gauge terms, 0.47 baseline, 0.11 under heavy W L1 | 22-arm sweep |
 
-Four facts that decide how you spend slots:
+Five facts that decide how you spend slots:
 
 1. **`rollout_r` is saturated and is NOT a ranking metric.** A checkpoint with `Wij_R2` 0.35
    rolls out at 0.994. Use it only as a divergence guard: `rollout_r < 0.9` means the model
    diverged and the slot is disqualified whatever else it reports.
-2. **The two gauge terms are the only lever that has ever worked.** `coeff_g_phi_silent: 25`
-   took the top peak at all three `coeff_f_theta_msg_gain` levels, cut wrong-slope from 40% to
-   31%, and lifted `msg_i_R2` from 0.47 to 0.94. 25 was the TOP of that grid, so the optimum
-   may be beyond it.
+2. **EVERY HYPERPARAMETER LEVER TESTED SO FAR IS NEUTRAL ON THE PEAK.** Blocks 2–5 killed the
+   silent anchor (24 seeds), the message gain (22), the learning rates (24) and the W
+   initialisation (24); `W` L1/L2 died in the sweep before them. Each block produced an
+   apparent winner that its own 8-seed robustness batch then falsified — "scale 5 wins",
+   "lr_embedding 1e-3 wins", "msg_gain 1e-4 is 3/3 clean", "ratio 2.0 is the only stable
+   setting". EXPECT A SINGLE-SEED WINNER TO BE LUCK AND REPLICATE IT BEFORE BELIEVING IT.
 3. **`coeff_W_L1` and `coeff_W_L2` are dead.** Eight arms spanned peaks 0.302–0.408 around the
    baseline's 0.399 while `msg_i_R2` collapsed to 0.11–0.68. Do not spend a block on them.
 4. **Late collapse is real and the final value lies about it.** `s5g1e3` peaked at 0.270 and
    ended at -0.082; `s5g1e5` peaked at 0.438 and ended at 0.242. Rank on the peak and
    disqualify on the ratio.
+5. **The clean-sign basin co-occurs with a SMALL, SLOWLY-CHARGED W.** The cleanest seeds have
+   `Wij_gain` 0.29–0.43 and can stay negative until iteration 187k; the seeds that overshoot
+   toward gain 1.0 also flip. So do not chase `Wij_gain` -> 1 as if it were the target.
 
 ---
 
@@ -188,7 +195,10 @@ YOU MAY MODIFY ONLY THE PARAMETERS IN THIS TABLE.
 | `w_init_scale` | 1.0 | {1, 5, 20, 60} | bound = `scale / sqrt(n_edges)`. Untested on this dataset and implicated by `Wij_gain` sitting at 0.42–0.61 |
 | `w_init_mode` | `randn_scaled` | `randn_scaled`, `uniform_scaled`, `zeros` | lowercase |
 | `batch_size` | 4 | {2, 4, 8, 16} | INTEGER. Interacts with `regul_batch_scaling: sqrt`; check that the regulariser/fit ratio held before reading a result |
-| `hidden_dim` | 80 | {64, 80, 128} | g_phi and f_theta width |
+| `hidden_dim` | 80 | {80, 128, 192, 256} | g_phi width |
+| `n_layers` | 3 | {3, 4, 5} | g_phi depth |
+| `hidden_dim_update` | 80 | {80, 128, 192, 256} | f_theta width |
+| `n_layers_update` | 3 | {3, 4, 5} | f_theta depth |
 | `embedding_dim` | 2 | {2, 4} | changing it changes `input_size` to `2 + 2*embedding_dim`; the group lasso's column slices index against that layout |
 | `coeff_g_phi_weight_L1` | 0 | {0, 0.01, 0.05} | L1 on the g_phi MLP weights. **Values >= 0.1 collapse training at flyvis scale** |
 | `coeff_g_phi_weight_L2` | 0 | {0, 1e-4, 1e-3} | L2 on the g_phi MLP weights |
@@ -240,8 +250,10 @@ a `>>> BLOCK END <<<` marker are injected into your prompt.
 | 3 | Exploration | **The message gain** | `coeff_f_theta_msg_gain` | {1e-6, 1e-5, 1e-4, 1e-3} crossed with the winner of block 2. Report `Wij_gain` beside every result; the gain is what this coefficient is supposed to move |
 | 4 | Exploration | **Learning rates** | `lr_W`, `lr`, `lr_embedding` | as in the parameter table. Record the `lr_W`/`lr` ratio — it, not either rate alone, is what moved earlier explorations |
 | 5 | Exploration | **W initialisation** | `w_init_scale`, `w_init_mode` | scale {1, 5, 20, 60}, mode {randn_scaled, uniform_scaled, zeros}. `Wij_gain` sits at 0.42–0.61, i.e. the learned W is systematically small; this block asks whether the initialisation is why |
-| 6 | Exploration | **Capacity and batch** | `hidden_dim`, `embedding_dim`, `batch_size`, `data_augmentation_loop` | hold the wall-clock target by moving DAL inversely with batch size; report achieved minutes per iteration beside every result |
+| 6 | Exploration | **MLP capacity — the last untested hyperparameter** | `hidden_dim`, `n_layers`, `hidden_dim_update`, `n_layers_update` | width {80, 128, 192, 256} and depth {3, 4, 5}, on g_phi first and then f_theta. Blocks 2–5 found the silent anchor, message gain, learning rates and W initialisation ALL neutral on the peak, and `W` L1/L2 was already dead, so capacity is the only hyperparameter left that has never been moved: g_phi has sat at 3 layers of 80 units for every run in this project's history. Scan g_phi width and depth before touching f_theta, and change ONE of the four per slot. Hold the wall-clock target with `data_augmentation_loop` if a wider net slows the iteration, and report the achieved minutes beside every result |
 | 7 | Combine + validate | Champion and its variance | any of the above, then none | First two batches consolidate the best of blocks 2–6, ONE change per slot. THE LAST BATCH IS A ROBUSTNESS TEST: all 8 slots at the champion with different seeds, to confirm the CV and that no seed is catastrophic |
+
+**WHY CAPACITY IS A LIVE HYPOTHESIS AND NOT JUST THE NEXT KNOB.** `g_phi` must represent `relu(v_j) * (E_i - v_i)` -- a product of a rectifier in the presynaptic voltage and an affine function of the postsynaptic one, with `E_i` varying by cell type -- from a 3-layer, 80-unit MLP over `[v_j, a_j, v_i, a_i]`. If that surface is underparameterised, the network cannot hold the two factors apart, which is exactly the failure the sign-flip basin shows: the reversals come out with the wrong sign in ~41% of seeds while `|W|`, and therefore `Wij_R2`, is unharmed. So report `Eij_pct_wrong_slope` and the sign of `k_median` for every capacity arm, not only the peak. A capacity that lowers the flip RATE is a finding even if the peak does not move.
 
 **THE ORDER IS DELIBERATE AND IS NOT YOURS TO REORDER.** The silent anchor comes first
 because it is the only term with a measured effect on this dataset, and every later block is
