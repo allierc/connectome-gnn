@@ -49,29 +49,27 @@
 \end{frame}
 
 \begin{frame}{Training the conductance flyvis model}
-\begin{itemize}\small
+\scriptsize
+\setlength{\itemsep}{1pt}
+\begin{itemize}\itemsep1pt
 \item \textbf{Stimuli} --- Sintel, \texttt{original\_sampling}; box filter extent 15,
-      kernel 13; 19 frames, 3 vertical splits, centre crop 0.7; augmentation
-      flip / rotate $p=0.5$, contrast $\sigma\!=\!0.2$, brightness
-      $\sigma\!=\!0.1$, white noise $0.08$
-\item \textbf{Rollout} --- 19 Sintel frames resampled to $\Delta t = 20$\,ms
-      $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated
-      through all of them
-\item \textbf{$E_i$ anchored on the learned per-type bias} through a sigmoid
-      band, excursion $1.0$:
-      $E_{\mathrm{exc}} \in [1.5, 6.0]$ (1 global),
-      $E_{\mathrm{inh}} \in [-6.0, -0.5]$ (65 per type)
-      $\Rightarrow$ 66 learnable reversals
+      kernel 13; 19 frames, 3 vertical splits, crop 0.7; flip / rotate $p=0.5$,
+      contrast $\sigma\!=\!0.2$, brightness $\sigma\!=\!0.1$, white noise $0.08$
+\item \textbf{Rollout} --- 19 frames resampled to $\Delta t = 20$\,ms
+      $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated through all
+\item \textbf{$E_i$ anchored on the learned per-type bias}, sigmoid band, excursion $1.0$:
+      $E_{\mathrm{exc}} \in [1.5, 6.0]$ (1 global), $E_{\mathrm{inh}} \in [-6.0, -0.5]$
+      (65 per type) $\Rightarrow$ 66 learnable reversals
 \item \textbf{Optimiser} --- Adam, $\mathrm{lr} = 5\times10^{-5}$, batch 4,
       250{,}000 iterations, 65 checkpoints; H100, 5.5\,h
-\item \textbf{Loss} $\ell_2$ norm on decoded flow: $1214.7 \rightarrow 1175.3$,
+\item \textbf{Loss} $\ell_2$ on decoded flow: $1214.7 \rightarrow 1175.3$,
       \textbf{min 1147.1 at checkpoint 28}
-\item \textbf{EPE} $= \big\langle \lVert \hat{\mathbf{f}} - \mathbf{f} \rVert_2 \big\rangle$,
-      mean over hexagonal pixels and frames:
-      $5.785 \rightarrow 5.454$, \textbf{min 5.390 at checkpoint 28}
+\item \textbf{EPE} $= \big\langle \lVert \hat{\mathbf{f}} - \mathbf{f} \rVert_2 \big\rangle$
+      over hexagonal pixels and frames: $5.785 \rightarrow 5.454$,
+      \textbf{min 5.390 at checkpoint 28}
 \end{itemize}
-\vspace{2pt}
-\centering\small
+\vspace{1pt}
+\begin{center}
 \begin{tabular}{lccc}
 \toprule
  & $n$ & $\ell_2$ norm & EPE \\
@@ -80,8 +78,9 @@ published flyvis, current & 50 & $1150.2 \pm 17.2$ & $5.410 \pm 0.103$ \\
 our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$ \\
 \textbf{our conductance}  &  2 & $1153.0 \pm \phantom{0}8.3$ & $5.397 \pm 0.010$ \\
 \bottomrule
-\end{tabular}\\[2pt]
-{\scriptsize mean $\pm$ SD over ensemble members, each at its own argmin-EPE checkpoint}
+\end{tabular}\\[1pt]
+{\tiny mean $\pm$ SD over ensemble members, each at its argmin-EPE checkpoint}
+\end{center}
 \end{frame}
 
 \begin{frame}{Reversal potentials by cell type}
