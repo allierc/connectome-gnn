@@ -172,38 +172,40 @@ $\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma
 $C = K * v + \gamma\,\eta$, \quad GCaMP6f, \quad model noise $\sigma = 0.05$
 \qquad
 $\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\overline{\hat K}\,\hat C}
- {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$\\[5pt]}
+ {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$\\[4pt]}
 \centering\tiny
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llcccccccc}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lcccc}
 \toprule
- & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{prediction}
- & \multicolumn{4}{c}{parameter recovery} \\
-\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-10}
-model & $\gamma/\mathrm{SD}$ (SNR) & $r(v)$ & $r(\dot v)$
-  & one-step $r$ & rollout $r$
+$\gamma/\mathrm{SD}$ & $0$ & $0.01$ & $0.03$ & $0.10$ \\
+SNR & $\infty$ & $40$\,dB & $30$\,dB & $20$\,dB \\
+$\lambda$ & $10^{-6}$ & $10^{-3}$ & $10^{-2}$ & $10^{-1}$ \\
+\midrule
+$r(v)$      & \good{$0.9998$} & \good{$0.9797$} & \good{$0.9695$} & \good{$0.9562$} \\
+$r(\dot v)$ & \good{$0.9933$} & $0.4353$ & \bad{$0.2803$} & \bad{$0.1719$} \\
+\bottomrule
+\end{tabular}\\[7pt]
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-8}
+model & SNR & one-step $r$ & rollout $r$
   & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ & cluster \\
 \midrule
-GNN & $0$ ($\infty$) & \good{$0.9998$} & \good{$0.9933$}
-  & \good{$0.974$} & \good{$0.992$} & \good{$0.969$} & \good{$0.96$} & $0.85$ & $0.87$ \\
-    & $0.01$ ($40$)  & \good{$0.9797$} & $0.4353$
-  & $0.656$ & $0.667$ & \bad{$0.183$} & $0.37$ & $0.46$ & $0.76$ \\
-    & $0.03$ ($30$)  & \good{$0.9695$} & \bad{$0.2803$}
-  & $0.550$ & $0.403$ & \bad{$-1.270$} & $0.61$ & $0.66$ & $0.73$ \\
-    & $0.10$ ($20$)  & \good{$0.9562$} & \bad{$0.1719$}
-  & $0.414$ & \bad{$0.115$} & \bad{$-0.794$} & \multicolumn{1}{c}{---} & $0.54$ & $0.68$ \\
+GNN & $\infty$   & \good{$0.974$} & \good{$0.992$} & \good{$0.969$} & \good{$0.96$} & $0.85$ & $0.87$ \\
+    & $40$\,dB   & $0.656$ & $0.667$ & \bad{$0.183$} & $0.37$ & $0.46$ & $0.76$ \\
+    & $30$\,dB   & $0.550$ & $0.403$ & \bad{$-1.270$} & $0.61$ & $0.66$ & $0.73$ \\
+    & $20$\,dB   & $0.414$ & \bad{$0.115$} & \bad{$-0.794$} & \multicolumn{1}{c}{---} & $0.54$ & $0.68$ \\
 \midrule
-Known-ODE & $0$ ($\infty$) & \good{$0.9998$} & \good{$0.9933$}
-  & \good{$0.972$} & \good{$0.991$} & \good{$0.915$} & \good{$0.95$} & $0.80$ & \good{$0.90$} \\
-    & $0.01$ ($40$)  & \good{$0.9797$} & $0.4353$
-  & $0.643$ & $0.654$ & $0.383$ & \bad{$0.30$} & $0.64$ & $0.86$ \\
-    & $0.03$ ($30$)  & \good{$0.9695$} & \bad{$0.2803$}
-  & $0.536$ & $0.402$ & \bad{$0.181$} & \bad{$-0.08$} & $0.63$ & $0.82$ \\
-    & $0.10$ ($20$)  & \good{$0.9562$} & \bad{$0.1719$}
-  & $0.400$ & \bad{$0.015$} & \bad{$-0.060$} & \bad{$-8.67$} & $0.56$ & $0.74$ \\
+Known-ODE & $\infty$ & \good{$0.972$} & \good{$0.991$} & \good{$0.915$} & \good{$0.95$} & $0.80$ & \good{$0.90$} \\
+    & $40$\,dB   & $0.643$ & $0.654$ & $0.383$ & \bad{$0.30$} & $0.64$ & $0.86$ \\
+    & $30$\,dB   & $0.536$ & $0.402$ & \bad{$0.181$} & \bad{$-0.08$} & $0.63$ & $0.82$ \\
+    & $20$\,dB   & $0.400$ & \bad{$0.015$} & \bad{$-0.060$} & \bad{$-8.67$} & $0.56$ & $0.74$ \\
 \bottomrule
 \end{tabular}\\[4pt]
-{\tiny $\lambda$ by $\max_\lambda r(\dot v)$, per noise level}
+{\tiny $\lambda$ by $\max_\lambda r(\dot v)$, per noise level; both models fitted to the
+same deconvolved recording}
 \end{frame}
 
 % ====================
