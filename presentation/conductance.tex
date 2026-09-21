@@ -177,6 +177,36 @@ $\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
 \bottomrule
 \end{tabular}\end{frame}
 
+\begin{frame}{Calcium observation model}
+\srcpath{GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_\{unified,known\_ode\}.yaml}
+\vspace*{0.25cm}
+{\centering\scriptsize
+$C = K * v + \gamma\,\eta$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
+$\tau_{\mathrm{decay}} = 400$\,ms
+\qquad
+$\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\bar{\hat K}\,\hat C}{|\hat K|^2 + \lambda}\right]$
+\\[5pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccccc}
+\toprule
+ & & & \multicolumn{2}{c}{deconvolution} & \multicolumn{2}{c}{GNN} & \multicolumn{2}{c}{Known-ODE} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}
+$\gamma/\mathrm{SD}$ & SNR & $\lambda$ & $r(v)$ & $r(\dot v)$
+  & rollout $r$ & $R^2_{\hat W}$ & rollout $r$ & $R^2_{\hat W}$ \\
+\midrule
+$0$    & $\infty$   & $10^{-6}$ & \good{$0.9998$} & \good{$0.9933$}
+  & \good{$0.992$} & \good{$0.969$} & \good{$0.991$} & \good{$0.915$} \\
+$0.01$ & $40$\,dB   & $10^{-3}$ & \good{$0.9797$} & $0.4353$
+  & $0.667$ & \bad{$0.183$} & $0.654$ & $0.383$ \\
+$0.03$ & $30$\,dB   & $10^{-2}$ & \good{$0.9695$} & \bad{$0.2803$}
+  & $0.403$ & \bad{$-1.270$} & $0.402$ & \bad{$0.181$} \\
+$0.10$ & $20$\,dB   & $10^{-1}$ & \good{$0.9562$} & \bad{$0.1719$}
+  & \bad{$0.115$} & \bad{$-0.794$} & \bad{$0.015$} & \bad{$-0.060$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 % ====================
 \section{Conductance model}
 % ====================
