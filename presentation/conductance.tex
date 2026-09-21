@@ -58,10 +58,200 @@
 
 \frame{\titlepage}
 
-% ===================================================================
-\section{Generating conductance training data}
-% ===================================================================
+% ====================
+\section{Current model}
+% ====================
+\begin{frame}{Before and after the derivative-target fix}
+\label{sl:beforeafter}
+\srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
+\vspace{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llcccccccc}
+\toprule
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+model & target & $\sigma$ & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%)
+  & cluster \\
+\midrule
+Known ODE & before & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & \good{$0.97{\pm}0.00\,(10.2)$} & \good{$0.92{\pm}0.00$} \\
+          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$}  & \good{$0.93{\pm}0.00$} \\
+          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$1.00{\pm}0.00\,(0.0)$}  & \good{$0.93{\pm}0.00$} \\
+\cmidrule(lr){2-9}
+          & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & $0.90{\pm}0.00\,(1.7)$ & \good{$0.92{\pm}0.00$} \\
+          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.95{\pm}0.00$} & \good{$0.97{\pm}0.00\,(0.0)$} & \good{$0.92{\pm}0.00\,(8.8)$} & \good{$0.90{\pm}0.01$} \\
+          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & $0.90{\pm}0.00\,(8.5)$ & $0.88{\pm}0.01$ \\
+\midrule
+GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{\pm}0.04$ & \good{$0.94{\pm}0.03\,(3.1)$} & $0.76{\pm}0.09\,(13.7)$ & $0.86{\pm}0.02$ \\
+           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
+           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.98{\pm}0.03\,(0.0)$} & \good{$0.92{\pm}0.01$} \\
+\cmidrule(lr){2-9}
+           & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.04$ & \good{$0.91{\pm}0.02\,(3.7)$} & $0.78{\pm}0.08\,(14.9)$ & $0.84{\pm}0.03$ \\
+           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.97{\pm}0.01$} & \good{$0.95{\pm}0.03\,(0.4)$} & $0.77{\pm}0.08\,(10.5)$ & $0.88{\pm}0.01$ \\
+           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.98{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & $0.90{\pm}0.02\,(1.8)$ & $0.87{\pm}0.01$ \\
+\midrule
+\multicolumn{2}{l}{GNN cond.\ on \emph{current}$^{*}$} & $0.05$
+  & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & \multicolumn{1}{c}{---} \\
+\bottomrule
+\end{tabular}\\[3pt]
+\begin{minipage}{0.95\textwidth}\tiny
+5-fold CV, mean\,$\pm$\,SD; parenthesised values are the mean outlier percentage.
+\good{Green}: $>0.9$. At $\sigma = 0$ the finite difference \emph{is} the analytic
+drift, so that row is the control and must not move --- and does not. The leak shows
+at $\sigma > 0$ and lands hardest on $V^{\mathrm{rest}}$: raw
+$R^2_{\hat V^{\mathrm{rest}}}$ falls $0.951 \rightarrow 0.672$ for the Known-ODE and
+$0.758 \rightarrow 0.314$ for the GNN at $\sigma = 0.05$.
+$^{*}$fold 0, lasso $\lambda = 1$; $\lambda = 10$ gives $R^2_{\hat W} = 0.97$.
+Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-09-09.
+\end{minipage}
+\end{frame}
 
+\begin{frame}{Measurement noise: recurrent training}
+\label{sl:measnoise}
+\srcpath{log/fly/flyvis\_noise\_005\_meas\_\{010,020,050\}\_gnn\_rc*\_cv00}
+\vspace*{0.3cm}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+condition & $\gamma$ & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
+\midrule
+\multicolumn{8}{l}{\itshape published, one-step training, 5-fold} \\
+low model noise & $0$   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
+low meas.\ noise & $0.1$ & \good{$0.99{\pm}0.00$} & $0.85{\pm}0.24$ & $0.63{\pm}0.02$ & \bad{$0.28{\pm}0.02\,(8.9)$} & $0.63{\pm}0.04\,(30.4)$ & $0.87{\pm}0.01$ \\
+mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.38{\pm}0.01$ & \bad{$0.08{\pm}0.01\,(9.7)$} & $0.61{\pm}0.04\,(49.1)$ & $0.85{\pm}0.01$ \\
+\midrule
+\multicolumn{8}{l}{\itshape latest, recurrent training, fold 0} \\
+\texttt{rc40} & $0.1$ & \good{$0.99$} & \good{$0.99$} & $\mathbf{0.78}$ & $0.68\,(4.9)$ & $0.71\,(22.8)$ & $0.82$ \\
+\texttt{rc20} & $0.2$ & \good{$0.96$} & \good{$0.98$} & $\mathbf{0.61}$ & \bad{$0.22\,(9.7)$} & $0.64\,(34.6)$ & $0.81$ \\
+\texttt{rc40ramp} & $0.5$ & $0.74$ & $0.88$ & $0.33$ & \bad{$-0.07\,(9.7)$} & $0.53\,(53.7)$ & $0.67$ \\
+\bottomrule
+\end{tabular}\\[5pt]
+\begin{minipage}{0.90\textwidth}\tiny
+Model noise $\sigma = 0.05$ throughout; $\gamma$ is measurement noise.
+$R^2_{\hat W}$: $0.63 \rightarrow 0.78$ at $\gamma = 0.1$ and
+$0.38 \rightarrow 0.61$ at $\gamma = 0.2$. $\gamma = 0.5$ is new --- no published row.
+$R^2_{\hat\tau}$ does not recover.
+\end{minipage}
+\end{frame}
+
+\begin{frame}{What the GNN is asked to discover}
+\srcpath{src/connectome\_gnn/models/neural\_gnn.py}
+\vspace{0.1cm}
+\centering\small
+\begin{tabular}{@{}l@{}}
+\toprule
+\textbf{current} \\
+\midrule
+generator\quad
+  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i$ \\[4pt]
+GNN\qquad\;\;
+  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
+   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$ \\
+\midrule
+\textbf{conductance} \\
+\midrule
+generator\quad
+  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
+   + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i$,\quad $W_{ij} \ge 0$ \\[4pt]
+GNN\qquad\;\;
+  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
+   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j, \mathbf{\underline{v_i, a_i}})$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Conductance GNN on current data: the group lasso}
+\label{sl:lasso}
+\srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
+\vspace{0.1cm}
+{\centering\scriptsize
+$\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
+ \bigl\lVert \mathbf{W}^{(0)}_{:,\,g} \bigr\rVert_2$
+\\[2pt] one $\ell_2$ group per input block of $g_\phi$'s first layer, summed as
+$\ell_1$: a whole input can be driven to zero\\[4pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+$\lambda_1$ & folds & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+\midrule
+$0$ (none) & 5 & --- & \good{$1.00{\pm}0.00$}
+  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
+\midrule
+$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ \\
+$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} \\
+$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ \\
+$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ \\
+$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} \\
+$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} \\
+$\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
+  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
+\bottomrule
+\end{tabular}\\[4pt]
+\begin{minipage}{0.93\textwidth}\tiny
+$\sigma = 0.05$ throughout. The $\lambda_1 = 0$ row is 5-fold mean\,$\pm$\,SD; the
+sweep is fold 0 only. \good{Green}: $>0.9$. Prediction is saturated at every
+$\lambda_1$ and says nothing --- the lasso buys \emph{recovery}:
+$R^2_{\hat W}$ climbs $0.80 \rightarrow 0.98$ and its fold-to-fold spread
+($\pm 0.15$ without) is larger than the whole effect of $\lambda_1$ below $10$.
+The generator here is current-based, so $g_\phi$ has no use for $v_i$ or $a_i$;
+the lasso removes those input groups, and $R^2_{\hat W}$ rises because the
+driving-force column stops absorbing weight.
+\end{minipage}
+\end{frame}
+
+\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
+$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
+   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
+   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
+\\[6pt]}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccc}
+\toprule
+ & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
+\cmidrule(lr){4-5}
+ & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
+\midrule
+$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
+\midrule
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
+$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
+                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
+\bottomrule
+\end{tabular}\\[4pt]
+\begin{minipage}{0.93\textwidth}\tiny
+$\mu_1$: monotonicity prior $\partial g_\phi/\partial v_j \ge 0$. $\mu_2$: pins $g_\phi$
+at a probe voltage, removing the $\hat W \!\leftrightarrow\! g_\phi$ scale degeneracy.
+\textbf{Slide \ref{sl:lasso} is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
+$\lambda_1 = 0.14$ and the sweep sets it to $0$, trading one $\ell_1$ for the other.
+\end{minipage}
+\end{frame}
+
+% ====================
+\section{Conductance model}
+% ====================
 \begin{frame}{A conductance flyvis model}
 \srcpath{src/flyvis\_conductance\_optical\_flow/dynamics.py}
 \vfill
@@ -184,162 +374,43 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \section{Conductance model on current data}
 % ===================================================================
 
-\begin{frame}{Before and after the derivative-target fix}
-\label{sl:beforeafter}
-\srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
-\vspace{0.2cm}
+\begin{frame}{Conductance Known-ODE on conductance data}
+\srcpath{log/fly/archive\_*/flyvis\_conductance\_noise\_\{free,005\}\_conductance\_knownode\_cv0*}
+\vspace*{0.3cm}
 \centering\tiny
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{llcccccccc}
-\toprule
- & & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
-\cmidrule(lr){4-5}\cmidrule(lr){6-9}
-model & target & $\sigma$ & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%)
-  & cluster \\
-\midrule
-Known ODE & before & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & \good{$0.97{\pm}0.00\,(10.2)$} & \good{$0.92{\pm}0.00$} \\
-          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$}  & \good{$0.93{\pm}0.00$} \\
-          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$1.00{\pm}0.00\,(0.0)$}  & \good{$0.93{\pm}0.00$} \\
-\cmidrule(lr){2-9}
-          & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & $0.90{\pm}0.00\,(1.7)$ & \good{$0.92{\pm}0.00$} \\
-          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.95{\pm}0.00$} & \good{$0.97{\pm}0.00\,(0.0)$} & \good{$0.92{\pm}0.00\,(8.8)$} & \good{$0.90{\pm}0.01$} \\
-          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & $0.90{\pm}0.00\,(8.5)$ & $0.88{\pm}0.01$ \\
-\midrule
-GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{\pm}0.04$ & \good{$0.94{\pm}0.03\,(3.1)$} & $0.76{\pm}0.09\,(13.7)$ & $0.86{\pm}0.02$ \\
-           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
-           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.98{\pm}0.03\,(0.0)$} & \good{$0.92{\pm}0.01$} \\
-\cmidrule(lr){2-9}
-           & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.04$ & \good{$0.91{\pm}0.02\,(3.7)$} & $0.78{\pm}0.08\,(14.9)$ & $0.84{\pm}0.03$ \\
-           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.97{\pm}0.01$} & \good{$0.95{\pm}0.03\,(0.4)$} & $0.77{\pm}0.08\,(10.5)$ & $0.88{\pm}0.01$ \\
-           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.98{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & $0.90{\pm}0.02\,(1.8)$ & $0.87{\pm}0.01$ \\
-\midrule
-\multicolumn{2}{l}{GNN cond.\ on \emph{current}$^{*}$} & $0.05$
-  & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & \multicolumn{1}{c}{---} \\
-\bottomrule
-\end{tabular}\\[3pt]
-\begin{minipage}{0.95\textwidth}\tiny
-5-fold CV, mean\,$\pm$\,SD; parenthesised values are the mean outlier percentage.
-\good{Green}: $>0.9$. At $\sigma = 0$ the finite difference \emph{is} the analytic
-drift, so that row is the control and must not move --- and does not. The leak shows
-at $\sigma > 0$ and lands hardest on $V^{\mathrm{rest}}$: raw
-$R^2_{\hat V^{\mathrm{rest}}}$ falls $0.951 \rightarrow 0.672$ for the Known-ODE and
-$0.758 \rightarrow 0.314$ for the GNN at $\sigma = 0.05$.
-$^{*}$fold 0, lasso $\lambda = 1$; $\lambda = 10$ gives $R^2_{\hat W} = 0.97$.
-Fixed on \texttt{fix/measurement-noise-target}, merged \texttt{816ca34d}, 2026-09-09.
-\end{minipage}
-\end{frame}
-
-\begin{frame}{What the GNN is asked to discover}
-\srcpath{src/connectome\_gnn/models/neural\_gnn.py}
-\vspace{0.1cm}
-\centering\small
-\begin{tabular}{@{}l@{}}
-\toprule
-\textbf{current} \\
-\midrule
-generator\quad
-  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i$ \\[4pt]
-GNN\qquad\;\;
-  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
-   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$ \\
-\midrule
-\textbf{conductance} \\
-\midrule
-generator\quad
-  $\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
-   + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i$,\quad $W_{ij} \ge 0$ \\[4pt]
-GNN\qquad\;\;
-  $\dot v_i = f_\theta\bigl(v_i, \mathbf{a}_i, m_i, I_i\bigr), \qquad
-   m_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j, \mathbf{\underline{v_i, a_i}})$ \\
-\bottomrule
-\end{tabular}
-\end{frame}
-
-\begin{frame}{Conductance GNN on current data: the group lasso}
-\label{sl:lasso}
-\srcpath{log/fly/archive\_*/flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}
-\vspace{0.1cm}
-{\centering\scriptsize
-$\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
- \bigl\lVert \mathbf{W}^{(0)}_{:,\,g} \bigr\rVert_2$
-\\[2pt] one $\ell_2$ group per input block of $g_\phi$'s first layer, summed as
-$\ell_1$: a whole input can be driven to zero\\[4pt]}
-\centering\tiny
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcccccc}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccccc}
 \toprule
  & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
 \cmidrule(lr){3-4}\cmidrule(lr){5-7}
-$\lambda_1$ & folds & one-step $r$ & rollout $r$
-  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) \\
+model & data & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ \\
 \midrule
-$0$ (none) & 5 & --- & \good{$1.00{\pm}0.00$}
-  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ \\
+\multicolumn{7}{l}{\itshape diagonal --- the form matches the generator} \\
+Known-ODE cond.\ & conductance, $\sigma=0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
+Known-ODE cond.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} \\
 \midrule
-$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ \\
-$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} \\
-$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ \\
-$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ \\
-$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} \\
-$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} \\
-$\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
-  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} \\
+\multicolumn{7}{l}{\itshape off-diagonal --- the form is wrong} \\
+Known-ODE cond.\ & current, $\sigma=0.05$     & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \bad{$-0.03{\pm}0.00$} & \good{$0.95{\pm}0.00$} & $0.67{\pm}0.01$ \\
+Known-ODE curr.\ & conductance, $\sigma=0.05$ & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \bad{$-27.4{\pm}0.1$} & \good{$1.00{\pm}0.00$} & $0.89{\pm}0.00$ \\
+\midrule
+Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0$    & \multicolumn{5}{c}{\itshape 5 folds training} \\
+Known-ODE cond.\ & \texttt{flowcond}, $\sigma=0.05$ & \multicolumn{5}{c}{\itshape 5 folds training} \\
 \bottomrule
-\end{tabular}\\[4pt]
-\begin{minipage}{0.93\textwidth}\tiny
-$\sigma = 0.05$ throughout. The $\lambda_1 = 0$ row is 5-fold mean\,$\pm$\,SD; the
-sweep is fold 0 only. \good{Green}: $>0.9$. Prediction is saturated at every
-$\lambda_1$ and says nothing --- the lasso buys \emph{recovery}:
-$R^2_{\hat W}$ climbs $0.80 \rightarrow 0.98$ and its fold-to-fold spread
-($\pm 0.15$ without) is larger than the whole effect of $\lambda_1$ below $10$.
-The generator here is current-based, so $g_\phi$ has no use for $v_i$ or $a_i$;
-the lasso removes those input groups, and $R^2_{\hat W}$ rises because the
-driving-force column stops absorbing weight.
+\end{tabular}\\[5pt]
+\begin{minipage}{0.90\textwidth}\tiny
+5-fold CV, mean\,$\pm$\,SD. The Known-ODE has the generator's structure and learns
+only its parameters, so the diagonal is the identifiability ceiling and the
+off-diagonal is what a wrong structural assumption costs: a conductance form on
+current data has a driving force that collapses, a current form on conductance data
+cannot represent one at all. Prediction is \good{$1.00$} on every row, including
+both failures.
 \end{minipage}
 \end{frame}
 
-\begin{frame}{The regularisation behind slides \ref{sl:beforeafter} and \ref{sl:lasso}}
-\srcpath{src/connectome\_gnn/models/regularizer.py}
-\vspace*{0.45cm}
-{\centering\tiny
-$\mathcal{L} = \bigl\lVert \dot v - f_\theta \bigr\rVert^2
- + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
- + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}$\\[4pt]
-$+\;\underbrace{\lambda_1\lVert\phi\rVert_1
-   + \mu_1\bigl\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\bigr\rVert
-   + \mu_2\bigl\lVert g_\phi(v_\star)-v_\star\bigr\rVert
-   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2}_{g_\phi}$
-\\[6pt]}
-\centering\tiny
-\setlength{\tabcolsep}{5pt}
-\begin{tabular}{llccc}
-\toprule
- & config name & slide \ref{sl:beforeafter} & \multicolumn{2}{c}{slide \ref{sl:lasso}} \\
-\cmidrule(lr){4-5}
- & & consensus & $\lambda_{\mathrm{grp}}=0$ & sweep \\
-\midrule
-$\gamma_0$ & \texttt{coeff\_W\_L1}                 & $1.5{\cdot}10^{-4}$ & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ \\
-$\gamma_1$ & \texttt{coeff\_W\_L2}                 & $1.5{\cdot}10^{-6}$ & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ \\
-\midrule
-$\mu_1$ & \texttt{coeff\_g\_phi\_diff}             & $7.5{\cdot}10^{2}$ & $375$ & $375$ \\
-$\mu_2$ & \texttt{coeff\_g\_phi\_norm}             & $0.9$  & $0.45$ & $0.45$ \\
-$\lambda_1$ & \texttt{coeff\_g\_phi\_weight\_L1}   & $0.28$ & $\mathbf{0.14}$ & $\mathbf{0}$ \\
-$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1}
-                                                   & $0$    & $\mathbf{0}$ & $\mathbf{0.25 \rightarrow 25}$ \\
-\midrule
-$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.05$   & $0.025$  & $0.025$ \\
-$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $1{\cdot}10^{-3}$ & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ \\
-\bottomrule
-\end{tabular}\\[4pt]
-\begin{minipage}{0.93\textwidth}\tiny
-$\mu_1$: monotonicity prior $\partial g_\phi/\partial v_j \ge 0$. $\mu_2$: pins $g_\phi$
-at a probe voltage, removing the $\hat W \!\leftrightarrow\! g_\phi$ scale degeneracy.
-\textbf{Slide \ref{sl:lasso} is not a clean ablation} --- $\lambda_{\mathrm{grp}}=0$ carries
-$\lambda_1 = 0.14$ and the sweep sets it to $0$, trading one $\ell_1$ for the other.
-\end{minipage}
-\end{frame}
-
+% ====================
+\section{GNN recovery}
+% ====================
 \begin{frame}{The identifiability ceiling}
 % TODO: 10 folds RUNNING as of 2026-09-21
 % flyvis_flowcond_{noise_005,noise_free}_conductance_knownode_cv0{0..4}.
