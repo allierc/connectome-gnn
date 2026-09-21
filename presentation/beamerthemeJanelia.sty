@@ -1,3 +1,16 @@
+
+% BOTTOM-LEFT LABEL. Defaults to the section, as before; a frame that calls
+% \srcpath{...} replaces it with that path for that frame only.
+\RequirePackage{etoolbox}
+\providecommand{\slidesrc}{}
+% GLOBAL, and cleared at the start of every frame: beamer builds the footline
+% outside the frame's group, so a local \renewcommand never reaches it.
+\newcommand{\srcpath}[1]{\gdef\slidesrc{#1}}
+\AtBeginEnvironment{frame}{\gdef\slidesrc{}}
+\newcommand{\janeliafootleft}{%
+  \ifdefempty{\slidesrc}{\insertsection
+    \ifx\insertsubsection\empty\else~| \insertsubsection\fi}%
+    {\texttt{\slidesrc}}}
 % the various libraries we will be using
 \usepackage{tikz}
 \usetikzlibrary{calc}
@@ -210,12 +223,7 @@
 				\draw[fill=HHMIGreenB,draw=none] (0cm,0cm) rectangle(\progressbar@tmpdim,0.25cm);
 
 				% bottom information
-				\node[anchor=south west] at(0cm,0.25cm) {\color{HHMIGrayB}\tiny\insertsection{} %
-				\ifx\insertsubsection\empty
-					%it is empty
-				\else
-					~| \insertsubsection%
-				\fi%
+				\node[anchor=south west] at(0cm,0.25cm) {\color{HHMIGrayB}\tiny\janeliafootleft%
 				};
 				% if slide numbers are active
 				\ifnum \value{showSlideNumbers}>0\relax%
@@ -232,12 +240,7 @@
 			\else
 				\ifnum \value{showSectionTitle}>0\relax%
 					% section title in the bottom left
-					\node[anchor=south west] at(0cm,0cm) {\color{HHMIGrayB}\tiny\insertsection %
-					\ifx\insertsubsection\empty
-						%it is empty
-					\else
-						~| \insertsubsection%
-					\fi%
+					\node[anchor=south west] at(0cm,0cm) {\color{HHMIGrayB}\tiny\janeliafootleft%
 					};
 				\fi
 				% if we're showing slide numbers

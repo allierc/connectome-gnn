@@ -39,6 +39,7 @@
 % ===================================================================
 
 \begin{frame}{A conductance flyvis model}
+\srcpath{src/flyvis\_conductance\_optical\_flow/dynamics.py}
 \vfill
 {\small\textbf{Nominal current flyvis}}
 \[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i(t) \]
@@ -49,6 +50,7 @@
 \end{frame}
 
 \begin{frame}{Training the conductance flyvis model}
+\srcpath{src/flyvis\_conductance\_optical\_flow/train.py \textbar{} flyvis/results/flow/2000/001/\_meta.yaml}
 \scriptsize
 \setlength{\itemsep}{1pt}
 \begin{itemize}\itemsep1pt
@@ -57,11 +59,8 @@
       contrast $\sigma\!=\!0.2$, brightness $\sigma\!=\!0.1$, white noise $0.08$
 \item \textbf{Rollout} --- 19 frames resampled to $\Delta t = 20$\,ms
       $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated through all
-\item \textbf{$E_i$ anchored on the learned per-type bias}, sigmoid band, excursion $1.0$:
-      $E_i = \mathrm{bias}_i + \mathrm{band}(\cdot)$, band
-      $[1.5, 6.0]$ excitatory (1 free variable), $[-6.0, -0.5]$ inhibitory (65 free)
-      $\Rightarrow$ \textbf{66 free variables, 130 distinct reversals} --- the anchor is
-      per type, so $E_{\mathrm{exc}}$ takes 65 values too
+\item \textbf{$E_i = \mathrm{bias}_i + \mathrm{band}$}, excursion $1.0$, bands
+      $[1.5, 6.0]$ / $[-6.0, -0.5]$: 66 free variables, \textbf{130 reversals} (bias is per type)
 \item \textbf{Optimiser} --- Adam, $\mathrm{lr} = 5\times10^{-5}$, batch 4,
       250{,}000 iterations, 65 checkpoints; H100, 5.5\,h
 \item \textbf{Loss} $\ell_2$ on decoded flow: $1214.7 \rightarrow 1175.3$,
@@ -86,6 +85,7 @@ our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$
 \end{frame}
 
 \begin{frame}{Reversal potentials by cell type}
+\srcpath{flyvis/results/flow/2000/001/analysis/reversals.png}
 \begin{center}
 \includegraphics[height=0.74\textheight]{Fig/reversals.png}\\[1pt]
 {\tiny \texttt{flow/2000/001}, checkpoint 28. $E_{\mathrm{exc}}$ 65 values, $3.554$--$4.783$;
@@ -94,6 +94,7 @@ $E_{\mathrm{inh}}$ 65 values, $-3.654$--$-2.253$.}
 \end{frame}
 
 \begin{frame}{Activity: noise free and $\sigma = 0.05$}
+\srcpath{graphs\_data/fly/flyvis\_flowcond\_noise\_\{free,005\}\_blank50\_cv00/activity.png}
 \begin{columns}[T]
 \begin{column}{0.5\textwidth}
 \centering\includegraphics[width=\textwidth]{Fig/activity_noisefree.png}\\[2pt]
@@ -111,6 +112,7 @@ $r(v_{\sigma}, v_0) = 0.820$.}
 \end{frame}
 
 \begin{frame}{Generation}
+\srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
 \begin{center}
 \playmovie[0.62\textwidth]{Movies/generation_flowcond}{%
   \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00} --- 13{,}741 neurons,
