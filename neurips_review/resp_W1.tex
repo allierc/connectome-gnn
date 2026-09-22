@@ -1,0 +1,111 @@
+% Reply to Reviewer 1, W1 (model-class match / temporal match / simulator-only).
+% Numbers: neurips_review/results_table.csv (single-seed cv00, sigma=0.05).
+% tau / Vrest cells: inlier (full-sample) [excluded %].
+\providecommand{\Rw}{R^2_{\widehat W}}
+\providecommand{\Rt}{R^2_{\widehat\tau}}
+\providecommand{\Rv}{R^2_{\widehat V_{\mathrm{rest}}}}
+
+\paragraph{W1.}
+We agree: the three idealizations are coupled, and the paper never separates them. The question we take from it: how much of the
+recovery comes from solving the inverse problem, and how much from handing the
+model the generator's own class and discrete map. We ran two new families of
+experiments. All runs are single-seed at $\sigma=0.05$.
+
+\paragraph{1. Model-class match.}
+We added a slow adaptation current that leaves the hypothesis class in two ways at
+once: it is not first order in the observables, and does not decompose into
+pairwise messages over the graph:
+\[
+  \tau_i \dot v_i = -v_i + V^{\mathrm{rest}}_i
+  + \sum_j W_{ij}\,\mathrm{ReLU}(v_j) - g_a c_i + I_i ,
+  \qquad
+  \dot c_i = (v_i - c_i)/\tau_a ,
+\]
+with $\tau_a = 200$~ms $\gg \tau$, and $c_i$ never observed and never supplied to
+either model. Neither model is changed: Eq.~(2) is untouched, $c_i$ is never a
+state, input, or learned quantity, and the target is the observed $\dot v_i$
+including $-g_a c_i/\tau_i$.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lcccc}
+\toprule
+$g_a$ & GNN $\Rw$ / slope & GNN $\Rt$ & GNN $\Rv$ & Known-ODE $\Rw$ \\
+\midrule
+$0$   & $0.987$ / $0.982$ & $0.99\,(0.99)\,[0.0]$ & $0.97\,(0.63)\,[5.0]$  & $0.986$ \\
+$0.1$ & $0.974$ / $0.983$ & $0.99\,(0.99)\,[0.0]$ & $0.80\,(0.62)\,[5.7]$  & $0.972$ \\
+$0.3$ & $0.909$ / $0.960$ & $0.98\,(0.98)\,[0.0]$ & $0.54\,(-0.35)\,[27.7]$ & $0.923$ \\
+\bottomrule
+\end{tabular}}
+
+{\footnotesize $\tau$ / $V^{\mathrm{rest}}$ cells: inlier (full-sample)
+[excluded \%], i.e.\ $R^2$ over neurons with
+$|\hat\theta_i-\theta_i|\leq\delta_\theta$ ($\delta_\tau{=}0.1$,
+$\delta_{V}{=}0.2$), then over all neurons, then the excluded fraction.}
+\end{center}
+
+Degradation is graceful and ordered: $V^{\mathrm{rest}}$ first, $W$ next, $\tau$
+last, and the oracle matches. A slow per-neuron offset is what $\widehat
+V^{\mathrm{rest}}$ absorbs; its residual partly aliases into the recurrent drive
+and biases $\widehat W$; $\tau$, read off the local slope of $f_\theta$, is almost
+untouched. Relatedly, the priors listed as class-narrowing are not
+load-bearing: $\mu_0=0$ in every reported run, and $\mu_1=0$ leaves $\Rw$ at
+$0.988$ against $0.987$ for the control.
+
+\paragraph{2. Temporal match.}
+Two breaks, with the model always
+predicting at $20$~ms. (i)~generator integrated below the model step, observed at
+$20$~ms; (ii)~generator at $2$~ms, state observed every $20$ to $200$~ms
+($K$-step BPTT), i.e.\ $1$--$10\,\tau$.
+
+% The (2 ms, 20 ms) row is shared: it is both the finest sub-dt condition and the
+% cadence control. Its cadence-harness replicate gives GNN 0.816 / 0.745 against
+% 0.812 / 0.712 here, i.e. a run-to-run spread of ~0.004 in R2_W.
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{cccccc}
+\toprule
+$\Delta t$ generated & $\Delta t$ observed & GNN $\Rw$ / slope & GNN roll.\ $r$ & K-ODE $\Rw$ / slope & K-ODE roll.\ $r$ \\
+\midrule
+$20$~ms & $20$~ms  & $0.970$ / $0.965$ & $0.999$ & $0.955$ / $1.025$ & $0.999$ \\
+$10$~ms & $20$~ms  & $0.864$ / $0.796$ & $0.981$ & $0.873$ / $0.854$ & $0.981$ \\
+$4$~ms  & $20$~ms  & $0.822$ / $0.722$ & $0.978$ & $0.844$ / $0.826$ & $0.976$ \\
+$2$~ms  & $20$~ms  & $0.812$ / $0.712$ & $0.977$ & $0.835$ / $0.819$ & $0.974$ \\
+\midrule
+$2$~ms  & $40$~ms  & $0.720$ / $0.717$ & $0.981$ & $0.711$ / $0.723$ & $0.983$ \\
+$2$~ms  & $100$~ms & (running)         & ---     & $0.449$ / $0.581$ & $0.986$ \\
+$2$~ms  & $200$~ms & (running)         & ---     & $0.287$ / $0.490$ & $0.980$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+% VERIFIED (metrics.txt, GNN dt rows): W_structure_r 0.985/0.935/0.918/0.912 and
+% W_zscored_R2 0.970/0.870/0.836/0.824 for M=1/2/5/10. Scale removal buys only
+% +0.012 at M=10, so "calibration not structure" is NOT supported; the sentence
+% below states what the scale-free metrics actually show.
+
+$20/20$~ms is the matched case: the generator \emph{is} the model's Euler map,
+and any finer step makes the observed difference $\dot v + (\Delta t/2)\,\ddot v$,
+a neuron-specific bias that tracks the recurrent drive rather than a global
+rescaling. Coarse observation is the real limitation, and it reproduces the
+published $1/5$-frames row ($\Rw = 0.30$ at $100$~ms). Rollout $r$ stays above
+$0.97$ across every cadence while $\Rw$ falls to $0.287$, so held-out prediction
+cannot detect the violation. Limitation~2 already flags the shared $\Delta t$;
+the sweep shows the binding constraint is
+$\Delta t_{\mathrm{obs}} \lesssim \tau$, which we will state there quantitatively.
+
+Known-ODE degrades in step with the GNN, so the cost lies in the
+inverse problem, not the hypothesis class: across the conditions tested here the
+GNN stays within $0.023$ $\Rw$ of it (the noise-free gap of Tab.~1 is addressed
+under Q3). We therefore retain ``on par with an oracle'' as a claim about the
+estimator. We also drop ``without assuming the form of the dynamical equation'':
+the scalar nonlinearities are learned, but first-order dynamics and additive
+pairwise aggregation over the supplied graph are assumed. We remove the clause
+rather than reword it.
+
+\paragraph{3. Simulator-only.}
+Conceded. No dataset pairs synapse-resolution
+connectivity with dense activity in the same animal; the title should say so.
+We will retitle to ``\dots recover interpretable circuit models from simulated
+neural activity''.

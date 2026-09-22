@@ -29,7 +29,21 @@ OUT = "docs/gauge_k.json"
 cache = json.load(open(OUT)) if os.path.exists(OUT) else {}
 print(f"{'run':30s} {'iter':>8s} {'k median':>9s} {'k IQR':>16s} {'%|k-1|<0.2':>11s}")
 for run in sys.argv[1:]:
-    cfg = NeuralGraphConfig.from_yaml(f"config/fly/{run}.yaml")
+    # THE RUN'S OWN CONFIG WHEN THERE IS NO SPEC FILE. The agentic loop writes
+    # its arms straight into the log directory and never leaves a yaml under
+    # config/fly, so keying only on the spec made the whole campaign unmeasurable
+    # here -- which is exactly the set k is wanted for.
+    # THE DATA ROOT'S SPEC FOLDER AS A FALLBACK. The agentic loop writes its
+    # arms into GraphData/config/fly and never into the repo, so keying only on
+    # the repo made the whole campaign unmeasurable here -- which is exactly the
+    # set k is wanted for.
+    _cands = [f"config/fly/{run}.yaml",
+              f"/groups/saalfeld/home/allierc/GraphData/config/fly/{run}.yaml",
+              f"{LOG}/{run}/config.yaml"]
+    _spec = next((c for c in _cands if os.path.exists(c)), None)
+    if _spec is None:
+        print(f"{run[-30:]:30s} {'no config':>8s}"); continue
+    cfg = NeuralGraphConfig.from_yaml(_spec)
     cks = sorted(glob.glob(f"{LOG}/{run}/models/best_model_with_0_graphs_0_*.pt"),
                  key=lambda f: int(re.findall(r"_(\d+)\.pt$", f)[0]))
     if not cks:
@@ -40,7 +54,35 @@ for run in sys.argv[1:]:
     cfg.simulation.n_extra_null_edges = 0
     model = create_model(cfg.graph_model.signal_model_name,
                          aggr_type=cfg.graph_model.aggr_type, config=cfg, device=dev)
+    # THE CHECKPOINT'S OWN MLP WIDTH AND DEPTH, not the spec's. The agentic loop
+    # rewrites one yaml per arm in place, so a spec edited by a later block (the
+    # 256-wide capacity block) no longer describes the 80-wide checkpoint sitting
+    # beside it, and load_state_dict then kills the whole sweep at that arm.
+    _rebuild = False
+    for _pref, _hd, _nl_at in (("g_phi", "hidden_dim", "n_layers"),
+                               ("f_theta", "hidden_dim_update", "n_layers_update")):
+        _w = sd["model_state_dict"].get(f"{_pref}.layers.0.weight")
+        if _w is None:
+            continue
+        _nl = 1 + max(int(k.split(".")[2]) for k in sd["model_state_dict"]
+                      if k.startswith(f"{_pref}.layers.") and k.endswith(".weight"))
+        if (int(_w.shape[0]) != getattr(cfg.graph_model, _hd)
+                or _nl != getattr(cfg.graph_model, _nl_at)):
+            print(f"{run[-30:]:30s} {it:8d}   {_pref} spec "
+                  f"{getattr(cfg.graph_model, _hd)}x{getattr(cfg.graph_model, _nl_at)}"
+                  f" -> checkpoint {int(_w.shape[0])}x{_nl}")
+            setattr(cfg.graph_model, _hd, int(_w.shape[0]))
+            setattr(cfg.graph_model, _nl_at, _nl)
+            _rebuild = True
+    if _rebuild:
+        model = create_model(cfg.graph_model.signal_model_name,
+                             aggr_type=cfg.graph_model.aggr_type, config=cfg, device=dev)
     model.load_state_dict(sd["model_state_dict"], strict=False); model.eval()
+    # k = tau * df/dmsg is only defined where there IS an f_theta. A known-ODE
+    # run integrates the generator's own update, so it has no learned gauge to
+    # measure and must say so rather than crash on a None feature block.
+    if getattr(getattr(model, "_orig_mod", model), "f_theta", None) is None:
+        print(f"{run[-30:]:30s} {it:8d}   no f_theta (known ODE)"); continue
     cfg.dataset = "fly/" + cfg.dataset if not cfg.dataset.startswith("fly/") else cfg.dataset
     op = load_ode_params_for_run(cfg, device=dev)
     x_ts = load_simulation_data(

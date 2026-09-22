@@ -1,0 +1,1371 @@
+% Study note: the linear algebra behind the identifiability analysis.
+% Build:  latexmk -pdf linalg_note.tex   (PDF is gitignored)
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,allcolors=blue]{hyperref}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\newcommand{\Mat}[1]{\mathbf{#1}}
+\newcommand{\A}{\Mat{A}}
+\newcommand{\thet}{\boldsymbol{\theta}}
+\newcommand{\Rw}{R^2_{\widehat W}}
+\DeclareMathOperator{\rank}{rank}
+\DeclareMathOperator{\cond}{cond}
+\DeclareMathOperator{\tr}{tr}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\src}[1]{{\footnotesize\textcolor{gray}{[#1]}}}
+\newtheorem{theorem}{Theorem}
+\newtheorem{remark}{Remark}
+
+\title{Least squares, the Gram matrix, and the eigenvalue spectrum\\
+\large What the identifiability analysis actually computes, and where it can mislead}
+\author{Study note for submission 28595}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2em}
+
+\begin{abstract}
+\noindent Part~I derives the linear algebra from scratch: least squares, the normal
+equations, the Gram matrix, the SVD, the eigenvalue spectrum, conditioning,
+truncation, and the two perturbation results that make ``noise breaks
+degeneracies'' a theorem rather than an intuition. Every equation is attributed.
+Part~II lists every place these objects appear in \texttt{neurips.tex} and
+\texttt{reply\_all.tex}, explains each line, and flags four places where the
+wording does not match what the code computes --- including the one the Area
+Chair objected to. Part~III resolves the apparent conflict between the
+eigenvalue analysis and the least-squares recovery numbers.
+\end{abstract}
+
+\part{The tools}
+
+\section{The problem and its normal equations}
+
+Everything below concerns one fixed postsynaptic neuron $i$. The Flyvis ODE
+\src{Lappalainen et al.\ 2024}
+\begin{equation}
+\tau_i \dot v_i = -v_i + V^{\mathrm{rest}}_i
+  + \textstyle\sum_{j\in\mathcal N_i} W_{ij}\,\mathrm{ReLU}(v_j) + I_i
+\label{eq:ode}
+\end{equation}
+is \emph{linear in its parameters} $\thet_i = (\tau_i, V^{\mathrm{rest}}_i,
+W_{ij_1},\dots)$ once the trajectory is observed. Getting from
+\eqref{eq:ode} to \eqref{eq:ls} is nothing but moving terms across the
+equals sign. Collect on the left every term that contains an
+\emph{unknown} and on the right every term that is \emph{known} once $v$
+has been recorded:
+\begin{equation}
+\tau_i \dot v_i \;-\; V^{\mathrm{rest}}_i
+  \;-\; \textstyle\sum_{j\in\mathcal N_i} W_{ij}\,\mathrm{ReLU}(v_j)
+\;=\; -v_i + I_i .
+\label{eq:ode-rearranged}
+\end{equation}
+Every unknown now appears exactly once, multiplied by a recorded quantity,
+so the left-hand side is a dot product of a known row vector with $\thet_i$:
+\begin{equation}
+\underbrace{\big(\dot v_i,\ -1,\ -\mathrm{ReLU}(v_{j_1}),\ \dots,\
+  -\mathrm{ReLU}(v_{j_{d_i}})\big)}_{\text{known: one row of }\A_i}
+\cdot
+\underbrace{\big(\tau_i,\ V^{\mathrm{rest}}_i,\ W_{ij_1},\ \dots,\
+  W_{ij_{d_i}}\big)^{\!\top}}_{\textstyle \thet_i}
+\;=\; \underbrace{-v_i + I_i}_{\text{known: one entry of }\Mat b_i} .
+\label{eq:ode-dot}
+\end{equation}
+Writing \eqref{eq:ode-dot} out at each of the $T$ sampled times and stacking
+those rows gives
+\begin{equation}
+\A_i\,\thet_i = \Mat b_i, \qquad \A_i \in \mathbb R^{T\times n},\quad n = 2 + d_i,
+\label{eq:ls}
+\end{equation}
+with $d_i$ the in-degree: $T$ rows because one equation per timestep,
+$n=2+d_i$ columns because one unknown per parameter. This is Suppl.\
+Eq.~(6)--(7) of the submission. The point worth internalising: no
+linearisation has occurred. The nonlinearity $\mathrm{ReLU}(v_j)$ sits in the
+\emph{data} $\A_i$, not in the unknowns --- rearranging
+\eqref{eq:ode}$\to$\eqref{eq:ode-rearranged} did not approximate anything, it
+only sorted the terms.
+
+Since $T \gg n$, \eqref{eq:ls} is overdetermined and we solve it in the
+least-squares sense,
+\begin{equation}
+\hat\thet_i = \arg\min_{\thet} \tfrac12\|\A_i\thet - \Mat b_i\|_2^2 .
+\label{eq:lsq}
+\end{equation}
+\paragraph{Which gradient, and why zero.} The cost in \eqref{eq:lsq},
+$f(\thet) := \tfrac12\|\A\thet-\Mat b\|_2^2$, is a function of the parameter
+vector $\thet$ alone --- $\A$ and $\Mat b$ are fixed data. Its gradient with
+respect to $\thet$ is
+\begin{equation}
+\nabla_{\thet} f(\thet) = \A^{\!\top}(\A\thet - \Mat b) = \A^{\!\top}\A\,\thet - \A^{\!\top}\Mat b .
+\label{eq:grad}
+\end{equation}
+$f$ is convex in $\thet$: its Hessian (second derivative) is $\A^{\!\top}\A$,
+\textbf{positive semi-definite (PSD)} --- a symmetric matrix $\Mat M$ is PSD if
+and only if $\Mat x^{\!\top}\Mat M\Mat x \ge 0$ for every $\Mat x$, equivalently
+if and only if every eigenvalue of $\Mat M$ is $\ge 0$ --- by \eqref{eq:psd-def}
+below, so $f$ has no local minima that are
+not global. For a convex, differentiable function this is exactly the
+condition that identifies a minimiser: $\nabla_{\thet} f(\hat\thet)=0$ is
+necessary (any point with nonzero gradient has a downhill direction, so it
+cannot minimise) and, by convexity, also sufficient (a stationary point of a
+convex function is a global one). Setting \eqref{eq:grad} to zero therefore
+gives the \textbf{normal equations}
+\src{Gauss 1809; Legendre 1805; see Golub \& Van Loan, \emph{Matrix
+Computations} 4th ed., §5.3}
+\begin{equation}
+\underbrace{\A_i^{\!\top}\A_i}_{\textstyle \Mat G_i}\,\hat\thet_i
+  = \A_i^{\!\top}\Mat b_i .
+\label{eq:normal}
+\end{equation}
+$\Mat G_i := \A_i^{\!\top}\A_i \in \mathbb R^{n\times n}$ is the \textbf{Gram
+matrix}. It is symmetric and positive semi-definite (PSD: sign fixed, can be zero): $\Mat
+G$ qualifies because
+\begin{equation}
+\Mat x^{\!\top}\Mat G\Mat x = \|\A\Mat x\|^2 \ge 0 .
+\label{eq:psd-def}
+\end{equation}
+(PSD, not the stronger positive \emph{definite}, because $\Mat x^{\!\top}\Mat
+G\Mat x=0$ is possible for $\Mat x\ne 0$ whenever $\A$ has a kernel --- exactly
+the degenerate directions of \S\ref{sec:kernel}.)
+
+\paragraph{The Gram matrix is the Hessian (second derivative).} Differentiating \eqref{eq:lsq}
+twice,
+\begin{equation}
+\nabla^2_{\thet}\, \tfrac12\|\A\thet-\Mat b\|^2 = \A^{\!\top}\A = \Mat G .
+\label{eq:hessian}
+\end{equation}
+This identity is why the sloppy-model literature, which speaks of the Hessian
+(second derivative) of the cost, and the numerical-linear-algebra literature, which speaks of the Gram
+matrix, are describing the same object here \src{Gutenkunst et al.\ 2007, PLoS
+Comput.\ Biol.; Transtrum et al.\ 2015, J.~Chem.\ Phys.}. For a nonlinear model
+the equality is only approximate (Gauss--Newton); for \eqref{eq:ode} it is exact.
+
+\section{Dynamical equivalence and non-identifiability}
+\label{sec:kernel}
+
+\subsection{Setup}
+
+Generate the trajectory by explicit Euler from a fixed $v_i(0)$ (unit time
+step, matching the stacking in \eqref{eq:ls}). Row $t$ of \eqref{eq:ls} is
+the per-step constraint that maps $v_i(t)\mapsto v_i(t+1)$ given the
+parameters and the already-known presynaptic activity at $t$,
+\begin{equation}
+\Mat a_i(t)^{\!\top}\thet_i = b_i(t), \qquad
+\Mat a_i(t) := \big(v_i(t{+}1)-v_i(t),\ -1,\ -\mathrm{ReLU}(v_{j_1}(t)),\dots\big) ,
+\label{eq:row}
+\end{equation}
+so $\Mat a_i(t)$ is literally row $t$ of $\A_i$, and $\Mat
+a_i(t)^{\!\top}\boldsymbol\eta$ is the $t$-th entry of $\A_i\boldsymbol\eta$.
+This is the object both definitions below are built from.
+
+\subsection{Definitions}
+
+\paragraph{Non-identifiability (a degenerate direction).} A vector
+$\boldsymbol\eta\neq\Mat 0$ is a \emph{degenerate direction} for neuron $i$ if
+$\A_i\boldsymbol\eta=\Mat 0$, i.e.\ $\boldsymbol\eta\in\ker\A_i$. If $\rank
+\A_i<n$ there exist $k:=n-\rank\A_i$ such linearly independent vectors
+$\boldsymbol\eta_1,\dots,\boldsymbol\eta_k$ (rank--nullity: $k=\dim\ker\A_i$),
+and for every $\lambda_1,\dots,\lambda_k\in\mathbb R$,
+\begin{equation}
+\A_i\Big(\thet_i + \textstyle\sum_{l=1}^k \lambda_l\boldsymbol\eta_l\Big) = \A_i\thet_i = \Mat b_i ,
+\label{eq:kernel}
+\end{equation}
+so the data cannot distinguish $\thet_i$ from $\thet_i+\sum_l\lambda_l\boldsymbol\eta_l$:
+a continuum ($\lambda_l\in\mathbb R$) in each of $k$ independent directions,
+an affine solution set of dimension $k$. Note
+\begin{equation}
+\ker \A_i = \ker \Mat G_i ,
+\label{eq:kereq}
+\end{equation}
+since $\Mat G\Mat x = \Mat 0 \Rightarrow \Mat x^{\!\top}\Mat G\Mat x =
+\|\A\Mat x\|^2 = 0 \Rightarrow \A\Mat x = \Mat 0$, so one may look for exact
+degeneracy in either matrix. This is \emph{structural} (a.k.a.\ \emph{a
+priori}) non-identifiability \src{Bellman \& Åström 1970, Math.\ Biosci.;
+Raue et al.\ 2009, Bioinformatics}.
+
+\paragraph{Dynamical equivalence.} Define, for each neuron $k$, the one-step
+update it actually simulates by,
+\begin{equation}
+\mathrm{Step}_k[\thet_k](t,\Mat u) := u_k + \frac{1}{\tau_k}\Big(-u_k +
+V_k^{\mathrm{rest}} + \textstyle\sum_j W_{kj}\,\mathrm{ReLU}(u_j) + I_k(t)\Big) ,
+\qquad \text{defined iff } \tau_k\neq0,
+\label{eq:step}
+\end{equation}
+so that $v(t{+}1)_k := \mathrm{Step}_k[\thet_k](t,v(t))$ for every $k$ is
+\emph{how $v$ itself was generated}, recursively, from $v(0)$. Now fix a
+degenerate-direction candidate $\boldsymbol\eta\neq\Mat 0$ and a scalar
+$\lambda\neq0$, and define a \emph{second, independently recursed} sequence
+$w$ by
+\begin{equation}
+w(0):=v(0), \qquad
+w(t{+}1)_i := \mathrm{Step}_i[\thet_i+\lambda\boldsymbol\eta](t,w(t)), \qquad
+w(t{+}1)_k := \mathrm{Step}_k[\thet_k](t,w(t))\ \ (k\neq i) ,
+\label{eq:wroll}
+\end{equation}
+assumed well-defined, i.e.\ $\tau_i+\lambda\eta_\tau\neq0$ throughout (only
+neuron $i$'s parameters are perturbed). Note that $w$'s recursion at every
+step consults \emph{its own history} $w(t)$, not $v(t)$ --- it is not
+notation for the same object as $v$, only initialised the same way. The
+perturbation is \emph{(exactly) dynamically equivalent} if
+\begin{equation}
+w(t) = v(t) \qquad \text{for every sampled } t.
+\label{eq:dyneq-def}
+\end{equation}
+
+\subsection{The equivalence statement}
+
+\begin{theorem}[Non-identifiability $\iff$ dynamical equivalence, for this
+ODE class]
+\label{thm:equiv}
+Restrict to neurons governed by the linear-in-parameters, Euler-integrated
+ODE class of \eqref{eq:ode}--\eqref{eq:ls}, with per-step update
+\eqref{eq:step} --- this restriction is load-bearing (see the Remark below)
+and does not hold for a generic nonlinear recursion. Within that
+class, fix $\thet_i$, the trajectory $v$ generated by \eqref{eq:step} from
+$v(0)$, $\boldsymbol\eta\neq\Mat 0$, and $\lambda\neq 0$ such that $w$ in
+\eqref{eq:wroll} is well-defined. Then
+\begin{equation}
+\boldsymbol\eta\in\ker\A_i
+\qquad\Longleftrightarrow\qquad
+w(t)=v(t) \ \text{ for every sampled } t
+\qquad (w \text{ as in \eqref{eq:wroll}, built from this } \lambda) .
+\label{eq:equiv-statement}
+\end{equation}
+\end{theorem}
+
+\begin{remark}[this is not a tautology]
+\label{rem:nottaut}
+The two sides are different kinds of object. The left, $\boldsymbol\eta\in\ker\A_i$,
+is \emph{static}: the recorded row equations \eqref{eq:row}, evaluated on the
+\emph{already-recorded} $v$, still balance under
+$\thet_i\mapsto\thet_i+\lambda\boldsymbol\eta$. The right, $\forall t,\
+w(t)=v(t)$, is \emph{dynamic}: a statement about $w$, the independently
+recursed sequence \eqref{eq:wroll}, which at every step consults its own
+history, not $v$'s. Nothing in the definition of $\ker\A_i$ says a
+freshly-recursed sequence must reproduce $v$ --- for a generic nonlinear
+recursion a one-step degeneracy does \emph{not} keep the rollout locked to a
+reference trajectory under a \emph{finite} parameter change; perturbations
+generically compound rather than cancel. Hence $(\Rightarrow)$ needs
+induction, and $(\Leftarrow)$ is a genuine reduction from a global dynamical
+fact to a per-row algebraic one. The content of the theorem is that the two
+coincide \emph{for this ODE class} --- a structural fact about this model
+class, not a general property of recursive systems.
+
+\emph{What must be proved to rule out the tautology, and how Lean settles it.}
+``Tautology'' would mean the two sides are the same statement, so the
+equivalence would hold \emph{with no hypotheses}. The way to refute that is
+therefore to exhibit a hypothesis that is genuinely load-bearing --- one
+whose removal makes the theorem false. The candidate is $\lambda\neq0$, and
+\S\ref{sec:lean} discharges it mechanically: the companion Lean theorem
+\texttt{dyneq\_trivial\_at\_zero} proves that at $\lambda=0$ the right-hand
+side holds \emph{unconditionally} (the perturbation is inert, so $w\equiv
+v$ whatever $\boldsymbol\eta$ is). If $(\Leftarrow)$ held without
+$\lambda\neq0$, composing the two would make $\boldsymbol\eta\in\ker\A_i$
+unconditionally true --- false for any $\A_i$ of full rank. So
+$\lambda\neq0$ cannot be dropped, the right-hand side carries information
+the left does not, and the equivalence is a theorem rather than a
+restatement.
+\end{remark}
+
+\subsection{Demonstration}
+
+\begin{proof}[Proof of $(\Rightarrow)$: a degenerate direction leaves the rollout invariant]
+
+\emph{Base case.}
+\begin{equation}
+w(0) = v(0) \qquad \text{by construction.}
+\label{eq:base}
+\end{equation}
+
+\emph{Inductive hypothesis.}
+\begin{equation}
+w(t) = v(t) \qquad \text{(the \emph{whole} population state).}
+\label{eq:hyp}
+\end{equation}
+This must be the whole state, not just neuron $i$'s: $\Mat a_i(t)$ reads off
+presynaptic $\mathrm{ReLU}(v_j(t))$ too, so \eqref{eq:hyp} is needed for every
+neuron feeding $i$, not just $i$ itself.
+
+\emph{Inductive step (show \eqref{eq:hyp} $\Rightarrow$ $w(t{+}1)=v(t{+}1)$).}
+The perturbed row-$t$ equation is
+\begin{equation}
+\Mat a_i(t;w)^{\!\top}(\thet_i+\lambda\boldsymbol\eta) = b_i(t), \qquad
+\Mat a_i(t;w) := \big(w_i(t{+}1)-w_i(t),\ -1,\ -\mathrm{ReLU}(w_{j_1}(t)),\dots\big) .
+\label{eq:rowpert}
+\end{equation}
+Substituting \eqref{eq:hyp} collapses every entry but the first onto the true,
+known value,
+\begin{equation}
+\Mat a_i(t;w) = \big(w_i(t{+}1)-v_i(t),\ -1,\ -\mathrm{ReLU}(v_{j_1}(t)),\dots\big) ,
+\end{equation}
+so the only unknown left is $w_i(t+1)$, in the first entry. Set
+$\delta := w_i(t+1)-v_i(t+1)$. Subtracting the true row-$t$ equation
+$\Mat a_i(t)^{\!\top}\thet_i=b_i(t)$ from \eqref{eq:rowpert} isolates
+\begin{equation}
+(\tau_i+\lambda\eta_\tau)\,\delta \;+\; \lambda\,\Mat a_i(t)^{\!\top}\boldsymbol\eta \;=\; 0 ,
+\label{eq:induct}
+\end{equation}
+where $\eta_\tau$ is the $\tau_i$-component of $\boldsymbol\eta$. The second
+term is $\lambda$ times \emph{exactly} the kernel condition --- $\Mat
+a_i(t)^{\!\top}\boldsymbol\eta$ is the $t$-th entry of $\A_i\boldsymbol\eta$,
+which is $\Mat 0$ because $\boldsymbol\eta\in\ker\A_i$ --- so it vanishes and
+\eqref{eq:induct} reduces to
+\begin{equation}
+(\tau_i+\lambda\eta_\tau)\,\delta=0 .
+\label{eq:induct-reduced}
+\end{equation}
+Provided the perturbed leak coefficient stays nonzero,
+$\tau_i+\lambda\eta_\tau\neq 0$, \eqref{eq:induct-reduced} forces $\delta=0$,
+i.e.\ $w_i(t+1)=v_i(t+1)$. Every other neuron $k\neq i$ sharing the population
+state has $\thet_k$ untouched and inputs $w(t)=v(t)$ by \eqref{eq:hyp}, so
+$w_k(t+1)=v_k(t+1)$ trivially, by its own unperturbed update rule. Together,
+\begin{equation}
+w(t+1) = v(t+1) ,
+\end{equation}
+which is \eqref{eq:hyp} one step later --- the inductive step is complete.
+
+\emph{Conclusion.} By \eqref{eq:base} and the inductive step, $w(t)=v(t)$ for
+every sampled $t$: a null direction leaves the rollout invariant, not merely
+the one-shot fit. This proves $(\Rightarrow)$.
+\end{proof}
+
+\begin{proof}[Proof of $(\Leftarrow)$: an exactly dynamics-preserving
+perturbation must be a degenerate direction]
+
+No induction is needed here, since the hypothesis already gives the
+trajectory match at every $t$ directly, rather than building it up step by
+step. Suppose $w(t)=v(t)$ for \emph{every} sampled $t$, under the fixed
+$\lambda\neq 0$. Unlike the inductive step above, $w(t{+}1)=v(t{+}1)$ is now
+already given (it is part of ``for every sampled $t$''), so substituting into
+the perturbed row-$t$ equation \eqref{eq:rowpert} collapses $\Mat a_i(t;w)$
+fully to $\Mat a_i(t)$, including its first entry:
+\begin{equation}
+\Mat a_i(t)^{\!\top}(\thet_i+\lambda\boldsymbol\eta) = b_i(t) ,
+\label{eq:conv-sub}
+\end{equation}
+and subtracting the true row-$t$ equation \eqref{eq:row},
+$\Mat a_i(t)^{\!\top}\thet_i=b_i(t)$, cancels every $\thet_i$ and $b_i(t)$ term,
+leaving
+\begin{equation}
+\lambda\,\Mat a_i(t)^{\!\top}\boldsymbol\eta = 0 .
+\label{eq:conv-diff}
+\end{equation}
+Since $\lambda\neq 0$,
+\begin{equation}
+\Mat a_i(t)^{\!\top}\boldsymbol\eta = 0 \qquad \text{for every sampled } t,
+\label{eq:conv-concl}
+\end{equation}
+i.e.\ $\boldsymbol\eta\in\ker\A_i$. This proves $(\Leftarrow)$.
+\end{proof}
+
+\subsection{Lean formalization}
+\label{sec:lean}
+
+Theorem~\ref{thm:equiv} has been machine-checked in Lean~4 (with Mathlib);
+the development is in \texttt{lean\_proof/equiv\_proof/EquivProof/Basic.lean}.
+The top-level statement is short:
+\begin{verbatim}
+theorem nonident_iff_dyneq
+    (n : Nat) (tau Vrest : Fin n -> Real) (W : Fin n -> Fin n -> Real)
+    (Iext : Fin n -> Nat -> Real) (i : Fin n) (eta_tau eta_V : Real)
+    (eta_W : Fin n -> Real) (lam : Real) (v0 : State n) (T : Nat)
+    (htau  : forall k, tau k <> 0)          -- Euler step well-defined
+    (htau' : tau i + lam * eta_tau <> 0)    -- perturbed step well-defined
+    (hlam  : lam <> 0) :                    -- LOAD-BEARING, see below
+    IsDegenerate n tau Vrest W Iext i eta_tau eta_V eta_W v0 T
+      <-> IsDynEquiv n tau Vrest W Iext i eta_tau eta_V eta_W lam v0 T
+\end{verbatim}
+(The Lean source uses Unicode identifiers --- $\mathbb N$, $\tau$,
+$\boldsymbol\eta$, $\neq$, $\leftrightarrow$ --- transliterated to ASCII
+here for typesetting only.)
+
+\paragraph{The statement is short because the definitions carry the content
+--- so the definitions, not the theorem line, are what must be audited.}
+This is the single most important thing to understand about reading a
+formalization, and it cuts against the natural reading. A machine-checked
+proof guarantees only that the \emph{stated} proposition follows from the
+\emph{stated} definitions; it cannot tell you that those definitions say
+what you meant. Lean checks the proof; \emph{the reader} must check the
+specification. Since \texttt{nonident\_iff\_dyneq} is a one-line claim about
+two named predicates, essentially all of its meaning lives in those
+predicates and in the recursions they mention. They are therefore given
+here in full, so that the specification is auditable without opening the
+source:
+\begin{verbatim}
+-- Population state: one real number per neuron.
+abbrev State (n : Nat) := Fin n -> Real
+
+-- One neuron k's explicit-Euler update, eq:step. Note it reads the FULL
+-- population state u, not just u k: the presynaptic ReLU terms are in the sum.
+def stepOne n tau Vrest W Iext (k : Fin n) (t : Nat) (u : State n) : Real :=
+  u k + (1 / tau k) * (-(u k) + Vrest k + (sum j, W k j * relu (u j)) + Iext k t)
+
+def stepAll n tau Vrest W Iext t (u : State n) : State n :=
+  fun k => stepOne n tau Vrest W Iext k t u
+
+-- v : the TRUE trajectory, defined BY the recursion, from v0.
+def traj n tau Vrest W Iext (v0 : State n) : Nat -> State n
+  | 0     => v0
+  | t + 1 => stepAll n tau Vrest W Iext t (traj n tau Vrest W Iext v0 t)
+
+-- Only neuron i's parameters are perturbed: `Function.update f i val` is
+-- "the function f, except it returns val at index i".
+def tau_pert   n tau   i eta_tau lam := Function.update tau   i (tau i + lam * eta_tau)
+def Vrest_pert n Vrest i eta_V   lam := Function.update Vrest i (Vrest i + lam * eta_V)
+def W_pert     n W     i eta_W   lam := Function.update W i (fun j => W i j + lam * eta_W j)
+
+-- w : a SECOND, INDEPENDENT recursion. At step t it consults its OWN
+-- history (trajPert ... t), never traj's. Only v0 is shared.
+def trajPert n tau Vrest W Iext i eta_tau eta_V eta_W lam (v0 : State n) : Nat -> State n
+  | 0     => v0
+  | t + 1 => stepAll n (tau_pert n tau i eta_tau lam) (Vrest_pert n Vrest i eta_V lam)
+               (W_pert n W i eta_W lam) Iext t
+               (trajPert n tau Vrest W Iext i eta_tau eta_V eta_W lam v0 t)
+
+-- LHS: eta in ker A_i. The row equation eq:row, dotted with eta, vanishing
+-- at every sampled t, evaluated on the ALREADY-RECORDED trajectory traj.
+def IsDegenerate ... (T : Nat) : Prop :=
+  forall t < T,
+    eta_tau * (traj ... (t+1) i - traj ... t i)
+      - eta_V - sum j, eta_W j * relu (traj ... t j) = 0
+
+-- RHS: dynamical equivalence. An equality of FUNCTIONS State n, hence a
+-- whole-population claim, at every sampled t.
+def IsDynEquiv ... (T : Nat) : Prop :=
+  forall t <= T, trajPert ... t = traj ... t
+\end{verbatim}
+(Argument lists are elided as \texttt{...} where they merely repeat;
+\texttt{sum j,} is Lean's \texttt{$\sum$ j,} over all neurons.)
+
+\paragraph{How the Flyvis ODE \eqref{eq:ode} becomes the Lean text.} Nothing
+above mentions an ODE, so it is worth tracing the three steps that carry
+\eqref{eq:ode} into \texttt{stepOne} and then into \texttt{IsDegenerate}.
+Each step is an identity, not an approximation of the modelling kind: the
+only discretisation is Euler, and it is the \emph{same} Euler used to
+generate the data.
+
+\emph{Step 1: \eqref{eq:ode} $\to$ \texttt{stepOne}.} Explicit Euler on
+\eqref{eq:ode} with unit step, solved for $v_i(t{+}1)$, is
+\begin{equation}
+v_i(t{+}1) \;=\; \underbrace{v_i(t)}_{\texttt{u k}}
+  + \frac{1}{\tau_i}\Big(\underbrace{-v_i(t)}_{\texttt{-(u k)}}
+  + \underbrace{V_i^{\mathrm{rest}}}_{\texttt{Vrest k}}
+  + \underbrace{\textstyle\sum_j W_{ij}\mathrm{ReLU}(v_j(t))}_{\texttt{sum j, W k j * relu (u j)}}
+  + \underbrace{I_i(t)}_{\texttt{Iext k t}}\Big),
+\label{eq:ode-to-step}
+\end{equation}
+which is \texttt{stepOne} verbatim, brace for brace. Iterating it is
+\texttt{traj}. So \texttt{traj} is not a fresh modelling choice: it is
+\eqref{eq:ode} under the integrator, and the $1/\tau_i$ is why
+\texttt{htau : forall k, tau k <> 0} appears among the hypotheses.
+
+\emph{Step 2: \eqref{eq:ode} is linear in $\thet_i$.} Multiplying
+\eqref{eq:ode-to-step} by $\tau_i$ and collecting the unknowns
+$\thet_i=(\tau_i,V_i^{\mathrm{rest}},W_{ij_1},\dots)$ on the left gives
+exactly the row equation \eqref{eq:row}:
+\begin{equation}
+\underbrace{\tau_i\big(v_i(t{+}1)-v_i(t)\big) - V_i^{\mathrm{rest}}
+  - \textstyle\sum_j W_{ij}\mathrm{ReLU}(v_j(t))}_{\textstyle \Mat a_i(t)^{\!\top}\thet_i}
+\;=\; \underbrace{-v_i(t)+I_i(t)}_{\textstyle b_i(t)} .
+\label{eq:ode-to-row}
+\end{equation}
+The nonlinearity $\mathrm{ReLU}$ sits entirely in the coefficients $\Mat
+a_i(t)$, never on the unknowns --- this is the ``no linearisation has
+occurred'' point of \S\ref{sec:kernel}, and it is what makes a purely
+algebraic kernel condition legitimate.
+
+\emph{Step 3: \eqref{eq:ode-to-row} $\to$ \texttt{IsDegenerate}.} Replacing
+$\thet_i$ by $\boldsymbol\eta=(\eta_\tau,\eta_V,\eta_W)$ in the left-hand
+side of \eqref{eq:ode-to-row} --- i.e.\ forming $\Mat
+a_i(t)^{\!\top}\boldsymbol\eta$, the $t$-th entry of $\A_i\boldsymbol\eta$
+--- and asking it to vanish for every sampled $t$ gives, term for term,
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+$\Mat a_i(t)^{\!\top}\boldsymbol\eta = 0$ & \texttt{IsDegenerate} \\
+\midrule
+$\eta_\tau\big(v_i(t{+}1)-v_i(t)\big)$
+  & \texttt{eta\_tau * (traj ... (t+1) i - traj ... t i)} \\
+$-\,\eta_V$
+  & \texttt{- eta\_V} \\
+$-\sum_j \eta_{W_j}\mathrm{ReLU}(v_j(t))$
+  & \texttt{- sum j, eta\_W j * relu (traj ... t j)} \\
+$=0$ for every sampled $t$
+  & \texttt{= 0}, under \texttt{forall t < T} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Note what is \emph{absent}: $b_i(t)$ does not appear, because it cancels
+when the perturbed row equation is subtracted from the true one
+(\eqref{eq:conv-diff}); and \texttt{traj} appears throughout, so the
+condition is read off the \emph{recorded} trajectory, exactly as
+\eqref{eq:kernel} requires. \texttt{IsDynEquiv}, by contrast, mentions
+\texttt{trajPert} --- the re-simulated rollout --- which is the whole
+asymmetry the theorem is about.
+
+\subsection{The proof}
+\label{sec:leanproof}
+
+The proof is 79 lines (L86--164 of \texttt{EquivProof/Basic.lean}) and is
+reproduced below, with only the repeated argument lists elided --- every
+tactic invocation is shown. Line numbers are the file's own, so the gaps
+mark elided continuation lines. A \emph{tactic} is an instruction that
+transforms the current goal; the proof is read top to bottom as a sequence
+of such transformations. Comments (\texttt{--}) are in the source.
+
+\begin{verbatim}
+ 86  constructor
+ 87  · -- (=>): Base case / Inductive hypothesis / Inductive step / Conclusion.
+ 88    intro hdeg t ht
+ 89    induction t with
+ 90    | zero => rfl
+ 91    | succ t ih =>
+ 92      have ht' : t < T := by omega
+ 93      have ihfull : trajPert n tau Vrest W Iext i eta_tau eta_V eta_W lam v0 t
+ 94          = traj n tau Vrest W Iext v0 t := ih (le_of_lt ht')
+ 95      have hdeg_t := hdeg t ht'
+ 96      -- Unfold `traj` at `t+1`: this is exactly the row equation (eq:row).
+ 97      have hunfold : traj n tau Vrest W Iext v0 (t + 1) i
+ 98          = traj n tau Vrest W Iext v0 t i + (1 / tau i) *
+ 99              (-(traj n tau Vrest W Iext v0 t i) + Vrest i
+100                + (sum j, W i j * relu (traj n tau Vrest W Iext v0 t j))
+101                + Iext i t) := rfl
+102      funext k
+103      show stepAll n (tau_pert ...) (Vrest_pert ...) (W_pert ...) Iext t
+104              (trajPert ... v0 t) k
+105          = stepAll n tau Vrest W Iext t (traj n tau Vrest W Iext v0 t) k
+106      rw [ihfull]
+107      unfold stepAll
+108      rcases eq_or_ne k i with hk | hk
+109      · subst hk
+110        unfold stepOne tau_pert Vrest_pert W_pert
+111        simp only [Function.update_self]
+112        have hsum : sum j, (W k j + lam * eta_W j) * relu (traj ... t j)
+113            = (sum j, W k j * relu (traj ... t j))
+114              + lam * sum j, eta_W j * relu (traj ... t j) := by
+115          rw [Finset.mul_sum, <- Finset.sum_add_distrib]
+116          exact Finset.sum_congr rfl (fun j _ => by ring)
+117        rw [hsum, add_right_inj]
+118        rw [hunfold] at hdeg_t
+119        have htau'' : tau k + eta_tau * lam <> 0 := by rw [mul_comm]; exact htau'
+120        field_simp [htau k, htau', htau''] at hdeg_t |-
+121        linear_combination (-lam) * hdeg_t
+122      · unfold stepOne
+123        have h1 : tau_pert   n tau   i eta_tau lam k = tau k   := Function.update_of_ne hk _ _
+124        have h2 : Vrest_pert n Vrest i eta_V   lam k = Vrest k := Function.update_of_ne hk _ _
+125        have h3 : W_pert     n W     i eta_W   lam k = W k     := Function.update_of_ne hk _ _
+126        rw [h1, h2, h3]
+127  · -- (<=): direct substitution, no induction.
+128    intro hdyn t ht
+129    have h1 := hdyn (t + 1) (by omega)
+130    have h0 := hdyn t (by omega)
+131    have hunfold : traj n tau Vrest W Iext v0 (t + 1) i
+132        = ...                                            := rfl
+135    have hunfold' : trajPert ... (t + 1) i
+136        = trajPert ... t i + (1 / (tau i + lam * eta_tau)) *
+137            (-(trajPert ... t i) + (Vrest i + lam * eta_V)
+138              + (sum j, (W i j + lam * eta_W j) * relu (trajPert ... t j))
+139              + Iext i t) := by
+141      show stepOne n (tau_pert ...) (Vrest_pert ...) (W_pert ...) Iext i t
+142              (trajPert ... t) = _
+144      unfold stepOne tau_pert Vrest_pert W_pert
+145      simp only [Function.update_self]
+146    rw [h0] at hunfold'
+147    rw [h1] at hunfold'
+148    have hsum : sum j, (W i j + lam * eta_W j) * relu (traj ... t j)
+149        = (sum j, W i j * relu (traj ... t j))
+150          + lam * sum j, eta_W j * relu (traj ... t j) := by
+151      rw [Finset.mul_sum, <- Finset.sum_add_distrib]
+152      exact Finset.sum_congr rfl (fun j _ => by ring)
+153    rw [hsum] at hunfold'
+154    rw [hunfold] at hunfold'
+155    rw [add_right_inj] at hunfold'
+156    rw [hunfold]
+157    field_simp [htau i, htau'] at hunfold' |-
+158    have hcancel : lam * (eta_tau * (traj ... t i * tau i
+159          + (-traj ... t i + Vrest i + sum x, W i x * relu (traj ... t x) + Iext i t)
+161          - traj ... t i * tau i))
+162        = lam * (tau i * eta_V + tau i * sum x, eta_W x * relu (traj ... t x)) := by
+163      linear_combination hunfold'
+164    linear_combination mul_left_cancel<>0 hlam hcancel
+\end{verbatim}
+(Repeated argument lists are elided as \texttt{...}; \texttt{sum},
+\texttt{<-}, \texttt{<>}, \texttt{|-} and \texttt{mul\_left\_cancel<>0} stand
+for the source's $\sum$, $\leftarrow$, $\neq$, $\vdash$ and
+\texttt{mul\_left\_cancel}$_0$.)
+
+\subsection{The proof, line by line}
+\label{sec:leanlines}
+
+\paragraph{Splitting the equivalence (L86--88).} \texttt{constructor} splits
+the goal $A\leftrightarrow B$ into the two implications; the \texttt{·}
+bullets focus on each in turn. \texttt{intro hdeg t ht} \emph{assumes} the
+antecedent --- it moves \texttt{IsDegenerate} into the context as a named
+hypothesis \texttt{hdeg} and fixes an arbitrary time \texttt{t} with its
+bound \texttt{ht}. It does not prove anything; in Lean a hypothesis is an
+argument you are handed.
+
+\paragraph{The induction (L89--91).} \texttt{induction t with | zero => ...
+| succ t ih => ...} is the r\'ecurrence of \S\ref{sec:kernel}, with
+\texttt{zero} the initialisation, \texttt{succ} the h\'er\'edit\'e, and
+\texttt{ih} the hypoth\`ese de r\'ecurrence. The base case is closed by
+\texttt{rfl} --- ``true by definition'': both rollouts are \emph{defined} to
+be $v_0$ at $t=0$, so there is literally nothing to prove.
+
+\paragraph{Instantiating the hypotheses (L92--95).} \texttt{omega} is a
+decision procedure for linear arithmetic over $\mathbb N$; it discharges the
+index bookkeeping between \texttt{t < T} and \texttt{t + 1 <= T}.
+\texttt{ih (le\_of\_lt ht')} and \texttt{hdeg t ht'} are ordinary
+\emph{function applications}: a universally quantified hypothesis is a
+function from (a time, a proof of its bound) to the instance at that time.
+
+\paragraph{The bridge to the row equation (L97--101).} \texttt{hunfold}
+states that $v_i(t{+}1)$ equals one Euler step applied to $v(t)$, and proves
+it with \texttt{rfl}. This is the load-bearing structural point: unfolding
+the recursion is true \emph{by definition}, and what it unfolds to
+\emph{is} the row equation \eqref{eq:row}. The link between the simulator and
+the linear algebra costs nothing because it is definitional.
+
+\paragraph{Reducing to one neuron at a time (L102--105).} \texttt{funext k}
+is function extensionality: to prove two \emph{functions} equal, prove them
+equal at each argument. Since the goal is an equality of population states,
+\texttt{k} now ranges over \emph{all} neurons --- the whole-population
+caveat of \S\ref{sec:kernel} appears here as a proof obligation, not as a
+remark. \texttt{show} restates the goal in a definitionally equal form
+(one rollout step on each side).
+
+\paragraph{The case split (L106--108).} After \texttt{rw [ihfull]} replaces
+$w(t)$ by $v(t)$ --- this is the inductive hypothesis being used ---
+\texttt{rcases eq\_or\_ne k i with hk | hk} splits on whether the neuron
+being updated is the perturbed one. This is exactly the note's split between
+neuron $i$ and ``every other neuron $k\neq i$''.
+
+\paragraph{Case $k=i$: consuming the degeneracy (L109--121).} After
+\texttt{subst} and unfolding, \texttt{Function.update\_self} supplies the
+perturbed parameters at the updated index. \texttt{hsum} splits the
+perturbed synaptic sum into (true part) $+\ \lambda\cdot(\boldsymbol\eta$
+part$)$ --- the algebraic content of ``linear in the parameters'';
+note \texttt{<-\,Finset.sum\_add\_distrib} is applied \emph{backwards}, to
+recombine two sums into one before closing termwise with \texttt{ring}.
+\texttt{add\_right\_inj} then cancels the common leading term (despite its
+name it cancels on the \emph{left}: \texttt{a + b = a + c <-> b = c}), and
+\texttt{field\_simp} clears the $1/\tau$ denominators, which is why the
+nonvanishing hypotheses are passed to it. The last line is the punchline:
+\begin{center}
+\texttt{linear\_combination (-lam) * hdeg\_t}
+\end{center}
+proves the goal by exhibiting $\text{goal}-(-\lambda)\cdot(\text{degeneracy
+hypothesis})$ as a ring identity. Mathematically: \emph{the perturbed update
+agrees with the true one precisely because $\Mat
+a_i(t)^{\!\top}\boldsymbol\eta=0$, scaled by $\lambda$}. This single line is
+\eqref{eq:induct}$\to$\eqref{eq:induct-reduced}.
+
+\paragraph{Case $k\neq i$: the other neurons (L122--126).}
+\texttt{Function.update\_of\_ne} says a function is unchanged away from the
+updated index, so the untouched neurons have literally the same parameters
+and hence the same update. Three rewrites close it. Trivial --- but the
+formalization \emph{forces} it to be discharged, which is the note's point
+that the induction hypothesis must cover the whole population.
+
+\paragraph{The converse: no induction (L127--130).} \texttt{hdyn} is applied
+at $t$ and at $t{+}1$ to extract the two trajectory agreements needed. There
+is no \texttt{induction} tactic anywhere in this branch, and that is the
+structural asymmetry: agreement at \emph{every} time is already a
+hypothesis, so nothing has to be built up step by step.
+
+\paragraph{Collapsing $w$ onto $v$ (L146--147).} \texttt{rw [h0]} and
+\texttt{rw [h1]} substitute the dynamical-equivalence equalities into the
+perturbed update equation, rewriting it entirely in terms of $v$. This is
+the note's ``substituting collapses $\Mat a_i(t;w)$ fully to $\Mat
+a_i(t)$''. Because \texttt{h0} is an equality of \emph{functions}, the
+rewrite reaches inside $\sum_j\cdots\mathrm{ReLU}(w_j(t))$, every
+presynaptic term; had \texttt{IsDynEquiv} been stated for neuron $i$ alone
+this step would fail. The whole-population choice is load-bearing here.
+
+\paragraph{Dividing by $\lambda$ (L157--164).} With both update equations
+expressed in $v$ and denominators cleared, subtracting them leaves
+\texttt{hcancel}, deliberately shaped as $\lambda\cdot A=\lambda\cdot B$ ---
+which is \eqref{eq:conv-diff}. Then
+\begin{center}
+\texttt{mul\_left\_cancel}$_0$ \texttt{hlam hcancel}
+\end{center}
+(signature \texttt{a <> 0 -> a * b = a * c -> b = c}) is exactly the note's
+step ``since $\lambda\neq0$'', done honestly: the nonvanishing fact is
+consumed as an explicit argument rather than by dividing. \textbf{This is
+the only place \texttt{hlam} is used in the entire proof} --- every other
+step is valid at $\lambda=0$ --- so the machine pins the whole dependence on
+$\lambda\neq0$ to one identifiable inference, precisely the one
+Remark~\ref{rem:nottaut} says the tautology question turns on.
+
+\paragraph{What the axiom report certifies.} \texttt{\#print axioms} reports
+\texttt{[propext, Classical.choice, Quot.sound]} for both theorems: Lean's
+three standard foundations, present in essentially every Mathlib
+development. The meaningful part is what is \emph{absent}. \texttt{sorry} is
+Lean's ``trust me'' placeholder, and any proof containing one --- at any
+depth, in any lemma it depends on --- carries \texttt{sorryAx} in this list
+indelibly. Its absence certifies that no step is left unproven: the
+difference between ``formalised'' and ``machine-checked''.
+
+\section{The SVD and the eigenvalue spectrum}
+
+\subsection{Definition}
+Every $\A\in\mathbb R^{T\times n}$ factors as
+\begin{equation}
+\A = \Mat U \boldsymbol\Sigma \Mat V^{\!\top},\qquad
+\boldsymbol\Sigma = \mathrm{diag}(\sigma_1 \ge \dots \ge \sigma_n \ge 0),
+\label{eq:svd}
+\end{equation}
+with $\Mat U,\Mat V$ orthogonal \src{Beltrami 1873; Jordan 1874; Eckart \& Young
+1936, Psychometrika; Golub \& Kahan 1965, SIAM J.~Numer.\ Anal.}. The $\sigma_k$
+are the \textbf{singular values}, the columns $\Mat v_k$ of $\Mat V$ the right
+singular vectors --- directions in \emph{parameter} space.
+
+\subsection{The relation you must keep straight}
+Substituting \eqref{eq:svd} into the Gram matrix,
+\begin{equation}
+\boxed{\;\Mat G = \A^{\!\top}\A = \Mat V\boldsymbol\Sigma^2\Mat V^{\!\top}
+\quad\Longrightarrow\quad
+\lambda_k(\Mat G) = \sigma_k(\A)^2 \;}
+\label{eq:key}
+\end{equation}
+So: the \emph{eigenvalues} of the Gram matrix are the \emph{squared singular
+values} of the design matrix, sharing eigenvectors. Because $\Mat G$ is
+symmetric PSD its eigenvalues and singular values coincide, which is why one can
+get away with saying ``singular values of the Gram matrix'' --- but the
+\emph{square} is then silently in play, and that is the source of the confusion
+documented in §\ref{sec:flags}. Define the normalised spectrum
+\begin{equation}
+\eps_k := \frac{\lambda_k(\Mat G)}{\lambda_{\max}(\Mat G)}
+        = \left(\frac{\sigma_k(\A)}{\sigma_1(\A)}\right)^{\!2}
+        \in [0,1].
+\label{eq:relspec}
+\end{equation}
+The ordered list $\{\eps_k\}$ is the \textbf{eigenvalue spectrum}. A spectrum
+spanning many decades with no gap is the signature of a \emph{sloppy} model
+\src{Gutenkunst et al.\ 2007; Transtrum et al.\ 2015}.
+
+\subsection{Conditioning}
+The 2-norm condition number is
+\begin{equation}
+\cond_2(\A) = \sigma_1/\sigma_n, \qquad\text{and crucially}\qquad
+\cond_2(\Mat G) = \cond_2(\A)^2 .
+\label{eq:cond}
+\end{equation}
+\src{Golub \& Van Loan §2.6, §5.3; Higham, \emph{Accuracy and Stability of
+Numerical Algorithms} 2nd ed., ch.~20}
+
+\paragraph{The practical consequence.} IEEE double precision has
+$\eps_{\mathrm{mach}} \approx 2.2\times10^{-16}$. Forming $\Mat G$ numerically
+squares the condition number, so information about $\eps_k$ below
+$\sim\eps_{\mathrm{mach}}$ is destroyed: computed relative eigenvalues below
+$\sim10^{-16}$ are numerical noise. Working with $\A$ directly via a
+backward-stable QR or SVD does \emph{not} square it, so $\sigma_k/\sigma_1$
+resolves to $\sim10^{-16}$ and therefore $\eps_k = (\sigma_k/\sigma_1)^2$ is
+meaningful to $\sim10^{-32}$ \src{Golub \& Van Loan §5.2 (Householder QR
+backward stability); Trefethen \& Bau, \emph{Numerical Linear Algebra}, Lectures
+16, 18--19}. \textbf{This is exactly the gain of a factor $10^{16}$ in
+resolvable tolerance that separates the submission's method from the rebuttal's,
+and it is why a $10^{-22}$ threshold is meaningful in one and not the other.}
+
+\section{Solving: pseudo-inverse and truncation}
+
+When $\A$ is rank-deficient, \eqref{eq:lsq} has infinitely many minimisers. The
+one of smallest norm is given by the \textbf{Moore--Penrose pseudo-inverse}
+\src{Moore 1920; Penrose 1955, Proc.\ Camb.\ Phil.\ Soc.; Golub \& Van Loan
+§5.5.4}
+\begin{equation}
+\A^{+} = \Mat V\boldsymbol\Sigma^{+}\Mat U^{\!\top},\qquad
+(\boldsymbol\Sigma^{+})_{kk} =
+\begin{cases} 1/\sigma_k & \sigma_k > 0\\ 0 & \sigma_k = 0\end{cases},
+\qquad \hat\thet = \A^{+}\Mat b .
+\label{eq:pinv}
+\end{equation}
+In floating point ``$\sigma_k>0$'' is replaced by a threshold, giving the
+\textbf{truncated SVD} (TSVD) estimator
+\begin{equation}
+\hat\thet^{(\eps)} = \sum_{k:\,\eps_k > \eps}
+  \frac{\Mat u_k^{\!\top}\Mat b}{\sigma_k}\,\Mat v_k ,
+\label{eq:tsvd}
+\end{equation}
+a spectral-filter regulariser \src{Hansen, \emph{Rank-Deficient and Discrete
+Ill-Posed Problems}, SIAM 1998, ch.~3--4}. Its smooth cousin is Tikhonov
+regularisation, $\hat\thet = (\A^{\!\top}\A + \mu\Mat I)^{-1}\A^{\!\top}\Mat b$,
+which multiplies each term by $\sigma_k^2/(\sigma_k^2+\mu)$ instead of cutting
+it \src{Tikhonov 1963; Tikhonov \& Arsenin 1977}. \emph{The calcium
+deconvolution in Q2 is the same estimator applied in Fourier space} --- there
+the ``singular values'' are the kernel's frequency response $|K(f)|$.
+
+\subsection{Error amplification: the master formula}
+\label{sec:amp}
+Perturb the right-hand side, $\Mat b \to \Mat b + \delta\Mat b$. From
+\eqref{eq:tsvd},
+\begin{equation}
+\boxed{\;\delta\hat\thet = \sum_{k:\,\eps_k>\eps}
+  \frac{\Mat u_k^{\!\top}\delta\Mat b}{\sigma_k}\,\Mat v_k
+\quad\Longrightarrow\quad
+\|\delta\hat\thet\| \;\lesssim\; \frac{\|\delta\Mat b\|}{\sigma_{\min}^{\text{kept}}}\;}
+\label{eq:amp}
+\end{equation}
+\src{standard; Golub \& Van Loan §5.3.8, Trefethen \& Bau Lecture 18} Read it
+carefully, because the whole of Part~III follows from it:
+\begin{itemize}
+\item A direction that is \emph{cut} contributes exactly zero error. Truncation
+      is safe.
+\item A direction that is \emph{kept} contributes error inversely proportional
+      to its singular value. Keeping a near-null direction is dangerous.
+\item Therefore the worst case is not $\sigma_k = 0$; it is $\sigma_k$
+      \emph{just above the cut}.
+\end{itemize}
+
+\section{Two perturbation theorems: why noise helps, and how much}
+
+\subsection{Weyl: noise lifts the spectrum}
+For any $\A$ and perturbation $\Mat E$,
+\begin{equation}
+|\sigma_k(\A+\Mat E) - \sigma_k(\A)| \;\le\; \|\Mat E\|_2 \qquad \forall k .
+\label{eq:weyl}
+\end{equation}
+\src{Weyl 1912; Mirsky 1960; Golub \& Van Loan Cor.~8.6.2; Stewart \& Sun,
+\emph{Matrix Perturbation Theory} 1990, ch.~IV} An exactly null direction
+($\sigma_k = 0$) can therefore be lifted, but by \emph{at most} the size of the
+perturbation. Process noise of scale $\sigma_{\text{proc}}$ enters $\A_i$
+through the recorded $v_j$, so
+\begin{equation}
+0 \;\longrightarrow\; \sigma_k \;\lesssim\; O(\sigma_{\text{proc}}) .
+\label{eq:lift}
+\end{equation}
+\textbf{This is the theorem behind ``per-neuron noise breaks the degenerate
+directions of $\A_i$''} (\texttt{neurips.tex} L354--355). It is a real
+mechanism, and \eqref{eq:weyl} is the citation the claim currently lacks.
+
+\subsection{Marchenko--Pastur: what the lift looks like}
+For $\Mat E$ with i.i.d.\ entries of variance $s^2$ and aspect ratio
+$n/T \to c$, the singular values of $\Mat E/\sqrt T$ fill
+$[s(1-\sqrt c),\, s(1+\sqrt c)]$ \src{Marchenko \& Pastur 1967, Mat.\ Sb.; Bai
+\& Silverstein, \emph{Spectral Analysis of Large Dimensional Random Matrices}}.
+So noise does not merely lift one direction; it installs a \emph{floor} of width
+$O(s)$ across the spectrum. Distinguishing ``noise selectively destroyed the
+columnar degeneracy'' from ``noise put a floor under everything'' is thus a real
+question, not a rhetorical one --- and it is precisely the question
+\texttt{reply\_all.tex} L233--237 tries to settle by column equilibration.
+
+\subsection{Column equilibration, and what it does and does not fix}
+Rescaling columns, $\A \to \A\Mat D$ with $\Mat D$ diagonal, changes the
+spectrum; choosing $\Mat D$ so each column has unit norm is
+\emph{equilibration} and is close to optimal for conditioning among diagonal
+scalings \src{van der Sluis 1969, Numer.\ Math.}. After equilibration
+\begin{equation}
+\sum_k \lambda_k(\Mat G) = \tr(\Mat G) = \sum_{k} \|\A_{:,k}\|^2 = n ,
+\label{eq:trace}
+\end{equation}
+a fixed budget. So noise \emph{cannot} raise all $\eps_k$ together: raising the
+small ones must lower the large ones. That is a genuine argument and
+\eqref{eq:trace} is its one-line proof. But note what it does \emph{not} give
+you: it constrains the sum, not the shape, so it rules out a uniform inflation
+while remaining compatible with a Marchenko--Pastur floor. The decisive evidence
+is the columnar decomposition (§\ref{sec:usage}, item~\ref{it:col}), not the
+trace identity.
+
+\subsection{Correlated columns force a small singular value (closed-form, not
+just observed)}
+\label{sec:corr-cols}
+
+Kristoffersen, Nielsen \& Solem (2024/25) prove a closed-form
+condition-number bound for their own (Heaviside firing-interval) inverse
+problem, driven by \emph{how close two firing events are in time}
+\src{Kristoffersen et al., arXiv:2409.07241, Thm 3.5}: two rows of their
+design matrix built from firing events separated by a small gap $h$ are
+forced close together, giving $\sigma_1\ge c_1$, $\sigma_r\le c_2h/\|\cdot\|$,
+hence $\cond\gtrsim h^{-1}$. Our setting has a natural twin, driven instead
+by \emph{how correlated two presynaptic columns are} --- the mechanism
+behind the ``time-shifted copies'' argument the Area Chair objected to in
+\S\ref{sec:flags}(a): their theorem needs two \emph{rows} to be
+near-duplicates (close firing times); ours needs two \emph{columns} to be
+near-duplicates (correlated presynaptic neurons).
+
+\paragraph{Setup.} Let $a_p, a_q$ be two columns of $\A_i$ corresponding to
+presynaptic weights $W_{ip}, W_{iq}$ (e.g.\ two same-type, time-shifted
+presynaptic neurons). Define
+\begin{equation}
+\alpha := \frac{\langle a_p,a_q\rangle}{\|a_p\|^2}, \qquad
+\rho := \frac{\langle a_p,a_q\rangle}{\|a_p\|\,\|a_q\|}, \qquad
+\eps := \|a_q-\alpha a_p\| = \|a_q\|\sqrt{1-\rho^2} .
+\label{eq:corr-def}
+\end{equation}
+$\rho$ is the (cosine/Pearson) correlation between the two columns; $\eps$
+is the part of $a_q$ \emph{not} explained by $a_p$ --- exactly ``correlated,
+not identical.''
+
+\begin{theorem}
+Let $\sigma_1\ge\dots\ge\sigma_n\ge0$ be the singular values of
+$\A_i\in\mathbb R^{T\times n}$. Then
+\begin{equation}
+\sigma_1 \ge \sqrt T, \qquad
+\sigma_n \le \frac{\eps}{\sqrt{1+\alpha^2}} = \frac{\|a_q\|\sqrt{1-\rho^2}}{\sqrt{1+\alpha^2}} ,
+\label{eq:corr-thm}
+\end{equation}
+hence
+\begin{equation}
+\cond(\A_i) \ge \frac{\sqrt T\,\sqrt{1+\alpha^2}}{\|a_q\|\sqrt{1-\rho^2}}
+\ \xrightarrow[\ \rho\to\pm1\ ]{}\ \infty .
+\label{eq:corr-cond}
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+\emph{The residual (elementary).} By definition of $\alpha$ as the
+least-squares projection coefficient, $r:=a_q-\alpha a_p \perp a_p$, so
+$\|a_q\|^2=\alpha^2\|a_p\|^2+\|r\|^2$ (Pythagoras); substituting
+$\alpha=\rho\|a_q\|/\|a_p\|$ gives $\|r\|=\eps$. This is the analog of
+their mean-value-theorem step: it turns ``correlated but not identical''
+into a residual norm, instead of a temporal gap.
+
+\emph{Upper bound on $\sigma_n$.} Since $\A_i^{\!\top}\A_i\in\mathbb
+R^{n\times n}$ has no trivial padding zeros (unlike their $A^{(i)}[A^{(i)}]^\top$,
+which needed a restriction to $\mathcal N([A^{(i)}]^\top)^\perp$ to exclude
+them), $\sigma_n^2=\min_{x\ne0}\langle x,\A_i^{\!\top}\A_ix\rangle/\|x\|^2$
+directly, with no such restriction needed. Take
+$x=\eta:=e_q-\alpha e_p$: $\A_i\eta=a_q-\alpha a_p=r$, so
+$\sigma_n^2\le\eps^2/(1+\alpha^2)$.
+
+\emph{Lower bound on $\sigma_1$.} Take $x=e_V$, the coordinate for
+$V_i^{\mathrm{rest}}$. That column of $\A_i$ is exactly the constant vector
+$(-1,\dots,-1)\in\mathbb R^T$ (eq.~\eqref{eq:row}), so $\|\A_ie_V\|^2=T$
+exactly --- no a-priori ODE bound on an unknown state needed, unlike their
+$c_1$. Hence $\sigma_1^2\ge T$.
+
+Divide.
+\end{proof}
+
+\begin{remark}[caveat: one pair here, generalizes to $k$ correlated columns]
+The theorem above handles one pair $(p,q)$. Our note's actual claim
+(\S\ref{sec:flags}(a): a $(k_{i\alpha}-1)$-dimensional sloppy block from
+$k_{i\alpha}$ same-type neurons) needs $k-1$ directions at once. The
+\emph{construction} is immediate: if $a_{q_1},\dots,a_{q_{k-1}}$ are all
+well-approximated by a common reference column $a_p$, i.e.\
+$a_{q_l}=\alpha_la_p+r_l$ with $\|r_l\|=\eps_l$, then
+$\eta_l:=e_{q_l}-\alpha_le_p$, $l=1,\dots,k-1$, are linearly independent
+(each has a unit coefficient on its own coordinate $q_l$, all distinct),
+spanning a genuine $(k-1)$-dimensional subspace $S$ --- the ``rank
+$\approx1$ instead of $k$'' block, made explicit rather than asserted. The
+\emph{proof} needs one step more than the pairwise case: a single test
+vector bounds only the single smallest singular value, but bounding all
+$k-1$ of the bottom singular values at once needs the Courant--Fischer
+min-max theorem,
+\begin{equation}
+\sigma_{n-k+2}^2 = \min_{\dim(S')=k-1}\ \max_{x\in S',\,x\ne0}\frac{\|\A_ix\|^2}{\|x\|^2}
+\ \le\ \max_{x\in S,\,x\ne0}\frac{\|\A_ix\|^2}{\|x\|^2} ,
+\end{equation}
+choosing $S$ itself as the particular $(k{-}1)$-dimensional subspace
+plugged into the min. For $x=\sum_lc_l\eta_l\in S$, $\A_ix=\sum_lc_lr_l$,
+and relating $\sum_l|c_l|$ back to $\|x\|$ only needs the $\eta_l$'s own
+Gram matrix $\Mat I_{k-1}+\boldsymbol\alpha\boldsymbol\alpha^{\!\top}$ (a
+rank-one perturbation of the identity, condition number controlled by
+$\|\boldsymbol\alpha\|$). The upshot: all $k-1$ bottom singular values are
+$O(\max_l\eps_l)$, not just $\sigma_n$ --- the construction transfers
+immediately; the bound needs the subspace version of the same tool.
+\end{remark}
+
+\section{One more trap: noise in the design matrix}
+\label{sec:eiv}
+All of the above perturbs $\Mat b$. If the \emph{regressors} are noisy the
+estimator is not merely noisy but \emph{biased}: for a scalar regressor with
+signal variance $s_x^2$ and noise variance $s_\nu^2$,
+\begin{equation}
+\hat\beta \;\xrightarrow{\;T\to\infty\;}\; \beta\cdot\frac{s_x^2}{s_x^2+s_\nu^2}
+\;<\; \beta ,
+\label{eq:attenuation}
+\end{equation}
+the \textbf{attenuation} (errors-in-variables) bias \src{Fuller,
+\emph{Measurement Error Models}, Wiley 1987, §1.1; Wooldridge, \emph{Econometric
+Analysis of Cross Section and Panel Data}, §4.4.2}. This matters because the
+first column of $\A_i$ in \eqref{eq:ls} is $-\dot v_i$, which is built from the
+same noisy voltages as $\Mat b_i$: the regressor is endogenous, and recovery of
+$\tau_i$ is attenuated by an amount that \emph{grows with process noise}. The
+rebuttal script's ``increment'' reparameterisation exists to remove exactly
+this, by putting only time-$t$ quantities on the right-hand side:
+\begin{equation}
+\Delta v_i(t) = \alpha_i\big(-v_i + I_i\big) + \beta_i
+  + \textstyle\sum_j \gamma_{ij}\mathrm{ReLU}(v_j) + \text{noise},
+\qquad
+\tau_i = \frac{\Delta t}{\alpha_i},\;\;
+W_{ij} = \frac{\gamma_{ij}}{\alpha_i}.
+\label{eq:increment}
+\end{equation}
+Two consequences to hold on to: the division by $\alpha_i$ means \emph{all} of
+neuron $i$'s weights inherit any error in $\alpha_i$; and \eqref{eq:increment}
+is a \emph{different design matrix} from \eqref{eq:ls}, so its conditioning is a
+different question.
+
+\part{How these tools are used in our two documents}
+\label{sec:usage}
+
+Every line below is quoted from the working copies. I group them by what they
+assert.
+
+\section{\texttt{neurips.tex}: the claims}
+
+\begin{enumerate}
+\item \textbf{L113} ``\emph{possible when both connectivity and activity are
+sufficiently rich and identifiable}''; \textbf{L212} ``\emph{essential for
+parameter identifiability}''. Informal use of identifiability, in the sense of
+§\ref{sec:amp}: enough directions kept, none of them near-null.
+
+\item \textbf{L237} ``\emph{Many synaptic weight configurations give rise to
+identical neural activity, making the recovery of $\hat{\Mat W}$ \dots\
+fundamentally non-unique}''. This is \eqref{eq:kernel} verbatim: an affine
+solution set.
+
+\item \textbf{L277} ``\emph{even with full knowledge of the underlying
+equations, $\approx 10\%$ of the circuit parameters cannot be uniquely
+determined}''. The $10\%$ is $6.35 + 4.01$, i.e.\ null plus sloppy at the two
+thresholds of L831--832; see the flag in §\ref{sec:flags}(c).
+
+\item \textbf{L822} ``\emph{if the column space is not full rank the system
+admits a continuous degeneracy defined by the kernel $\ker(\A_i)$}''. Exactly
+\eqref{eq:kernel}--\eqref{eq:kereq}. ``Column space'' should read ``column
+rank''; the kernel is a property of the domain, not the column space.
+
+\item \textbf{L828--832}, the method paragraph, and the one that carries all the
+weight: ``\emph{We solve the linear system using least squares, using float64
+arithmetic, column normalization of $\A_i$. We compute the singular value
+decomposition of the $(2+d_i)\times(2+d_i)$ Gram matrix $\A_i^{\!\top}\A_i$ and
+use the ratio $\lambda/\lambda_{\max}$ of singular values to define null (ratio
+$< 64000\times10^{-22}$) and sloppy (ratio $< 64000\times10^{-12}$) directions
+\dots\ \texttt{\textbackslash citep\{Gutenkunst2007-so\}}}''. Four things at once: least squares
+\eqref{eq:lsq}, equilibration \eqref{eq:trace}, the Gram spectrum
+\eqref{eq:key}, and the sloppiness convention. Three problems with it are listed
+in §\ref{sec:flags}.
+
+\item \textbf{L841--859}, Fig.~12 caption: ``\emph{Per-neuron least-squares
+recovery}'', ``\emph{Black points are well-identified; orange (``sloppy'') and
+red \dots\ per-neuron Gram matrix and are flagged as degenerate}'',
+``\emph{parameter dimensions that have non-zero inner product with a null or
+sloppy}''. The colouring is a per-parameter reduction of a per-\emph{direction}
+quantity: parameter $\alpha$ is flagged if $|(\Mat v_k)_\alpha| >
+\texttt{null\_comp\_tol}=10^{-3}$ for some flagged $\Mat v_k$. Worth stating,
+since that $10^{-3}$ is a third free tolerance nowhere named in the paper.
+
+\item \textbf{L870} ``\emph{no degeneracies purely along the $V^{\mathrm{rest}}$
+direction}'': the constant column of $\A_i$ is never null, so
+$\Mat e_2 \notin \ker\A_i$.
+
+\item \textbf{L944--958} the reduced system $\Mat H_i\Mat w_i = \Mat b_i$ with
+$\ker(\Mat H_i)$, for $\tau,V^{\mathrm{rest}}$ known. A submatrix of $\A_i$;
+$\ker\Mat H_i \subseteq \ker\A_i$ restricted to weight coordinates.
+
+\item \label{it:col} \textbf{L1005, L1017--1026} the structural argument:
+same-type neurons across columns give ``\emph{time-shifted copies}'', so
+$k_{i\alpha}$ columns of $\Mat H_i$ have ``\emph{rank $\approx 1$ instead of
+$k_{i\alpha}$}'', every sum-zero perturbation is free, and
+$\dim\ker(\Mat H) = \sum_i\sum_\alpha (k_{i\alpha}-1) = 308{,}160$ ($71\%$).
+\textbf{Note the ``$\approx$''}: rank-$\approx$-1 gives small-but-nonzero
+$\sigma_k$, hence a \emph{sloppy} subspace, not a kernel. The AC caught precisely
+this; see §\ref{sec:flags}(a).
+
+\item \textbf{L1029--1030, L1254} least squares used as a tool rather than an
+object of study (group calibration; affine fit for the $\tau$ readout).
+
+\item \textbf{L129, L161, L354--355, L464} the headline claim in four
+formulations, the sharpest being L354--355: ``\emph{Per-neuron noise breaks the
+degenerate directions of $\A_i$}''. Theorem: \eqref{eq:weyl}. Caveat:
+\eqref{eq:lift} bounds the lift by the noise scale, and
+Marchenko--Pastur says a floor appears everywhere.
+
+\item \textbf{L461} ``\emph{the $\ell_1$ prior on $\hat{\Mat W}$ is the only
+load-bearing regularizer, consistent with the analytical degeneracy}''. The
+consistency is real: $\ell_1$ selects a sparse point inside the affine set
+\eqref{eq:kernel}, which is what a degenerate problem needs.
+
+\item \textbf{L2004--2020} truncated SVD of the $T\times N$ \emph{activity}
+matrix. A different matrix and a different purpose (Eckart--Young low-rank
+reconstruction); do not confuse its rank-$K$ with the parameter spectrum.
+\end{enumerate}
+
+\section{\texttt{reply\_all.tex}: the responses}
+
+\begin{enumerate}
+\item \textbf{L54--56}, the AC: ``\emph{Reconcile the approximately 6.4\% null
+plus 4.0\% sloppy edge dimensions with the claimed 71\% exact null space}'',
+``\emph{Highly correlated or time-shifted signals do not generally constitute
+identical columns and therefore do not establish an exact $(k-1)$-dimensional
+kernel}'', ``\emph{appears to conflate exact non-identifiability, numerical
+sloppiness, and approximate dynamical equivalence}''. The AC is right on the
+mathematics: correlated $\neq$ identical, so $\sigma_k$ is small but nonzero.
+
+\item \textbf{L59--63} our concession, and the right one: Eq.~(11) is
+``\emph{an approximate or sloppy subspace and not an exact null space}''; we will
+show ``\emph{the spectrum of the normalized singular values (defined as
+$\lambda/\lambda_{\max}$) of the Gram matrix}'' with thresholds
+$10^{-22}$/$10^{-12}$; and ``\emph{approximately 70\% of the normalized singular
+values are less than \texttt{1e-6}}''. That last number is the reconciliation:
+$6.4\%$ and $71\%$ are one monotone curve $\Phi(\eps)$ read at two tolerances.
+
+\item \textbf{L90--92} the three definitions. L90: ``\emph{when the matrix $A_i$
+has a non-empty kernel, or equivalently, when the singular values of the Gram
+matrix $A^\top A$ are zero}'' --- correct by \eqref{eq:kereq}, phrased loosely
+(see §\ref{sec:flags}(b)). L91: ``\emph{the curvature of the Hessian (equal to
+the Gram matrix)}'' --- this is \eqref{eq:hessian}, and it is exactly right.
+L92: dynamical equivalence, as in §2.
+
+\item \textbf{L96--97} ``\emph{non-identifiability and dynamical equivalence are
+equivalent notions}'' for Euler-integrated trajectories. Proved in §2. This is
+the paragraph most worth finishing.
+
+\item \textbf{L192--244} (and the duplicate at L505--532) the new analysis:
+``\emph{take the singular values of $A_i$ by SVD and rank each weight direction
+by $\eps = (\sigma_k/\sigma_1)^2$}'', ``\emph{No weights are fitted and no solver
+runs, so this measures the conditioning of the inverse problem}'', and the
+$6.35/4.01 \to 2.44/0.32 \to 0.00/0.00$ table. Two upgrades over the submission,
+both real: SVD of $\A_i$ instead of the Gram (a $10^{16}$ gain in resolvable
+$\eps$, §3.3), and an estimator-free statement, which sidesteps the endogeneity
+of §\ref{sec:eiv} rather than arguing about it.
+
+\item \textbf{L233--237} ``\emph{ruled out by column equilibration, which fixes
+the sum of squared singular values, so noise can only redistribute}''. This is
+\eqref{eq:trace}. Sound as far as it goes; see §5.3 for what it does not settle.
+
+\item \textbf{L682} ``\emph{process noise \dots\ is white, so the identifying
+signal sits at high frequency, exactly the band the indicator attenuates}''.
+The Fourier analogue of \eqref{eq:amp}: the calcium kernel is a spectral filter
+whose small ``singular values'' are the high frequencies, and deconvolution
+divides by them.
+
+\item \textbf{L835, L567} the CX per-source gain degeneracy
+($W_{\cdot j}\to cW_{\cdot j}$, $e^{g_j}\to e^{g_j}/c$) and the $\mu_2$ anchor.
+A \emph{multiplicative} exact symmetry --- outside the linear theory above,
+but the same phenomenon: a direction the data does not see.
+
+\item \textbf{L976--999} the definitions appendix, ending
+``\emph{\%\%\% CONTINUE THIS AND SHOW THAT DYNAMICAL EQUIVALENCE = DEGENERACY}''.
+§2 above is that proof.
+\end{enumerate}
+
+\section{Four places the wording does not match the computation}
+\label{sec:flags}
+
+\begin{description}
+\item[(a) ``exact'' vs ``approximate'' null space.] Eq.~(11)'s $308{,}160$
+directions come from ``rank $\approx 1$'' blocks. Time-shifted signals are
+strongly correlated, not equal, so those directions have small nonzero
+$\sigma_k$: a sloppy subspace. Already conceded at L59; the fix is to stop
+calling it a kernel anywhere, including L953--958.
+
+\item[(b) eigenvalues vs singular values.] ``Singular values of the Gram
+matrix'' (L831, L90) is defensible only because $\Mat G$ is symmetric PSD, and it
+hides the square in \eqref{eq:key}. State once: $\eps_k =
+\lambda_k(\Mat G)/\lambda_{\max}(\Mat G) = (\sigma_k(\A)/\sigma_1(\A))^2$, and
+then say which one every threshold refers to.
+
+\item[(c) the thresholds are not the same in the two documents.] The submission
+uses $64000\times10^{-22}$ and $64000\times10^{-12}$ (L831--832) --- with an
+explicit factor of $T$. The rebuttal analysis uses $10^{-22}$ and $10^{-12}$
+with no $T$, on the grounds that equilibration plus a \emph{relative} eigenvalue
+makes the quantity $T$-invariant. Both may be right for their own pipeline, but
+they are numerically different tolerances, so the $6.35/4.01$ of the new table
+is not the same statistic as the paper's $6.4\%/4.0\%$ even though the numbers
+coincide. Reconcile explicitly or a careful referee will ask.
+
+\item[(d) the Gram is still formed in the recovery path.] The rebuttal's own
+argument is that one must not square the condition number --- and the
+\emph{spectrum} path duly uses QR${}+{}$SVD. But the \emph{recovery} path
+(\texttt{fig\_lstsq\_identifiability\_noise.py} L256) computes
+\texttt{eigh(Xs.T @ Xs)} and truncates at $\eps>10^{-12}$, only four decades
+above the $\sim10^{-16}$ floor that squaring imposes, so retained
+near-threshold eigenvalues are partly numerical. Correct in principle, and the
+right way round in the spectrum path --- but §\ref{sec:cause} measures it and
+finds \emph{no} effect on the recovery numbers: re-solving with QR${}+{}$SVD
+reproduces the Gram result to every printed digit at all three noise levels and
+five tolerances. Worth fixing for hygiene, not a live problem.
+\end{description}
+
+\part{The eigenvalue analysis and the least-squares numbers do not conflict}
+
+\section{The measurements}
+
+Least-squares recovery of $\Mat W$ via \eqref{eq:increment}, identity-line $R^2$,
+mean\,$\pm$\,SD over five folds, alongside the degenerate-edge fraction from the
+spectrum:
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+$\sigma$ & $\Rw$ all & $\Rw$ identifiable & $\Rw$ excl.\ blow-ups
+ & median $|\delta W|$ & \% degenerate \\
+\midrule
+$0$    & $0.833\pm0.004$ & $1.0000\pm0.0001$ & $0.833$ & $0.0000$ & $10.36$ \\
+$0.05$ & $-91.7\pm168.6$ & $-92.6\pm170.3$   & $0.752\pm0.033$ & $0.0020$ & $2.76$ \\
+$0.5$  & $0.935\pm0.003$ & $0.935\pm0.003$   & $0.935$ & $0.0031$ & $0.00$ \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\section{Why there is no contradiction}
+
+\textbf{The two analyses measure different things, and this is the sentence to
+remember: the eigenvalue analysis counts \emph{how many} directions are
+determined; the least-squares recovery reports \emph{how precisely} they are
+estimated.} Formally, the spectrum gives the set
+$\{k : \eps_k > \eps\}$ --- a \emph{count}. Equation~\eqref{eq:amp} gives the
+error on that set --- a \emph{magnitude}, $\|\delta\Mat b\|/\sigma_k$ per
+direction. Nothing forces them to move together, and here they move oppositely:
+\begin{itemize}
+\item \emph{Count improves with noise.} $10.36\% \to 2.76\% \to 0.00\%$
+      degenerate, by Weyl \eqref{eq:weyl}. Fewer directions are lost.
+\item \emph{Precision degrades with noise.} Median $|\delta W|$ goes
+      $0.0000 \to 0.0020 \to 0.0031$, because $\|\delta\Mat b\|$ in
+      \eqref{eq:amp} grows. This is the monotone worsening my colleague
+      reported, and it is exactly what the theory predicts.
+\end{itemize}
+Both are true simultaneously. ``Noise breaks degeneracies'' and ``noise degrades
+estimates'' are statements about the two different factors in \eqref{eq:amp} ---
+the denominator and the numerator. The submission's claim concerns the
+denominator; the recovery scatter shows the numerator.
+
+\paragraph{And the aggregate reflects both.} $\Rw$ over \emph{all} edges mixes
+them, which is why it is non-monotone: $0.833$ at $\sigma=0$ (capped by the
+$10.36\%$ of edges that are lost outright --- note $\Rw = 1.0000$ exactly on the
+rest), and $0.935$ at $\sigma=0.5$ (nothing lost, everything a little noisy).
+The best recovery is at the \emph{highest} noise, which is the eigenvalue
+analysis's prediction, and the noise-free deficit is entirely the null space.
+
+\section{What is genuinely wrong at $\sigma=0.05$}
+\label{sec:cause}
+
+The $-91.7$ is not a third phenomenon; it is \eqref{eq:amp} with a badly chosen
+cut. At $\sigma = 0.05$, $114$ edges out of $434{,}112$ ($0.026\%$) have
+$|\hat W - W|$ up to $1272$ against true weights of median $0.012$; excluding
+them gives $\Rw = 0.752$. They are isolated single edges, not clustered; $\tau$
+and $V^{\mathrm{rest}}$ for the same neurons are fine, so it is not a shared
+$1/\alpha_i$ factor from \eqref{eq:increment}; and the same edges are clean at
+$\sigma = 0$ (max error $1.08$) and at $\sigma = 0.5$ (max error $0.18$).
+
+\subsection{Two tempting explanations, both measured and both wrong}
+
+The obvious reading is the third bullet of §\ref{sec:amp}: at $\sigma=0$ the
+columnar directions sit far below the cut and are truncated (zero variance, some
+bias); at $\sigma=0.5$ the lift \eqref{eq:lift} carries them far above it; and at
+$\sigma=0.05$ they are lifted to \emph{just above} the cut, retained, and divided
+by. The second candidate is flag~(d): the recovery path forms the Gram, so
+$\eps_k$ near $10^{-12}$ has only four decades of headroom above the
+squaring-induced floor.
+
+Both predict the same experiment. Sweep the cut $\eps_{\mathrm{cut}}$ over
+several decades, and solve twice --- once with
+\texttt{eigh}$(\Mat X^{\!\top}\Mat X)$, once with QR${}+{}$SVD of $\Mat X$, which
+never squares the condition number. If explanation one holds, the blow-ups track
+the cut. If explanation two holds, they shrink under the unsquared solver.
+Running it (\texttt{neurips\_review/lstsq\_tol\_sweep.py}, fold cv04):
+
+\begin{center}
+{\footnotesize
+\begin{tabular}{lccccc}
+\toprule
+$\eps_{\mathrm{cut}}$ & \multicolumn{2}{c}{$\sigma=0$}
+ & \multicolumn{2}{c}{$\sigma=0.05$} & $\sigma=0.5$ \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-6}
+ & $\Rw$ & \# blown & $\Rw$ & \# blown & $\Rw$ (\# blown) \\
+\midrule
+$10^{-14}$ & $0.8274$ & $0$  & $-428.83$ & $114$ & $0.9360$ ($0$) \\
+$10^{-12}$ & $0.8266$ & $0$  & $-428.83$ & $114$ & $0.9360$ ($0$) \\
+$10^{-10}$ & $0.8228$ & $0$  & $-428.79$ & $112$ & $0.9360$ ($0$) \\
+$10^{-8}$  & $0.7959$ & $0$  & $-428.75$ & $107$ & $0.9360$ ($0$) \\
+$10^{-6}$  & $-0.0338$& $56$ & $-428.86$ & $107$ & $0.9360$ ($0$) \\
+\bottomrule
+\end{tabular}}
+
+{\footnotesize \emph{The Gram and QR${+}$SVD solvers agree to every printed digit
+in all $30$ cells}, so they are not shown separately.}
+\end{center}
+
+\noindent Both explanations fail:
+\begin{itemize}
+\item \textbf{The cut is not the cause.} At $\sigma=0.05$ the blow-ups survive
+      eight decades of $\eps_{\mathrm{cut}}$, $114 \to 107$. Directions sitting
+      just above the cut would have been removed by moving it.
+\item \textbf{The Gram is not the cause.} \texttt{eigh}$(\Mat X^{\!\top}\Mat X)$
+      and QR${+}$SVD agree exactly, everywhere. Flag~(d) remains correct as a
+      general principle and as the reason the \emph{spectrum} must not be
+      computed from the Gram, but it has no measurable effect on the recovery
+      here.
+\end{itemize}
+
+\subsection{What it actually is}
+
+The blow-ups survive $\eps_{\mathrm{cut}} = 10^{-6}$, so the offending directions
+have $\eps_k > 10^{-6}$: they are \emph{legitimately retained} by any defensible
+cut, and their small singular values are real structure, not numerical noise.
+Independently, the bad edges' onset statistic has median $\eps_k \approx
+6.9\times10^{-5}$, in the same range. So \eqref{eq:amp} applies with
+\begin{equation}
+\frac{1}{\sigma_k} = \frac{1}{\sigma_1\sqrt{\eps_k}}
+\;\sim\; \frac{10^{2}}{\sigma_1} \quad\text{at}\quad \eps_k \sim 10^{-5},
+\label{eq:ampsize}
+\end{equation}
+compounded by the $1/\alpha_i$ of \eqref{eq:increment}. That is the whole story,
+and it is the master formula with nothing pathological in it:
+\begin{itemize}
+\item $\sigma = 0$: the numerator $\Mat u_k^{\!\top}\delta\Mat b$ is zero, so the
+      amplification multiplies nothing. Error $\approx 0$ (max $1.22$). The
+      $\Rw = 0.833$ deficit is pure truncation \emph{bias}.
+\item $\sigma = 0.05$: numerator nonzero, $\eps_k$ still $\sim10^{-5}$, so
+      $\sim10^2$ amplification times the $1/\alpha_i$ factor reaches errors of
+      $10^2$--$10^3$ on the worst edges. Observed max: $1272$.
+\item $\sigma = 0.5$: the numerator is $10\times$ larger, but Weyl
+      \eqref{eq:weyl} has lifted those directions by more --- the spectrum's
+      median onset moves $4.5\times10^{-5} \to 7.9\times10^{-4}$, cutting the
+      amplification $\sim4\times$ --- and the ratio improves. Max error $2.57$,
+      zero blow-ups, best $\Rw$.
+\end{itemize}
+Between $\sigma = 0.05$ and $\sigma = 0.5$ the denominator wins. That is the
+quantitative content of ``noise helps'', and it is not monotone below
+$\sigma = 0.5$: the numerator grows linearly in $\sigma$ while the lift of any
+particular $\eps_k$ saturates once it is well clear of the noise floor, so there
+is an intermediate regime where amplification is worst. $\sigma = 0.05$ is in it.
+
+\paragraph{One loose end, honestly flagged.} At $\sigma = 0$ with
+$\eps_{\mathrm{cut}} = 10^{-6}$, \emph{over}-truncation creates $56$ blow-ups and
+sends $\Rw$ to $-0.03$ --- discarding directions makes things worse, which pure
+truncation bias cannot do. The likely route is \eqref{eq:increment}: cutting
+directions perturbs $\alpha_i$, and every weight of that neuron carries
+$1/\alpha_i$. Not measured; it does not affect the three
+$\eps_{\mathrm{cut}}=10^{-12}$ numbers we report, but it is the reason to prefer
+a parameterisation that does not divide by a fitted coefficient.
+
+\section{What to report}
+
+\begin{enumerate}
+\item Report the two quantities separately and name them: the degenerate-edge
+fraction (count) and the median or inlier error (precision). Reporting only
+unfiltered $\Rw$ conflates them, and at $\sigma = 0.05$ lets $114$ edges out of
+$434{,}112$ set the headline.
+\item Say that the noise-free deficit is bias from truncation, not
+misestimation: $\Rw = 1.0000$ on identifiable edges at $\sigma = 0$ is the
+cleanest single number in the whole analysis and it is not currently quoted.
+\item Keep the conditioning claim to the denominator of \eqref{eq:amp}, and cite
+Weyl \eqref{eq:weyl} for the lift and \eqref{eq:trace} for why it is not a
+uniform inflation.
+\item Do not compare per-edge $\eps_k$ from $\A_i$ against recovery from
+$\Mat X_i$: different matrices (§\ref{sec:eiv}). If the two are to be shown side
+by side, compute the spectrum of the matrix that was actually inverted.
+\end{enumerate}
+
+\section*{Reading list, shortest path}
+Trefethen \& Bau, \emph{Numerical Linear Algebra}, Lectures 4--5 (SVD),
+11 (least squares), 18--19 (conditioning, stability) --- the fastest route to
+\eqref{eq:key}, \eqref{eq:cond}, \eqref{eq:amp}.
+Hansen, \emph{Rank-Deficient and Discrete Ill-Posed Problems}, ch.~3--4 ---
+TSVD, Tikhonov, and the bias--variance picture of Part~III.
+Gutenkunst et al.\ 2007 and Transtrum et al.\ 2015 --- sloppiness, and why a
+multi-decade spectrum is the norm in biology rather than a pathology.
+Raue et al.\ 2009 --- structural vs practical identifiability, the distinction
+the AC is asking us to make.
+Stewart \& Sun, \emph{Matrix Perturbation Theory}, ch.~IV --- Weyl and
+friends, for §5.
+
+\end{document}

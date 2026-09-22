@@ -1,0 +1,49 @@
+% Reply to Reviewer 1bPK: W9, W5b, W4, W7, W8.
+% W9 per-fold numbers: log/fly/<base>_blank50_{unified,known_ode}_cv0{0..4}/results/metrics.txt
+% sample SDs: KO sigma=0.05 R2_W 0.0002 | GNN 0.0021 | GNN noise-free R2_W 0.0469,
+% rollout 0.2313 (cv03 = 0.482, the other four >= 0.998).
+% N: 13,741 neurons, 13,697 with in-degree >= 1, 44 with none; sum max(0,d_i-45)=115,223.
+
+\paragraph{W9.}
+\emph{$N$.} $13{,}741$ neurons, $13{,}697$ with at least one incoming edge and
+$44$ with none. Appx.~C counts the former, so the discrepancy is neurons with no
+\emph{input}, not no output. On the same graph
+$\sum_i \max(0, d_i - 45) = 115{,}223$, matching Appx.~C exactly.
+
+\emph{$\pm 0.00$.} Rounding, not under-dispersion. At four decimals the five
+folds give $R^2_{\widehat W} = 0.9860, 0.9862, 0.9829, 0.9874, 0.9886$ for the
+GNN at $\sigma = 0.05$ (SD $0.0021$), against SD $0.0002$ for Known-ODE. A rerun
+of a byte-identical configuration differs by $0.0014$, so the GNN spread sits
+near the floor set by non-deterministic GPU reduction, and the Known-ODE fit,
+least squares in the true parameters, is an order of magnitude below it. We will
+report three decimals so these rows read $\pm 0.002$.
+
+The $0.90 \pm 0.21$ entry is one fold: noise-free GNN rollout $r$ is
+$1.000, 1.000, 0.999, 0.482, 0.998$. Four folds roll out perfectly and one
+diverges, which is what the noise-free degeneracy predicts and why we restrict
+the claim to $\sigma > 0$ (Q3).
+
+\paragraph{W5b.}
+Agreed. We will add the FlyWire whole-brain LIF line, Shiu et al.\ and
+BrainTrace, to Sec.~2 as the closest neighbour to this work: real activity,
+whole-brain scale, fixed dynamical form. Appx.~C applies there directly. Weights
+fitted to reproduce recorded activity on a fixed connectome are constrained only
+outside the null space of the columnar repeat structure, so agreement with
+activity does not establish that the fitted weights are the biological ones.
+
+\paragraph{W4.}
+Agreed, and it will not stay in Limitations. $R^2_{\widehat W} = 0.63$ (GNN) and
+$0.69$ (Known-ODE) at $\gamma = 0.1$, $0.38$ and $0.42$ at $\gamma = 0.2$: the
+oracle fails with us, so the obstacle is the inverse problem rather than our
+estimator, but the practical consequence is the same. The contributions, not only
+the Limitations, will state that the method is demonstrated under process noise
+and is not yet usable at realistic measurement noise.
+
+\paragraph{W7 and W8.}
+Both abstract claims are overstated and we will soften them. The evidence for W7
+is intrinsic noise in silico and the step to optogenetics is an untested analogy,
+so the abstract will claim only that noise and perturbation improve
+identifiability in simulation. For W8, the SIREN rollout is scored on
+training-frame indices and the stimulus is largely present in the $1{,}736$
+photoreceptor activities, so ``recovers unknown visual stimuli'' comes out of the
+abstract and the result stays in the appendix with that qualification.

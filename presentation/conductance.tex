@@ -58,6 +58,46 @@
 
 \frame{\titlepage}
 
+\begin{frame}{Pull requests since the NeurIPS submission}
+\srcpath{github.com/allierc/connectome-gnn}
+\vspace*{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llll}
+\toprule
+PR & merged & branch & \\
+\midrule
+\multicolumn{4}{l}{\itshape codebase refactor} \\
+\#51 & 2026-08-06 & \multicolumn{1}{l}{---}
+  & one function for $R^2_{\hat W}$, $R^2_{\hat\tau}$, $R^2_{\hat V^{\mathrm{rest}}}$;
+    full-sample $R^2_{\hat W}$ \\
+\#52 & 2026-08-24 & \texttt{refactor/graph-trainer-init} & trainer initialisation \\
+\#53 & 2026-08-26 & \texttt{refactor/split-train-step} & train step \\
+\#54 & 2026-09-04 & \texttt{refactor/flyvis-current-conductance}
+  & \texttt{flyvis\_A} $\rightarrow$ \texttt{flyvis\_current}, \texttt{cond} $\rightarrow$ \texttt{conductance} \\
+\#55 & 2026-09-04 & \texttt{refactor/ode-params-current} & \texttt{ode\_params} per model \\
+\#57 & 2026-09-09 & \texttt{refactor/circuit-param-extraction} & parameter extraction \\
+\midrule
+\multicolumn{4}{l}{\itshape current model} \\
+\#58 & 2026-09-09 & \texttt{fix/measurement-noise-target}
+  & the derivative target carries the measurement noise \\
+\#60 & 2026-09-16 & \texttt{repro/meas-noise-rollout} & recurrent training under measurement noise \\
+\midrule
+\multicolumn{4}{l}{\itshape conductance model} \\
+\#56 & 2026-09-09 & \texttt{feat/conductance-training} & conductance GNN \\
+\#61 & 2026-09-17 & \texttt{feat/flyvis-flow-conductance-E}
+  & conductance flyvis trained on optic flow \\
+\#62 & 2026-09-17 & \texttt{feat/w-squared-conductance} & $W^2$ parameterisation \\
+\midrule
+\multicolumn{4}{l}{\itshape open} \\
+\multicolumn{1}{l}{---} & \multicolumn{1}{l}{---} & \texttt{feat/substep-rollout}
+  & substeps, template readout, agentic loop \\
+\multicolumn{1}{l}{---} & \multicolumn{1}{l}{---} & \texttt{feat/calcium}
+  & \texttt{f874b52}, 2026-05-12, calcium observable \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 % ====================
 \section{Current model}
 % ====================
@@ -307,6 +347,33 @@ $E_{\mathrm{inh}}$ \quad 65 values\\
 \end{columns}
 \end{frame}
 
+\begin{frame}{Silent presynaptic neurons}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_cv01} vs \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00}, test split}
+\vspace*{0.2cm}
+{\centering\scriptsize
+$\mathrm{msg}_{ij} = W_{ij}\,\mathrm{relu}(v_j)\,[\,(E_i - v_i)\,]$:
+an edge carries signal only while $v_j > 0$\\[4pt]}
+\begin{center}
+\setlength{\panelbox}{0.40\textheight}
+\fitgfx{Fig/activity_silence.png}
+\end{center}
+\vspace{-0.1cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{lcc}
+\toprule
+$13{,}741$ neurons & current & conductance \\
+\midrule
+frames (test split) & $7{,}952$ & $7{,}208$ \\
+never $v > 0$ & $689$ \tiny($5.0\%$) & $878$ \tiny($6.4\%$) \\
+$v > 0$ on under $1\%$ of frames & $743$ \tiny($5.4\%$) & $1{,}083$ \tiny($7.9\%$) \\
+s.d.\ of $v$ below $10^{-3}$ & $35$ \tiny($0.3\%$) & $550$ \tiny($4.0\%$) \\
+median duty & $0.995$ & $0.937$ \\
+types quieter on conductance & \multicolumn{2}{c}{$29$ of $65$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
 \begin{frame}{Optic-flow inference --- current flyvis}
 \srcpath{flyvis/results/flow/1000/000/analysis/rollout.mp4}
 \panelboxfull
@@ -407,21 +474,25 @@ Known-ODE & task-trained & $0.05$
   & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00$ & $0.86{\pm}0.00$ & $0.85{\pm}0.01$ & \multicolumn{1}{c}{---} & $0.74{\pm}0.01$ \\
 GNN & task-trained & $0.05$
   & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
-  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08$ & $0.61{\pm}0.06$ & $0.87{\pm}0.08$ & \multicolumn{1}{c}{---} & $0.65{\pm}0.07$ \\
+  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08$ & $0.61{\pm}0.06$ & $0.87{\pm}0.08$ & \bad{$-0.18{\pm}0.50$} & $0.65{\pm}0.07$ \\
 \midrule
 \multicolumn{3}{l}{GNN, 21 training seeds, one dataset}
   & \multicolumn{1}{c}{---} & \good{$0.99 - 1.00$}
-  & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ & \multicolumn{1}{c}{---} \\
+  & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ & \multicolumn{1}{c}{---}
+  & \bad{$-0.64 - +0.35$} & \multicolumn{1}{c}{---} \\
 \bottomrule
 \end{tabular}\\[5pt]
 {\tiny 5 folds except $\sigma = 0$ (3 of 5 landed); GNN row is 8 training seeds,
-final. Folds share the training seed and differ only in the data seed.}
+final. Folds share the training seed and differ only in the data seed.
+$k_i = \tau_i\,\partial f_\theta/\partial\mathrm{msg}_i$, median over neurons, the
+model's own $\tau$; $k_i = 1$ is the fixed gauge. Over the $3$ of $8$ arms whose
+checkpoints survive. Known-ODE has no $f_\theta$, so no gauge.}
 \end{frame}
 
 \begin{frame}{The two conductance-specific terms}
 \srcpath{src/connectome\_gnn/models/regularizer.py}
 \vspace*{0.45cm}
-\centering\small
+\centering\scriptsize
 \begin{tabular}{@{}l@{}}
 \toprule
 $\mu_{\mathrm{sil}}$ \quad silent anchor \quad \texttt{coeff\_g\_phi\_silent} \\
@@ -455,7 +526,7 @@ $\mathrm{msg}_\theta = \mathrm{msg}/c,\ \
 \begin{frame}{Chain readout \textnormal{\small(NeurIPS version)}}
 \srcpath{src/connectome\_gnn/metrics.py \textbar{} \texttt{extract\_recovered\_params}}
 \vspace*{0.4cm}
-\centering\small
+\centering\scriptsize
 \begin{tabular}{@{}l@{}}
 \toprule
 $W$ reaches $\dot v$ through two learned functions \\
@@ -486,7 +557,7 @@ three gradients, one per synapse, no fit \\
 \begin{frame}{Template readout}
 \srcpath{docs/template\_readout.pdf}
 \vspace*{0.4cm}
-\centering\small
+\centering\scriptsize
 \begin{tabular}{@{}l@{}}
 \toprule
 affine message ansatz \\
@@ -513,11 +584,11 @@ $V^{\mathrm{rest}}_i = \tau_i(\alpha_0 + \alpha_2\beta_i), \qquad
 \end{tabular}
 \end{frame}
 
-\begin{frame}{Readout comparison, same four checkpoints}
-\srcpath{data \texttt{flyvis\_noise\_005\_blank50\_cv0\{1..4\}} \textbar{} training \texttt{flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}}}
+\begin{frame}{Readout comparison}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}} \textbar{} \texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_cv00}}
 \vspace*{0.35cm}
 \centering\tiny
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{lccccccccc}
 \toprule
  & \multicolumn{4}{c}{prediction} & \multicolumn{5}{c}{parameter recovery} \\
@@ -527,6 +598,7 @@ readout & \shortstack{fit roll $r$\\cond.\ form} & \shortstack{fit roll $r$\\cur
   & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
   & $R^2_{\mathrm{msg}_i}$ & cluster \\
 \midrule
+\multicolumn{10}{l}{\itshape current GNN, current data, four checkpoints} \\
 chain (NeurIPS) & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.968{\pm}0.007$} & \good{$0.941{\pm}0.038$} & $0.733{\pm}0.049$
@@ -535,13 +607,108 @@ template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
   & \good{$0.932{\pm}0.035$} & \good{$0.953{\pm}0.027$} & $0.847{\pm}0.037$
   & \good{$0.978{\pm}0.005$} & $0.883{\pm}0.018$ \\
+\midrule
+\multicolumn{10}{l}{\itshape conductance GNN, task-trained conductance data,
+one checkpoint ($200{,}000$)} \\
+template, conductance form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$0.993$} & \good{$0.995$}
+  & $0.375$ & \good{$0.871$} & $0.607$ & $0.509$ & $0.688$ \\
+template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$0.993$} & \good{$0.995$}
+  & \bad{$-2.289$} & \good{$0.871$} & $0.638$ & \bad{$0.235$} & $0.688$ \\
 \bottomrule
-\end{tabular}\\[5pt]
-{\tiny $R^2_{\hat W}$ full sample, $R^2_{\hat\tau}$ and
-$R^2_{\hat V^{\mathrm{rest}}}$ outlier-free: the chain's \texttt{metrics.txt}
-carries no outlier-free $W$. $k_i$ over folds $0.179 \pm 0.377$ --- cv01
-$+0.390$, cv02 $-0.386$. No conductance-form row: the generator is
-current-based, so there is no reversal for the third column.}
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Silent presynaptic neurons}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_cv01} vs \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00}, test split}
+\vspace*{0.2cm}
+{\centering\scriptsize
+$\mathrm{msg}_{ij} = W_{ij}\,\mathrm{relu}(v_j)\,[\,(E_i - v_i)\,]$:
+an edge carries signal only while $v_j > 0$\\[4pt]}
+\begin{center}
+\setlength{\panelbox}{0.40\textheight}
+\fitgfx{Fig/activity_silence.png}
+\end{center}
+\vspace{-0.1cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{lcc}
+\toprule
+$13{,}741$ neurons & current & conductance \\
+\midrule
+frames (test split) & $7{,}952$ & $7{,}208$ \\
+never $v > 0$ & $689$ \tiny($5.0\%$) & $878$ \tiny($6.4\%$) \\
+$v > 0$ on under $1\%$ of frames & $743$ \tiny($5.4\%$) & $1{,}083$ \tiny($7.9\%$) \\
+s.d.\ of $v$ below $10^{-3}$ & $35$ \tiny($0.3\%$) & $550$ \tiny($4.0\%$) \\
+median duty & $0.995$ & $0.937$ \\
+types quieter on conductance & \multicolumn{2}{c}{$29$ of $65$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2895, Am}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_baseline.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 10516, Tm5c}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_Tm5c.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2611, L5}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_L5.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2502, L4}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_L4.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2895, Am}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_Am.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 10516, Tm5c}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_Tm5c.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2611, L5}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_L5.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2502, L4}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_L4.png}
+\end{center}
 \end{frame}
 
 % ====================
@@ -549,6 +716,9 @@ current-based, so there is no reversal for the third column.}
 % ====================
 
 \begin{frame}{Appendix}
+\end{frame}
+
+\begin{frame}{Where everything lives}
 \vspace*{0.4cm}
 \centering\scriptsize
 \setlength{\tabcolsep}{6pt}
@@ -618,5 +788,6 @@ by hand, $\mu_{\mathrm{sil}}$ and $\mu_{\mathrm{gain}}$ by the agentic loop
 (blocks 2 and 3, 24 and 22 seeds) --- neither beat baseline by one CV.
 \textbf{??}: never swept on this data.}
 \end{frame}
+
 
 \end{document}

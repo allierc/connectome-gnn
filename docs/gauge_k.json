@@ -1,0 +1,184 @@
+{
+ "flyvis_flowcond_noise_005_gnn_llm_cv00_Claude_00": {
+  "iteration": 36000,
+  "k_median": -0.637467507348898,
+  "k_q1": -0.9248799570909227,
+  "k_q3": -0.49417416112973456,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_llm_cv00_Claude_06": {
+  "iteration": 100000,
+  "k_median": -0.2454378422666572,
+  "k_q1": -0.29283737859110204,
+  "k_q3": -0.23254858570329162,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_llm_cv00_Claude_07": {
+  "iteration": 96000,
+  "k_median": 0.3493260965987588,
+  "k_q1": 0.29399075477813597,
+  "k_q3": 0.8525162378700273,
+  "pct_near_one": 28.462266210610583
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_cv00": {
+  "iteration": 200000,
+  "k_median": 0.07101381004488871,
+  "k_q1": 0.06814518308938844,
+  "k_q3": 0.12548879652367617,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l10_l20_cv00": {
+  "iteration": 300000,
+  "k_median": 0.05793605858903916,
+  "k_q1": 0.05548059054977017,
+  "k_q3": 0.0717002327620957,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l10_l27p5e6_cv00": {
+  "iteration": 300000,
+  "k_median": 0.05418389692211223,
+  "k_q1": 0.0497379482666247,
+  "k_q3": 0.07613196800325284,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l10_l27p5e7_cv00": {
+  "iteration": 300000,
+  "k_median": 0.05342332436467245,
+  "k_q1": 0.05072651689505747,
+  "k_q3": 0.06399400621530305,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l17p5e4_l20_cv00": {
+  "iteration": 300000,
+  "k_median": 0.10823544160713094,
+  "k_q1": 0.10377609687875822,
+  "k_q3": 0.13069258716806864,
+  "pct_near_one": 0.0072774907211993305
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l17p5e4_l27p5e6_cv00": {
+  "iteration": 200000,
+  "k_median": 0.15374908144701038,
+  "k_q1": 0.13136680285438196,
+  "k_q3": 0.22403955025290045,
+  "pct_near_one": 4.009897387380831
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l17p5e4_l27p5e7_cv00": {
+  "iteration": 300000,
+  "k_median": 0.11093371722762502,
+  "k_q1": 0.1036969057471353,
+  "k_q3": 0.12410514563411024,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l17p5e5_l20_cv00": {
+  "iteration": 300000,
+  "k_median": 0.07180403159936066,
+  "k_q1": 0.06714706602823473,
+  "k_q3": 0.13103170457565838,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_l17p5e5_l27p5e6_cv00": {
+  "iteration": 300000,
+  "k_median": 0.07052729194495377,
+  "k_q1": 0.0639472909312424,
+  "k_q3": 0.12116757325360883,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s1g1e3_cv00": {
+  "iteration": 300000,
+  "k_median": 0.9409543799229425,
+  "k_q1": 0.7574947677775015,
+  "k_q3": 1.014903379611951,
+  "pct_near_one": 48.49719816607234
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s1g1e4_cv00": {
+  "iteration": 300000,
+  "k_median": 0.5981812757495852,
+  "k_q1": 0.48040507266043164,
+  "k_q3": 0.9379334854320405,
+  "pct_near_one": 31.00938796303035
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s1g1e5_cv00": {
+  "iteration": 300000,
+  "k_median": 0.6190169891858552,
+  "k_q1": 0.5210376735424518,
+  "k_q3": 1.0766051973366402,
+  "pct_near_one": 37.180700094607374
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s25g1e3_cv00": {
+  "iteration": 200000,
+  "k_median": 0.22758207709115297,
+  "k_q1": 0.17013631252756412,
+  "k_q3": 0.32845721720500265,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s25g1e4_cv00": {
+  "iteration": 200000,
+  "k_median": 0.16952283389977296,
+  "k_q1": 0.12350801182346771,
+  "k_q3": 0.236130593123562,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s25g1e5_cv00": {
+  "iteration": 200000,
+  "k_median": 0.11035914837172811,
+  "k_q1": 0.10321022534424529,
+  "k_q3": 0.14969887616718225,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s5g1e3_cv00": {
+  "iteration": 200000,
+  "k_median": 0.29166998224495444,
+  "k_q1": 0.16574352105361534,
+  "k_q3": 0.4124203319754116,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s5g1e4_cv00": {
+  "iteration": 200000,
+  "k_median": 0.16378187663333854,
+  "k_q1": 0.12201550179992893,
+  "k_q3": 0.23459142667636712,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_s5g1e5_cv00": {
+  "iteration": 300000,
+  "k_median": 0.10488331024292741,
+  "k_q1": 0.08547272830282004,
+  "k_q3": 0.14696947221413126,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_sub2_cv00": {
+  "iteration": 100000,
+  "k_median": 0.11950080526799578,
+  "k_q1": 0.10703663149664866,
+  "k_q3": 0.14253200800688148,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_sub3_cv00": {
+  "iteration": 50000,
+  "k_median": 0.18162833280976898,
+  "k_q1": 0.16290527509208985,
+  "k_q3": 0.21506881680038958,
+  "pct_near_one": 0.02183247216359799
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_sub5_cv00": {
+  "iteration": 50000,
+  "k_median": 0.16846263617506363,
+  "k_q1": 0.14824673347020223,
+  "k_q3": 0.1883351485547866,
+  "pct_near_one": 0.0072774907211993305
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_sub5_s2_cv00": {
+  "iteration": 50000,
+  "k_median": 0.22276965972023532,
+  "k_q1": 0.21834442433895873,
+  "k_q3": 0.2381299501567291,
+  "pct_near_one": 0.0
+ },
+ "flyvis_flowcond_noise_005_gnn_nosq_sub5_s3_cv00": {
+  "iteration": 50000,
+  "k_median": 0.25531624183640034,
+  "k_q1": 0.20248774229737876,
+  "k_q3": 0.29246232749206413,
+  "pct_near_one": 0.40026198966596316
+ }
+}
