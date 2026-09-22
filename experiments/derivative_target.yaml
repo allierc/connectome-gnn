@@ -3,6 +3,7 @@ title: Recovery errors, before and after the derivative-target fix
 purpose: regenerate slide 5 and 6 of presentation/conductance.pdf with sound training
   (one parameter changes only) -- it was not -- and look at these plots again
 baseline: experiments/baseline/gnn_current_baseline.yaml
+specs: experiments/specs/fly
 task: train
 queue: gpu_l4
 wall: '48:00'

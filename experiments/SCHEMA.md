@@ -31,6 +31,7 @@ its log still lands in `log/fly/<name>`.
     title: <the section heading>
     purpose: <why this experiment is being run -- dictated, never inferred>
     baseline: <path to the frozen config every spec derives from>
+    specs: <folder the generated spec yamls live in>
 
     task: train | train_cv | test_plot
     queue: gpu_l4 | gpu_a100 | gpu_h100
@@ -58,8 +59,9 @@ back.
 
 ## The two bindings
 
-    run(arm, point)  = arm.spec.format(**point)
-    cells(run)       = read(log_root/run/results/metrics.txt, plan.columns)
+    run(arm, point)   = arm.spec.format(**point)
+    spec(arm, point)  = <specs>/<run>.yaml
+    cells(run)        = read(LOG_ROOT/run/results/metrics.txt, COLUMNS)
 
 A run with no `metrics.txt` prints blank cells and a star. That is the point of
 generating the PDF before the results land.

@@ -124,6 +124,19 @@ def group_of(exp, point):
     return tuple((k, point[k]) for k in exp["axes"] if k != "fold")
 
 
+def spec_path(exp, arm, point):
+    """The yaml this run is launched from, under the experiment's specs folder.
+
+    `specs` in the experiment yaml is what makes the file self-contained: the
+    baseline says what the configs derive FROM, `specs` says where they landed,
+    and `spec` is their stem. Without it the only record of where the thirty
+    files live is the PDF.
+    """
+    root = exp["specs"]
+    root = root if os.path.isabs(root) else os.path.join(ROOT, root)
+    return os.path.join(root, run_name(arm, point) + ".yaml")
+
+
 def run_name(arm, point):
     """Binding B3: the run a given arm and grid point produce.
 
@@ -304,7 +317,8 @@ Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
         if exp.get("baseline"):
             L.append(r"\\[2pt]")
             L.append(rf"{{\small \textbf{{Baseline.}} "
-                     rf"\texttt{{{esc(exp['baseline'])}}}}}")
+                     rf"\texttt{{{esc(exp['baseline'])}}} \quad "
+                     rf"\textbf{{Specs.}} \texttt{{{esc(exp.get('specs', '--'))}}}}}")
         L.append(table(exp))
     L.append(r"\end{document}")
     tex_path = os.path.join(PLAN_DIR, "report.tex")
@@ -335,14 +349,15 @@ def main(argv=None) -> int:
     exps = [load_experiment(i) for i in ids]
 
     if a.verb == "status":
-        print(f"{'run':62s} {'status':8s} {'iter':>9s}  commit")
+        print(f"{'run':56s} {'spec':8s} {'status':8s} {'iter':>9s}  commit")
         for e in exps:
             for arm in e["arms"]:
                 for pt in points(e):
                     run = run_name(arm, pt)
                     it = iteration_of(run)
                     sha = commit_of(run) or "--"
-                    print(f"{run[:62]:62s} {status_of(run):8s} "
+                    spec = "ok" if os.path.exists(spec_path(e, arm, pt)) else "MISSING"
+                    print(f"{run[:56]:56s} {spec:8s} {status_of(run):8s} "
                           f"{(f'{it:,}' if it else '--'):>9s}  {sha[:12]}")
         return 0
 
