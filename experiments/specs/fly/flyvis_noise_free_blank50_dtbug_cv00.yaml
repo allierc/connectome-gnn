@@ -1,7 +1,7 @@
-description: derivative_target experiment, arm analytic, noise_005, cv03. From experiments/baseline/gnn_current_baseline.yaml
+description: derivative_target experiment, arm bug, noise_free, cv00. From experiments/baseline/gnn_current_baseline.yaml
   with dataset, noise_model_level, the two seeds and training.derivative_target =
-  analytic.
-dataset: flyvis_noise_005_blank50_cv03
+  y_list.
+dataset: flyvis_noise_free_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,8 +18,8 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
-  seed: 45
+  noise_model_level: 0.0
+  seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
@@ -72,8 +72,8 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1045
+  seed: 1042
   n_epochs: 1
   data_augmentation_loop: 500
-  derivative_target: analytic
-config_file: fly/flyvis_noise_005_blank50_dtan_cv03
+  derivative_target: y_list
+config_file: fly/flyvis_noise_free_blank50_dtbug_cv00

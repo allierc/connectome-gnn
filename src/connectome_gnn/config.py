@@ -1783,34 +1783,27 @@ class TrainingConfig(BaseModel):
     # scaling every weight would grow by 1/(1 - p) and the gauge would absorb it.
     edge_dropout: float = 0.0
 
-    # WHAT dv/dt THE LOSS IS SCORED AGAINST. Three choices, because the target
-    # has been wrong in two different ways and each is a separate experiment:
+    # WHAT dv/dt THE LOSS IS SCORED AGAINST. Two values, because the target has
+    # been wrong in exactly one way:
     #
-    #   observed_fd  (default, post-#58) the finite difference of the OBSERVED
+    #   observed_fd  (default, nominal) the finite difference of the OBSERVED
     #                voltage, (v[t+1] + eta[t+1] - v[t] - eta[t]) / dt =
-    #                f(v[t]) + xi_t/dt + d(eta)/dt. The same signal the model is
-    #                fed, which is what a recording actually measures.
+    #                f(v) + xi/dt + d(eta)/dt. The same signal the model is fed,
+    #                which is what a recording actually measures.
     #
-    #   clean_fd     (pre-#58, 816ca34d) the finite difference of the CLEAN
-    #                voltage, f(v[t]) + xi_t/dt. Keeps the process noise, drops
-    #                the measurement noise the model's input still carries -- an
-    #                oracle no recording can supply. IDENTICAL to observed_fd on
-    #                a dataset with measurement_noise_level = 0, so an
-    #                experiment about this bug needs measurement noise to exist.
+    #   y_list       THE BUG. The generator's own stored derivative, f(v) alone.
+    #                xi is the process noise the integrator adds TO THE STATE,
+    #                so it is inside v[t+1] and inside any difference of it, but
+    #                it is not in f(v) -- the analytic right-hand side was
+    #                evaluated before it was added. Training against y_list
+    #                therefore asks the model to predict a trajectory the data
+    #                does not follow, and the gap is xi/dt, which GROWS with
+    #                noise_model_level and vanishes at zero.
     #
-    #   analytic     (pre-"fd") the generator's own stored y_list, f(v[t]) with
-    #                the process noise xi_t stripped as well. This is the target
-    #                the `unified` runs used and `unified_fd` replaced, and it
-    #                is the one that differs across a MODEL-noise sweep: at
-    #                noise_model_level 0 it equals clean_fd up to the
-    #                discretisation of the integrator, and the gap grows with
-    #                the noise the integrator adds to the state.
-    #
-    # Neither of the two bugs should ever produce a result. They are config
-    # values so that a before/after pair is two arms of one sweep at ONE commit
-    # rather than two checkouts of the repo, which is what the NeurIPS
-    # before/after table was and why its fairness could not be checked.
-    derivative_target: Literal["observed_fd", "clean_fd", "analytic"] = "observed_fd"
+    # y_list should never produce a result. It is a config value so that a
+    # before/after pair is two arms of one sweep at ONE commit rather than two
+    # checkouts, which is what the published before/after was.
+    derivative_target: Literal["observed_fd", "y_list"] = "observed_fd"
 
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0

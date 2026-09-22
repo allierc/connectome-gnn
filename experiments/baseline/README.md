@@ -27,7 +27,7 @@ Two deliberate differences from the source files:
 
 - The agentic loop's `claude:` block is removed from the Known-ODE config. It is
   loop bookkeeping (`n_parallel`, `node_name`, ...), not model configuration.
-- `training.derivative_target: analytic` is stated rather than left to default.
+- `training.derivative_target` is set to `observed_fd`, the nominal target. Table 1 itself trained against the generator`s stored `y_list` -- that IS the bug -- so the baseline carries the corrected target and the bug survives only as an experiment arm.
   These configs predate that key, whose default is now `observed_fd`; loading
   them today without the line would silently train against a different target
   than the paper did, which is exactly the confusion the key exists to end.

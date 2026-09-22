@@ -1,4 +1,4 @@
-description: derivative_target experiment, arm fd, noise_free, cv00. From experiments/baseline/gnn_current_baseline.yaml
+description: derivative_target experiment, arm nominal, noise_free, cv00. From experiments/baseline/gnn_current_baseline.yaml
   with dataset, noise_model_level, the two seeds and training.derivative_target =
   observed_fd.
 dataset: flyvis_noise_free_blank50_cv00

@@ -1,7 +1,7 @@
 id: derivative_target
 title: The derivative target, across a model-noise sweep
 question: does the derivative target alone explain the before/after table, and does
-  its effect grow with the model noise the analytic target strips?
+  its effect grow with the model noise the generator's y_list leaves out?
 task: train
 queue: gpu_l4
 wall: '24:00'
@@ -17,16 +17,17 @@ axes:
   - cv03
   - cv04
 arms:
-- id: fd
+- id: nominal
   label: finite difference of the observed voltage
   spec: flyvis_{noise}_blank50_dtfd_{fold}
   overrides: {}
-- id: analytic
-  label: the generator's own y_list
-  spec: flyvis_{noise}_blank50_dtan_{fold}
+- id: bug
+  label: the generator's stored y_list
+  spec: flyvis_{noise}_blank50_dtbug_{fold}
   overrides:
-    training.derivative_target: analytic
+    training.derivative_target: y_list
 report:
-  caption: 'Thirty runs at one commit: three model-noise levels, two derivative targets,
-    five folds. The arms differ only in training.derivative\_target. No measurement
-    noise anywhere, so the \#58 target (clean\_fd) is not on this axis.'
+  caption: 'Thirty runs: three model-noise levels, two derivative targets, five folds.
+    The arms differ only in training.derivative\_target. The bug arm trains against
+    f(v), which the process noise is added after, so the two targets differ by xi/dt
+    -- zero at noise\_free and growing with the level.'

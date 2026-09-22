@@ -1,6 +1,7 @@
 description: 'FROZEN BASELINE -- Known ODE, NeurIPS Table 1. Verbatim copy of config/fly/flyvis_noise_005_blank50_known_ode_cv01.yaml
-  with the agentic-loop block removed and training.derivative_target stated explicitly.
-  Do not edit: every experiment derives from this by override.'
+  with the agentic-loop block removed and training.derivative_target set to observed_fd,
+  the nominal target (Table 1 itself trained against the generator''s y_list, which
+  is the bug). Do not edit: every experiment derives from this by override.'
 dataset: flyvis_noise_005_blank50_cv01
 simulation:
   connectivity_file: to be specified
@@ -80,5 +81,5 @@ training:
   n_epochs: 1
   data_augmentation_loop: 35
   time_step: 1
-  derivative_target: analytic
+  derivative_target: observed_fd
 config_file: fly/known_ode_baseline

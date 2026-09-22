@@ -1,6 +1,7 @@
 description: 'FROZEN BASELINE -- GNN (ours), NeurIPS Table 1. Verbatim copy of config/fly/flyvis_noise_005_blank50_unified_cv01.yaml
-  with the agentic-loop block removed and training.derivative_target stated explicitly.
-  Do not edit: every experiment derives from this by override.'
+  with the agentic-loop block removed and training.derivative_target set to observed_fd,
+  the nominal target (Table 1 itself trained against the generator''s y_list, which
+  is the bug). Do not edit: every experiment derives from this by override.'
 dataset: flyvis_noise_005_blank50_cv01
 simulation:
   connectivity_file: to be specified
@@ -75,5 +76,5 @@ training:
   seed: 1043
   n_epochs: 1
   data_augmentation_loop: 500
-  derivative_target: analytic
+  derivative_target: observed_fd
 config_file: fly/gnn_current_baseline

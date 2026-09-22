@@ -17,87 +17,87 @@ Rows marked $^{*}$ are blank: those runs have not landed.}\end{center}
 \texttt{fairness} & is each before/after comparison controlled to one variable? \\
 \bottomrule\end{tabular}
 \section*{The derivative target, across a model-noise sweep}
-{\small \textbf{Question.} does the derivative target alone explain the before/after table, and does its effect grow with the model noise the analytic target strips?}
+{\small \textbf{Question.} does the derivative target alone explain the before/after table, and does its effect grow with the model noise the generator's y\_list leaves out?}
 \begin{table}[H]
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{2pt}
-\caption{Thirty runs at one commit: three model-noise levels, two derivative targets, five folds. The arms differ only in training.derivative\_target. No measurement noise anywhere, so the \#58 target (clean\_fd) is not on this axis.}
+\caption{Thirty runs: three model-noise levels, two derivative targets, five folds. The arms differ only in training.derivative\_target. The bug arm trains against f(v), which the process noise is added after, so the two targets differ by xi/dt -- zero at noise\_free and growing with the level.}
 \begin{tabular}{p{3.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}}
 \toprule
 arm / noise / fold & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $V_{rest}$ $R^2$ \tiny no $C_{ij}$ & $|C_i|$ \tiny V & cluster & $W_{ij}$ gain \\
 \midrule
-fd / noise\_free/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_free/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtfd\_cv00}} \\[1pt]
-fd / noise\_free/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_free/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtfd\_cv01}} \\[1pt]
-fd / noise\_free/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_free/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtfd\_cv02}} \\[1pt]
-fd / noise\_free/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_free/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtfd\_cv03}} \\[1pt]
-fd / noise\_free/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_free/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtfd\_cv04}} \\[1pt]
 \textbf{finite difference of the observed voltage} \tiny(noise=noise\_free) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \midrule
-fd / noise\_005/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_005/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtfd\_cv00}} \\[1pt]
-fd / noise\_005/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_005/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtfd\_cv01}} \\[1pt]
-fd / noise\_005/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_005/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtfd\_cv02}} \\[1pt]
-fd / noise\_005/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_005/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtfd\_cv03}} \\[1pt]
-fd / noise\_005/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_005/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtfd\_cv04}} \\[1pt]
 \textbf{finite difference of the observed voltage} \tiny(noise=noise\_005) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \midrule
-fd / noise\_05/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_05/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtfd\_cv00}} \\[1pt]
-fd / noise\_05/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_05/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtfd\_cv01}} \\[1pt]
-fd / noise\_05/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_05/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtfd\_cv02}} \\[1pt]
-fd / noise\_05/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_05/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtfd\_cv03}} \\[1pt]
-fd / noise\_05/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+nominal / noise\_05/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
 \multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtfd\_cv04}} \\[1pt]
 \textbf{finite difference of the observed voltage} \tiny(noise=noise\_05) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \midrule
-analytic / noise\_free/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtan\_cv00}} \\[1pt]
-analytic / noise\_free/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtan\_cv01}} \\[1pt]
-analytic / noise\_free/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtan\_cv02}} \\[1pt]
-analytic / noise\_free/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtan\_cv03}} \\[1pt]
-analytic / noise\_free/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtan\_cv04}} \\[1pt]
-\textbf{the generator's own y\_list} \tiny(noise=noise\_free) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+bug / noise\_free/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtbug\_cv00}} \\[1pt]
+bug / noise\_free/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtbug\_cv01}} \\[1pt]
+bug / noise\_free/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtbug\_cv02}} \\[1pt]
+bug / noise\_free/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtbug\_cv03}} \\[1pt]
+bug / noise\_free/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_free\_blank50\_dtbug\_cv04}} \\[1pt]
+\textbf{the generator's stored y\_list} \tiny(noise=noise\_free) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \midrule
-analytic / noise\_005/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtan\_cv00}} \\[1pt]
-analytic / noise\_005/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtan\_cv01}} \\[1pt]
-analytic / noise\_005/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtan\_cv02}} \\[1pt]
-analytic / noise\_005/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtan\_cv03}} \\[1pt]
-analytic / noise\_005/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtan\_cv04}} \\[1pt]
-\textbf{the generator's own y\_list} \tiny(noise=noise\_005) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+bug / noise\_005/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtbug\_cv00}} \\[1pt]
+bug / noise\_005/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtbug\_cv01}} \\[1pt]
+bug / noise\_005/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtbug\_cv02}} \\[1pt]
+bug / noise\_005/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtbug\_cv03}} \\[1pt]
+bug / noise\_005/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_blank50\_dtbug\_cv04}} \\[1pt]
+\textbf{the generator's stored y\_list} \tiny(noise=noise\_005) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \midrule
-analytic / noise\_05/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtan\_cv00}} \\[1pt]
-analytic / noise\_05/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtan\_cv01}} \\[1pt]
-analytic / noise\_05/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtan\_cv02}} \\[1pt]
-analytic / noise\_05/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtan\_cv03}} \\[1pt]
-analytic / noise\_05/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
-\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtan\_cv04}} \\[1pt]
-\textbf{the generator's own y\_list} \tiny(noise=noise\_05) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+bug / noise\_05/cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtbug\_cv00}} \\[1pt]
+bug / noise\_05/cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtbug\_cv01}} \\[1pt]
+bug / noise\_05/cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtbug\_cv02}} \\[1pt]
+bug / noise\_05/cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtbug\_cv03}} \\[1pt]
+bug / noise\_05/cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_05\_blank50\_dtbug\_cv04}} \\[1pt]
+\textbf{the generator's stored y\_list} \tiny(noise=noise\_05) & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
