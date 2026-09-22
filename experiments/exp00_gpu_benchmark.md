@@ -75,7 +75,7 @@ which is what makes the precision comparison a comparison.
 
 ## Status
 
-**0/4 landed**, 0 running, 4 pending
+**0/4 landed**, 2 running, 2 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -87,14 +87,15 @@ which is what makes the precision comparison a comparison.
 
 | arm | precision | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | |
+| rtx6000 | fp32 | 1,601 |  | 0.956 ± 0.000 | 0.746 ± 0.000 | 0.233 ± 0.000 | 0.538 ± 0.000 | 0.412 ± 0.000 | 0.920 ± 0.000 |  |  |  |
+| rtx6000 | bf16 | 1,601 |  | 0.957 ± 0.000 | 0.781 ± 0.000 | 0.456 ± 0.000 | 0.564 ± 0.000 | 0.436 ± 0.000 | 0.927 ± 0.000 |  |  | 0.886 ± 0.000 |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `bench_rtx6000_fp32` | pending |  | `` |
-| `bench_rtx6000_bf16` | pending |  | `` |
+| `bench_rtx6000_fp32` | running | 1,601 | `` |
+| `bench_rtx6000_bf16` | running | 1,601 | `` |
 | `bench_a100_fp32` | pending |  | `` |
 | `bench_a100_bf16` | pending |  | `` |
 

@@ -218,10 +218,19 @@ def stage(fm, names):
     return names
 
 
-def launch(number, dry_run=False):
+def launch(number, dry_run=False, only_arm=None):
+    """Submit an experiment, or just one arm of it.
+
+    `only_arm` exists because an arm failing on its own is ordinary -- a code
+    path the other arm does not take, a dataset the other arm does not read --
+    and relaunching all thirty would kill the fifteen that are running fine.
+    """
     path = exp_path(number)
     fm, _ = load(path)
-    names = [r for _, _, r in runs(fm)]
+    names = [r for arm, _, r in runs(fm)
+             if only_arm is None or arm["id"] == only_arm]
+    if not names:
+        raise SystemExit(f"no arm {only_arm!r} in experiment {number}")
     stage(fm, names)
     print(f"staged {len(names)} specs -> {STAGE_DIR}")
     if dry_run:
@@ -502,12 +511,14 @@ def main(argv=None) -> int:
     ap.add_argument("numbers", nargs="*", type=int)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-pdf", action="store_true")
+    ap.add_argument("--arm", default=None, help="submit only this arm")
     a = ap.parse_args(argv)
 
     if a.verb == "launch":
         if not a.numbers:
             raise SystemExit("launch needs an experiment number")
-        return max(launch(n, dry_run=a.dry_run) for n in a.numbers)
+        return max(launch(n, dry_run=a.dry_run, only_arm=a.arm)
+                   for n in a.numbers)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]

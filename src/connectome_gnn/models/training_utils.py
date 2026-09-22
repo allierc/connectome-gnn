@@ -1242,7 +1242,12 @@ def init_training_data(
         config
     )
 
-    x_ts, _, type_list = load_flyvis_data(
+    # THE GENERATOR'S STORED DERIVATIVE IS KEPT, not discarded. Every
+    # branch but training.derivative_target = 'y_list' overwrites it with a
+    # finite difference below; that branch returns it unchanged, and
+    # binding it to `_` here made the y_list arm die with UnboundLocalError
+    # before it read a single frame.
+    x_ts, y_ts, type_list = load_flyvis_data(
         config.dataset,
         split='train',
         fields=load_fields,
