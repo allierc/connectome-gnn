@@ -35,6 +35,22 @@ arms:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
+job_ids:
+  flyvis_noise_free_blank50_condl100_cv00: '154396165'
+  flyvis_noise_free_blank50_condl100_cv01: '154396166'
+  flyvis_noise_free_blank50_condl100_cv02: '154396167'
+  flyvis_noise_free_blank50_condl100_cv03: '154396168'
+  flyvis_noise_free_blank50_condl100_cv04: '154396169'
+  flyvis_noise_005_blank50_condl100_cv00: '154396170'
+  flyvis_noise_005_blank50_condl100_cv01: '154396171'
+  flyvis_noise_005_blank50_condl100_cv02: '154396172'
+  flyvis_noise_005_blank50_condl100_cv03: '154396173'
+  flyvis_noise_005_blank50_condl100_cv04: '154396174'
+  flyvis_noise_05_blank50_condl100_cv00: '154396175'
+  flyvis_noise_05_blank50_condl100_cv01: '154396176'
+  flyvis_noise_05_blank50_condl100_cv02: '154396177'
+  flyvis_noise_05_blank50_condl100_cv03: '154396178'
+  flyvis_noise_05_blank50_condl100_cv04: '154396179'
 ---
 
 # Experiment 2 — conductance_lasso
