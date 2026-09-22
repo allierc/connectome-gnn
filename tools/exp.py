@@ -230,11 +230,16 @@ def launch(number, dry_run=False):
         return 0
 
     from connectome_gnn.LLM.cluster import _bsub_over_ssh
-    node = fm["queue"].replace("gpu_", "")
     hh, mm = str(fm["wall"]).split(":")
     wall_min = int(hh) * 60 + int(mm)
+    # AN ARM MAY PIN ITS OWN QUEUE. For a hardware benchmark the arm IS the GPU,
+    # so the queue cannot be a property of the experiment; everywhere else the
+    # arms share the experiment's queue and this falls through.
+    queue_of = {r: (arm.get("queue") or fm["queue"]).replace("gpu_", "")
+                for arm, _pt, r in runs(fm)}
     ids = {}
     for n in names:
+        node = queue_of[n]
         log_dir = os.path.join(LOG_ROOT, n)
         os.makedirs(log_dir, exist_ok=True)
         jid, queue, res = _bsub_over_ssh(
