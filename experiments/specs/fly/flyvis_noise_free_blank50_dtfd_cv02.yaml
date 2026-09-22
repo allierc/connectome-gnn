@@ -1,7 +1,7 @@
-description: derivative_bug experiment, arm fixed, fold cv01. One-step training on
-  flyvis_noise_005_010_blank50_cv01 (model noise 0.05, measurement noise 0.1). The
-  two arms differ ONLY in training.derivative_target_clean.
-dataset: flyvis_noise_005_010_blank50_cv01
+description: derivative_target experiment, arm fd, noise_free, fold cv02. Identical
+  to flyvis_noise_free_blank50_unified_fd_cv02 except training.derivative_target =
+  observed_fd.
+dataset: flyvis_noise_free_blank50_cv02
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,15 +18,14 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.05
-  seed: 43
+  noise_model_level: 0.0
+  seed: 44
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
-  measurement_noise_level: 0.1
 graph_model:
-  signal_model_name: flyvis_current
+  signal_model_name: flyvis_A
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -50,36 +49,31 @@ plotting:
   - -100
   - 100
 training:
-  torch_compile: true
-  mlp_precision: bf16
   n_runs: 1
   device: auto
   recurrent_training: false
   time_step: 1
   batch_size: 4
-  regul_batch_scaling: sqrt
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 375
-  coeff_g_phi_norm: 0.45
-  coeff_g_phi_weight_L1: 0.14
-  coeff_g_phi_weight_L2: 0
+  coeff_g_phi_diff: 750
   coeff_f_theta_msg_diff: 0
-  coeff_f_theta_weight_L1: 0.025
-  coeff_f_theta_weight_L2: 0.0005
-  coeff_W_L1: 7.5e-05
-  coeff_W_L2: 7.5e-07
+  coeff_g_phi_norm: 0.9
+  coeff_g_phi_weight_L1: 0.28
+  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_weight_L2: 0
+  coeff_f_theta_weight_L2: 0.001
+  coeff_W_L1: 0.00015
+  coeff_W_L2: 1.5e-06
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1043
+  seed: 1044
   n_epochs: 1
   data_augmentation_loop: 500
-analysis:
-  neurons:
-  - 2895
-config_file: fly/flyvis_noise_005_meas_010_gnn_dt_cv01
+  derivative_target: observed_fd
+config_file: fly/flyvis_noise_free_blank50_dtfd_cv02

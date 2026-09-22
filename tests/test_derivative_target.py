@@ -1,6 +1,6 @@
-"""training.derivative_target_clean reproduces the pre-#58 derivative target.
+"""training.derivative_target = clean_fd reproduces the pre-#58 target.
 
-The flag exists so that a before/after comparison can be two arms of one
+The choice exists so that a before/after comparison can be two arms of one
 five-fold at ONE commit, rather than two checkouts of the repo. That is only
 worth anything if the flag reproduces the old behaviour exactly, which is what
 these tests pin: ON must equal differencing the clean voltage, OFF must equal
@@ -76,4 +76,12 @@ def test_no_op_without_measurement_noise(ts):
 
 def test_config_defaults_to_the_fix():
     from connectome_gnn.config import TrainingConfig
-    assert TrainingConfig().derivative_target_clean is False
+    assert TrainingConfig().derivative_target == "observed_fd"
+
+
+def test_config_rejects_an_unknown_target():
+    """A typo must not silently fall through to the default and print as a fix."""
+    import pydantic
+    from connectome_gnn.config import TrainingConfig
+    with pytest.raises(pydantic.ValidationError):
+        TrainingConfig(derivative_target="clean")

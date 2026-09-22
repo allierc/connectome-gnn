@@ -2,8 +2,7 @@ version: 1
 paper: arxiv-2026
 log_root: /groups/saalfeld/home/allierc/GraphData/log/fly
 config_roots:
-- config/fly
-- /groups/saalfeld/home/allierc/GraphData/config/fly
+- experiments/specs/fly
 questions:
   offset:
     text: does the general g_phi create a per-edge offset C_ij, and does it corrupt
@@ -35,4 +34,4 @@ columns:
   - clustering_accuracy
   - Wij_gain
 experiments:
-- derivative_bug
+- derivative_target

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import re
 import math
 import os
 import subprocess
@@ -63,6 +64,11 @@ def tex(s):
 _BOOKKEEPING = {"config_file", "description"}
 
 
+def _pt(point):
+    """A grid point as one short string, for messages and keys."""
+    return "/".join(str(v) for v in point.values())
+
+
 # --------------------------------------------------------------------------- #
 #  loading                                                                     #
 # --------------------------------------------------------------------------- #
@@ -82,19 +88,43 @@ def load_experiment(eid):
     return exp
 
 
-def run_name(arm, fold):
-    """Binding B3: the run a given arm and fold produce."""
-    return f"{arm['spec']}_{fold}"
+def points(exp):
+    """Every cell of the experiment's grid, as a dict of axis -> value.
+
+    An experiment is rarely one dimension. The derivative-target question is
+    asked at three model-noise levels, so its grid is noise x arm x fold and
+    `folds` alone cannot describe it. Axes are ordered as written; `fold` is
+    conventional only in that the report averages over it.
+    """
+    import itertools
+    axes = exp["axes"]
+    names = list(axes)
+    return [dict(zip(names, combo)) for combo in itertools.product(*axes.values())]
 
 
-def spec_paths(plan, arm, fold):
-    """Binding B1: every config root that has this arm's spec for this fold.
+def group_of(exp, point):
+    """A point's grid cell with `fold` removed: what a mean +- SD is taken over."""
+    return tuple((k, point[k]) for k in exp["axes"] if k != "fold")
+
+
+def run_name(arm, point):
+    """Binding B3: the run a given arm and grid point produce.
+
+    `spec` is a format string over the axis names, so one arm covers the whole
+    grid and the run name stays the thing on disk rather than a second naming
+    scheme to keep in step.
+    """
+    return arm["spec"].format(**point)
+
+
+def spec_paths(plan, arm, point):
+    """Binding B1: every config root that has this arm's spec at this point.
 
     Returns the full list rather than the first hit, because a stem present in
     two roots is an error, not a precedence rule -- it means two different
     experiments are about to print in one table.
     """
-    stem = f"{arm['spec']}_{fold}.yaml"
+    stem = run_name(arm, point) + ".yaml"
     out = []
     for root in plan["config_roots"]:
         root = root if os.path.isabs(root) else os.path.join(ROOT, root)
@@ -181,8 +211,9 @@ def status_of(plan, run):
 def check(plan, exp):
     """Invariants I1-I8 of SCHEMA.md. Returns a list of failure strings."""
     bad = []
-    eid, folds = exp["id"], exp["folds"]
+    eid = exp["id"]
     arms = {a["id"]: a for a in exp["arms"]}
+    pts = points(exp)
 
     # I6 / I7: the plan closes over itself.
     for q in exp.get("feeds", []):
@@ -192,94 +223,100 @@ def check(plan, exp):
         bad.append(f"I6 {eid}: baseline {exp['baseline']!r} is not an arm")
         return bad
 
-    # I4: arm x fold -> run is injective.
+    # I3: every arm's spec must name every axis, or the grid collapses and two
+    # points silently become one run.
+    for a in exp["arms"]:
+        named = set(re.findall(r"\{(\w+)\}", a["spec"]))
+        missing = set(exp["axes"]) - named
+        if missing:
+            bad.append(f"I3 {eid}: arm {a['id']} spec names no "
+                       f"{sorted(missing)} -- the grid would collapse")
+
+    # I4: arm x point -> run is injective.
     seen = {}
     for a in exp["arms"]:
-        for f in folds:
-            r = run_name(a, f)
+        for pt in pts:
+            r = run_name(a, pt)
+            who = f"{a['id']}/{_pt(pt)}"
             if r in seen:
-                bad.append(f"I4 {eid}: {a['id']}/{f} and {seen[r]} both resolve to {r}")
-            seen[r] = f"{a['id']}/{f}"
+                bad.append(f"I4 {eid}: {who} and {seen[r]} both resolve to {r}")
+            seen[r] = who
 
     # I1: every spec resolves, in exactly one root.
     paths = {}
     for a in exp["arms"]:
-        for f in folds:
-            ps = spec_paths(plan, a, f)
+        for pt in pts:
+            ps = spec_paths(plan, a, pt)
             if not ps:
-                bad.append(f"I1 {eid}: no spec for {a['id']}/{f} "
-                           f"({a['spec']}_{f}.yaml in any config root)")
+                bad.append(f"I1 {eid}: no spec for {a['id']}/{_pt(pt)} "
+                           f"({run_name(a, pt)}.yaml in any config root)")
             elif len(ps) > 1:
-                bad.append(f"I1 {eid}: {a['spec']}_{f}.yaml is in {len(ps)} roots: "
-                           + ", ".join(ps))
+                bad.append(f"I1 {eid}: {run_name(a, pt)}.yaml is in "
+                           f"{len(ps)} roots: " + ", ".join(ps))
             else:
-                paths[(a["id"], f)] = ps[0]
+                paths[(a["id"], _pt(pt))] = ps[0]
 
     base = exp["baseline"]
-    for f in folds:
-        if (base, f) not in paths:
+    for pt in pts:
+        key = _pt(pt)
+        if (base, key) not in paths:
             continue
         try:
-            bcfg = resolved(paths[(base, f)])
+            bcfg = resolved(paths[(base, key)])
         except Exception as e:
-            bad.append(f"I1 {eid}: baseline {base}/{f} will not load: "
+            bad.append(f"I1 {eid}: baseline {base}/{key} will not load: "
                        f"{type(e).__name__}: {e}")
             continue
 
-        # I8: the preconditions the experiment declares about its own data.
-        # The derivative-target flag, for instance, is a bit-exact no-op on a
-        # dataset with no measurement noise, so an experiment about it run on
-        # one would produce two identical arms and a table saying the bug does
-        # not matter.
+        # I8: the preconditions the experiment declares about its own data. An
+        # override can be a bit-exact NO-OP on the wrong dataset, and then the
+        # two arms are one arm and the table says the bug does not matter.
         for cond in exp.get("preconditions", []):
-            key, op, want = cond["key"], cond["op"], cond["value"]
-            got = bcfg.get(key)
-            ok = {">": lambda a, b: a > b, ">=": lambda a, b: a >= b,
-                  "<": lambda a, b: a < b, "<=": lambda a, b: a <= b,
-                  "==": lambda a, b: a == b, "!=": lambda a, b: a != b}[op](got, want)
+            k, op, want = cond["key"], cond["op"], cond["value"]
+            got = bcfg.get(k)
+            ok = {">": lambda x, y: x > y, ">=": lambda x, y: x >= y,
+                  "<": lambda x, y: x < y, "<=": lambda x, y: x <= y,
+                  "==": lambda x, y: x == y, "!=": lambda x, y: x != y}[op](got, want)
             if not ok:
-                bad.append(f"I8 {eid}/{f}: precondition {key} {op} {want} "
+                bad.append(f"I8 {eid}/{key}: precondition {k} {op} {want} "
                            f"violated, it is {got!r}")
 
         for a in exp["arms"]:
-            if a["id"] == base or (a["id"], f) not in paths:
+            if a["id"] == base or (a["id"], key) not in paths:
                 continue
             try:
-                acfg = resolved(paths[(a["id"], f)])
+                acfg = resolved(paths[(a["id"], key)])
             except Exception as e:
-                bad.append(f"I1 {eid}: {a['id']}/{f} will not load: "
+                bad.append(f"I1 {eid}: {a['id']}/{key} will not load: "
                            f"{type(e).__name__}: {e}")
                 continue
             # I2: the controlled-variable audit, EQUALITY in both directions.
-            # A key that changed but was not declared is an uncontrolled
-            # variable; a key declared but unchanged is a claim the experiment
-            # does not actually make.
             changed = {k for k in set(acfg) | set(bcfg)
                        if acfg.get(k) != bcfg.get(k)} - _BOOKKEEPING
             declared = set(a.get("overrides") or {})
             for k in sorted(changed - declared):
-                bad.append(f"I2 {eid}/{f}: {a['id']} changes undeclared {k}: "
+                bad.append(f"I2 {eid}/{key}: {a['id']} changes undeclared {k}: "
                            f"{bcfg.get(k)!r} -> {acfg.get(k)!r}")
             for k in sorted(declared - changed):
-                bad.append(f"I2 {eid}/{f}: {a['id']} declares {k} but it is "
+                bad.append(f"I2 {eid}/{key}: {a['id']} declares {k} but it is "
                            f"unchanged at {bcfg.get(k)!r}")
 
     # I5: one commit across every run that has trained, and none dirty.
     shas = {}
     for a in exp["arms"]:
-        for f in folds:
-            sha = commit_of(plan, run_name(a, f))
+        for pt in pts:
+            sha = commit_of(plan, run_name(a, pt))
             if sha is not None:
-                shas[f"{a['id']}/{f}"] = sha
+                shas[f"{a['id']}/{_pt(pt)}"] = sha
     want = exp.get("commit")
     for who, sha in sorted(shas.items()):
         if sha.endswith("-dirty"):
             bad.append(f"I5 {eid}: {who} trained at a DIRTY tree ({sha})")
         if want and sha.split("-")[0] != want.split("-")[0]:
             bad.append(f"I5 {eid}: {who} trained at {sha}, plan says {want}")
-    if not want and len(set(s.split('-')[0] for s in shas.values())) > 1:
-        bad.append(f"I5 {eid}: arms trained at {len(set(shas.values()))} different "
-                   f"commits and the plan pins none")
+    if not want and len({s_.split('-')[0] for s_ in shas.values()}) > 1:
+        bad.append(f"I5 {eid}: arms trained at {len(set(shas.values()))} "
+                   f"different commits and the plan pins none")
     return bad
 
 
@@ -328,32 +365,47 @@ def _mean_sd(vals):
 
 
 def table(plan, exp):
+    """One table: a row per arm x grid point, a mean +- SD per group.
+
+    A group is the grid cell with `fold` removed, so a 3 x 2 x 5 experiment
+    prints thirty rows and six summaries -- the summaries being the comparison
+    and the rows being what it rests on.
+    """
     cols = plan["columns"]
     keys = cols["scalars"] + [f"{k}_R2" for k in cols["recovery"]] + cols["extra"]
     head = _header(plan)
     ncol = len(head) + 1
-    spec = ("p{3.4cm}" + r">{\raggedleft\arraybackslash}p{1.55cm}" * len(head))
+    spec = ("p{3.6cm}" + r">{\raggedleft\arraybackslash}p{1.5cm}" * len(head))
     out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
            r"\setlength{\tabcolsep}{2pt}",
            rf"\caption{{{exp['report']['caption']}}}",
            rf"\begin{{tabular}}{{{spec}}}", r"\toprule",
-           " & ".join(["arm / fold"] + head) + r" \\", r"\midrule"]
+           " & ".join(["arm / " + " / ".join(exp["axes"])] + head) + r" \\",
+           r"\midrule"]
+    pts = points(exp)
     for a in exp["arms"]:
-        acc = {k: [] for k in keys}
-        for f in exp["folds"]:
-            run = run_name(a, f)
-            m = metrics_of(plan, run)
-            label = f"{tex(a['id'])} / {tex(f)}" + ("" if m else r"$^{*}$")
-            out.append(" & ".join([label] + _cells(plan, m)) + r" \\")
-            out.append(rf"\multicolumn{{{ncol}}}{{@{{}}l@{{}}}}"
-                       rf"{{\tiny\texttt{{{esc(run)}}}}} \\[1pt]")
-            if m:
-                for k in keys:
-                    acc[k].append(m.get(k))
-        out.append(r"\midrule")
-        out.append(" & ".join([rf"\textbf{{{tex(a['label'])}}}"]
-                              + [_mean_sd(acc[k]) for k in keys]) + r" \\")
-        out.append(r"\midrule")
+        groups = []
+        for pt in pts:
+            g = group_of(exp, pt)
+            if g not in groups:
+                groups.append(g)
+        for g in groups:
+            acc = {k: [] for k in keys}
+            for pt in [p_ for p_ in pts if group_of(exp, p_) == g]:
+                run = run_name(a, pt)
+                m = metrics_of(plan, run)
+                label = f"{tex(a['id'])} / {tex(_pt(pt))}" + ("" if m else r"$^{*}$")
+                out.append(" & ".join([label] + _cells(plan, m)) + r" \\")
+                out.append(rf"\multicolumn{{{ncol}}}{{@{{}}l@{{}}}}"
+                           rf"{{\tiny\texttt{{{esc(run)}}}}} \\[1pt]")
+                if m:
+                    for k in keys:
+                        acc[k].append(m.get(k))
+            gname = ", ".join(f"{k}={v}" for k, v in g) or "all"
+            out.append(" & ".join(
+                [rf"\textbf{{{tex(a['label'])}}} \tiny({tex(gname)})"]
+                + [_mean_sd(acc[k]) for k in keys]) + r" \\")
+            out.append(r"\midrule")
     out[-1] = r"\bottomrule"
     out += [r"\end{tabular}", r"\end{table}"]
     return "\n".join(out)
@@ -426,8 +478,8 @@ def main(argv=None) -> int:
         print(f"{'run':62s} {'status':8s} {'iter':>9s}  commit")
         for e in exps:
             for arm in e["arms"]:
-                for f in e["folds"]:
-                    run = run_name(arm, f)
+                for pt in points(e):
+                    run = run_name(arm, pt)
                     it = iteration_of(plan, run)
                     sha = commit_of(plan, run) or "--"
                     print(f"{run[:62]:62s} {status_of(plan, run):8s} "

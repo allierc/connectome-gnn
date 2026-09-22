@@ -1263,28 +1263,38 @@ def init_training_data(
     # Derivative target from observed voltage
     # -------------------------------------------------------------------------
 
-    # training.derivative_target_clean REPRODUCES THE PRE-#58 BUG, by passing a
-    # measurement-noise level of zero to a helper whose only use of that argument
-    # is deciding whether to fold x_ts.noise into the voltage it differences. The
-    # model's INPUT still carries eta_t -- run_nominal_train_step adds it per
-    # frame and is untouched here -- so the target is once again the derivative
-    # of a signal the model never sees. That asymmetry IS the bug, and this is
-    # the only way to get it at the same commit as the fix.
-    _target_gamma = (0.0 if training.derivative_target_clean
-                     else simulation.measurement_noise_level)
-    if training.derivative_target_clean:
+    # training.derivative_target SELECTS WHICH dv/dt THE LOSS IS SCORED AGAINST.
+    # `analytic` keeps the generator's stored y_list, which load_flyvis_data has
+    # already read and which every other branch discards; the two finite-
+    # difference branches differ only in whether the measurement noise is folded
+    # into the voltage before differencing, which is the single argument
+    # observed_derivative_target uses that level for. Both non-default branches
+    # reproduce a historical bug EXACTLY rather than approximately, which is the
+    # point: a before/after pair is then two arms of one sweep at one commit.
+    _dt_mode = training.derivative_target
+    if _dt_mode == "analytic":
         logger.warning(
-            "training.derivative_target_clean is ON: the derivative target "
-            "differences the CLEAN voltage while the model is fed "
-            f"v + eta at measurement_noise_level="
-            f"{simulation.measurement_noise_level}. This reproduces the "
-            "pre-#58 bug on purpose and must not be used for a result."
+            "training.derivative_target = 'analytic': the target is the "
+            "generator's own y_list, f(v) with the process noise stripped, at "
+            f"noise_model_level={simulation.noise_model_level}. This "
+            "reproduces the pre-'fd' target on purpose and must not be used "
+            "for a result."
         )
-    y_ts = observed_derivative_target(
-        x_ts,
-        _target_gamma,
-        simulation.delta_t,
-    )
+        # y_ts is what load_flyvis_data returned: left exactly as it is.
+    else:
+        if _dt_mode == "clean_fd":
+            logger.warning(
+                "training.derivative_target = 'clean_fd': the target "
+                "differences the CLEAN voltage while the model is fed v + eta "
+                f"at measurement_noise_level="
+                f"{simulation.measurement_noise_level}. This reproduces the "
+                "pre-#58 bug on purpose and must not be used for a result."
+            )
+        y_ts = observed_derivative_target(
+            x_ts,
+            0.0 if _dt_mode == "clean_fd" else simulation.measurement_noise_level,
+            simulation.delta_t,
+        )
 
     # -------------------------------------------------------------------------
     # Dimensions
