@@ -1,26 +1,38 @@
 version: 1
 paper: arxiv-2026
-
 log_root: /groups/saalfeld/home/allierc/GraphData/log/fly
 config_roots:
-  - config/fly
-  - /groups/saalfeld/home/allierc/GraphData/config/fly
-
+- config/fly
+- /groups/saalfeld/home/allierc/GraphData/config/fly
 questions:
   offset:
-    text: "does the general g_phi create a per-edge offset C_ij, and does it corrupt V_rest?"
-    read_from: [V_rest, msg_i]
+    text: does the general g_phi create a per-edge offset C_ij, and does it corrupt
+      V_rest?
+    read_from:
+    - V_rest
+    - msg_i
   identifiability:
-    text: "which hard cases stay identifiable, and what does the lasso buy on each?"
-    read_from: [Wij, tau, V_rest]
+    text: which hard cases stay identifiable, and what does the lasso buy on each?
+    read_from:
+    - Wij
+    - tau
+    - V_rest
   fairness:
-    text: "is each before/after comparison controlled to one variable?"
+    text: is each before/after comparison controlled to one variable?
     read_from: []
-
 columns:
-  scalars: [one_step_r, rollout_r]
-  recovery: [Wij, tau, V_rest, msg_i]
-  extra: [clustering_accuracy, Wij_gain]
-
+  scalars:
+  - one_step_r
+  - rollout_r
+  recovery:
+  - Wij
+  - tau
+  - V_rest
+  - msg_i
+  extra:
+  - V_rest_R2_uncorrected
+  - tmpl_offset_per_neuron_absmedian
+  - clustering_accuracy
+  - Wij_gain
 experiments:
-  - derivative_bug
+- derivative_bug

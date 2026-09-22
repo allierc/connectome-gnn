@@ -71,6 +71,10 @@ set and a quantity a run does not carry prints `--`.
     readouts:                         optional; one table block per readout
       - {id: <id>, label: <label>}
 
+    preconditions:                    optional; facts the DATA must satisfy
+      - {key: <dotted config key>, op: ">" | ">=" | "<" | "<=" | "==" | "!=",
+         value: <literal>}
+
     report:
       caption: <one sentence, no prose beyond it>
       compare_to: <arm id>            usually the baseline
@@ -121,6 +125,13 @@ remember.
 | I5 | every landed run's `commit=` in `_completed_train` equals `commit`, and none is `-dirty` | the NeurIPS before/after differed by a COMMIT, not a flag; this is the check that would have caught it |
 | I6 | every id in `feeds` exists in `plan.questions` | a question nothing feeds, or an experiment feeding nothing, is a gap in the plan |
 | I7 | every column named in a report exists in `plan.columns` | one vocabulary |
+| I8 | every `precondition` holds on the baseline's resolved config, per fold | an override can be a bit-exact NO-OP on the wrong dataset, and then the two arms are one arm |
+
+I8 is the one that is not mechanical, and it earned its place immediately:
+`training.derivative_target_clean` does nothing whatever on a dataset with
+`measurement_noise_level = 0`, so the first draft of `derivative_bug` -- written
+against `flyvis_noise_005_blank50`, which has none -- would have produced two
+bit-identical five-folds and a table concluding that the bug does not matter.
 
 I2 is equality in both directions. A key that changed but was not declared is an
 uncontrolled variable; a key declared but unchanged is a claim the experiment

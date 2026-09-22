@@ -1,0 +1,58 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=0.8cm,landscape]{geometry}
+\usepackage{booktabs,float,amsmath,xcolor,array}
+\usepackage[T1]{fontenc}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\begin{document}
+\begin{center}{\Large arxiv-2026 --- experimental plan}\\[2pt]
+{\small Every $R^2$ is written \emph{outlier-filtered} [full sample] (\% dropped),
+final, from \texttt{results/metrics.txt} on the held-out test split.
+Rows marked $^{*}$ are blank: those runs have not landed.}\end{center}
+\vspace{4pt}
+\section*{Questions}
+\begin{tabular}{lp{20cm}}\toprule
+\texttt{offset} & does the general g\_phi create a per-edge offset C\_ij, and does it corrupt V\_rest? \\
+\texttt{identifiability} & which hard cases stay identifiable, and what does the lasso buy on each? \\
+\texttt{fairness} & is each before/after comparison controlled to one variable? \\
+\bottomrule\end{tabular}
+\section*{The derivative-target fix, as a controlled comparison}
+{\small \textbf{Question.} does the derivative-target bug alone explain the before/after table? \quad \textbf{Feeds.} \texttt{fairness, offset} \quad \textbf{Commit.} \texttt{not pinned}}
+\begin{table}[H]
+\scriptsize
+\raggedright
+\setlength{\tabcolsep}{2pt}
+\caption{Two five-folds at one commit on flyvis\_noise\_005\_010\_blank50 (model noise 0.05, measurement noise 0.1), differing only in training.derivative\_target\_clean.}
+\begin{tabular}{p{3.4cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}>{\raggedleft\arraybackslash}p{1.55cm}}
+\toprule
+arm / fold & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $V_{rest}$ $R^2$ \tiny no $C_{ij}$ & $|C_i|$ \tiny V & cluster & $W_{ij}$ gain \\
+\midrule
+fixed / cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dt\_cv00}} \\[1pt]
+fixed / cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dt\_cv01}} \\[1pt]
+fixed / cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dt\_cv02}} \\[1pt]
+fixed / cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dt\_cv03}} \\[1pt]
+fixed / cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dt\_cv04}} \\[1pt]
+\midrule
+\textbf{target carries the measurement noise} & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\midrule
+buggy / cv00$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dtbug\_cv00}} \\[1pt]
+buggy / cv01$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dtbug\_cv01}} \\[1pt]
+buggy / cv02$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dtbug\_cv02}} \\[1pt]
+buggy / cv03$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dtbug\_cv03}} \\[1pt]
+buggy / cv04$^{*}$ &  &  &  &  &  &  &  &  &  &  \\
+\multicolumn{11}{@{}l@{}}{\tiny\texttt{flyvis\_noise\_005\_meas\_010\_gnn\_dtbug\_cv04}} \\[1pt]
+\midrule
+\textbf{target does not (pre-\#58)} & -- & -- & -- & -- & -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{document}

@@ -11,21 +11,22 @@ commit: null
 folds: [cv00, cv01, cv02, cv03, cv04]
 baseline: fixed
 
+preconditions:
+  - {key: simulation.measurement_noise_level, op: ">", value: 0.0}
+
 arms:
   - id: fixed
     label: "target carries the measurement noise"
-    spec: flyvis_noise_005_blank50_unified_fd
+    spec: flyvis_noise_005_meas_010_gnn_dt
     overrides: {}
   - id: buggy
-    label: "target does not"
-    spec: flyvis_noise_005_blank50_unified_fdbug
+    label: "target does not (pre-#58)"
+    spec: flyvis_noise_005_meas_010_gnn_dtbug
     overrides:
-      training.inject_derivative_bug: true
-
-readouts:
-  - {id: template, label: "template"}
-  - {id: template_no_Cij, label: "template, C_ij forced to zero"}
+      training.derivative_target_clean: true
 
 report:
-  caption: "Two five-folds at one commit, differing only in training.inject_derivative_bug."
+  caption: "Two five-folds at one commit on flyvis\\_noise\\_005\\_010\\_blank50
+    (model noise 0.05, measurement noise 0.1), differing only in
+    training.derivative\\_target\\_clean."
   compare_to: fixed
