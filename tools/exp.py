@@ -26,6 +26,7 @@ import argparse
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -208,7 +209,6 @@ def stage(fm, names):
     devcontainer, so it is a local filesystem operation and not a process on a
     login node.
     """
-    import shutil
     src_dir = os.path.join(ROOT, fm["specs_dir"])
     for n in names:
         src = os.path.join(src_dir, f"{n}.yaml")
@@ -241,9 +241,23 @@ def launch(number, dry_run=False):
     for n in names:
         node = queue_of[n]
         log_dir = os.path.join(LOG_ROOT, n)
+        # CLEAR IT FIRST. A run directory is keyed by name alone, so anything
+        # that ever used this name left its tmp_training behind -- and `poll`
+        # would read those numbers and print them as this experiment's. Seen:
+        # exp00's markdown filled with rates from an ad-hoc benchmark that had
+        # used the same four names an hour earlier.
+        if os.path.isdir(log_dir):
+            shutil.rmtree(log_dir)
         os.makedirs(log_dir, exist_ok=True)
         jid, queue, res = _bsub_over_ssh(
-            cluster_cmd=f"python GNN_Main.py -o {fm['task']} {n}",
+            # THE STAGED ABSOLUTE PATH, not the bare stem. add_pre_folder
+            # classifies a bare name by looking for a domain keyword in it, so
+            # `bench_rtx6000_bf16` is unrecognised and every job dies in 30
+            # seconds with "does not exist or is not recognized". An absolute
+            # path skips that: load_run_config takes the domain from the parent
+            # directory, which staging guarantees is `fly`.
+            cluster_cmd=(f"python GNN_Main.py -o {fm['task']} "
+                         f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
             conda_env="connectome-gnn", node_name=node, n_cpus=8, device="gpu",
             hard_runtime_limit_min=wall_min,
             stdout_path=os.path.join(log_dir, "cluster.out"),

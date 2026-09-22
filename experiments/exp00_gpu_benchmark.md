@@ -28,10 +28,10 @@ arms:
   differs_by:
     queue: gpu_a100
 job_ids:
-  bench_rtx6000_fp32: '154395993'
-  bench_rtx6000_bf16: '154395994'
-  bench_a100_fp32: '154395995'
-  bench_a100_bf16: '154395996'
+  bench_rtx6000_fp32: '154396003'
+  bench_rtx6000_bf16: '154396004'
+  bench_a100_fp32: '154396005'
+  bench_a100_bf16: '154396006'
 ---
 
 # Experiment 0 — gpu_benchmark
@@ -75,7 +75,7 @@ which is what makes the precision comparison a comparison.
 
 ## Status
 
-**0/4 landed**, 2 running, 2 pending
+**0/4 landed**, 0 running, 4 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -87,17 +87,16 @@ which is what makes the precision comparison a comparison.
 
 | arm | precision | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| rtx6000 | bf16 | 14,401 |  | 0.995 ± 0.000 | 0.922 ± 0.000 | 0.936 ± 0.000 | 0.707 ± 0.000 | 0.625 ± 0.000 | 0.964 ± 0.000 |  |  | 0.875 ± 0.000 |
-| a100 | bf16 | 1,281 |  | 0.936 ± 0.000 | 0.692 ± 0.000 | 0.140 ± 0.000 | 0.338 ± 0.000 | 0.381 ± 0.000 | 0.923 ± 0.000 |  |  |  |
+| — | | | | | | | | | | | | |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
 | `bench_rtx6000_fp32` | pending |  | `` |
-| `bench_rtx6000_bf16` | running | 14,401 | `` |
+| `bench_rtx6000_bf16` | pending |  | `` |
 | `bench_a100_fp32` | pending |  | `` |
-| `bench_a100_bf16` | running | 1,281 | `` |
+| `bench_a100_bf16` | pending |  | `` |
 
 <!-- STATUS:END -->
 
