@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""exp -- conduct one experimental plan: check it, watch it, print it.
+"""exp -- watch an experimental plan and print it.
 
 The plan lives in experiments/ and is specified by experiments/SCHEMA.md. This
 script is the three verbs over it, and it OWNS NOTHING: it does not generate
@@ -30,6 +30,21 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PLAN_DIR = os.path.join(ROOT, "experiments")
+
+# WHAT plan.yaml USED TO HOLD. A separate file for four constants was a file to
+# keep in step for no gain; the experiment yamls are the plan.
+PAPER = "arxiv-2026"
+LOG_ROOT = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+
+# THE ONE METRIC VOCABULARY, named once so a cell means the same thing in every
+# table. `recovery` stems print as `clean [all] (pct dropped)`; the other two
+# print as plain numbers, straight from results/metrics.txt.
+COLUMNS = {
+    "scalars": ["one_step_r", "rollout_r"],
+    "recovery": ["Wij", "tau", "V_rest", "msg_i"],
+    "extra": ["V_rest_R2_uncorrected", "tmpl_offset_per_neuron_absmedian",
+              "clustering_accuracy", "Wij_gain"],
+}
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 # The LaTeX formatting is the first document's, to the letter, so a cell means
@@ -68,9 +83,15 @@ def _pt(point):
 # --------------------------------------------------------------------------- #
 #  loading                                                                     #
 # --------------------------------------------------------------------------- #
-def load_plan():
-    with open(os.path.join(PLAN_DIR, "plan.yaml")) as fh:
-        return yaml.safe_load(fh)
+def experiment_ids():
+    """Every experiment yaml in experiments/, alphabetically.
+
+    The section order of the PDF. Alphabetical rather than declared, because a
+    declared order is a second list to keep in step with the directory.
+    """
+    import glob
+    return sorted(os.path.splitext(os.path.basename(p))[0]
+                  for p in glob.glob(os.path.join(PLAN_DIR, "*.yaml")))
 
 
 def load_experiment(eid):
@@ -124,9 +145,9 @@ def _flatten(d, prefix=""):
     return out
 
 
-def commit_of(plan, run):
+def commit_of(run):
     """The sha recorded in <run>/_completed_train, or None if it never trained."""
-    p = os.path.join(plan["log_root"], run, "_completed_train")
+    p = os.path.join(LOG_ROOT, run, "_completed_train")
     if not os.path.exists(p):
         return None
     for line in open(p):
@@ -135,8 +156,8 @@ def commit_of(plan, run):
     return None
 
 
-def metrics_of(plan, run):
-    p = os.path.join(plan["log_root"], run, "results", "metrics.txt")
+def metrics_of(run):
+    p = os.path.join(LOG_ROOT, run, "results", "metrics.txt")
     if not os.path.exists(p):
         return None
     out = {}
@@ -150,9 +171,9 @@ def metrics_of(plan, run):
     return out if "Wij_R2" in out else None
 
 
-def iteration_of(plan, run):
+def iteration_of(run):
     """The last iteration tmp_training/Wij.log reached, or None."""
-    p = os.path.join(plan["log_root"], run, "tmp_training", "Wij.log")
+    p = os.path.join(LOG_ROOT, run, "tmp_training", "Wij.log")
     if not os.path.exists(p):
         return None
     last = None
@@ -167,18 +188,18 @@ def iteration_of(plan, run):
         return None
 
 
-def status_of(plan, run):
-    if metrics_of(plan, run) is not None:
+def status_of(run):
+    if metrics_of(run) is not None:
         return "landed"
-    return "running" if iteration_of(plan, run) is not None else "pending"
+    return "running" if iteration_of(run) is not None else "pending"
 
 
 # --------------------------------------------------------------------------- #
 #  report                                                                      #
 # --------------------------------------------------------------------------- #
-def _cells(plan, m):
+def _cells(m):
     """One row's cells, in the plan's column order. None -> blanks."""
-    cols = plan["columns"]
+    cols = COLUMNS
     if m is None:
         return ["" for _ in (cols["scalars"] + cols["recovery"] + cols["extra"])]
     out = [num(m.get(k)) for k in cols["scalars"]]
@@ -188,8 +209,8 @@ def _cells(plan, m):
     return out
 
 
-def _header(plan):
-    cols = plan["columns"]
+def _header():
+    cols = COLUMNS
     pretty = {"one_step_r": r"one-step $r$", "rollout_r": r"rollout $r$",
               "Wij": r"$W_{ij}$ $R^2$", "tau": r"$\tau$ $R^2$",
               "V_rest": r"$V_{rest}$ $R^2$", "msg_i": r"$\mathrm{msg}_i$ $R^2$",
@@ -217,16 +238,16 @@ def _mean_sd(vals):
     return rf"{m:.2f} $\pm$ {sd:.2f}"
 
 
-def table(plan, exp):
+def table(exp):
     """One table: a row per arm x grid point, a mean +- SD per group.
 
     A group is the grid cell with `fold` removed, so a 3 x 2 x 5 experiment
     prints thirty rows and six summaries -- the summaries being the comparison
     and the rows being what it rests on.
     """
-    cols = plan["columns"]
+    cols = COLUMNS
     keys = cols["scalars"] + [f"{k}_R2" for k in cols["recovery"]] + cols["extra"]
-    head = _header(plan)
+    head = _header()
     ncol = len(head) + 1
     spec = ("p{3.6cm}" + r">{\raggedleft\arraybackslash}p{1.5cm}" * len(head))
     out = [r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
@@ -246,9 +267,9 @@ def table(plan, exp):
             acc = {k: [] for k in keys}
             for pt in [p_ for p_ in pts if group_of(exp, p_) == g]:
                 run = run_name(a, pt)
-                m = metrics_of(plan, run)
+                m = metrics_of(run)
                 label = f"{tex(a['id'])} / {tex(_pt(pt))}" + ("" if m else r"$^{*}$")
-                out.append(" & ".join([label] + _cells(plan, m)) + r" \\")
+                out.append(" & ".join([label] + _cells(m)) + r" \\")
                 out.append(rf"\multicolumn{{{ncol}}}{{@{{}}l@{{}}}}"
                            rf"{{\tiny\texttt{{{esc(run)}}}}} \\[1pt]")
                 if m:
@@ -264,7 +285,7 @@ def table(plan, exp):
     return "\n".join(out)
 
 
-def report(plan, exps, make_pdf=True):
+def report(exps, make_pdf=True):
     L = [r"""\documentclass[10pt,a4paper]{article}
 \usepackage[margin=0.8cm,landscape]{geometry}
 \usepackage{booktabs,float,amsmath,xcolor,array}
@@ -272,7 +293,7 @@ def report(plan, exps, make_pdf=True):
 \setlength{\parskip}{4pt}
 \setlength{\parindent}{0pt}
 \begin{document}"""]
-    L.append(rf"""\begin{{center}}{{\Large {esc(plan['paper'])} --- experimental plan}}\\[2pt]
+    L.append(rf"""\begin{{center}}{{\Large {esc(PAPER)} --- experimental plan}}\\[2pt]
 {{\small Every $R^2$ is written \emph{{outlier-filtered}} [full sample] (\% dropped),
 final, from \texttt{{results/metrics.txt}} on the held-out test split.
 Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
@@ -280,7 +301,7 @@ Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
     for exp in exps:
         L.append(rf"\section*{{{tex(exp['title'])}}}")
         L.append(rf"{{\small \textbf{{Purpose.}} {tex(exp['purpose'])}}}")
-        L.append(table(plan, exp))
+        L.append(table(exp))
     L.append(r"\end{document}")
     tex_path = os.path.join(PLAN_DIR, "report.tex")
     open(tex_path, "w").write("\n".join(L) + "\n")
@@ -306,8 +327,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-pdf", action="store_true")
     a = ap.parse_args(argv)
 
-    plan = load_plan()
-    ids = a.ids or plan["experiments"]
+    ids = a.ids or experiment_ids()
     exps = [load_experiment(i) for i in ids]
 
     if a.verb == "status":
@@ -316,13 +336,13 @@ def main(argv=None) -> int:
             for arm in e["arms"]:
                 for pt in points(e):
                     run = run_name(arm, pt)
-                    it = iteration_of(plan, run)
-                    sha = commit_of(plan, run) or "--"
-                    print(f"{run[:62]:62s} {status_of(plan, run):8s} "
+                    it = iteration_of(run)
+                    sha = commit_of(run) or "--"
+                    print(f"{run[:62]:62s} {status_of(run):8s} "
                           f"{(f'{it:,}' if it else '--'):>9s}  {sha[:12]}")
         return 0
 
-    return report(plan, exps, make_pdf=not a.no_pdf)
+    return report(exps, make_pdf=not a.no_pdf)
 
 
 if __name__ == "__main__":

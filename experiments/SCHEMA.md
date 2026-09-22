@@ -1,13 +1,21 @@
 # The experimental plan
 
-One yaml per experiment, plus a plan-level yaml, plus two commands over them.
-The yamls are the record of what was intended; the commands say which runs have
-landed and arrange them into a PDF. Nothing validates anything.
+One yaml per experiment, plus two commands over them. The yamls are the record
+of what was intended; the commands say which runs have landed and arrange them
+into a PDF. Nothing validates anything.
+
+There is no plan-level file. The column set, the log root and the paper slug are
+constants in `tools/exp.py`; the PDF's section order is the experiment yamls in
+alphabetical order. A separate file for four constants was a file to keep in
+step for no gain.
+
+`purpose` IS DICTATED, NEVER INFERRED. It goes in the PDF under the title and is
+the sentence that says why the jobs are worth running. Writing a plausible one
+from the arms is how a plan acquires a rationale nobody chose.
 
 ## Files
 
-    experiments/plan.yaml          questions, the shared column set, the running order
-    experiments/<id>.yaml          one experiment: a question, a grid, its arms
+    experiments/<id>.yaml          one experiment: a purpose, a grid, its arms
     experiments/specs/fly/         the run specs, one per arm x grid point
     experiments/report.pdf         generated
 
@@ -16,25 +24,6 @@ landed and arrange them into a PDF. Nothing validates anything.
 `validate_pre_folder` rejects anything outside `{fly, drosophila_cx, larva,
 zebrafish, zebrafish_oculomotor}`. Each spec keeps `config_file: fly/<name>`, so
 its log still lands in `log/fly/<name>`.
-
-## plan.yaml
-
-    version: 1
-    paper: <slug>
-    log_root: <abs path to log/fly>
-    config_roots: [<dir>, ...]
-    columns:
-      scalars:  [<metrics.txt key>, ...]     printed as a plain number
-      recovery: [<stem>, ...]                printed as `clean [all] (pct dropped)`
-      extra:    [<metrics.txt key>, ...]
-    experiments: [<id>, ...]          ordered; this IS the section order of the PDF
-
-`columns` is the one metric vocabulary, named once, so a cell means the same
-thing in every table.
-
-`purpose` IS DICTATED, NEVER INFERRED. It goes in the PDF under the title and it
-is the sentence that says why thirty jobs are worth running. Writing a plausible
-one from the arms is how a plan acquires a rationale nobody chose.
 
 ## <id>.yaml
 
