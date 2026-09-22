@@ -70,7 +70,7 @@ def true_forms(ode_params, neuron, edge_ids, n_neurons):
     is_inh = (to_numpy(ode_params.edge_is_inh).ravel().astype(bool)
               if getattr(ode_params, "edge_is_inh", None) is not None else None)
 
-    update = (f"dv/dt = ({vrest:+.4f} - v_i + msg + I) * {1.0 / tau:.4f}"
+    update = (f"dv/dt = ({vrest:+.4f} - v_i + msg + I) * {1.0 / tau:.4f}\n"
               f"        [ (V_rest - v + msg + I) / tau,  tau = {tau:.4f} ]")
     edges = {}
     for idx in edge_ids:
@@ -177,10 +177,24 @@ def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
     act_js = [np.asarray(to_numpy(op.gt_g_phi_func(v_j)), dtype=float).ravel()
               for v_j in v_js]
 
+    # THE CELL TYPE PER NEURON, when the loader carried one. `data.type_list` is
+    # the integer id the rest of the pipeline groups by, and INDEX_TO_NAME turns
+    # it into the flyvis name (Mi1, T4a, ...). Panel d labels its rows with the
+    # PRESYNAPTIC type, which is what tells a reader whether a trace the model
+    # dropped belongs to a lamina input or to a deep interneuron.
+    types = None
+    _tl = getattr(data, "type_list", None)
+    if _tl is not None:
+        try:
+            types = np.asarray(to_numpy(_tl), dtype=float).ravel().astype(int)
+        except Exception:
+            types = None
+
     return {"frames": frames, "v_i": v_i, "stim": np.array(S), "msg_model": np.array(MSG),
             "pred": np.array(PRED), "m_true": np.stack(m_true) if len(inc) else np.zeros((0, len(v_i))),
             "m_model": np.stack(m_model) if len(inc) else np.zeros((0, len(v_i))),
             "edge_ids": inc, "src": src[inc], "forms": forms, "W_model": W_model[inc],
+            "types": types,
             "act_j": np.stack(act_js) if len(inc) else np.zeros((0, len(v_i))),
             "v_j": np.stack(v_js) if len(inc) else np.zeros((0, len(v_i)))}
 
@@ -636,6 +650,57 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    # ONE FONT SCALE FOR THE WHOLE FIGURE, as a multiplier of the sizes this
+    # figure was first written with (11 pt headings, 7 pt per-synapse stanzas).
+    # Those were legible in a file viewer at 3500 px and illegible on a slide or
+    # a printed page, which is where the panel is actually read; raising _FS
+    # moves every block together so the headings keep their lead over the
+    # monospace text below them. The figure is 23 in wide, so 1.5x is still well
+    # inside the width of both monospace columns -- panel f's longest row is
+    # about 90 characters, 7.6 in at this size against the 10 in it has.
+    _FS = 1.5
+    _F_HEAD = 11.0 * _FS          # the a..f panel headings
+    _F_ROW = 7.5 * _FS            # panel d's per-synapse left labels
+    _F_MONO_E = 8.0 * _FS         # panel e, the update's forms
+    _F_MONO_F = 7.0 * _FS         # panel f, the per-synapse forms
+    _F_AXIS = 9.0 * _FS           # axis labels and tick labels
+
+    # THE CELL-TYPE NAME PER NEURON. gather() carries the integer type id from
+    # data.type_list when the loader had one; INDEX_TO_NAME is the 65-entry
+    # flyvis map the rest of the pipeline groups by. Absent (a generator with no
+    # types, or an older bundle) every label simply loses the name.
+    _types = g.get("types")
+
+    def _tname(i):
+        if _types is None or not (0 <= int(i) < len(_types)):
+            return ""
+        from connectome_gnn.metrics import INDEX_TO_NAME
+        return INDEX_TO_NAME.get(int(_types[int(i)]), "")
+
+    _self_ty = _tname(neuron)
+    _self_ty = f" ({_self_ty})" if _self_ty else ""
+
+    def _pack(segments, width):
+        """Segments joined with "   |   ", broken onto lines of <= `width` chars.
+
+        The headings carry four or five statistics each and were written when
+        they were set in 11 pt; at 1.5x that they run off the right edge of the
+        figure and the last one -- the offset cross-check in panel c -- was the
+        one being lost. Breaking BETWEEN segments rather than at a character
+        count keeps each statistic whole on one line.
+        """
+        lines, cur = [], ""
+        for seg in segments:
+            cand = seg if not cur else cur + "   |   " + seg
+            if cur and len(cand) > width:
+                lines.append(cur)
+                cur = seg
+            else:
+                cur = cand
+        if cur:
+            lines.append(cur)
+        return "\n".join(lines)
+
     fm = g["forms"]
     v_i, stim = g["v_i"], g["stim"]
     msg_true = g["m_true"].sum(0) if g["m_true"].size else np.zeros_like(v_i)
@@ -676,19 +741,19 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     if rollout is not None:
         ax.plot(t, rollout[0], color="tab:green", lw=0.9, label="generator")
         ax.plot(t, rollout[1], color="black", lw=0.9, label="model, free running")
-        ax.legend(frameon=False, fontsize=9, loc="lower right", ncol=2)
+        ax.legend(frameon=False, fontsize=_F_AXIS, loc="lower right", ncol=2)
         head = f"a   voltage, free-running rollout   r = {pear(*rollout):.4f}"
     else:
         ax.plot(t, v_i, color="tab:green", lw=0.9)
         head = "a   voltage (no aligned rollout available)"
-    ax.text(0.004, 1.03, head, transform=ax.transAxes, va="bottom", fontsize=11)
+    ax.text(0.004, 1.03, head, transform=ax.transAxes, va="bottom", fontsize=_F_HEAD)
     ax.set_ylabel("voltage")
 
     ax = fig.add_subplot(gs[1, 0])
     ax.plot(t, dvdt_true, color="tab:green", lw=0.9)
     ax.plot(t, g["pred"], color="black", lw=0.9)
     ax.text(0.004, 1.03, f"b   dv/dt at the true voltages   R2 = {_r2(dvdt_true, g['pred']):+.3f}",
-            transform=ax.transAxes, va="bottom", fontsize=11)
+            transform=ax.transAxes, va="bottom", fontsize=_F_HEAD)
     ax.set_ylabel("dv/dt")
 
     ax = fig.add_subplot(gs[2, 0])
@@ -699,8 +764,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     # without costing the comparison.
     ax.plot(t, msg_true, color="tab:green", lw=0.9)
     ratio = g["msg_model"].std() / max(msg_true.std(), 1e-12)
-    head_c = (f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
-              f"   model {ratio:.1f}x")
+    head_c = [f"c   total incoming message   r = {pear(msg_true, g['msg_model']):+.3f}"
+              f"   model {ratio:.1f}x"]
     # THE GAUGE BETWEEN THE TWO MESSAGES IS AFFINE, NOT A PURE SCALE. Writing the
     # model's message as msg_model = msg_true / k + beta and matching the model's
     # T * [(V - v_i) + G * msg_model] to the generator's
@@ -721,8 +786,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     a_fit, b_fit = np.polyfit(g["msg_model"], msg_true, 1)
     corrected = a_fit * g["msg_model"] + b_fit
     ax.plot(t, corrected, color="black", lw=0.9)
-    head_c += (f"   |   model x {a_fit:.4f} {b_fit:+.3f} V, residual "
-               f"{(msg_true - corrected).std() / max(msg_true.std(), 1e-12):.2f}x")
+    head_c.append(f"model x {a_fit:.4f} {b_fit:+.3f} V, residual "
+                  f"{(msg_true - corrected).std() / max(msg_true.std(), 1e-12):.2f}x")
     p = sr.get("update_tmpl_p") or {}
     T, G, V = p.get("T"), p.get("G"), p.get("V")
     if T is not None and G is not None and V is not None:
@@ -730,8 +795,8 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         # for tau * T * V of the generator's V_rest, and -b is meant to be the rest.
         k = float(T) * float(G) * fm["tau"]
         tTV = fm["tau"] * float(T) * float(V)
-        head_c += (f"   |   a vs T*G*tau = {k:.4f}   V_rest: tau*T*V - b = "
-                   f"{tTV:+.3f} {-b_fit:+.3f} = {tTV - b_fit:+.3f} vs {fm['vrest']:+.3f}")
+        head_c.append(f"a vs T*G*tau = {k:.4f}   V_rest: tau*T*V - b = "
+                      f"{tTV:+.3f} {-b_fit:+.3f} = {tTV - b_fit:+.3f} vs {fm['vrest']:+.3f}")
     # THE TOTAL OFFSET AGAINST THE SUM OF THE PER-SYNAPSE ONES. b is what the
     # whole message carries as a level; panel f fits one offset per synapse, and
     # the message is their sum, so sum(C_e) * k must come back as -b if the two
@@ -743,9 +808,10 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     if _C and (sr.get("update_tmpl_p") or {}).get("T") is not None:
         _p = sr["update_tmpl_p"]
         _k = float(_p["T"]) * float(_p["G"]) * fm["tau"]
-        head_c += (f"   |   offset: {-b_fit:+.3f} total vs {_k * float(np.sum(_C)):+.3f} "
-                   f"from {len(_C)} synapse fits")
-    ax.text(0.004, 1.03, head_c, transform=ax.transAxes, va="bottom", fontsize=11)
+        head_c.append(f"offset: {-b_fit:+.3f} total vs {_k * float(np.sum(_C)):+.3f} "
+                      f"from {len(_C)} synapse fits")
+    ax.text(0.004, 1.03, _pack(head_c, 100), transform=ax.transAxes, va="bottom",
+            fontsize=_F_HEAD, linespacing=1.35)
     ax.set_ylabel("message")
 
     # PANEL d IN VOLTS, NOT Z-SCORED. Dividing each row by its own standard
@@ -777,32 +843,42 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                 else f"r={pear(a, b):+.2f}  x{rr:.3g}")
         sign = ("inh" if fm["is_inh"] is not None and fm["is_inh"][g["edge_ids"][row]]
                 else "exc")
-        axd.text(-0.055, off, f"j={int(g['src'][row])}\n{sign}\n{note}",
-                 transform=axd.get_yaxis_transform(), va="center", ha="right", fontsize=7.5)
+        # THE PRESYNAPTIC CELL TYPE ON ITS OWN LINE, above the sign. Which type
+        # sends a trace is the first thing asked of this panel -- a message the
+        # model dropped means one thing from a lamina input and another from a
+        # deep interneuron -- and the raw index j says nothing about it.
+        _ty = _tname(g["src"][row])
+        _head = f"j={int(g['src'][row])}" + (f"  {_ty}" if _ty else "")
+        axd.text(-0.02, off, f"{_head}\n{sign}\n{note}",
+                 transform=axd.get_yaxis_transform(), va="center", ha="right", fontsize=_F_ROW)
     axd.set_ylim(-step_v * max(n_edges, 1) + step_v * 0.35, step_v * 0.65)
     axd.set_yticks([])
     # A scale bar, because the y axis has no ticks and the amplitudes are the
     # whole point of dropping the z-score.
     _bar = step_v / 2.6
-    axd.plot([t[0] + 0.01 * (t[-1] - t[0])] * 2, [0.25 * step_v, 0.25 * step_v - _bar],
+    axd.plot([t[0] + 0.995 * (t[-1] - t[0])] * 2, [0.62 * step_v, 0.62 * step_v - _bar],
              color="0.2", lw=2)
-    axd.text(t[0] + 0.02 * (t[-1] - t[0]), 0.25 * step_v - _bar / 2,
-             f"{_bar:.3g} V", fontsize=7.5, va="center")
-    axd.text(0.004, 1.005, f"d   the {n_edges} synapses onto neuron {neuron}, "
-             f"mean removed, one shared scale, strongest first"
+    axd.text(t[0] + 0.985 * (t[-1] - t[0]), 0.62 * step_v - _bar / 2,
+             f"{_bar:.3g} V", fontsize=_F_ROW, va="center", ha="right")
+    axd.text(0.004, 1.005,
+             f"d   the {n_edges} synapses onto neuron {neuron}{_self_ty}\n"
+             f"    mean removed, one shared scale, strongest first"
              + (f"   (model x {_kd:.4f})" if kW else ""),
-             transform=axd.transAxes, va="bottom", fontsize=11)
+             transform=axd.transAxes, va="bottom", fontsize=_F_HEAD, linespacing=1.35)
 
     for a_ in (fig.axes[0], fig.axes[1], fig.axes[2], axd):
         a_.set_xlim(t[0], t[-1])
-        a_.set_xlabel("time (s)")
+        a_.tick_params(labelsize=_F_AXIS)
+        a_.yaxis.label.set_size(_F_AXIS)
         for sp in ("top", "right"):
             a_.spines[sp].set_visible(False)
+    axd.set_xlabel("time (s)", fontsize=_F_AXIS)
 
     # ---- e: the update ----
     axe = fig.add_subplot(gs[0:3, 1])
     axe.axis("off")
-    lines = [f"e   the update, neuron {neuron}{('   ' + label) if label else ''}", ""]
+    lines = [f"e   the update, neuron {neuron}{_self_ty}"
+             f"{('   ' + label) if label else ''}", ""]
     p = sr.get("update_tmpl_p") or {}
     lines += ["  generator", f"    {fm['update']}", ""]
     lines += [f"  template   T * ((V - v_i) + G * msg + f(stim))"
@@ -820,10 +896,10 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
     lines += ["", f"  free{fmt_r2(sr.get('update_r2'))}"]
     lines += [f"    {sr['update']}" if sr.get("update")
               else f"    [{sr.get('update_note') or 'not fitted'}]"]
-    lines += ["", f"  the message enters the generator's update with coefficient "
-                  f"{1.0 / fm['tau']:.4f} = 1/tau, so G = 1 is the target"]
+    lines += ["", f"  the message enters the update with coefficient "
+                  f"{1.0 / fm['tau']:.4f} = 1/tau,", "  so G = 1 is the target"]
     axe.text(0.0, 1.0, "\n".join(lines), transform=axe.transAxes, va="top", ha="left",
-             fontsize=8, family="monospace")
+             fontsize=_F_MONO_E, family="monospace")
 
     # ---- f: the synapses, aligned with d ----
     axf = fig.add_subplot(gs[3, 1], sharey=axd)
@@ -837,11 +913,12 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
                   if kW else ", W in the model's own gauge")
     _other = ("W * relu(v_j) + offset" if fm["conductance"]
               else "W * relu(v_j) * (E - v_i) + offset")
-    axf.text(0.0, 1.005, f"f   the synapses: generator, then the same message fitted "
-             f"inside {fam}\n    and inside the other family's {_other}"
-             f"{_gain_note}, and a free search",
+    axf.text(0.0, 1.005, f"f   the synapses: the generator, then the same message\n"
+             f"    fitted inside {fam}\n"
+             f"    and inside the other family's {_other}\n"
+             f"    {_gain_note.lstrip(', ')}, and a free search",
              transform=axf.transAxes,
-             va="bottom", fontsize=11)
+             va="bottom", fontsize=_F_HEAD, linespacing=1.35)
     def fmt_W(w):
         """Four decimals, except where that would print a synapse as zero.
 
@@ -919,7 +996,7 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         txt.append(f"free        {eq}{fmt_r2(sr.get('edge_r2', {}).get(idx))}" if eq
                    else f"free        [{sr['edge_notes'].get(idx) or 'not fitted'}]")
         axf.text(0.0, offs[row], "\n".join(txt), transform=axf.get_yaxis_transform(),
-                 va="center", ha="left", fontsize=7, family="monospace")
+                 va="center", ha="left", fontsize=_F_MONO_F, family="monospace")
 
     if out_path is None:
         out_dir = os.path.join(log_dir, "results")
@@ -928,7 +1005,11 @@ def plot_neuron_panels(g, sr, neuron, log_dir, rollout=None, dt=_DT_FALLBACK,
         out_dir = os.path.dirname(out_path) or "."
         path = out_path
     os.makedirs(out_dir, exist_ok=True)
-    fig.subplots_adjust(left=0.055, right=0.995, top=0.965, bottom=0.035)
+    # A WIDER LEFT MARGIN THAN THE OTHER PANELS NEED. Panel d hangs three lines
+    # of label outside its own axis, and with the type name added they no longer
+    # fit in the 0.055 the y labels alone were given -- at the old margin the
+    # first characters were simply cut off by the figure edge.
+    fig.subplots_adjust(left=0.105, right=0.995, top=0.965, bottom=0.035)
     fig.savefig(path, dpi=150)
     plt.close(fig)
     return path

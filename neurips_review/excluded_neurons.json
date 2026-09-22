@@ -1,0 +1,202 @@
+[
+  {
+    "key": "fulleye_prox_gnn",
+    "label": "FlyWire full eye, proximal nulls (GNN)",
+    "table": "Tab. 2",
+    "config": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_flywire",
+    "reported_excl_pct": 40.8,
+    "n_neurons": 50412,
+    "n_folds": 5,
+    "dataset": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_cv00",
+    "vrest_thresh": 0.2,
+    "thresh_reproduces_paper": true,
+    "excl_pct_at_010": 61.75870824406887,
+    "excl_pct_at_020": 40.809331111640084,
+    "effective_rank": 742.0,
+    "excl_pct_vrest": 40.809331111640084,
+    "excl_pct_vrest_sd": 2.369305389595611,
+    "excl_pct_tau": 1.0283265889074031,
+    "degen_pct": 66.55756565897009,
+    "jaccard": 0.37116624181625957,
+    "jaccard_expected": 0.3384928165602858,
+    "overlap_enrichment": 1.0706630019872325,
+    "excluded_ever": 30247,
+    "excluded_always": 11986,
+    "excluded_majority": 16124,
+    "consistency": 0.39627070453268093,
+    "activity": {
+      "mean_v": {
+        "excluded": 0.5553313374519349,
+        "kept": 0.4141820251941681
+      },
+      "sd_v": {
+        "excluded": 0.24021168053150177,
+        "kept": 0.18342998623847961
+      },
+      "act_frac": {
+        "excluded": 0.9914000034332275,
+        "kept": 0.9980499863624572
+      }
+    }
+  },
+  {
+    "key": "stride5_gnn",
+    "label": "1/5 frames (GNN)",
+    "table": "Supp. Tab. 4",
+    "config": "flyvis_noise_005_stride_5_blank50_unified",
+    "reported_excl_pct": 56.3,
+    "n_neurons": 13741,
+    "n_folds": 5,
+    "dataset": "flyvis_noise_005_stride_5_blank50_cv00",
+    "vrest_thresh": 0.2,
+    "thresh_reproduces_paper": true,
+    "excl_pct_at_010": 78.57506731678917,
+    "excl_pct_at_020": 56.31467869878466,
+    "effective_rank": 661.6,
+    "excl_pct_vrest": 56.31467869878466,
+    "excl_pct_vrest_sd": 3.4097273803917307,
+    "excl_pct_tau": 7.080998471726948,
+    "degen_pct": 24.758023433520123,
+    "jaccard": 0.27064562857380786,
+    "jaccard_expected": 0.20751603191042442,
+    "overlap_enrichment": 1.2396924876969813,
+    "excluded_ever": 10333,
+    "excluded_always": 4955,
+    "excluded_majority": 6507,
+    "consistency": 0.4795315977934772,
+    "activity": {
+      "mean_v": {
+        "excluded": 0.2429556965827942,
+        "kept": 0.5287006735801697
+      },
+      "sd_v": {
+        "excluded": 0.2578962862491608,
+        "kept": 0.19874144196510315
+      },
+      "act_frac": {
+        "excluded": 0.8830999970436096,
+        "kept": 0.9996500015258789
+      }
+    }
+  },
+  {
+    "key": "midmeas_gnn",
+    "label": "mid meas. noise gamma=0.2 (GNN)",
+    "table": "Supp. Tab. 4",
+    "config": "flyvis_noise_005_020_blank50_unified",
+    "reported_excl_pct": 49.1,
+    "n_neurons": 13741,
+    "n_folds": 5,
+    "dataset": "flyvis_noise_005_020_blank50_cv00",
+    "vrest_thresh": 0.2,
+    "thresh_reproduces_paper": true,
+    "excl_pct_at_010": 71.28738810858016,
+    "excl_pct_at_020": 49.053198457171966,
+    "effective_rank": 661.4,
+    "excl_pct_vrest": 49.053198457171966,
+    "excl_pct_vrest_sd": 2.4401182212278454,
+    "excl_pct_tau": 9.730005094243504,
+    "degen_pct": 24.758023433520123,
+    "jaccard": 0.2711347407934123,
+    "jaccard_expected": 0.19682454978711625,
+    "overlap_enrichment": 1.2944317124540312,
+    "excluded_ever": 8593,
+    "excluded_always": 4809,
+    "excluded_majority": 5958,
+    "consistency": 0.5596415687187245,
+    "activity": {
+      "mean_v": {
+        "excluded": 0.16664897352457048,
+        "kept": 0.523600846529007
+      },
+      "sd_v": {
+        "excluded": 0.28794013857841494,
+        "kept": 0.19189853370189666
+      },
+      "act_frac": {
+        "excluded": 0.808175015449524,
+        "kept": 0.9997500061988831
+      }
+    }
+  },
+  {
+    "key": "lowmeas_ko",
+    "label": "low meas. noise gamma=0.1 (Known-ODE)",
+    "table": "Supp. Tab. 7",
+    "config": "flyvis_noise_005_010_blank50_known_ode",
+    "reported_excl_pct": 49.1,
+    "n_neurons": 13741,
+    "n_folds": 5,
+    "dataset": "flyvis_noise_005_010_blank50_cv00",
+    "vrest_thresh": 0.1,
+    "thresh_reproduces_paper": true,
+    "excl_pct_at_010": 49.128884360672444,
+    "excl_pct_at_020": 28.750454843170083,
+    "effective_rank": 661.4,
+    "excl_pct_vrest": 49.128884360672444,
+    "excl_pct_vrest_sd": 0.3877038358810524,
+    "excl_pct_tau": 7.878611454770396,
+    "degen_pct": 24.758023433520123,
+    "jaccard": 0.17954470062874467,
+    "jaccard_expected": 0.1970585746600796,
+    "overlap_enrichment": 0.924614968594932,
+    "excluded_ever": 7770,
+    "excluded_always": 5894,
+    "excluded_majority": 6295,
+    "consistency": 0.7585585585585586,
+    "activity": {
+      "mean_v": {
+        "excluded": 0.5625083923339844,
+        "kept": 0.30387296080589293
+      },
+      "sd_v": {
+        "excluded": 0.25320485830307005,
+        "kept": 0.2281218945980072
+      },
+      "act_frac": {
+        "excluded": 0.9988999962806702,
+        "kept": 0.9824999928474426
+      }
+    }
+  },
+  {
+    "key": "midmeas_ko",
+    "label": "mid meas. noise gamma=0.2 (Known-ODE)",
+    "table": "Supp. Tab. 7",
+    "config": "flyvis_noise_005_020_blank50_known_ode",
+    "reported_excl_pct": 67.9,
+    "n_neurons": 13741,
+    "n_folds": 5,
+    "dataset": "flyvis_noise_005_020_blank50_cv00",
+    "vrest_thresh": 0.1,
+    "thresh_reproduces_paper": true,
+    "excl_pct_at_010": 67.88443344734735,
+    "excl_pct_at_020": 41.82082817844407,
+    "effective_rank": 661.4,
+    "excl_pct_vrest": 67.88443344734735,
+    "excl_pct_vrest_sd": 0.1366928972490941,
+    "excl_pct_tau": 9.730005094243504,
+    "degen_pct": 24.758023433520123,
+    "jaccard": 0.23050033621378258,
+    "jaccard_expected": 0.22162185145538413,
+    "overlap_enrichment": 1.0325470764454325,
+    "excluded_ever": 10142,
+    "excluded_always": 8451,
+    "excluded_majority": 9042,
+    "consistency": 0.8332676000788799,
+    "activity": {
+      "mean_v": {
+        "excluded": 0.5094084858894348,
+        "kept": 0.3440554678440094
+      },
+      "sd_v": {
+        "excluded": 0.2556499719619751,
+        "kept": 0.19232702851295472
+      },
+      "act_frac": {
+        "excluded": 0.9727499842643738,
+        "kept": 0.9932999849319458
+      }
+    }
+  }
+]
