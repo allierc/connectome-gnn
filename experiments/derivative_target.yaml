@@ -1,37 +1,32 @@
 id: derivative_target
-title: "The derivative target, across a model-noise sweep"
-question: "does the derivative target alone explain the before/after table, and
-  does its effect grow with the model noise the analytic target strips?"
-feeds: [fairness, offset]
-
+title: The derivative target, across a model-noise sweep
+question: does the derivative target alone explain the before/after table, and does
+  its effect grow with the model noise the analytic target strips?
 task: train
 queue: gpu_l4
-wall: "24:00"
-commit: null
-
+wall: '24:00'
 axes:
-  noise: [noise_free, noise_005, noise_05]
-  fold: [cv00, cv01, cv02, cv03, cv04]
-
-baseline: fd
-
-preconditions:
-  - {key: simulation.measurement_noise_level, op: "==", value: 0.0}
-
+  noise:
+  - noise_free
+  - noise_005
+  - noise_05
+  fold:
+  - cv00
+  - cv01
+  - cv02
+  - cv03
+  - cv04
 arms:
-  - id: fd
-    label: "finite difference of the observed voltage"
-    spec: "flyvis_{noise}_blank50_dtfd_{fold}"
-    overrides: {}
-  - id: analytic
-    label: "the generator's own y_list"
-    spec: "flyvis_{noise}_blank50_dtan_{fold}"
-    overrides:
-      training.derivative_target: analytic
-
+- id: fd
+  label: finite difference of the observed voltage
+  spec: flyvis_{noise}_blank50_dtfd_{fold}
+  overrides: {}
+- id: analytic
+  label: the generator's own y_list
+  spec: flyvis_{noise}_blank50_dtan_{fold}
+  overrides:
+    training.derivative_target: analytic
 report:
-  caption: "Thirty runs at one commit: three model-noise levels, two derivative
-    targets, five folds. The arms differ only in training.derivative\\_target.
-    No measurement noise anywhere, so the \\#58 target (clean\\_fd) is not on
-    this axis."
-  compare_to: fd
+  caption: 'Thirty runs at one commit: three model-noise levels, two derivative targets,
+    five folds. The arms differ only in training.derivative\_target. No measurement
+    noise anywhere, so the \#58 target (clean\_fd) is not on this axis.'

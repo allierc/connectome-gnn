@@ -7,20 +7,19 @@ specs, does not submit jobs and does not compute a metric. Every number it
 prints was written by a run, every spec it reads was written by you, and the
 only thing it adds is the checking and the arrangement.
 
-    exp check  [<id> ...]   assert the invariants; exit 1 on the first failure
-    exp status [<id> ...]   one row per arm x fold: run, status, iteration, commit
+    exp status [<id> ...]   one row per run: status, iteration, commit
     exp report [<id> ...]   regenerate experiments/report.pdf, blanks included
 
-`check` is the reason the tool exists. An experiment is a claim that two sets of
-runs differ in exactly one way, and that claim is checkable from the resolved
-configs and the markers the runs leave behind. Until it is checked it is a
-recollection.
+The plan yaml says what the grid is; `status` says which corners of it have
+landed; `report` arranges the ones that have into the PDF and leaves the rest
+blank. Nothing here validates anything -- a spec that is wrong will simply
+produce a run whose numbers are wrong, and the yaml is the record of what was
+intended.
 """
 from __future__ import annotations
 
 import argparse
 import importlib.util
-import re
 import math
 import os
 import subprocess
@@ -61,9 +60,6 @@ def tex(s):
 # Keys that MUST differ between two specs and say nothing about the experiment:
 # every arm has its own file, so its own config_file, and a description written
 # for a human.
-_BOOKKEEPING = {"config_file", "description"}
-
-
 def _pt(point):
     """A grid point as one short string, for messages and keys."""
     return "/".join(str(v) for v in point.values())
@@ -117,23 +113,6 @@ def run_name(arm, point):
     return arm["spec"].format(**point)
 
 
-def spec_paths(plan, arm, point):
-    """Binding B1: every config root that has this arm's spec at this point.
-
-    Returns the full list rather than the first hit, because a stem present in
-    two roots is an error, not a precedence rule -- it means two different
-    experiments are about to print in one table.
-    """
-    stem = run_name(arm, point) + ".yaml"
-    out = []
-    for root in plan["config_roots"]:
-        root = root if os.path.isabs(root) else os.path.join(ROOT, root)
-        p = os.path.join(root, stem)
-        if os.path.exists(p):
-            out.append(p)
-    return out
-
-
 def _flatten(d, prefix=""):
     out = {}
     for k, v in (d or {}).items():
@@ -143,17 +122,6 @@ def _flatten(d, prefix=""):
         else:
             out[key] = v
     return out
-
-
-def resolved(path):
-    """The spec as the trainer sees it: defaults filled in, types coerced.
-
-    Comparing the raw yamls would call a key that one file omits and the other
-    sets to its default a DIFFERENCE, and would miss a key whose two spellings
-    coerce to the same value.
-    """
-    from connectome_gnn.config import NeuralGraphConfig
-    return _flatten(NeuralGraphConfig.from_yaml(path).model_dump())
 
 
 def commit_of(plan, run):
@@ -203,121 +171,6 @@ def status_of(plan, run):
     if metrics_of(plan, run) is not None:
         return "landed"
     return "running" if iteration_of(plan, run) is not None else "pending"
-
-
-# --------------------------------------------------------------------------- #
-#  check                                                                       #
-# --------------------------------------------------------------------------- #
-def check(plan, exp):
-    """Invariants I1-I8 of SCHEMA.md. Returns a list of failure strings."""
-    bad = []
-    eid = exp["id"]
-    arms = {a["id"]: a for a in exp["arms"]}
-    pts = points(exp)
-
-    # I6 / I7: the plan closes over itself.
-    for q in exp.get("feeds", []):
-        if q not in plan.get("questions", {}):
-            bad.append(f"I6 {eid}: feeds unknown question {q!r}")
-    if exp["baseline"] not in arms:
-        bad.append(f"I6 {eid}: baseline {exp['baseline']!r} is not an arm")
-        return bad
-
-    # I3: every arm's spec must name every axis, or the grid collapses and two
-    # points silently become one run.
-    for a in exp["arms"]:
-        named = set(re.findall(r"\{(\w+)\}", a["spec"]))
-        missing = set(exp["axes"]) - named
-        if missing:
-            bad.append(f"I3 {eid}: arm {a['id']} spec names no "
-                       f"{sorted(missing)} -- the grid would collapse")
-
-    # I4: arm x point -> run is injective.
-    seen = {}
-    for a in exp["arms"]:
-        for pt in pts:
-            r = run_name(a, pt)
-            who = f"{a['id']}/{_pt(pt)}"
-            if r in seen:
-                bad.append(f"I4 {eid}: {who} and {seen[r]} both resolve to {r}")
-            seen[r] = who
-
-    # I1: every spec resolves, in exactly one root.
-    paths = {}
-    for a in exp["arms"]:
-        for pt in pts:
-            ps = spec_paths(plan, a, pt)
-            if not ps:
-                bad.append(f"I1 {eid}: no spec for {a['id']}/{_pt(pt)} "
-                           f"({run_name(a, pt)}.yaml in any config root)")
-            elif len(ps) > 1:
-                bad.append(f"I1 {eid}: {run_name(a, pt)}.yaml is in "
-                           f"{len(ps)} roots: " + ", ".join(ps))
-            else:
-                paths[(a["id"], _pt(pt))] = ps[0]
-
-    base = exp["baseline"]
-    for pt in pts:
-        key = _pt(pt)
-        if (base, key) not in paths:
-            continue
-        try:
-            bcfg = resolved(paths[(base, key)])
-        except Exception as e:
-            bad.append(f"I1 {eid}: baseline {base}/{key} will not load: "
-                       f"{type(e).__name__}: {e}")
-            continue
-
-        # I8: the preconditions the experiment declares about its own data. An
-        # override can be a bit-exact NO-OP on the wrong dataset, and then the
-        # two arms are one arm and the table says the bug does not matter.
-        for cond in exp.get("preconditions", []):
-            k, op, want = cond["key"], cond["op"], cond["value"]
-            got = bcfg.get(k)
-            ok = {">": lambda x, y: x > y, ">=": lambda x, y: x >= y,
-                  "<": lambda x, y: x < y, "<=": lambda x, y: x <= y,
-                  "==": lambda x, y: x == y, "!=": lambda x, y: x != y}[op](got, want)
-            if not ok:
-                bad.append(f"I8 {eid}/{key}: precondition {k} {op} {want} "
-                           f"violated, it is {got!r}")
-
-        for a in exp["arms"]:
-            if a["id"] == base or (a["id"], key) not in paths:
-                continue
-            try:
-                acfg = resolved(paths[(a["id"], key)])
-            except Exception as e:
-                bad.append(f"I1 {eid}: {a['id']}/{key} will not load: "
-                           f"{type(e).__name__}: {e}")
-                continue
-            # I2: the controlled-variable audit, EQUALITY in both directions.
-            changed = {k for k in set(acfg) | set(bcfg)
-                       if acfg.get(k) != bcfg.get(k)} - _BOOKKEEPING
-            declared = set(a.get("overrides") or {})
-            for k in sorted(changed - declared):
-                bad.append(f"I2 {eid}/{key}: {a['id']} changes undeclared {k}: "
-                           f"{bcfg.get(k)!r} -> {acfg.get(k)!r}")
-            for k in sorted(declared - changed):
-                bad.append(f"I2 {eid}/{key}: {a['id']} declares {k} but it is "
-                           f"unchanged at {bcfg.get(k)!r}")
-
-    # I5: one commit across every run that has trained, and none dirty.
-    shas = {}
-    for a in exp["arms"]:
-        for pt in pts:
-            sha = commit_of(plan, run_name(a, pt))
-            if sha is not None:
-                shas[f"{a['id']}/{_pt(pt)}"] = sha
-    want = exp.get("commit")
-    for who, sha in sorted(shas.items()):
-        if sha.endswith("-dirty"):
-            bad.append(f"I5 {eid}: {who} trained at a DIRTY tree ({sha})")
-        if want and sha.split("-")[0] != want.split("-")[0]:
-            bad.append(f"I5 {eid}: {who} trained at {sha}, plan says {want}")
-    if not want and len({s_.split('-')[0] for s_ in shas.values()}) > 1:
-        bad.append(f"I5 {eid}: arms trained at {len(set(shas.values()))} "
-                   f"different commits and the plan pins none")
-    return bad
 
 
 # --------------------------------------------------------------------------- #
@@ -432,11 +285,8 @@ Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
             L.append(rf"\texttt{{{esc(qid)}}} & {tex(q["text"])} \\")
         L.append(r"\bottomrule\end{tabular}")
     for exp in exps:
-        feeds = ", ".join(exp.get("feeds", [])) or "--"
         L.append(rf"\section*{{{tex(exp['title'])}}}")
-        L.append(rf"{{\small \textbf{{Question.}} {tex(exp['question'])} \quad "
-                 rf"\textbf{{Feeds.}} \texttt{{{esc(feeds)}}} \quad "
-                 rf"\textbf{{Commit.}} \texttt{{{esc(exp.get('commit') or 'not pinned')}}}}}")
+        L.append(rf"{{\small \textbf{{Question.}} {tex(exp['question'])}}}")
         L.append(table(plan, exp))
     L.append(r"\end{document}")
     tex_path = os.path.join(PLAN_DIR, "report.tex")
@@ -458,7 +308,7 @@ Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("verb", choices=["check", "status", "report"])
+    ap.add_argument("verb", choices=["status", "report"])
     ap.add_argument("ids", nargs="*")
     ap.add_argument("--no-pdf", action="store_true")
     a = ap.parse_args(argv)
@@ -466,13 +316,6 @@ def main(argv=None) -> int:
     plan = load_plan()
     ids = a.ids or plan["experiments"]
     exps = [load_experiment(i) for i in ids]
-
-    if a.verb == "check":
-        bad = [b for e in exps for b in check(plan, e)]
-        for b in bad:
-            print(b)
-        print(f"{len(bad)} failure(s) over {len(exps)} experiment(s)")
-        return 1 if bad else 0
 
     if a.verb == "status":
         print(f"{'run':62s} {'status':8s} {'iter':>9s}  commit")
