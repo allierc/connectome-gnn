@@ -1,8 +1,6 @@
-description: 'FROZEN BASELINE -- Known ODE, NeurIPS Table 1. Verbatim copy of config/fly/flyvis_noise_005_blank50_known_ode_cv01.yaml
-  with the agentic-loop block removed and training.derivative_target set to observed_fd,
-  the nominal target (Table 1 itself trained against the generator''s y_list, which
-  is the bug). Do not edit: every experiment derives from this by override.'
-dataset: flyvis_noise_005_blank50_cv01
+description: 'FROZEN BASELINE -- Known ODE. Verbatim copy of config/fly/flyvis_current_noise_005_current_knownode_cv00.yaml.
+  Do not edit: every experiment derives from this by override.'
+dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -20,7 +18,7 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  seed: 43
+  seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
@@ -28,17 +26,18 @@ simulation:
 graph_model:
   signal_model_name: flyvis_known_ode
   prediction: first_derivative
-  input_size: 1
-  n_layers: 1
-  hidden_dim: 1
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
   output_size: 1
-  input_size_update: 1
-  n_layers_update: 1
-  hidden_dim_update: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
   aggr_type: add
-  embedding_dim: 0
-  update_type: linear
-  g_phi_positive: false
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
 plotting:
   colormap: tab20
   arrow_length: 1
@@ -49,37 +48,38 @@ plotting:
   - -100
   - 100
 training:
+  torch_compile: true
+  mlp_precision: fp32
   n_runs: 1
   device: auto
   recurrent_training: false
+  time_step: 1
   batch_size: 4
+  regul_batch_scaling: sqrt
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  lr_W: 0.0006
-  lr: 0.006
-  lr_embedding: 0.0
-  coeff_g_phi_diff: 0
-  coeff_f_theta_msg_diff: 0
-  coeff_g_phi_norm: 0
-  coeff_g_phi_weight_L1: 0
-  coeff_f_theta_weight_L1: 0
+  lr_W: 0.0009
+  lr: 0.0018
+  lr_embedding: 0.002325
+  coeff_g_phi_diff: 375
+  coeff_g_phi_norm: 0.45
+  coeff_g_phi_weight_L1: 0.14
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0
-  coeff_W_L1: 1.0e-05
-  coeff_W_L2: 0
-  coeff_W_sign: 0
-  coeff_tau_L1: 0.0
-  coeff_tau_L2: 0.003
-  coeff_V_rest_L1: 0.0
-  coeff_V_rest_L2: 0.001
-  w_init_mode: zeros
-  w_init_scale: 1.0
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
+  regul_annealing_rate: 0.0
+  w_init_mode: randn_scaled
   use_gt_edges: true
-  regul_annealing_rate: 0
-  seed: 1043
-  n_epochs: 1
-  data_augmentation_loop: 35
-  time_step: 1
-  derivative_target: observed_fd
+  seed: 1042
+  deterministic: true
+  n_epochs: 8
+  data_augmentation_loop: 64
+  checkpoint_saves_per_epoch: 3
+analysis:
+  neurons:
+  - 2895
 config_file: fly/known_ode_baseline

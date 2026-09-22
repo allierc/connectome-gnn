@@ -1,6 +1,6 @@
 description: derivative_target experiment, arm bug, noise_free, cv02. From experiments/baseline/gnn_current_baseline.yaml
-  with dataset, noise_model_level, the two seeds, training.deterministic = true and
-  training.derivative_target = y_list.
+  with dataset, noise_model_level, the two seeds and training.derivative_target =
+  y_list.
 dataset: flyvis_noise_free_blank50_cv02
 simulation:
   connectivity_file: to be specified
@@ -25,7 +25,7 @@ simulation:
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_A
+  signal_model_name: flyvis_current
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -49,32 +49,38 @@ plotting:
   - -100
   - 100
 training:
+  torch_compile: true
+  mlp_precision: fp32
   n_runs: 1
   device: auto
   recurrent_training: false
   time_step: 1
   batch_size: 4
+  regul_batch_scaling: sqrt
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 750
-  coeff_f_theta_msg_diff: 0
-  coeff_g_phi_norm: 0.9
-  coeff_g_phi_weight_L1: 0.28
-  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_diff: 375
+  coeff_g_phi_norm: 0.45
+  coeff_g_phi_weight_L1: 0.14
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.00015
-  coeff_W_L2: 1.5e-06
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
   seed: 1044
+  deterministic: true
   n_epochs: 1
   data_augmentation_loop: 500
   derivative_target: y_list
-  deterministic: true
+analysis:
+  neurons:
+  - 2895
 config_file: fly/flyvis_noise_free_blank50_dtbug_cv02

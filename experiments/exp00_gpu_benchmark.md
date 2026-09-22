@@ -28,10 +28,10 @@ arms:
   differs_by:
     queue: gpu_a100
 job_ids:
-  bench_rtx6000_fp32: '154396003'
-  bench_rtx6000_bf16: '154396004'
-  bench_a100_fp32: '154396005'
-  bench_a100_bf16: '154396006'
+  bench_rtx6000_fp32: '154396087'
+  bench_rtx6000_bf16: '154396088'
+  bench_a100_fp32: '154396089'
+  bench_a100_bf16: '154396090'
 ---
 
 # Experiment 0 — gpu_benchmark
@@ -43,8 +43,7 @@ job_ids:
 ## What differs
 
 Two things, crossed: the GPU (the arm, via its own queue) and
-`training.mlp_precision` (the axis, `fp32` or `bf16`). `torch_compile` and
-`deterministic` are **on** in all four, and every seed is the baseline's,
+`training.mlp_precision` (the axis, `fp32` or `bf16`). `torch_compile` and `deterministic` come from the baseline (both on) in all four, and every seed is the baseline's,
 so two runs at the same precision differ only in the silicon and two runs
 on the same GPU differ only in the arithmetic.
 
@@ -75,7 +74,7 @@ which is what makes the precision comparison a comparison.
 
 ## Status
 
-**0/4 landed**, 3 running, 1 pending
+**0/4 landed**, 2 running, 2 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -87,17 +86,16 @@ which is what makes the precision comparison a comparison.
 
 | arm | precision | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| rtx6000 | fp32 | 4,801 |  | 0.994 ± 0.000 | 0.865 ± 0.000 | 0.839 ± 0.000 | 0.649 ± 0.000 | 0.579 ± 0.000 | 0.933 ± 0.000 |  |  | 0.881 ± 0.000 |
-| rtx6000 | bf16 | 6,401 |  | 0.995 ± 0.000 | 0.898 ± 0.000 | 0.873 ± 0.000 | 0.685 ± 0.000 | 0.578 ± 0.000 | 0.946 ± 0.000 |  |  | 0.882 ± 0.000 |
-| a100 | fp32 | 1 |  | 0.008 ± 0.000 |  |  |  |  |  |  |  |  |
+| rtx6000 | fp32 | 1 |  | -0.002 ± 0.000 |  |  |  |  |  |  |  |  |
+| rtx6000 | bf16 | 1 |  | -0.002 ± 0.000 |  |  |  |  |  |  |  |  |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `bench_rtx6000_fp32` | running | 4,801 | `` |
-| `bench_rtx6000_bf16` | running | 6,401 | `` |
-| `bench_a100_fp32` | running | 1 | `` |
+| `bench_rtx6000_fp32` | running | 1 | `` |
+| `bench_rtx6000_bf16` | running | 1 | `` |
+| `bench_a100_fp32` | pending |  | `` |
 | `bench_a100_bf16` | pending |  | `` |
 
 <!-- STATUS:END -->

@@ -32,36 +32,36 @@ arms:
     training.derivative_target: y_list
   spec_pattern: flyvis_{noise}_blank50_dtbug_{fold}
 job_ids:
-  flyvis_noise_free_blank50_dtfd_cv00: '154396020'
-  flyvis_noise_free_blank50_dtfd_cv01: '154396021'
-  flyvis_noise_free_blank50_dtfd_cv02: '154396022'
-  flyvis_noise_free_blank50_dtfd_cv03: '154396023'
-  flyvis_noise_free_blank50_dtfd_cv04: '154396024'
-  flyvis_noise_005_blank50_dtfd_cv00: '154396025'
-  flyvis_noise_005_blank50_dtfd_cv01: '154396026'
-  flyvis_noise_005_blank50_dtfd_cv02: '154396027'
-  flyvis_noise_005_blank50_dtfd_cv03: '154396028'
-  flyvis_noise_005_blank50_dtfd_cv04: '154396029'
-  flyvis_noise_05_blank50_dtfd_cv00: '154396033'
-  flyvis_noise_05_blank50_dtfd_cv01: '154396034'
-  flyvis_noise_05_blank50_dtfd_cv02: '154396035'
-  flyvis_noise_05_blank50_dtfd_cv03: '154396036'
-  flyvis_noise_05_blank50_dtfd_cv04: '154396037'
-  flyvis_noise_free_blank50_dtbug_cv00: '154396059'
-  flyvis_noise_free_blank50_dtbug_cv01: '154396060'
-  flyvis_noise_free_blank50_dtbug_cv02: '154396061'
-  flyvis_noise_free_blank50_dtbug_cv03: '154396062'
-  flyvis_noise_free_blank50_dtbug_cv04: '154396063'
-  flyvis_noise_005_blank50_dtbug_cv00: '154396064'
-  flyvis_noise_005_blank50_dtbug_cv01: '154396065'
-  flyvis_noise_005_blank50_dtbug_cv02: '154396066'
-  flyvis_noise_005_blank50_dtbug_cv03: '154396067'
-  flyvis_noise_005_blank50_dtbug_cv04: '154396068'
-  flyvis_noise_05_blank50_dtbug_cv00: '154396069'
-  flyvis_noise_05_blank50_dtbug_cv01: '154396070'
-  flyvis_noise_05_blank50_dtbug_cv02: '154396071'
-  flyvis_noise_05_blank50_dtbug_cv03: '154396072'
-  flyvis_noise_05_blank50_dtbug_cv04: '154396073'
+  flyvis_noise_free_blank50_dtfd_cv00: '154396091'
+  flyvis_noise_free_blank50_dtfd_cv01: '154396092'
+  flyvis_noise_free_blank50_dtfd_cv02: '154396093'
+  flyvis_noise_free_blank50_dtfd_cv03: '154396094'
+  flyvis_noise_free_blank50_dtfd_cv04: '154396095'
+  flyvis_noise_005_blank50_dtfd_cv00: '154396096'
+  flyvis_noise_005_blank50_dtfd_cv01: '154396097'
+  flyvis_noise_005_blank50_dtfd_cv02: '154396098'
+  flyvis_noise_005_blank50_dtfd_cv03: '154396099'
+  flyvis_noise_005_blank50_dtfd_cv04: '154396100'
+  flyvis_noise_05_blank50_dtfd_cv00: '154396101'
+  flyvis_noise_05_blank50_dtfd_cv01: '154396102'
+  flyvis_noise_05_blank50_dtfd_cv02: '154396103'
+  flyvis_noise_05_blank50_dtfd_cv03: '154396104'
+  flyvis_noise_05_blank50_dtfd_cv04: '154396105'
+  flyvis_noise_free_blank50_dtbug_cv00: '154396106'
+  flyvis_noise_free_blank50_dtbug_cv01: '154396107'
+  flyvis_noise_free_blank50_dtbug_cv02: '154396108'
+  flyvis_noise_free_blank50_dtbug_cv03: '154396109'
+  flyvis_noise_free_blank50_dtbug_cv04: '154396110'
+  flyvis_noise_005_blank50_dtbug_cv00: '154396111'
+  flyvis_noise_005_blank50_dtbug_cv01: '154396112'
+  flyvis_noise_005_blank50_dtbug_cv02: '154396113'
+  flyvis_noise_005_blank50_dtbug_cv03: '154396114'
+  flyvis_noise_005_blank50_dtbug_cv04: '154396115'
+  flyvis_noise_05_blank50_dtbug_cv00: '154396116'
+  flyvis_noise_05_blank50_dtbug_cv01: '154396117'
+  flyvis_noise_05_blank50_dtbug_cv02: '154396118'
+  flyvis_noise_05_blank50_dtbug_cv03: '154396119'
+  flyvis_noise_05_blank50_dtbug_cv04: '154396120'
 ---
 
 # Experiment 1 — derivative_target
@@ -77,10 +77,6 @@ of the observed voltage, `f(v) + xi/dt`; `y_list` is the generator's own stored
 derivative, `f(v)`. The integrator adds the process noise `xi` to the state
 *after* that right-hand side was evaluated, so the two targets differ by
 `xi/dt` — exactly zero at `noise_free` and growing with `noise_model_level`.
-
-`training.deterministic` is **on** in all thirty, so a rerun at the same seed
-reproduces bitwise; `scatter_add` on CUDA accumulates via atomics otherwise
-and eight identical calls gave eight distinct results.
 
 Everything else comes from the baseline unchanged. Per run the generator axis
 sets `dataset`, `simulation.noise_model_level` and the two seeds
@@ -127,7 +123,7 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 
 ## Status
 
-**0/30 landed**, 30 running, 0 pending
+**0/30 landed**, 22 running, 8 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -139,47 +135,46 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 
 | arm | noise | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| nominal | noise_free | 16,001 |  | 0.313 ± 0.339 | 0.751 ± 0.028 | 0.689 ± 0.097 | 0.612 ± 0.064 | 0.514 ± 0.051 | 0.908 ± 0.028 |  |  |  |
-| nominal | noise_005 | 16,001 |  | 0.995 ± 0.002 | 0.920 ± 0.008 | 0.923 ± 0.014 | 0.702 ± 0.044 | 0.551 ± 0.065 | 0.949 ± 0.014 |  |  |  |
-| nominal | noise_05 | 16,001 |  | 0.986 ± 0.003 | 0.968 ± 0.002 | 0.982 ± 0.002 | 0.718 ± 0.034 | 0.768 ± 0.053 | 0.978 ± 0.001 |  |  |  |
-| bug | noise_free | 16,001 |  | 0.140 ± 0.005 | -0.037 ± 0.018 | -2169.996 ± 4324.634 | -6.120 ± 11.964 | -97.019 ± 193.620 | -0.003 ± 0.033 |  |  |  |
-| bug | noise_005 | 16,001 |  | 0.401 ± 0.488 | -0.025 ± 0.006 | -9.403 ± 2.853 | 0.129 ± 0.332 | 0.002 ± 0.165 | -0.015 ± 0.025 |  |  |  |
-| bug | noise_05 | 16,001 |  | 0.600 ± 0.488 | -0.031 ± 0.019 | -35.903 ± 28.474 | -0.152 ± 0.914 | -0.097 ± 0.976 | 0.012 ± 0.039 |  |  |  |
+| nominal | noise_free | 1 |  | 0.003 ± 0.003 |  |  |  |  |  |  |  |  |
+| nominal | noise_005 | 1 |  | 0.003 ± 0.003 |  |  |  |  |  |  |  |  |
+| nominal | noise_05 | 1 |  | 0.003 ± 0.005 |  |  |  |  |  |  |  |  |
+| bug | noise_free | 1 |  | 0.003 ± 0.003 |  |  |  |  |  |  |  |  |
+| bug | noise_005 | 1 |  | 0.003 ± 0.005 |  |  |  |  |  |  |  |  |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | running | 32,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | running | 32,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | running | 32,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | running | 32,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | running | 32,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | running | 32,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | running | 32,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | running | 32,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | running | 32,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | running | 32,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | running | 32,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | running | 32,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | running | 32,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | running | 32,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | running | 32,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv00` | running | 16,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv01` | running | 16,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv02` | running | 16,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv03` | running | 16,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv04` | running | 16,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv00` | running | 16,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv01` | running | 16,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv02` | running | 1 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv03` | running | 1 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv04` | running | 1 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv00` | running | 1 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv01` | running | 1 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv02` | running | 16,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv03` | running | 16,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv04` | running | 16,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv00` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv01` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv02` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv03` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv04` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv00` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv01` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv02` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv03` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv04` | running | 1 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv00` | running | 1 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv01` | running | 1 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv02` | running | 1 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv03` | running | 1 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv04` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv00` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv01` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv02` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv03` | running | 1 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv04` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv00` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv01` | running | 1 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv02` | pending |  | `` |
+| `flyvis_noise_005_blank50_dtbug_cv03` | pending |  | `` |
+| `flyvis_noise_005_blank50_dtbug_cv04` | pending |  | `` |
+| `flyvis_noise_05_blank50_dtbug_cv00` | pending |  | `` |
+| `flyvis_noise_05_blank50_dtbug_cv01` | pending |  | `` |
+| `flyvis_noise_05_blank50_dtbug_cv02` | pending |  | `` |
+| `flyvis_noise_05_blank50_dtbug_cv03` | pending |  | `` |
+| `flyvis_noise_05_blank50_dtbug_cv04` | pending |  | `` |
 
 <!-- STATUS:END -->
 

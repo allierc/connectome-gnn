@@ -1,8 +1,6 @@
-description: 'FROZEN BASELINE -- GNN (ours), NeurIPS Table 1. Verbatim copy of config/fly/flyvis_noise_005_blank50_unified_cv01.yaml
-  with the agentic-loop block removed and training.derivative_target set to observed_fd,
-  the nominal target (Table 1 itself trained against the generator''s y_list, which
-  is the bug). Do not edit: every experiment derives from this by override.'
-dataset: flyvis_noise_005_blank50_cv01
+description: 'FROZEN BASELINE -- GNN (ours). Verbatim copy of config/fly/flyvis_current_noise_005_current_cv00.yaml.
+  Do not edit: every experiment derives from this by override.'
+dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -20,13 +18,13 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  seed: 43
+  seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
 graph_model:
-  signal_model_name: flyvis_A
+  signal_model_name: flyvis_current
   prediction: first_derivative
   input_size: 3
   n_layers: 3
@@ -50,31 +48,37 @@ plotting:
   - -100
   - 100
 training:
+  torch_compile: true
+  mlp_precision: fp32
   n_runs: 1
   device: auto
   recurrent_training: false
   time_step: 1
   batch_size: 4
+  regul_batch_scaling: sqrt
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
   lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
-  coeff_g_phi_diff: 750
-  coeff_f_theta_msg_diff: 0
-  coeff_g_phi_norm: 0.9
-  coeff_g_phi_weight_L1: 0.28
-  coeff_f_theta_weight_L1: 0.05
+  coeff_g_phi_diff: 375
+  coeff_g_phi_norm: 0.45
+  coeff_g_phi_weight_L1: 0.14
   coeff_g_phi_weight_L2: 0
-  coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.00015
-  coeff_W_L2: 1.5e-06
+  coeff_f_theta_msg_diff: 0
+  coeff_f_theta_weight_L1: 0.025
+  coeff_f_theta_weight_L2: 0.0005
+  coeff_W_L1: 7.5e-05
+  coeff_W_L2: 7.5e-07
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1043
+  seed: 1042
+  deterministic: true
   n_epochs: 1
   data_augmentation_loop: 500
-  derivative_target: observed_fd
+analysis:
+  neurons:
+  - 2895
 config_file: fly/gnn_current_baseline
