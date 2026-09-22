@@ -3,22 +3,6 @@ paper: arxiv-2026
 log_root: /groups/saalfeld/home/allierc/GraphData/log/fly
 config_roots:
 - experiments/specs/fly
-questions:
-  offset:
-    text: does the general g_phi create a per-edge offset C_ij, and does it corrupt
-      V_rest?
-    read_from:
-    - V_rest
-    - msg_i
-  identifiability:
-    text: which hard cases stay identifiable, and what does the lasso buy on each?
-    read_from:
-    - Wij
-    - tau
-    - V_rest
-  fairness:
-    text: is each before/after comparison controlled to one variable?
-    read_from: []
 columns:
   scalars:
   - one_step_r

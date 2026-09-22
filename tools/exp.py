@@ -277,16 +277,9 @@ def report(plan, exps, make_pdf=True):
 final, from \texttt{{results/metrics.txt}} on the held-out test split.
 Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
 \vspace{{4pt}}""")
-    qs = plan.get("questions", {})
-    if qs:
-        L.append(r"\section*{Questions}")
-        L.append(r"\begin{tabular}{lp{20cm}}\toprule")
-        for qid, q in qs.items():
-            L.append(rf"\texttt{{{esc(qid)}}} & {tex(q["text"])} \\")
-        L.append(r"\bottomrule\end{tabular}")
     for exp in exps:
         L.append(rf"\section*{{{tex(exp['title'])}}}")
-        L.append(rf"{{\small \textbf{{Question.}} {tex(exp['question'])}}}")
+        L.append(rf"{{\small \textbf{{Purpose.}} {tex(exp['purpose'])}}}")
         L.append(table(plan, exp))
     L.append(r"\end{document}")
     tex_path = os.path.join(PLAN_DIR, "report.tex")

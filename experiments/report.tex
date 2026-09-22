@@ -10,19 +10,13 @@
 final, from \texttt{results/metrics.txt} on the held-out test split.
 Rows marked $^{*}$ are blank: those runs have not landed.}\end{center}
 \vspace{4pt}
-\section*{Questions}
-\begin{tabular}{lp{20cm}}\toprule
-\texttt{offset} & does the general g\_phi create a per-edge offset C\_ij, and does it corrupt V\_rest? \\
-\texttt{identifiability} & which hard cases stay identifiable, and what does the lasso buy on each? \\
-\texttt{fairness} & is each before/after comparison controlled to one variable? \\
-\bottomrule\end{tabular}
-\section*{The derivative target, across a model-noise sweep}
-{\small \textbf{Question.} does the derivative target alone explain the before/after table, and does its effect grow with the model noise the generator's y\_list leaves out?}
+\section*{Recovery errors, before and after the derivative-target fix}
+{\small \textbf{Purpose.} regenerate slide 5 and 6 of presentation/conductance.pdf with sound training (one parameter changes only) -- it was not -- and look at these plots again}
 \begin{table}[H]
 \scriptsize
 \raggedright
 \setlength{\tabcolsep}{2pt}
-\caption{Thirty runs: three model-noise levels, two derivative targets, five folds. The arms differ only in training.derivative\_target. The bug arm trains against f(v), which the process noise is added after, so the two targets differ by xi/dt -- zero at noise\_free and growing with the level.}
+\caption{Thirty runs from experiments/baseline/gnn\_current\_baseline.yaml: three model-noise levels, two derivative targets, five folds. The arms differ only in training.derivative\_target.}
 \begin{tabular}{p{3.6cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}>{\raggedleft\arraybackslash}p{1.5cm}}
 \toprule
 arm / noise / fold & one-step $r$ & rollout $r$ & $W_{ij}$ $R^2$ & $\tau$ $R^2$ & $V_{rest}$ $R^2$ & $\mathrm{msg}_i$ $R^2$ & $V_{rest}$ $R^2$ \tiny no $C_{ij}$ & $|C_i|$ \tiny V & cluster & $W_{ij}$ gain \\

@@ -23,10 +23,6 @@ its log still lands in `log/fly/<name>`.
     paper: <slug>
     log_root: <abs path to log/fly>
     config_roots: [<dir>, ...]
-    questions:
-      <qid>:
-        text: <one sentence>
-        read_from: [<column>, ...]
     columns:
       scalars:  [<metrics.txt key>, ...]     printed as a plain number
       recovery: [<stem>, ...]                printed as `clean [all] (pct dropped)`
@@ -36,11 +32,15 @@ its log still lands in `log/fly/<name>`.
 `columns` is the one metric vocabulary, named once, so a cell means the same
 thing in every table.
 
+`purpose` IS DICTATED, NEVER INFERRED. It goes in the PDF under the title and it
+is the sentence that says why thirty jobs are worth running. Writing a plausible
+one from the arms is how a plan acquires a rationale nobody chose.
+
 ## <id>.yaml
 
     id: <id>                          must equal the filename stem
     title: <the section heading>
-    question: <one sentence>
+    purpose: <why this experiment is being run>
 
     task: train | train_cv | test_plot
     queue: gpu_l4 | gpu_a100 | gpu_h100

@@ -1,7 +1,7 @@
 id: derivative_target
-title: The derivative target, across a model-noise sweep
-question: does the derivative target alone explain the before/after table, and does
-  its effect grow with the model noise the generator's y_list leaves out?
+title: Recovery errors, before and after the derivative-target fix
+purpose: regenerate slide 5 and 6 of presentation/conductance.pdf with sound training
+  (one parameter changes only) -- it was not -- and look at these plots again
 task: train
 queue: gpu_l4
 wall: '24:00'
@@ -27,7 +27,6 @@ arms:
   overrides:
     training.derivative_target: y_list
 report:
-  caption: 'Thirty runs: three model-noise levels, two derivative targets, five folds.
-    The arms differ only in training.derivative\_target. The bug arm trains against
-    f(v), which the process noise is added after, so the two targets differ by xi/dt
-    -- zero at noise\_free and growing with the level.'
+  caption: 'Thirty runs from experiments/baseline/gnn\_current\_baseline.yaml: three
+    model-noise levels, two derivative targets, five folds. The arms differ only in
+    training.derivative\_target.'
