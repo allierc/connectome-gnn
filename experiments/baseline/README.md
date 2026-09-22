@@ -2,8 +2,8 @@
 
 Two files, never edited:
 
-    gnn_table1.yaml         GNN (ours), NeurIPS Table 1
-    known_ode_table1.yaml   Known ODE,  NeurIPS Table 1
+    gnn_current_baseline.yaml   GNN (ours), NeurIPS Table 1
+    known_ode_baseline.yaml     Known ODE,  NeurIPS Table 1
 
 Every experiment's specs are generated from one of these by override. Nothing
 else in this repo should be called "the baseline".
