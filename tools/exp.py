@@ -275,8 +275,13 @@ def launch(number, dry_run=False, only_arm=None):
     """
     path = exp_path(number)
     fm, _ = load(path)
+    # AN ARM WITH `submit: false` IS READ, NEVER RUN. A comparison arm is often
+    # another experiment's runs -- exp02's reference is exp01's nominal folds --
+    # and launching it would resubmit them AND, because launch clears a run
+    # directory before reusing it, delete a running experiment's logs.
     names = [r for arm, _, r in runs(fm)
-             if only_arm is None or arm["id"] == only_arm]
+             if arm.get("submit", True)
+             and (only_arm is None or arm["id"] == only_arm)]
     if not names:
         raise SystemExit(f"no arm {only_arm!r} in experiment {number}")
     stage(fm, names)
