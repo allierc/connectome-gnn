@@ -278,7 +278,12 @@ def launch(number, dry_run=False, only_arm=None):
             ids[n] = jid
             print(f"  {jid}  {queue}  {n}")
     if ids:
-        fm["job_ids"] = ids
+        # MERGE, never replace. `launch --arm` submits a subset, and assigning
+        # the subset dropped the other arm's ids from the record -- the one
+        # place the mapping from run to job exists.
+        merged = dict(fm.get("job_ids") or {})
+        merged.update(ids)
+        fm["job_ids"] = merged
         _rewrite_front_matter(path, fm)
     print(f"{len(ids)}/{len(names)} submitted")
     return 0 if len(ids) == len(names) else 1
