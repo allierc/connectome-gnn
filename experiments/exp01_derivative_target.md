@@ -7,7 +7,7 @@ purpose: regenerate slide 5 and 6 of presentation/conductance.pdf with sound tra
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/fly
 task: train
-queue: gpu_l4
+queue: gpu_rtx6000
 wall: '48:00'
 axes:
   noise:
@@ -46,6 +46,10 @@ of the observed voltage, `f(v) + xi/dt`; `y_list` is the generator's own stored
 derivative, `f(v)`. The integrator adds the process noise `xi` to the state
 *after* that right-hand side was evaluated, so the two targets differ by
 `xi/dt` — exactly zero at `noise_free` and growing with `noise_model_level`.
+
+`training.deterministic` is **on** in all thirty, so a rerun at the same seed
+reproduces bitwise; `scatter_add` on CUDA accumulates via atomics otherwise
+and eight identical calls gave eight distinct results.
 
 Everything else comes from the baseline unchanged. Per run the generator axis
 sets `dataset`, `simulation.noise_model_level` and the two seeds

@@ -1,6 +1,6 @@
 description: derivative_target experiment, arm bug, noise_05, cv04. From experiments/baseline/gnn_current_baseline.yaml
-  with dataset, noise_model_level, the two seeds and training.derivative_target =
-  y_list.
+  with dataset, noise_model_level, the two seeds, training.deterministic = true and
+  training.derivative_target = y_list.
 dataset: flyvis_noise_05_blank50_cv04
 simulation:
   connectivity_file: to be specified
@@ -76,4 +76,5 @@ training:
   n_epochs: 1
   data_augmentation_loop: 500
   derivative_target: y_list
+  deterministic: true
 config_file: fly/flyvis_noise_05_blank50_dtbug_cv04

@@ -1,6 +1,6 @@
 description: derivative_target experiment, arm nominal, noise_005, cv00. From experiments/baseline/gnn_current_baseline.yaml
-  with dataset, noise_model_level, the two seeds and training.derivative_target =
-  observed_fd.
+  with dataset, noise_model_level, the two seeds, training.deterministic = true and
+  training.derivative_target = observed_fd.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -76,4 +76,5 @@ training:
   n_epochs: 1
   data_augmentation_loop: 500
   derivative_target: observed_fd
+  deterministic: true
 config_file: fly/flyvis_noise_005_blank50_dtfd_cv00
