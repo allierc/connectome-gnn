@@ -301,6 +301,10 @@ Rows marked $^{{*}}$ are blank: those runs have not landed.}}\end{{center}}
     for exp in exps:
         L.append(rf"\section*{{{tex(exp['title'])}}}")
         L.append(rf"{{\small \textbf{{Purpose.}} {tex(exp['purpose'])}}}")
+        if exp.get("baseline"):
+            L.append(r"\\[2pt]")
+            L.append(rf"{{\small \textbf{{Baseline.}} "
+                     rf"\texttt{{{esc(exp['baseline'])}}}}}")
         L.append(table(exp))
     L.append(r"\end{document}")
     tex_path = os.path.join(PLAN_DIR, "report.tex")

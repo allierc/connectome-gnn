@@ -29,11 +29,12 @@ its log still lands in `log/fly/<name>`.
 
     id: <id>                          must equal the filename stem
     title: <the section heading>
-    purpose: <why this experiment is being run>
+    purpose: <why this experiment is being run -- dictated, never inferred>
+    baseline: <path to the frozen config every spec derives from>
 
     task: train | train_cv | test_plot
     queue: gpu_l4 | gpu_a100 | gpu_h100
-    wall: "HH:MM"
+    wall: "HH:MM"                     LSF -W; 48:00 for a five-fold on gpu_l4
 
     axes:                             the grid; `fold` is averaged over
       <axis>: [<value>, ...]

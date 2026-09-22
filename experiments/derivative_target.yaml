@@ -2,9 +2,10 @@ id: derivative_target
 title: Recovery errors, before and after the derivative-target fix
 purpose: regenerate slide 5 and 6 of presentation/conductance.pdf with sound training
   (one parameter changes only) -- it was not -- and look at these plots again
+baseline: experiments/baseline/gnn_current_baseline.yaml
 task: train
 queue: gpu_l4
-wall: '24:00'
+wall: '48:00'
 axes:
   noise:
   - noise_free
@@ -27,6 +28,5 @@ arms:
   overrides:
     training.derivative_target: y_list
 report:
-  caption: 'Thirty runs from experiments/baseline/gnn\_current\_baseline.yaml: three
-    model-noise levels, two derivative targets, five folds. The arms differ only in
-    training.derivative\_target.'
+  caption: 'Thirty runs: three model-noise levels, two derivative targets, five folds.
+    The arms differ only in training.derivative\_target.'
