@@ -1,6 +1,6 @@
-description: Experiment 0, rtx6000, bf16. From experiments/baseline/gnn_current_baseline.yaml
-  with mlp_precision=bf16 and data_augmentation_loop=10. torch_compile and deterministic
-  are the baseline's (both on). Not a result.
+description: Experiment 0, rtx6000, bf16. Baseline with mlp_precision=bf16, data_augmentation_loop=50
+  and checkpoint_saves_per_epoch=3 -- 160,000 iterations at the production snapshot
+  cadence. Not a result.
 dataset: flyvis_noise_005_blank50_cv00
 simulation:
   connectivity_file: to be specified
@@ -78,7 +78,8 @@ training:
   seed: 1042
   deterministic: true
   n_epochs: 1
-  data_augmentation_loop: 10
+  data_augmentation_loop: 50
+  checkpoint_saves_per_epoch: 3
 analysis:
   neurons:
   - 2895

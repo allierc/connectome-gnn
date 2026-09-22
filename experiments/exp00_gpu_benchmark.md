@@ -28,10 +28,10 @@ arms:
   differs_by:
     queue: gpu_a100
 job_ids:
-  bench_rtx6000_fp32: '154396087'
-  bench_rtx6000_bf16: '154396088'
-  bench_a100_fp32: '154396089'
-  bench_a100_bf16: '154396090'
+  bench_rtx6000_fp32: '154398322'
+  bench_rtx6000_bf16: '154398323'
+  bench_a100_fp32: '154398324'
+  bench_a100_bf16: '154398325'
 ---
 
 # Experiment 0 — gpu_benchmark
@@ -54,11 +54,27 @@ and eight identical calls gave eight distinct results. Turning determinism
 on fixes that and costs roughly 26x on that operation, so these numbers are
 the reproducible-training rate, not the fastest the hardware can go.
 
+## The first attempt measured its own instrumentation
+
+`data_augmentation_loop` was cut 500 -> 10 to make the jobs short, which shrank
+`Niter` fifty-fold but kept the same NUMBER of metric snapshots. Each snapshot
+is a full template readout over 434,112 edges, so it was amortised over 1,321
+iterations instead of production's 58,666 -- 44x too often -- and the four arms
+ran at 4-10 it/s against the 72 it/s the production runs of experiments 1 and 2
+actually do. The speed numbers were the snapshot cost, not the GPUs.
+
+The precision comparison survived it, because all four arms paid the same
+overhead: `R2_W` 0.923 / 0.925 / 0.927 / 0.926 at iteration 30,401, so **bf16
+costs nothing on recovery**, on either card.
+
+Relaunched with `data_augmentation_loop: 50` and
+`checkpoint_saves_per_epoch: 3`: 160,000 iterations at exactly the production
+cadence, a tenth of a full run.
+
 ## Not a training run
 
-`data_augmentation_loop` is 10 rather than 500, so each job is 32,000
-iterations instead of 1,600,000. Multiply the wall time by 50 for a full
-run. The recovered numbers are read at the same iteration on every arm,
+`data_augmentation_loop` is 50 rather than 500, so each job is 160,000
+iterations instead of 1,600,000. Multiply the wall time by 10 for a full run. The recovered numbers are read at the same iteration on every arm,
 which is what makes the precision comparison a comparison.
 
 ## Specs
