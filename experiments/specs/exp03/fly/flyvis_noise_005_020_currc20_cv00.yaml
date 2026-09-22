@@ -1,8 +1,8 @@
-description: Experiment 3, measurement noise 0.2, cv02. From experiments/baseline/gnn_current_baseline.yaml
-  with the measurement-noise dataset, signal_model_name = flyvis_conductance, input_size
-  = 6, coeff_g_phi_input_group_L1 = 100 and 20-step recurrent training (schedule 1..20
+description: Experiment 3, arm current_rc20, measurement noise 0.2, cv00. From experiments/baseline/gnn_current_baseline.yaml
+  with the measurement-noise dataset, signal_model_name = flyvis_current, input_size
+  = 3, coeff_g_phi_input_group_L1 = 0 and 20-step recurrent training (schedule 1..20
   over 20 epochs, data_augmentation_loop 50).
-dataset: flyvis_noise_005_020_blank50_cv02
+dataset: flyvis_noise_005_020_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -20,16 +20,16 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  seed: 44
+  seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
   blank_prefix_fraction: 0.5
   measurement_noise_level: 0.2
 graph_model:
-  signal_model_name: flyvis_conductance
+  signal_model_name: flyvis_current
   prediction: first_derivative
-  input_size: 6
+  input_size: 3
   n_layers: 3
   hidden_dim: 80
   output_size: 1
@@ -77,11 +77,11 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1044
+  seed: 1042
   deterministic: true
   n_epochs: 20
   data_augmentation_loop: 50
-  coeff_g_phi_input_group_L1: 100.0
+  coeff_g_phi_input_group_L1: 0.0
   rollout_horizon_schedule:
   - 1
   - 2
@@ -108,4 +108,4 @@ training:
 analysis:
   neurons:
   - 2895
-config_file: fly/flyvis_noise_005_020_condl100_rc20_cv02
+config_file: fly/flyvis_noise_005_020_currc20_cv00

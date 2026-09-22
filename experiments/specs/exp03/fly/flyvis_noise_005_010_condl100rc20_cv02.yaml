@@ -1,8 +1,8 @@
-description: Experiment 3, measurement noise 0.1, cv01. From experiments/baseline/gnn_current_baseline.yaml
+description: Experiment 3, arm cond_rc20, measurement noise 0.1, cv02. From experiments/baseline/gnn_current_baseline.yaml
   with the measurement-noise dataset, signal_model_name = flyvis_conductance, input_size
   = 6, coeff_g_phi_input_group_L1 = 100 and 20-step recurrent training (schedule 1..20
   over 20 epochs, data_augmentation_loop 50).
-dataset: flyvis_noise_005_010_blank50_cv01
+dataset: flyvis_noise_005_010_blank50_cv02
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -20,7 +20,7 @@ simulation:
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  seed: 43
+  seed: 44
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
@@ -77,7 +77,7 @@ training:
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  seed: 1043
+  seed: 1044
   deterministic: true
   n_epochs: 20
   data_augmentation_loop: 50
@@ -108,4 +108,4 @@ training:
 analysis:
   neurons:
   - 2895
-config_file: fly/flyvis_noise_005_010_condl100_rc20_cv01
+config_file: fly/flyvis_noise_005_010_condl100rc20_cv02
