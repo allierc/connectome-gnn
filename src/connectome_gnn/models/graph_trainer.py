@@ -309,6 +309,18 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
             raise ValueError(
                 "rollout_horizon_schedule requires recurrent_training: true"
             )
+        # A HORIZON SHORTER THAN THE STRIDE SCORES NOTHING. With
+        # rollout_loss_stride = m, only steps m, 2m, ... carry weight, so an
+        # epoch whose horizon never reaches m contributes a loss of exactly
+        # zero and trains on nothing while looking busy.
+        _stride = int(getattr(training, "rollout_loss_stride", 0) or 0)
+        if _stride > 1 and max(int(h) for h in _raw_horizon) < _stride:
+            raise ValueError(
+                f"rollout_loss_stride: {_stride} needs a horizon that reaches "
+                f"it; rollout_horizon_schedule tops out at "
+                f"{max(int(h) for h in _raw_horizon)}, so no step is ever "
+                "scored.")
+
         # The time_step and multi_start_recurrent guards went with those knobs:
         # the dataset is never decimated now, so the intermediate frames dense
         # supervision needs always exist.

@@ -130,13 +130,27 @@ def recurrent_loss(
 #  ROLLOUT: unroll K steps, score every one                          #
 # ------------------------------------------------------------------ #
 
-def _rollout_step_weights(weighting, n_steps, gamma):
+def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0):
     """Per-step weights: "uniform" | "discount" | "linear_decay" | "last".
 
     Unnormalised -- the caller divides by the weight actually applied, so any
     positive scaling is equivalent. All schemes return [1.0] at K=1, which is what
     keeps the K=1 objective identical to one-step training.
+
+    `loss_stride` m > 0 then ZEROES every step but m, 2m, 3m, ..., which is
+    partial temporal sampling: the model still integrates each intermediate
+    frame, it is simply not scored there. The mask is applied AFTER the
+    weighting, so "one frame in five, discounted" is expressible and the two
+    knobs stay orthogonal.
     """
+    w = _rollout_step_weights_dense(weighting, n_steps, gamma)
+    if loss_stride and loss_stride > 0:
+        # step s is 0-indexed, so the m-th observed step is s = m - 1.
+        w = [x if (s + 1) % loss_stride == 0 else 0.0 for s, x in enumerate(w)]
+    return w
+
+
+def _rollout_step_weights_dense(weighting, n_steps, gamma):
     if weighting == "uniform":
         return [1.0] * n_steps
     if weighting == "discount":
@@ -244,7 +258,9 @@ def _dense_rollout_loss(
     gamma = getattr(tc, "rollout_discount", 0.9)
     bptt_window = int(getattr(tc, "rollout_bptt_window", 0) or 0)
     shooting_stride = int(getattr(tc, "rollout_shooting_stride", 0) or 0)
-    step_weights = _rollout_step_weights(weighting, n_steps, gamma)
+    step_weights = _rollout_step_weights(
+        weighting, n_steps, gamma,
+        loss_stride=int(getattr(tc, "rollout_loss_stride", 0) or 0))
 
     batched_state, batched_edges = _batch_frames(state_batch, edges)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)

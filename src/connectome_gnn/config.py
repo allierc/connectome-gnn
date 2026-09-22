@@ -1871,6 +1871,22 @@ class TrainingConfig(BaseModel):
     # decimation stride, frame-sampling target offset), so a result could not be
     # attributed to any one of the three.
 
+    # WHICH STEPS OF THE ROLLOUT THE LOSS IS SCORED ON. 0 (default) scores every
+    # one; m > 0 scores only steps m, 2m, 3m, ... of the unrolled horizon, and
+    # nothing else.
+    #
+    # THIS IS WHAT "ONE FRAME IN FIVE IS OBSERVED" ACTUALLY MEANS. The old
+    # `time_step: 5` expressed it by DECIMATING THE DATASET, which also deepened
+    # the rollout and moved the target -- three effects from one number. Here the
+    # data is untouched and the model still integrates every intermediate frame;
+    # only the supervision is sparse, which is the honest statement of partial
+    # temporal sampling. With rollout_horizon_schedule ramping to 20 and a stride
+    # of 5, the loss lands on steps 5, 10, 15 and 20.
+    #
+    # A horizon shorter than the stride scores NOTHING, so the schedule has to
+    # reach at least m; graph_trainer raises rather than training on a zero loss.
+    rollout_loss_stride: int = 0
+
     # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
     # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
     # observed voltage (dense supervision), on an UNSTRIDED dataset. Empty (default) keeps
