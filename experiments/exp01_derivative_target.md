@@ -135,47 +135,47 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 
 | arm | noise | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| nominal | noise_free | 160,001 |  | 0.998 ± 0.001 | 0.875 ± 0.018 | 0.859 ± 0.031 | 0.732 ± 0.029 | 0.632 ± 0.079 | 0.933 ± 0.030 |  |  | 0.851 ± 0.013 |
-| nominal | noise_005 | 160,001 |  | 0.998 ± 0.000 | 0.949 ± 0.006 | 0.976 ± 0.007 | 0.810 ± 0.029 | 0.680 ± 0.060 | 0.972 ± 0.006 |  |  | 0.885 ± 0.024 |
-| nominal | noise_05 | 160,001 |  | 0.990 ± 0.004 | 0.983 ± 0.001 | 0.994 ± 0.001 | 0.832 ± 0.040 | 0.857 ± 0.026 | 0.991 ± 0.001 |  |  | 0.885 ± 0.009 |
-| bug | noise_free | 160,001 |  | 0.831 ± 0.336 | 0.874 ± 0.023 | 0.877 ± 0.029 | 0.766 ± 0.032 | 0.703 ± 0.042 | 0.932 ± 0.039 |  |  | 0.839 ± 0.014 |
-| bug | noise_005 | 160,001 |  | 1.000 ± 0.000 | 0.974 ± 0.010 | 0.988 ± 0.004 | 0.937 ± 0.018 | 0.885 ± 0.068 | 0.991 ± 0.006 |  |  | 0.907 ± 0.018 |
-| bug | noise_05 | 160,001 |  | 0.999 ± 0.000 | 0.998 ± 0.001 | 1.000 ± 0.000 | 0.991 ± 0.004 | 0.995 ± 0.004 | 1.000 ± 0.000 |  |  | 0.922 ± 0.009 |
+| nominal | noise_free | 640,001 |  | 0.999 ± 0.000 | 0.896 ± 0.017 | 0.913 ± 0.030 | 0.785 ± 0.045 | 0.774 ± 0.066 | 0.958 ± 0.016 |  |  | 0.862 ± 0.019 |
+| nominal | noise_005 | 640,001 |  | 0.999 ± 0.000 | 0.953 ± 0.011 | 0.977 ± 0.009 | 0.855 ± 0.032 | 0.727 ± 0.071 | 0.977 ± 0.006 |  |  | 0.888 ± 0.017 |
+| nominal | noise_05 | 640,001 |  | 0.993 ± 0.001 | 0.983 ± 0.001 | 0.995 ± 0.001 | 0.882 ± 0.021 | 0.900 ± 0.015 | 0.993 ± 0.001 |  |  | 0.884 ± 0.013 |
+| bug | noise_free | 640,001 |  | 0.999 ± 0.000 | 0.884 ± 0.022 | 0.898 ± 0.028 | 0.824 ± 0.019 | 0.791 ± 0.056 | 0.953 ± 0.019 |  |  | 0.844 ± 0.047 |
+| bug | noise_005 | 640,001 |  | 1.000 ± 0.000 | 0.980 ± 0.010 | 0.994 ± 0.004 | 0.957 ± 0.025 | 0.939 ± 0.039 | 0.992 ± 0.004 |  |  | 0.925 ± 0.019 |
+| bug | noise_05 | 640,001 |  | 1.000 ± 0.000 | 0.998 ± 0.001 | 1.000 ± 0.000 | 0.995 ± 0.002 | 0.998 ± 0.003 | 1.000 ± 0.000 |  |  | 0.924 ± 0.004 |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv00` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv01` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv02` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv03` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv04` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv00` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv01` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv02` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv03` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv04` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv00` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv01` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv02` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv03` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv04` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv00` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv01` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv02` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv03` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv04` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv00` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv01` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv02` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv03` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv04` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv00` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv01` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv02` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv03` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv04` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv00` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv01` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv02` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv03` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtbug_cv04` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv00` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv01` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv02` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv03` | running | 640,001 | `` |
+| `flyvis_noise_005_blank50_dtbug_cv04` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtbug_cv00` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtbug_cv01` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtbug_cv02` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtbug_cv03` | running | 640,001 | `` |
+| `flyvis_noise_05_blank50_dtbug_cv04` | running | 640,001 | `` |
 
 <!-- STATUS:END -->
 

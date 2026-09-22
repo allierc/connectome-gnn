@@ -136,5 +136,50 @@ comparable and only loosely comparable with the published pair.
 | conductance | 0.2 | cv04 | `flyvis_noise_005_020_condl100rc20_cv04` | `flyvis_noise_005_020_blank50_cv04` |
 
 <!-- STATUS:BEGIN -->
+
+## Status
+
+**0/20 landed**, 19 running, 1 pending
+
+### Landed --- held-out, `results/metrics.txt`
+
+| arm | meas | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | |
+
+### Running --- train split, `tmp_training/`, blank where not written per checkpoint
+
+| arm | meas | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| current | 010 | 204,001 |  | 0.978 ± 0.001 | 0.759 ± 0.004 | 0.354 ± 0.019 | 0.695 ± 0.027 | 0.644 ± 0.028 | 0.881 ± 0.043 |  |  | 0.871 ± 0.020 |
+| current | 020 | 204,001 |  | 0.942 ± 0.004 | 0.543 ± 0.022 | 0.094 ± 0.024 | 0.604 ± 0.037 | 0.549 ± 0.057 | 0.775 ± 0.027 |  |  | 0.863 ± 0.016 |
+| conductance | 010 | 196,001 |  | 0.882 ± 0.189 | 0.605 ± 0.307 | 0.208 ± 0.290 | 0.580 ± 0.036 | 0.652 ± 0.067 | 0.638 ± 0.511 |  |  | 0.789 ± 0.206 |
+| conductance | 020 | 152,001 |  | 0.919 ± 0.003 | 0.504 ± 0.006 | 0.113 ± 0.003 | 0.577 ± 0.034 | 0.569 ± 0.041 | 0.835 ± 0.025 |  |  | 0.884 ± 0.004 |
+
+### Per run
+
+| run | status | iter | commit |
+|---|---|---|---|
+| `flyvis_noise_005_010_currc20_cv00` | running | 212,001 | `` |
+| `flyvis_noise_005_010_currc20_cv01` | running | 212,001 | `` |
+| `flyvis_noise_005_010_currc20_cv02` | running | 208,001 | `` |
+| `flyvis_noise_005_010_currc20_cv03` | running | 208,001 | `` |
+| `flyvis_noise_005_010_currc20_cv04` | running | 208,001 | `` |
+| `flyvis_noise_005_020_currc20_cv00` | running | 208,001 | `` |
+| `flyvis_noise_005_020_currc20_cv01` | running | 208,001 | `` |
+| `flyvis_noise_005_020_currc20_cv02` | running | 208,001 | `` |
+| `flyvis_noise_005_020_currc20_cv03` | running | 208,001 | `` |
+| `flyvis_noise_005_020_currc20_cv04` | running | 212,001 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv00` | running | 204,001 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv01` | running | 204,001 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv02` | running | 204,001 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv03` | running | 200,001 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv04` | running | 204,001 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv00` | running | 204,001 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv01` | running | 204,001 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv02` | running | 168,001 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv03` | running | 160,001 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv04` | pending |  | `` |
+
 <!-- STATUS:END -->
 

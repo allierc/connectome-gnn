@@ -313,13 +313,20 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # rollout_loss_stride = m, only steps m, 2m, ... carry weight, so an
         # epoch whose horizon never reaches m contributes a loss of exactly
         # zero and trains on nothing while looking busy.
+        # EVERY epoch, not just the deepest. A ramp that starts at 1 with a
+        # stride of 5 scores nothing for its first four epochs -- a loss of
+        # exactly zero, which trains on nothing while looking busy -- and
+        # checking only the maximum would let that through.
         _stride = int(getattr(training, "rollout_loss_stride", 0) or 0)
-        if _stride > 1 and max(int(h) for h in _raw_horizon) < _stride:
-            raise ValueError(
-                f"rollout_loss_stride: {_stride} needs a horizon that reaches "
-                f"it; rollout_horizon_schedule tops out at "
-                f"{max(int(h) for h in _raw_horizon)}, so no step is ever "
-                "scored.")
+        if _stride > 1:
+            _short = sorted({int(h) for h in _raw_horizon if int(h) < _stride})
+            if _short:
+                raise ValueError(
+                    f"rollout_loss_stride: {_stride} scores steps "
+                    f"{_stride}, {2 * _stride}, ... so every horizon must reach "
+                    f"{_stride}; rollout_horizon_schedule contains {_short}, "
+                    "whose epochs would score no step at all. Ramp in multiples "
+                    f"of the stride, e.g. [{_stride}, {2 * _stride}, ...].")
 
         # The time_step and multi_start_recurrent guards went with those knobs:
         # the dataset is never decimated now, so the intermediate frames dense
