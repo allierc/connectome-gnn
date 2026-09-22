@@ -1,0 +1,31 @@
+id: derivative_bug
+title: "The derivative-target fix, as a controlled comparison"
+question: "does the derivative-target bug alone explain the before/after table?"
+feeds: [fairness, offset]
+
+task: train_cv
+queue: gpu_l4
+wall: "24:00"
+commit: null
+
+folds: [cv00, cv01, cv02, cv03, cv04]
+baseline: fixed
+
+arms:
+  - id: fixed
+    label: "target carries the measurement noise"
+    spec: flyvis_noise_005_blank50_unified_fd
+    overrides: {}
+  - id: buggy
+    label: "target does not"
+    spec: flyvis_noise_005_blank50_unified_fdbug
+    overrides:
+      training.inject_derivative_bug: true
+
+readouts:
+  - {id: template, label: "template"}
+  - {id: template_no_Cij, label: "template, C_ij forced to zero"}
+
+report:
+  caption: "Two five-folds at one commit, differing only in training.inject_derivative_bug."
+  compare_to: fixed

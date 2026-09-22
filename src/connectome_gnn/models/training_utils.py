@@ -1263,9 +1263,26 @@ def init_training_data(
     # Derivative target from observed voltage
     # -------------------------------------------------------------------------
 
+    # training.derivative_target_clean REPRODUCES THE PRE-#58 BUG, by passing a
+    # measurement-noise level of zero to a helper whose only use of that argument
+    # is deciding whether to fold x_ts.noise into the voltage it differences. The
+    # model's INPUT still carries eta_t -- run_nominal_train_step adds it per
+    # frame and is untouched here -- so the target is once again the derivative
+    # of a signal the model never sees. That asymmetry IS the bug, and this is
+    # the only way to get it at the same commit as the fix.
+    _target_gamma = (0.0 if training.derivative_target_clean
+                     else simulation.measurement_noise_level)
+    if training.derivative_target_clean:
+        logger.warning(
+            "training.derivative_target_clean is ON: the derivative target "
+            "differences the CLEAN voltage while the model is fed "
+            f"v + eta at measurement_noise_level="
+            f"{simulation.measurement_noise_level}. This reproduces the "
+            "pre-#58 bug on purpose and must not be used for a result."
+        )
     y_ts = observed_derivative_target(
         x_ts,
-        simulation.measurement_noise_level,
+        _target_gamma,
         simulation.delta_t,
     )
 

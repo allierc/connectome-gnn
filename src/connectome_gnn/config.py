@@ -1783,6 +1783,23 @@ class TrainingConfig(BaseModel):
     # scaling every weight would grow by 1/(1 - p) and the gauge would absorb it.
     edge_dropout: float = 0.0
 
+    # THE PRE-#58 DERIVATIVE TARGET, ON PURPOSE. Before 816ca34d the target was
+    # the finite difference of the CLEAN voltage while the model was fed
+    # v[t] + eta_t, so it was scored against f(v[t]) + xi_t/dt with the
+    # measurement noise stripped out of the target but not the input -- an
+    # oracle no recording can supply. `observed_derivative_target` fixed that by
+    # differencing the observed voltage instead.
+    #
+    # Setting this True passes measurement_noise_level = 0 to that helper, which
+    # reproduces the old behaviour EXACTLY and by construction: the bug is now a
+    # config value rather than a commit, so a before/after pair can be two arms
+    # of one five-fold at one sha instead of two checkouts. That is the only
+    # reason it exists; nothing should ever be trained this way for a result.
+    #
+    # It is a no-op on a dataset with measurement_noise_level = 0, where the
+    # observed and clean voltages are the same signal.
+    derivative_target_clean: bool = False
+
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
     recurrent_loop: int = 0

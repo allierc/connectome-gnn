@@ -4083,10 +4083,15 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
     # message straight to the resting potential, so the level the template reads
     # is short by exactly the neuron's own incoming offset. Adding that offset
     # back gives the second number, and the DIFFERENCE between the two is the
-    # answer to "is V_rest wrong, or is it beta_i sitting in V_rest". Reported,
-    # not substituted: the headline V_rest_R2 stays the one a reader gets
-    # without knowing the offset, which is the honest number for a real
-    # recording where the message is not observed.
+    # answer to "is V_rest wrong, or is it beta_i sitting in V_rest".
+    #
+    # WHICH ONE IS THE HEADLINE: the CORRECTED one. `rec.pairs["V_rest"]` is
+    # overwritten with `_vl + _per_neuron` where the offset is computed above,
+    # and the raw level is kept here as V_rest_R2_uncorrected -- exactly as W is
+    # reported divided by k_i with W_uncorrected beside it, because both halves
+    # of the affine gauge msg_hat = msg/k_i + beta_i are properties of the
+    # model's message scale rather than errors in the parameter. (This comment
+    # used to say the opposite, which was true only before that substitution.)
     _vunc = rec.pairs.get("V_rest_uncorrected")
     if _vunc is not None:
         out["V_rest_R2_uncorrected"] = float(
