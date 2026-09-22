@@ -1,5 +1,5 @@
-description: derivative_target experiment, arm analytic, noise_free, fold cv04. Identical
-  to flyvis_noise_free_blank50_unified_fd_cv04 except training.derivative_target =
+description: derivative_target experiment, arm analytic, noise_free, cv04. From experiments/baseline/gnn_table1.yaml
+  with dataset, noise_model_level, the two seeds and training.derivative_target =
   analytic.
 dataset: flyvis_noise_free_blank50_cv04
 simulation:

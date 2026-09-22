@@ -1,7 +1,7 @@
-description: derivative_target experiment, arm fd, noise_05, cv01. From experiments/baseline/gnn_table1.yaml
-  with dataset, noise_model_level, the two seeds and training.derivative_target =
-  observed_fd.
-dataset: flyvis_noise_05_blank50_cv01
+description: 'FROZEN BASELINE -- GNN (ours), NeurIPS Table 1. Verbatim copy of config/fly/flyvis_noise_005_blank50_unified_cv01.yaml
+  with the agentic-loop block removed and training.derivative_target stated explicitly.
+  Do not edit: every experiment derives from this by override.'
+dataset: flyvis_noise_005_blank50_cv01
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -18,7 +18,7 @@ simulation:
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
-  noise_model_level: 0.5
+  noise_model_level: 0.05
   seed: 43
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
@@ -75,5 +75,5 @@ training:
   seed: 1043
   n_epochs: 1
   data_augmentation_loop: 500
-  derivative_target: observed_fd
-config_file: fly/flyvis_noise_05_blank50_dtfd_cv01
+  derivative_target: analytic
+config_file: fly/gnn_table1

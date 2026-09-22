@@ -1,5 +1,6 @@
-description: derivative_target experiment, arm analytic, noise_05, fold cv01. Identical
-  to flyvis_noise_05_blank50_unified_fd_cv01 except training.derivative_target = analytic.
+description: derivative_target experiment, arm analytic, noise_05, cv01. From experiments/baseline/gnn_table1.yaml
+  with dataset, noise_model_level, the two seeds and training.derivative_target =
+  analytic.
 dataset: flyvis_noise_05_blank50_cv01
 simulation:
   connectivity_file: to be specified
