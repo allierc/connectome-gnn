@@ -1074,6 +1074,17 @@ class TrainingConfig(BaseModel):
         if isinstance(v, dict):
             for k in [k for k in v if isinstance(k, str) and k.startswith("cond_")]:
                 v.setdefault("conductance_" + k[len("cond_"):], v.pop(k))
+            # REJECTED, NOT IGNORED. This class is extra="allow", so a removed
+            # field is quietly kept as an unread attribute and 27 specs that set
+            # time_step to 2, 5, 8 or 10 would train with the stride silently
+            # gone.
+            _ts = v.get("time_step")
+            if _ts is not None and _ts != 1:
+                raise ValueError(
+                    f"training.time_step = {_ts} is no longer supported. Use "
+                    "rollout_horizon_schedule for the depth and "
+                    "rollout_loss_stride to score only the observed steps.")
+            v.pop("time_step", None)
         return v
     # must survive the YAML→pydantic round-trip so getattr(tc, coeff_name)
     # works from the staged production hook.
@@ -1856,7 +1867,10 @@ class TrainingConfig(BaseModel):
     lr_scheduler_eta_min_ratio: float = 0.01  # min LR as fraction of base LR
     lr_scheduler_warmup_iters: int = 100  # linear warmup iterations
 
-    time_step: int = 1
+    # `time_step` WAS HERE AND IS GONE: triple-duty (BPTT depth, dataset
+    # decimation stride, frame-sampling target offset), so a result could not be
+    # attributed to any one of the three.
+
     # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
     # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
     # observed voltage (dense supervision), on an UNSTRIDED dataset. Empty (default) keeps
@@ -1991,7 +2005,7 @@ class TrainingConfig(BaseModel):
     # between segments; the observations ARE the continuity constraint, since
     # every segment start is pinned to data.
     rollout_shooting_stride: int = 0
-    multi_start_recurrent: bool = False
+    # `multi_start_recurrent` went with `time_step`: the mode WAS the stride.
     consecutive_batch: bool = False
     coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training (NB: the self-consistency variant in graph_trainer was removed because it was a zero-attractor; only the GT-supervised variant in recurrent_step.py still reads this knob)
     # Differential LR damping around the NGP injection switch. The schedule is

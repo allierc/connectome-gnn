@@ -366,22 +366,13 @@ def get_training_frame_sampling(sim, training, target_offset=None):
 
     first_frame = training.time_window
 
-    stride_subsample = (
-        training.recurrent_training
-        and training.time_step > 1
-    )
-
     # An explicit config pin wins over both the caller's argument and the derived
     # value, so every arm of a comparison can be made to sample identically.
     _pin = getattr(training, 'frame_target_offset', 0)
     if _pin and _pin > 0:
         target_offset = _pin
     elif target_offset is None:
-        target_offset = (
-            1
-            if stride_subsample
-            else training.time_step
-        )
+        target_offset = 1
 
     last_frame = (
         sim.n_frames
@@ -1316,15 +1307,8 @@ def init_training_data(
         False,
     )
 
-    stride = (
-        training.time_step
-        if (
-            training.recurrent_training
-            and training.time_step > 1
-            and not full_stimulus
-        )
-        else 1
-    )
+    # The dataset is never decimated now; `time_step` used to set this stride.
+    stride = 1
 
     if stride > 1:
 
@@ -2452,8 +2436,8 @@ def run_nominal_train_step(
             # is k+1; otherwise it is k+time_step.
             target_frame = (
                 k + 1
-                if (training.recurrent_training and training.time_step > 1)
-                else (k + training.time_step)
+                if training.recurrent_training
+                else (k + 1)
             )
 
             # Observed voltage, for the same reason the one-step target is built
@@ -2562,7 +2546,6 @@ def run_nominal_train_step(
                 edge_index=edges,
                 x_ts=x_ts,
                 k_batch=k_batch,
-                time_step=training.time_step,
                 batch_size=training.batch_size,
                 n_neurons=n_neurons,
                 ids_batch=ids_batch,
@@ -2594,47 +2577,9 @@ def run_nominal_train_step(
                 + training.noise_recurrent_level * torch.randn_like(pred)
             )
 
-            if training.time_step > 1:
-                for step in range(training.time_step - 1):
-                    neurons_per_sample = state_batch[0].n_neurons
-
-                    for b in range(training.batch_size):
-                        start_idx = b * neurons_per_sample
-
-                        end_idx = (b + 1) * neurons_per_sample
-
-                        state_batch[b].voltage = pred_x[start_idx:end_idx].squeeze()
-
-                        hn.zero_hidden(state_batch[b])
-
-                        k_current = k_batch[start_idx, 0].item() + step + 1
-
-                        if train.has_visual_field:
-                            visual_input_next = model.forward_visual(state_batch[b], k_current)
-
-                            state_batch[b].stimulus[: model.n_input_neurons] = visual_input_next.squeeze(-1)
-
-                            state_batch[b].stimulus[model.n_input_neurons :] = 0
-
-                        else:
-                            x_next = x_ts.frame(k_current)
-
-                            state_batch[b].stimulus = x_next.stimulus
-
-                            if x_next.optogenetics_stimulus is not None:
-                                state_batch[b].optogenetics_stimulus = x_next.optogenetics_stimulus
-
-                    (batched_state, batched_edges) = _batch_frames(state_batch, edges)
-
-                    (pred, in_features, msg) = model(
-                        batched_state, batched_edges, data_id=data_id, return_all=True
-                    )
-
-                    pred_x = (
-                        pred_x + sim.delta_t * pred + training.noise_recurrent_level * torch.randn_like(pred)
-                    )
-
-            loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * training.time_step)).norm(
+            # The extra BPTT steps went with `time_step`; at the default of 1 this
+            # block never executed. The horizon is rollout_horizon_schedule's now.
+            loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / sim.delta_t).norm(
                 2
             )
 

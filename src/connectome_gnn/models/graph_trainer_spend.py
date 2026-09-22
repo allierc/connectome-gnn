@@ -387,7 +387,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     visible_ids = torch.arange(n_neurons, device=device)
     ids = visible_ids
     _frame_min_k = max(tc.time_window, spend_time_window)  # ensure window fits
-    _frame_max_k = sim.n_frames - 4 - tc.time_step
+    _frame_max_k = sim.n_frames - 4 - 1
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
     loss_components = {'loss': []}
