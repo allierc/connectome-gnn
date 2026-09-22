@@ -171,16 +171,64 @@ def _last_row(run, stem):
         return None, d
 
 
-def live_of(run):
-    """The train-split numbers a running job has written, and its iteration."""
+def _rows_by_iter(run, stem):
+    """{iteration: row} for every snapshot tmp_training/<stem>.log holds."""
+    p = os.path.join(LOG_ROOT, run, "tmp_training", f"{stem}.log")
+    if not os.path.exists(p):
+        return {}
+    head, out = None, {}
+    for line in open(p):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("iteration"):
+            head = line.split(",")
+            continue
+        if head is None:
+            continue
+        d = dict(zip(head, line.split(",")))
+        try:
+            out[int(float(d["iteration"]))] = d
+        except (KeyError, ValueError):
+            pass
+    return out
+
+
+def live_of(run, at=None):
+    """The train-split numbers this run has written, and the iteration they are at.
+
+    `at` pins the snapshot. WITHOUT IT A GROUP MEAN MIXES ITERATIONS: five folds
+    launched together do not reach the same snapshot at the same moment, and
+    averaging a fold at iteration 1 with four at 16,001 reported R2_W as
+    0.450 +- 0.472 for a group whose five folds were 0.913, 0.932, 0.923, 0.919
+    and 0.910. The iteration printed beside it -- the max -- made that look like
+    a measurement at 16,001 rather than an average over two different training
+    states.
+    """
     out, it = {}, None
     for key, stem in _LIVE_FILE.items():
-        i, d = _last_row(run, stem)
-        if i is not None:
-            it = i if it is None else max(it, i)
-            if key in d:
-                out[key] = d[key]
+        rows = _rows_by_iter(run, stem)
+        if not rows:
+            continue
+        i = max(rows) if at is None else (at if at in rows else None)
+        if i is None:
+            continue
+        it = i if it is None else max(it, i)
+        if key in rows[i]:
+            out[key] = rows[i][key]
     return it, out
+
+
+def common_iter(group_runs):
+    """The latest snapshot every run in the group has reached, or None."""
+    sets = []
+    for run in group_runs:
+        rows = _rows_by_iter(run, "Wij")
+        if not rows:
+            return None
+        sets.append(set(rows))
+    common = set.intersection(*sets) if sets else set()
+    return max(common) if common else None
 
 
 def commit_of(run):
@@ -333,6 +381,13 @@ def _summary_rows(fm, rs, source):
     for arm_id, cell in groups:
         acc = {k: [] for k, _, _ in COLUMNS}
         its, n_here = [], 0
+        # EVERY FOLD READ AT THE SAME SNAPSHOT, so the mean describes one
+        # training state rather than a mixture of however far each job happens
+        # to have got.
+        at_iter = (None if source == "landed" else common_iter(
+            [r for a, p, r in rs
+             if a["id"] == arm_id and _cell(p) == cell
+             and status_of(r) == "running"]))
         for arm, pt, run in rs:
             if arm["id"] != arm_id or _cell(pt) != cell:
                 continue
@@ -346,7 +401,7 @@ def _summary_rows(fm, rs, source):
             else:
                 if status_of(run) != "running":
                     continue
-                it, d = live_of(run)
+                it, d = live_of(run, at=at_iter)
                 if it is None:
                     continue
                 its.append(it)
