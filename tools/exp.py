@@ -104,7 +104,14 @@ def runs(fm):
     names = list(axes)
     out = []
     for arm in fm["arms"]:
-        for combo in itertools.product(*axes.values()):
+        # AN ARM MAY COVER PART OF THE GRID. A probe added to settle one cell --
+        # lambda 25 at noise_free, to separate "the lasso is too strong" from
+        # "sigma 0 cannot hold the message" -- exists only there, and expanding
+        # it over the whole noise axis would invent ten runs that were never
+        # submitted and print them as pending for ever.
+        only = arm.get("axes_only") or {}
+        vals = [only.get(k, axes[k]) for k in names]
+        for combo in itertools.product(*vals):
             pt = dict(zip(names, combo))
             out.append((arm, pt, arm["spec_pattern"].format(**pt)))
     return out

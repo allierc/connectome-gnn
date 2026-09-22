@@ -35,6 +35,16 @@ arms:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
+- id: cond_l25
+  label: conductance, group lasso 25 (noise_free probe)
+  spec_pattern: flyvis_{noise}_blank50_condl25_{fold}
+  axes_only:
+    noise:
+    - noise_free
+  differs_by:
+    graph_model.signal_model_name: flyvis_conductance
+    graph_model.input_size: 6
+    training.coeff_g_phi_input_group_L1: 25.0
 job_ids:
   flyvis_noise_free_blank50_condl100_cv00: '154396165'
   flyvis_noise_free_blank50_condl100_cv01: '154396166'
@@ -51,6 +61,11 @@ job_ids:
   flyvis_noise_05_blank50_condl100_cv02: '154396177'
   flyvis_noise_05_blank50_condl100_cv03: '154396178'
   flyvis_noise_05_blank50_condl100_cv04: '154396179'
+  flyvis_noise_free_blank50_condl25_cv00: '154396309'
+  flyvis_noise_free_blank50_condl25_cv01: '154396310'
+  flyvis_noise_free_blank50_condl25_cv02: '154396311'
+  flyvis_noise_free_blank50_condl25_cv03: '154396312'
+  flyvis_noise_free_blank50_condl25_cv04: '154396313'
 ---
 
 # Experiment 2 — conductance_lasso
@@ -120,11 +135,34 @@ resubmits it nor clears its directories.
 | conductance | noise_05 | cv03 | `flyvis_noise_05_blank50_condl100_cv03` | yes |
 | conductance | noise_05 | cv04 | `flyvis_noise_05_blank50_condl100_cv04` | yes |
 
+## The lambda-25 probe at noise_free
+
+At `noise_free` the lasso-100 arm split two ways at iteration 80,001: cv01,
+cv02 and cv04 recovered normally while **cv00 and cv03 collapsed** —
+`R2_W` −0.019 and −0.018, which is the value `R2` takes when the weights have
+gone to zero, with `R2_msg` negative, so the message is anti-correlated with
+the truth.
+
+| fold | R2_W | R2_tau | R2_msg |
+|---|---|---|---|
+| cv00 | **-0.019** | **-5451** | **-0.862** |
+| cv01 | 0.865 | 0.927 | 0.912 |
+| cv02 | 0.776 | 0.913 | 0.837 |
+| cv03 | **-0.018** | **-18.4** | **-0.455** |
+| cv04 | 0.779 | 0.898 | 0.877 |
+
+Two candidates, and they are separable: lambda 100 is four times past the end of
+slide 21's ladder, which stopped at 25 and was still improving; and at sigma 0
+there is no process noise to keep the message alive against the penalty. The
+`cond_l25` arm is five folds at lambda 25 on the same `noise_free` data, and
+nothing else changed. If it recovers on all five, the lasso is too strong; if it
+splits the same way, sigma 0 is.
+
 <!-- STATUS:BEGIN -->
 
 ## Status
 
-**0/30 landed**, 30 running, 0 pending
+**0/35 landed**, 30 running, 5 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -136,47 +174,52 @@ resubmits it nor clears its directories.
 
 | arm | noise | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | noise_free | 160,001 |  | 0.998 ± 0.001 | 0.875 ± 0.018 | 0.859 ± 0.031 | 0.732 ± 0.029 | 0.632 ± 0.079 | 0.933 ± 0.030 |  |  | 0.851 ± 0.013 |
-| current | noise_005 | 160,001 |  | 0.998 ± 0.000 | 0.949 ± 0.006 | 0.976 ± 0.007 | 0.810 ± 0.029 | 0.680 ± 0.060 | 0.972 ± 0.006 |  |  | 0.885 ± 0.024 |
-| current | noise_05 | 160,001 |  | 0.990 ± 0.004 | 0.983 ± 0.001 | 0.994 ± 0.001 | 0.832 ± 0.040 | 0.857 ± 0.026 | 0.991 ± 0.001 |  |  | 0.885 ± 0.009 |
-| conductance | noise_free | 80,001 |  | 0.785 ± 0.260 | 0.476 ± 0.405 | -1093.416 ± 2179.032 | 0.650 ± 0.068 | 0.710 ± 0.071 | 0.262 ± 0.763 |  |  | 0.682 ± 0.242 |
-| conductance | noise_005 | 80,001 |  | 0.997 ± 0.000 | 0.967 ± 0.008 | 0.978 ± 0.009 | 0.825 ± 0.018 | 0.825 ± 0.017 | 0.981 ± 0.004 |  |  | 0.899 ± 0.015 |
-| conductance | noise_05 | 80,001 |  | 0.821 ± 0.340 | 0.983 ± 0.001 | 0.992 ± 0.001 | 0.869 ± 0.024 | 0.905 ± 0.030 | 0.991 ± 0.003 |  |  | 0.893 ± 0.015 |
+| current | noise_free | 240,001 |  | 0.999 ± 0.001 | 0.884 ± 0.019 | 0.877 ± 0.037 | 0.758 ± 0.040 | 0.690 ± 0.072 | 0.941 ± 0.026 |  |  | 0.868 ± 0.006 |
+| current | noise_005 | 240,001 |  | 0.998 ± 0.000 | 0.950 ± 0.008 | 0.973 ± 0.014 | 0.834 ± 0.025 | 0.710 ± 0.062 | 0.975 ± 0.007 |  |  | 0.895 ± 0.016 |
+| current | noise_05 | 240,001 |  | 0.991 ± 0.003 | 0.983 ± 0.001 | 0.994 ± 0.002 | 0.850 ± 0.025 | 0.872 ± 0.023 | 0.992 ± 0.001 |  |  | 0.887 ± 0.013 |
+| conductance | noise_free | 160,001 |  | 0.788 ± 0.256 | 0.480 ± 0.410 | -1106.526 ± 2205.977 | 0.644 ± 0.080 | 0.736 ± 0.084 | 0.292 ± 0.791 |  |  | 0.678 ± 0.238 |
+| conductance | noise_005 | 160,001 |  | 0.998 ± 0.000 | 0.967 ± 0.008 | 0.978 ± 0.006 | 0.840 ± 0.028 | 0.840 ± 0.031 | 0.982 ± 0.004 |  |  | 0.893 ± 0.020 |
+| conductance | noise_05 | 160,001 |  | 0.990 ± 0.002 | 0.984 ± 0.001 | 0.994 ± 0.001 | 0.871 ± 0.008 | 0.892 ± 0.021 | 0.993 ± 0.002 |  |  | 0.886 ± 0.017 |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | running | 160,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | running | 160,001 | `` |
-| `flyvis_noise_free_blank50_condl100_cv00` | running | 80,001 | `` |
-| `flyvis_noise_free_blank50_condl100_cv01` | running | 80,001 | `` |
-| `flyvis_noise_free_blank50_condl100_cv02` | running | 80,001 | `` |
-| `flyvis_noise_free_blank50_condl100_cv03` | running | 80,001 | `` |
-| `flyvis_noise_free_blank50_condl100_cv04` | running | 80,001 | `` |
-| `flyvis_noise_005_blank50_condl100_cv00` | running | 80,001 | `` |
-| `flyvis_noise_005_blank50_condl100_cv01` | running | 80,001 | `` |
-| `flyvis_noise_005_blank50_condl100_cv02` | running | 80,001 | `` |
-| `flyvis_noise_005_blank50_condl100_cv03` | running | 80,001 | `` |
-| `flyvis_noise_005_blank50_condl100_cv04` | running | 80,001 | `` |
-| `flyvis_noise_05_blank50_condl100_cv00` | running | 80,001 | `` |
-| `flyvis_noise_05_blank50_condl100_cv01` | running | 80,001 | `` |
-| `flyvis_noise_05_blank50_condl100_cv02` | running | 80,001 | `` |
-| `flyvis_noise_05_blank50_condl100_cv03` | running | 80,001 | `` |
-| `flyvis_noise_05_blank50_condl100_cv04` | running | 80,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv00` | running | 240,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv01` | running | 240,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv02` | running | 240,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv03` | running | 240,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv04` | running | 240,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv00` | running | 240,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv01` | running | 240,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv02` | running | 240,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv03` | running | 240,001 | `` |
+| `flyvis_noise_005_blank50_dtfd_cv04` | running | 240,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv00` | running | 240,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv01` | running | 240,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv02` | running | 240,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv03` | running | 240,001 | `` |
+| `flyvis_noise_05_blank50_dtfd_cv04` | running | 240,001 | `` |
+| `flyvis_noise_free_blank50_condl100_cv00` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_condl100_cv01` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_condl100_cv02` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_condl100_cv03` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_condl100_cv04` | running | 160,001 | `` |
+| `flyvis_noise_005_blank50_condl100_cv00` | running | 160,001 | `` |
+| `flyvis_noise_005_blank50_condl100_cv01` | running | 160,001 | `` |
+| `flyvis_noise_005_blank50_condl100_cv02` | running | 160,001 | `` |
+| `flyvis_noise_005_blank50_condl100_cv03` | running | 160,001 | `` |
+| `flyvis_noise_005_blank50_condl100_cv04` | running | 160,001 | `` |
+| `flyvis_noise_05_blank50_condl100_cv00` | running | 160,001 | `` |
+| `flyvis_noise_05_blank50_condl100_cv01` | running | 160,001 | `` |
+| `flyvis_noise_05_blank50_condl100_cv02` | running | 160,001 | `` |
+| `flyvis_noise_05_blank50_condl100_cv03` | running | 160,001 | `` |
+| `flyvis_noise_05_blank50_condl100_cv04` | running | 160,001 | `` |
+| `flyvis_noise_free_blank50_condl25_cv00` | pending |  | `` |
+| `flyvis_noise_free_blank50_condl25_cv01` | pending |  | `` |
+| `flyvis_noise_free_blank50_condl25_cv02` | pending |  | `` |
+| `flyvis_noise_free_blank50_condl25_cv03` | pending |  | `` |
+| `flyvis_noise_free_blank50_condl25_cv04` | pending |  | `` |
 
 <!-- STATUS:END -->
 
