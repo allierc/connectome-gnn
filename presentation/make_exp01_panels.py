@@ -33,8 +33,8 @@ LEVELS = (("noise_free", r"$\sigma = 0$",    "tab:blue"),
           ("noise_005",  r"$\sigma = 0.05$", "tab:green"),
           ("noise_05",   r"$\sigma = 0.5$",  "tab:red"))
 # The arms, in before-then-after order so the eye reads down the page.
-ARMS = (("dtbug", "target = generator's y_list  (the published bug)"),
-        ("dtfd",  "target = finite difference of the observed voltage"))
+ARMS = (("dtbug", "bug"),
+        ("dtfd",  "nominal"))
 # (key in learned, key in truth, axis label, symmetric range)
 QTY = (("W", "W", r"$\hat W_{ij} - W_{ij}$", 0.5),
        ("tau_i", "tau_i", r"$\hat\tau_i - \tau_i$", 0.05),
@@ -42,10 +42,16 @@ QTY = (("W", "W", r"$\hat W_{ij} - W_{ij}$", 0.5),
         r"$\hat V^{\mathrm{rest}}_i - V^{\mathrm{rest}}_i$", 2.0))
 
 
-def collect(tag, level):
-    """Pooled (learned - true) per quantity over the five folds of one cell."""
+def collect(tag, level, fold=None):
+    """(learned - true) per quantity, pooled over folds or for one of them.
+
+    `fold` None pools all five, which is the figure the first deck showed; a
+    fold id restricts it to that run, so the five can be read separately and a
+    single bad fold stops hiding inside the pool.
+    """
     out = {k: [] for k, _, _, _ in QTY}
-    for d in sorted(glob.glob(f"{LOG}/flyvis_{level}_blank50_{tag}_cv0[0-4]")):
+    pat = "cv0[0-4]" if fold is None else fold
+    for d in sorted(glob.glob(f"{LOG}/flyvis_{level}_blank50_{tag}_{pat}")):
         res = f"{d}/results/learned_ode_params.pt"
         if not os.path.exists(res):
             continue
@@ -66,14 +72,14 @@ def collect(tag, level):
     return {k: (np.concatenate(v) if v else np.array([])) for k, v in out.items()}
 
 
-def main():
+def draw(fold, out_name):
     fig, axes = plt.subplots(len(ARMS), len(QTY),
                              figsize=(10.5, 2.9 * len(ARMS)))
     for r, (tag, arm_label) in enumerate(ARMS):
         for c, (k, _tk, lab, lim) in enumerate(QTY):
             ax = axes[r, c]
             for level, llab, colour in LEVELS:
-                e = collect(tag, level)[k]
+                e = collect(tag, level, fold)[k]
                 if e.size == 0:
                     continue
                 e = e[np.isfinite(e)]
@@ -91,10 +97,13 @@ def main():
                         ha="left", va="bottom", fontsize=9)
     axes[0, 0].legend(frameon=False, fontsize=8)
     fig.tight_layout()
-    out = os.path.join(HERE, "Fig", "exp01_errors.png")
+    out = os.path.join(HERE, "Fig", out_name)
     fig.savefig(out, dpi=200, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
     print("wrote", out)
 
 
 if __name__ == "__main__":
-    main()
+    draw(None, "exp01_errors.png")
+    for i in range(5):
+        draw(f"cv{i:02d}", f"exp01_errors_cv{i:02d}.png")

@@ -93,6 +93,10 @@ analyse_job_ids:
   flyvis_noise_05_blank50_dtbug_cv02: '154399731'
   flyvis_noise_05_blank50_dtbug_cv03: '154399732'
   flyvis_noise_05_blank50_dtbug_cv04: '154399733'
+report:
+  arm_order:
+  - bug
+  - nominal
 ---
 
 # Experiment 1 — derivative_target
@@ -149,6 +153,35 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 | bug | noise_05 | cv02 | `flyvis_noise_05_blank50_dtbug_cv02` | `flyvis_noise_05_blank50_cv02` | 0.5 | `y_list` |
 | bug | noise_05 | cv03 | `flyvis_noise_05_blank50_dtbug_cv03` | `flyvis_noise_05_blank50_cv03` | 0.5 | `y_list` |
 | bug | noise_05 | cv04 | `flyvis_noise_05_blank50_dtbug_cv04` | `flyvis_noise_05_blank50_cv04` | 0.5 | `y_list` |
+
+## Reading the two `fit roll r` columns
+
+Both arms here are CURRENT models trained on current data, so the model's own
+message family is the current one. `template_rollout_r` is that own form and
+`template_alt_rollout_r` is the conductance form — `alt_form_family` in each
+run's `results/metrics.txt` says which, and it reads `conductance` for all 30.
+
+The gap is large and it is not a bug: at `noise_005` cv00 the current form
+rolls out at `r = 0.999` (RMSE 0.023 V) and the conductance form at `r = 0.617`
+(RMSE 13.66 V), against a voltage that spans about 3.4 V.
+
+Both forms fit the *message* at `R2 = 1.000` per edge — `current_form_r2_median`
+and `conductance_form_r2_median` are both 0.999997. The conductance form gets
+there by degenerating: on the neuron-2895 panel its per-synapse fit reports
+`W = -0.0001` with `E = +10523 V` where the generator has `W = -0.5401`, and
+`conductance_form_E_over_vi` is 774, i.e. the reversal it wants sits 774x the
+99th-percentile |v_i| away from the voltages the data visits. With `E` that far
+out, `W * relu(v_j) * (E - v_i)` is `W*E * relu(v_j)` plus a term in `v_i` that
+is negligible at the true voltages, so the product `W*E` is identified and the
+two factors separately are not.
+
+That is exactly why the R2 and the rollout disagree. The R2 is measured at the
+TRUE `v_i`, where the driving force is a constant the fit absorbs; the rollout
+feeds back its OWN `v_i`, and there the neglected `-W * relu(v_j) * v_i` term
+has gain `|W*E| / |v_i|` ~ 774 on every deviation, so the trajectory leaves the
+data. The conductance readout of a current model is therefore not a competing
+description that happens to win — it is an unidentified reparametrisation whose
+rollout is unstable, and the rollout is what exposes it.
 
 <!-- STATUS:BEGIN -->
 

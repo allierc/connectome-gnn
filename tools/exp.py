@@ -51,8 +51,14 @@ STAGE_DIR = "/groups/saalfeld/home/allierc/GraphData/config/fly"
 COLUMNS = [
     ("one_step_r",                       "one-step r",   False),
     ("rollout_r",                        "rollout r",    True),
-    ("template_rollout_r",               "fit roll cond", False),
-    ("template_alt_rollout_r",           "fit roll curr", False),
+    # THESE TWO ARE RELATIVE TO THE MODEL, NOT TO A FIXED FAMILY. The tester
+    # writes `template_rollout_r` for the template of the model's OWN message
+    # family and `template_alt_rollout_r` for the other one, and which family is
+    # which is in the run's `alt_form_family`. Hard-coding "cond"/"curr" here
+    # labelled every current-model table backwards; `_form_heads` resolves it
+    # from the runs instead.
+    ("template_rollout_r",               "fit roll own form",   False),
+    ("template_alt_rollout_r",           "fit roll other form", False),
     ("Wij_R2",                           "R2_W",         True),
     ("tau_R2",                           "R2_tau",       True),
     ("V_rest_R2",                        "R2_Vrest",     True),
@@ -421,6 +427,18 @@ def _rewrite_front_matter(path, fm):
 # --------------------------------------------------------------------------- #
 #  poll -> the STATUS block                                                    #
 # --------------------------------------------------------------------------- #
+def _mean(vals):
+    xs = []
+    for v in vals:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f == f:
+            xs.append(f)
+    return sum(xs) / len(xs) if xs else None
+
+
 def _mean_sd(vals, nd=3):
     xs = []
     for v in vals:
@@ -437,7 +455,14 @@ def _mean_sd(vals, nd=3):
     return f"{m:.{nd}f} ± {sd:.{nd}f}"
 
 
-def _summary_rows(fm, rs, source):
+# The R2 columns that have an outlier band, and the metrics key that counts it.
+# Printed in parentheses beside the value, as the first deck does: an R2 read
+# without the fraction it dropped is not comparable with one that dropped none.
+_OUTLIER_OF = {"Wij_R2": "Wij_pct_outliers", "tau_R2": "tau_pct_outliers",
+               "V_rest_R2": "V_rest_pct_outliers", "msg_i_R2": "msg_i_pct_outliers"}
+
+
+def _summary_rows(fm, rs, source, nd=3):
     """One row per (arm, grid cell) summarised over folds.
 
     `source` is either metrics_of for the landed block or live_of for the
@@ -452,6 +477,7 @@ def _summary_rows(fm, rs, source):
     out = []
     for arm_id, cell in groups:
         acc = {k: [] for k, _, _ in COLUMNS}
+        out_acc = {}
         its, n_here = [], 0
         # EVERY FOLD READ AT THE SAME SNAPSHOT, so the mean describes one
         # training state rather than a mixture of however far each job happens
@@ -470,6 +496,8 @@ def _summary_rows(fm, rs, source):
                 n_here += 1
                 for k, _, _ in COLUMNS:
                     acc[k].append(gauge_k(run) if k == "k_i" else m.get(k))
+                for k, pk in _OUTLIER_OF.items():
+                    out_acc.setdefault(k, []).append(m.get(pk))
             else:
                 if status_of(run) != "running":
                     continue
@@ -483,8 +511,16 @@ def _summary_rows(fm, rs, source):
                         acc[k].append(d.get(k))
         if not n_here:
             continue
-        cells = [_mean_sd(acc[k]) if (source == "landed" or live) else ""
-                 for k, _, live in COLUMNS]
+        cells = []
+        for k, _h, live in COLUMNS:
+            if source != "landed" and not live:
+                cells.append("")
+                continue
+            txt = _mean_sd(acc[k], nd)
+            pct = _mean(out_acc.get(k, [])) if source == "landed" else None
+            if txt and pct is not None:
+                txt += f" ({pct:.1f})"
+            cells.append(txt)
         out.append((arm_id, cell, (f"{max(its):,}" if its else str(n_here)), cells))
     return out
 
@@ -582,8 +618,8 @@ def _tex(s):
 # table and the markdown cannot drift apart.
 _PRETTY = {
     "one-step r": r"one-step $r$", "rollout r": r"rollout $r$",
-    "fit roll cond": r"\shortstack{fit roll $r$\\cond.\ form}",
-    "fit roll curr": r"\shortstack{fit roll $r$\\curr.\ form}",
+    "fit roll own form": r"\shortstack{fit roll $r$\\own form}",
+    "fit roll other form": r"\shortstack{fit roll $r$\\other form}",
     "R2_W": r"$R^2_{\hat W}$", "R2_tau": r"$R^2_{\hat\tau}$",
     "R2_Vrest": r"$R^2_{V^{\mathrm{rest}}}$",
     "R2_Vrest noC": r"$R^2_{V^{\mathrm{rest}}}$ \tiny no $C_i$",
@@ -592,8 +628,20 @@ _PRETTY = {
 }
 # A figure a slide should carry after its table, if it exists. Keyed by
 # experiment name so a new experiment adds one line, not a branch.
-_FIGURES = {"derivative_target": [("Fig/exp01_errors.png",
-                                   "recovery errors, both targets")]}
+_FIGURES = {"derivative_target":
+            [("Fig/exp01_errors.png", "recovery errors, five folds pooled")]
+            + [(f"Fig/exp01_errors_cv{i:02d}.png",
+                f"recovery errors, fold cv{i:02d}") for i in range(5)]
+            # The same neuron, the same fold, the two derivative targets, so
+            # panel f's per-synapse fits sit side by side across the arms.
+            # The third entry is the height the graphic may occupy, as a
+            # fraction of the slide's text height. These panels are nearly
+            # square and carry small print, so they get the whole slide where
+            # the error histograms are wide and do not need it.
+            + [("Fig/exp01_panels_bug_noise005.png",
+                "neuron 2895 Am, bug", 0.84),
+               ("Fig/exp01_panels_nominal_noise005.png",
+                "neuron 2895 Am, nominal", 0.84)]}
 _GREEN = 0.9
 
 
@@ -609,18 +657,48 @@ def _cellf(txt):
     return r"\good{" + out + "}" if v > _GREEN else out
 
 
+def _form_heads(rs):
+    """Name the two `fit roll` columns after the families they actually are.
+
+    `alt_form_family` is the OTHER family, so the model's own is the remaining
+    one of the pair. Returns None when the landed runs disagree or none says --
+    a mixed table has no single answer, and "own/other" is still true there.
+    """
+    fams = {m["alt_form_family"] for _a, _p, r in rs
+            if (m := metrics_of(r)) and "alt_form_family" in m}
+    if len(fams) != 1:
+        return None
+    alt = fams.pop()
+    own = "current" if alt == "conductance" else "conductance"
+    short = {"current": r"curr.\ form", "conductance": r"cond.\ form"}
+    return short[own], short[alt]
+
+
 def _table(fm):
     """The landed table, every column the markdown has."""
     rs = runs(fm)
     heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in COLUMNS]
+    fh = _form_heads(rs)
+    if fh:
+        for h, name in zip(("fit roll own form", "fit roll other form"), fh):
+            heads[[c[1] for c in COLUMNS].index(h)] = \
+                r"\shortstack{fit roll $r$\\" + name + "}"
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
-    spec = "l" + " l" * len(axes_no_fold) + " r" + \
-        r">{\raggedleft\arraybackslash}p{1.15cm}" * len(heads)
+    # NUMBERS RIGHT, NAMES CENTRED. The values line up on their decimal point,
+    # which `r` gives; the two-line headers are wider than the values they sit
+    # over, so left as `r` they hang off to one side. `\multicolumn{1}{c}` centres
+    # each name over its own column without moving the values under it.
+    spec = "l" + " l" * len(axes_no_fold) + " r" + " r" * len(heads)
+    heads = [r"\multicolumn{1}{c}{" + h + "}" for h in heads]
     L = [r"\resizebox{\textwidth}{!}{%", rf"\begin{{tabular}}{{{spec}}}",
          r"\toprule",
-         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold] + ["n"] + heads)
+         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold]
+                    + [r"\multicolumn{1}{c}{n}"] + heads)
          + r" \\", r"\midrule"]
-    rows = _summary_rows(fm, rs, "landed")
+    rows = _summary_rows(fm, rs, "landed", nd=2)
+    _first = fm.get("report", {}).get("arm_order")
+    if _first:
+        rows.sort(key=lambda r: _first.index(r[0]) if r[0] in _first else len(_first))
     if not rows:
         L.append(" & ".join(["---"] * (2 + len(axes_no_fold) + len(heads))) + r" \\")
     for arm_id, cell, n, cells in rows:
@@ -639,15 +717,18 @@ def _slides(fm):
          r"\vspace*{0.3cm}", r"\centering\tiny",
          r"\setlength{\tabcolsep}{2pt}", _table(fm),
          r"\\[6pt]",
-         rf"{{\scriptsize {_tex(fm['purpose'])} \\[2pt]"
+         r"{\tiny\raggedleft",
+         rf"{_tex(fm['purpose'])} \\[2pt]",
          rf"{n_land} of {len(rs)} runs landed; mean $\pm$ SD over the folds that "
-         rf"have. Green above ${_GREEN}$.}}",
+         rf"have, with the percentage of outliers dropped in parentheses. "
+         rf"Green above ${_GREEN}$.\par}}",
          r"\end{frame}"]
-    for fig, cap in _FIGURES.get(fm["name"], []):
+    for fig, cap, *rest in _FIGURES.get(fm["name"], []):
+        box = rest[0] if rest else 0.72
         if os.path.exists(os.path.join(ROOT, "presentation", fig)):
             L += [rf"\begin{{frame}}{{Experiment {fm['number']} --- {_tex(cap)}}}",
                   r"\vspace*{0.2cm}", r"\begin{center}",
-                  r"\setlength{\panelbox}{0.72\textheight}",
+                  rf"\setlength{{\panelbox}}{{{box}\textheight}}",
                   rf"\fitgfx{{{fig}}}", r"\end{center}", r"\end{frame}"]
     return "\n".join(L)
 
