@@ -9,4 +9,4 @@
 *.bcf
 *.blg
 *.run.xml
-experiments.tex
+_exp_report.*

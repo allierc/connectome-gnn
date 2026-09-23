@@ -578,62 +578,135 @@ def _tex(s):
     return out
 
 
-def _page(fm):
-    """One page: title, purpose, and the slide-22 table over the landed runs."""
+# The column headers as maths, applied to the plain names in COLUMNS so the
+# table and the markdown cannot drift apart.
+_PRETTY = {
+    "one-step r": r"one-step $r$", "rollout r": r"rollout $r$",
+    "fit roll cond": r"\shortstack{fit roll $r$\\cond.\ form}",
+    "fit roll curr": r"\shortstack{fit roll $r$\\curr.\ form}",
+    "R2_W": r"$R^2_{\hat W}$", "R2_tau": r"$R^2_{\hat\tau}$",
+    "R2_Vrest": r"$R^2_{V^{\mathrm{rest}}}$",
+    "R2_Vrest noC": r"$R^2_{V^{\mathrm{rest}}}$ \tiny no $C_i$",
+    "R2_msg": r"$R^2_{\mathrm{msg}}$", "C_i": r"$C_i$", "k_i": r"$k_i$",
+    "cluster": "cluster",
+}
+# A figure a slide should carry after its table, if it exists. Keyed by
+# experiment name so a new experiment adds one line, not a branch.
+_FIGURES = {"derivative_target": [("Fig/exp01_errors.png",
+                                   "recovery errors, both targets")]}
+_GREEN = 0.9
+
+
+def _cellf(txt):
+    """A table cell, green above 0.9 on the value it leads with."""
+    if not txt:
+        return "---"
+    out = txt.replace("±", r"$\pm$")
+    try:
+        v = float(txt.split()[0])
+    except (ValueError, IndexError):
+        return out
+    return r"\good{" + out + "}" if v > _GREEN else out
+
+
+def _table(fm):
+    """The landed table, every column the markdown has."""
     rs = runs(fm)
-    heads = [h for _, h, _ in COLUMNS]
+    heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in COLUMNS]
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
-    spec = ("p{2.1cm}" + "l" * len(axes_no_fold) + "r"
-            + r">{\raggedleft\arraybackslash}p{1.5cm}" * len(heads))
-    L = [rf"\section*{{Experiment {fm['number']} --- {_tex(fm['name'])}}}",
-         rf"{{\small \textbf{{{_tex(fm['title'])}}}}}\\[2pt]",
-         rf"{{\small \textbf{{Purpose.}} {_tex(fm['purpose'])}}}\\[2pt]",
-         rf"{{\small \textbf{{Baseline.}} \texttt{{{_tex(fm['baseline'])}}}}}",
-         r"\vspace{8pt}", r"\begin{table}[H]", r"\scriptsize", r"\raggedright",
-         r"\setlength{\tabcolsep}{2.5pt}",
-         rf"\begin{{tabular}}{{{spec}}}", r"\toprule",
-         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold] + ["n"]
-                    + [_tex(h) for h in heads]) + r" \\", r"\midrule"]
+    spec = "l" + " l" * len(axes_no_fold) + " r" + \
+        r">{\raggedleft\arraybackslash}p{1.15cm}" * len(heads)
+    L = [r"\resizebox{\textwidth}{!}{%", rf"\begin{{tabular}}{{{spec}}}",
+         r"\toprule",
+         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold] + ["n"] + heads)
+         + r" \\", r"\midrule"]
     rows = _summary_rows(fm, rs, "landed")
     if not rows:
         L.append(" & ".join(["---"] * (2 + len(axes_no_fold) + len(heads))) + r" \\")
     for arm_id, cell, n, cells in rows:
         L.append(" & ".join([_tex(arm_id)] + [_tex(v) for _, v in cell] + [n]
-                            + [c.replace("±", r"$\pm$") for c in cells]) + r" \\")
-    L += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+                            + [_cellf(c) for c in cells]) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}}"]
+    return "\n".join(L)
+
+
+def _slides(fm):
+    """One table slide per experiment, then one slide per figure it declares."""
+    rs = runs(fm)
+    n_land = sum(1 for _a, _p, r in rs if status_of(r) == "landed")
+    L = [rf"\begin{{frame}}{{Experiment {fm['number']} --- {_tex(fm['name'])}}}",
+         rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
+         r"\vspace*{0.3cm}", r"\centering\tiny",
+         r"\setlength{\tabcolsep}{2pt}", _table(fm),
+         r"\\[6pt]",
+         rf"{{\scriptsize {_tex(fm['purpose'])} \\[2pt]"
+         rf"{n_land} of {len(rs)} runs landed; mean $\pm$ SD over the folds that "
+         rf"have. Green above ${_GREEN}$.}}",
+         r"\end{frame}"]
+    for fig, cap in _FIGURES.get(fm["name"], []):
+        if os.path.exists(os.path.join(ROOT, "presentation", fig)):
+            L += [rf"\begin{{frame}}{{Experiment {fm['number']} --- {_tex(cap)}}}",
+                  r"\vspace*{0.2cm}", r"\begin{center}",
+                  r"\setlength{\panelbox}{0.72\textheight}",
+                  rf"\fitgfx{{{fig}}}", r"\end{center}", r"\end{frame}"]
     return "\n".join(L)
 
 
 def report(paths, make_pdf=True):
-    L = [r"""\documentclass[10pt,a4paper]{article}
-\usepackage[margin=0.8cm,landscape]{geometry}
-\usepackage{booktabs,float,amsmath,xcolor,array}
+    """experiments/report.pdf -- the same deck style as presentation/.
+
+    Built in presentation/ because the Janelia theme, people.sty and Fig/ live
+    there, then copied to experiments/report.pdf so the number is still the only
+    handle. Every value comes from the experiment markdown, which comes from the
+    runs: nothing in this document is typed.
+    """
+    L = [r"""%!TEX program = pdflatex
+\documentclass[aspectratio=169]{beamer}
+\usetheme{Janelia}
+\usepackage{people}
+\usepackage[english]{babel}
 \usepackage[T1]{fontenc}
-\setlength{\parskip}{4pt}
-\setlength{\parindent}{0pt}
-\begin{document}"""]
-    L.append(rf"""\begin{{center}}{{\Large {_tex(PAPER)} --- experiments}}\\[2pt]
-{{\small Mean $\pm$ SD over the folds that have landed, held-out, from
-\texttt{{results/metrics.txt}}; \texttt{{n}} is how many. Spec names are not
-repeated here --- they live in the experiment's markdown file.}}\end{{center}}
-\vspace{{6pt}}""")
-    for i, p in enumerate(paths):
+\usepackage{amsmath,amssymb}
+\usepackage{tabularx,booktabs,array,graphicx}
+\definecolor{goodgreen}{rgb}{0.0,0.45,0.0}
+\newcommand{\good}[1]{\textcolor{goodgreen}{#1}}
+\usepackage{helvet}
+\newlength{\panelbox}
+\setlength{\panelbox}{0.68\textheight}
+\newcommand{\fitgfx}[2][\linewidth]{%
+  \includegraphics[width=#1,height=\panelbox,keepaspectratio]{#2}}
+""",
+         rf"\title{{{_tex(PAPER)} --- experimental plan}}",
+         r"\subtitle{Results as they land}",
+         r"\author{Cedric Allier}", r"\institute{Saalfeld lab, Janelia}",
+         r"\date{\today}", r"\begin{document}", r"\frame{\titlepage}"]
+    for p in paths:
         fm, _ = load(p)
-        if i:
-            L.append(r"\newpage")
-        L.append(_page(fm))
+        L.append(_slides(fm))
     L.append(r"\end{document}")
-    tex_path = os.path.join(EXP_DIR, "report.tex")
+
+    build = os.path.join(ROOT, "presentation")
+    tex_path = os.path.join(build, "_exp_report.tex")
     open(tex_path, "w").write("\n".join(L) + "\n")
     if not make_pdf:
         print(f"wrote {tex_path}")
         return 0
-    r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                        "report.tex"], cwd=EXP_DIR, capture_output=True, text=True)
-    if r.returncode != 0:
+    for _ in range(2):
+        r = subprocess.run(["pdflatex", "-interaction=nonstopmode",
+                            "_exp_report.tex"], cwd=build,
+                           capture_output=True, text=True)
+    pdf = os.path.join(build, "_exp_report.pdf")
+    if not os.path.exists(pdf):
         print(r.stdout[-2500:])
         return 1
-    print(f"wrote {os.path.join(EXP_DIR, 'report.pdf')}")
+    out = os.path.join(EXP_DIR, "report.pdf")
+    shutil.copy2(pdf, out)
+    for ext in (".aux", ".log", ".nav", ".out", ".snm", ".toc", ".tex", ".pdf"):
+        try:
+            os.remove(os.path.join(build, "_exp_report" + ext))
+        except OSError:
+            pass
+    print(f"wrote {out}")
     return 0
 
 
