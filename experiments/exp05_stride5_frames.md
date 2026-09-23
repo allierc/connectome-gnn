@@ -149,35 +149,35 @@ than the stride.
 
 | arm | horizon | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | h05 | 441,601 |  | 0.988 ± 0.003 |  |  | 0.725 ± 0.089 | 0.611 ± 0.180 | 0.452 ± 0.113 | 0.435 ± 0.129 | 0.865 ± 0.040 |  |  | 0.634 ± 0.046 |
-| current | h20 | 281,593 |  | 0.989 ± 0.003 |  |  | 0.702 ± 0.084 | 0.679 ± 0.138 | 0.433 ± 0.116 | 0.432 ± 0.111 | 0.850 ± 0.049 |  |  | 0.639 ± 0.034 |
-| conductance | h05 | 427,201 |  | 0.292 ± 0.082 |  |  | -0.012 ± 0.000 | -1.036 ± 1.800 | 0.451 ± 0.095 | 0.537 ± 0.061 | 0.097 ± 0.077 |  |  | 0.218 ± 0.031 |
-| conductance | h20 | 275,197 |  | 0.389 ± 0.073 |  |  | -0.016 ± 0.006 | 0.016 ± 0.533 | 0.499 ± 0.104 | 0.559 ± 0.146 | -0.062 ± 0.062 |  |  | 0.238 ± 0.034 |
+| current | h05 | 468,801 |  | 0.988 ± 0.004 |  |  | 0.732 ± 0.086 | 0.627 ± 0.175 | 0.452 ± 0.115 | 0.439 ± 0.129 | 0.868 ± 0.041 |  |  | 0.623 ± 0.052 |
+| current | h20 | 290,660 |  | 0.989 ± 0.003 |  |  | 0.704 ± 0.081 | 0.680 ± 0.138 | 0.432 ± 0.117 | 0.436 ± 0.117 | 0.851 ± 0.048 |  |  | 0.631 ± 0.046 |
+| conductance | h05 | 452,801 |  | 0.289 ± 0.091 |  |  | -0.012 ± 0.000 | -0.939 ± 1.602 | 0.409 ± 0.142 | 0.519 ± 0.087 | 0.124 ± 0.070 |  |  | 0.231 ± 0.022 |
+| conductance | h20 | 283,731 |  | 0.385 ± 0.078 |  |  | -0.013 ± 0.002 | -0.038 ± 0.559 | 0.439 ± 0.119 | 0.467 ± 0.165 | -0.039 ± 0.018 |  |  | 0.216 ± 0.023 |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_005_s5h05_cur_cv00` | running | 443,201 | `` |
-| `flyvis_noise_005_s5h05_cur_cv01` | running | 449,281 | `` |
-| `flyvis_noise_005_s5h05_cur_cv02` | running | 459,201 | `` |
-| `flyvis_noise_005_s5h05_cur_cv03` | running | 456,001 | `` |
-| `flyvis_noise_005_s5h05_cur_cv04` | running | 449,281 | `` |
-| `flyvis_noise_005_s5h20_cur_cv00` | running | 281,593 | `` |
-| `flyvis_noise_005_s5h20_cur_cv01` | running | 283,731 | `` |
-| `flyvis_noise_005_s5h20_cur_cv02` | running | 287,995 | `` |
-| `flyvis_noise_005_s5h20_cur_cv03` | running | 282,771 | `` |
-| `flyvis_noise_005_s5h20_cur_cv04` | running | 286,929 | `` |
-| `flyvis_noise_005_s5h05_condl100_cv00` | running | 443,201 | `` |
-| `flyvis_noise_005_s5h05_condl100_cv01` | running | 433,601 | `` |
-| `flyvis_noise_005_s5h05_condl100_cv02` | running | 427,201 | `` |
-| `flyvis_noise_005_s5h05_condl100_cv03` | running | 430,401 | `` |
-| `flyvis_noise_005_s5h05_condl100_cv04` | running | 436,801 | `` |
-| `flyvis_noise_005_s5h20_condl100_cv00` | running | 281,593 | `` |
-| `flyvis_noise_005_s5h20_condl100_cv01` | running | 281,593 | `` |
-| `flyvis_noise_005_s5h20_condl100_cv02` | running | 275,730 | `` |
-| `flyvis_noise_005_s5h20_condl100_cv03` | running | 278,928 | `` |
-| `flyvis_noise_005_s5h20_condl100_cv04` | running | 277,862 | `` |
+| `flyvis_noise_005_s5h05_cur_cv00` | running | 470,401 | `` |
+| `flyvis_noise_005_s5h05_cur_cv01` | running | 478,401 | `` |
+| `flyvis_noise_005_s5h05_cur_cv02` | running | 488,001 | `` |
+| `flyvis_noise_005_s5h05_cur_cv03` | running | 484,801 | `` |
+| `flyvis_noise_005_s5h05_cur_cv04` | running | 478,401 | `` |
+| `flyvis_noise_005_s5h20_cur_cv00` | running | 290,660 | `` |
+| `flyvis_noise_005_s5h20_cur_cv01` | running | 293,571 | `` |
+| `flyvis_noise_005_s5h20_cur_cv02` | running | 296,531 | `` |
+| `flyvis_noise_005_s5h20_cur_cv03` | running | 292,259 | `` |
+| `flyvis_noise_005_s5h20_cur_cv04` | running | 295,731 | `` |
+| `flyvis_noise_005_s5h05_condl100_cv00` | running | 472,001 | `` |
+| `flyvis_noise_005_s5h05_condl100_cv01` | running | 460,801 | `` |
+| `flyvis_noise_005_s5h05_condl100_cv02` | running | 454,401 | `` |
+| `flyvis_noise_005_s5h05_condl100_cv03` | running | 457,601 | `` |
+| `flyvis_noise_005_s5h05_condl100_cv04` | running | 464,001 | `` |
+| `flyvis_noise_005_s5h20_condl100_cv00` | running | 290,127 | `` |
+| `flyvis_noise_005_s5h20_condl100_cv01` | running | 290,660 | `` |
+| `flyvis_noise_005_s5h20_condl100_cv02` | running | 284,264 | `` |
+| `flyvis_noise_005_s5h20_condl100_cv03` | running | 287,995 | `` |
+| `flyvis_noise_005_s5h20_condl100_cv04` | running | 286,929 | `` |
 
 <!-- STATUS:END -->
 

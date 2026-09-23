@@ -767,8 +767,13 @@ def _arm_value(arms, arm_id, key):
     return "---"
 
 
-def _table(fm):
-    """The landed table, every column the markdown has."""
+def _table(fm, source="landed"):
+    """One of the markdown's two tables, every column it has.
+
+    `source` is "landed" (held-out, results/metrics.txt) or "running" (the TRAIN
+    split at a stated iteration, from tmp_training/). They do not share a
+    column's meaning and the slide labels which one it is showing.
+    """
     rs = runs(fm)
     heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in COLUMNS]
     fh = _form_heads(rs)
@@ -788,9 +793,10 @@ def _table(fm):
          r"\toprule",
          " & ".join(["arm"] + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h, _ in extra]
                     + [_tex(k) for k in axes_no_fold]
-                    + [r"\multicolumn{1}{c}{n}"] + heads)
+                    + [r"\multicolumn{1}{c}{"
+                       + ("n" if source == "landed" else "iter") + "}"] + heads)
          + r" \\", r"\midrule"]
-    rows = _summary_rows(fm, rs, "landed", nd=2)
+    rows = _summary_rows(fm, rs, source, nd=2)
     _first = fm.get("report", {}).get("arm_order")
     if _first:
         rows.sort(key=lambda r: _first.index(r[0]) if r[0] in _first else len(_first))
@@ -884,6 +890,18 @@ def _slides(fm):
          rf"neuron-frames the $\pm$100\,V divergence clamp was holding --- a "
          rf"fit roll $r$ beside a large one is a diverged rollout, not a score. "
          rf"Green above ${_GREEN}$.\par}}"]
+    # THE RUNNING BLOCK GOES ON THE SLIDE TOO, WHEN THERE IS ONE. An experiment
+    # mid-flight otherwise shows a row of dashes and says nothing, while its jobs
+    # have been writing per-checkpoint numbers for hours. This is the TRAIN split
+    # at a stated iteration, not held-out, so it is a second table with its own
+    # caption rather than blanks filled in from a different meaning.
+    if _summary_rows(fm, rs, "running", nd=2):
+        L += [r"\\[10pt]", r"\centering\tiny", _table(fm, "running"), r"\\[4pt]",
+              r"{\tiny\raggedright Still training --- the TRAIN split from "
+              r"\texttt{tmp\_training/}, every fold read at the same iteration. "
+              r"Not held-out and not comparable to the table above; the "
+              r"quantities not written per checkpoint are blank rather than "
+              r"borrowed from it.\par}"]
     tt = _timing_table(fm) if fm.get("report", {}).get("timing") else ""
     if tt:
         L += [r"\\[10pt]", r"\centering\tiny", tt, r"\\[4pt]",
