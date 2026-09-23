@@ -111,9 +111,11 @@ analyse_job_ids:
   flyvis_noise_free_blank50_condl25_cv04: '154399771'
 report:
   arm_order:
+  - current
   - cond_l25
   - conductance
-  - current
+  arm_labels:
+    cond_l25: conductance
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
 ---

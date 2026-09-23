@@ -60,8 +60,13 @@ job_ids:
   flyvis_noise_005_020_condl100rc20_cv02: '154396231'
   flyvis_noise_005_020_condl100rc20_cv03: '154396232'
   flyvis_noise_005_020_condl100rc20_cv04: '154396233'
+report:
+  arm_order:
+  - current
+  - conductance
+  arm_columns:
+    lasso: training.coeff_g_phi_input_group_L1
 ---
-
 # Experiment 3 — meas_noise_recurrent
 
 **Measurement noise with 20-step recurrent training: current against the general form**
@@ -139,47 +144,47 @@ comparable and only loosely comparable with the published pair.
 
 ## Status
 
-**0/20 landed**, 0 trained (awaiting `-o test_plot`), 20 running, 0 pending
+**0/20 landed**, 1 trained (awaiting `-o test_plot`), 19 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | meas | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | |
+| arm | meas | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | | |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | meas | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | 010 | 560,475 |  | 0.994 ± 0.000 | 0.768 ± 0.011 | 0.555 ± 0.047 | 0.719 ± 0.025 | 0.694 ± 0.051 | 0.883 ± 0.035 |  |  | 0.832 ± 0.023 |
-| current | 020 | 560,054 |  | 0.984 ± 0.002 | 0.577 ± 0.039 | 0.140 ± 0.057 | 0.607 ± 0.023 | 0.599 ± 0.031 | 0.799 ± 0.032 |  |  | 0.810 ± 0.036 |
-| conductance | 010 | 550,324 |  | 0.897 ± 0.192 | 0.615 ± 0.314 | 0.411 ± 0.407 | 0.650 ± 0.043 | 0.664 ± 0.051 | 0.713 ± 0.366 |  |  |  |
-| conductance | 020 | 503,892 |  | 0.981 ± 0.001 | 0.580 ± 0.031 | 0.155 ± 0.039 | 0.526 ± 0.041 | 0.579 ± 0.046 | 0.822 ± 0.030 |  |  | 0.841 ± 0.033 |
+| arm | meas | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| current | 010 | 569,233 |  | 0.994 ± 0.000 |  |  | 0.767 ± 0.013 | 0.570 ± 0.059 | 0.716 ± 0.034 | 0.681 ± 0.053 | 0.882 ± 0.039 |  |  | 0.845 ± 0.019 |
+| current | 020 | 568,833 |  | 0.984 ± 0.002 |  |  | 0.578 ± 0.039 | 0.142 ± 0.053 | 0.613 ± 0.017 | 0.603 ± 0.029 | 0.800 ± 0.033 |  |  | 0.817 ± 0.027 |
+| conductance | 010 | 558,760 |  | 0.896 ± 0.193 |  |  | 0.615 ± 0.314 | 0.424 ± 0.381 | 0.645 ± 0.046 | 0.666 ± 0.047 | 0.714 ± 0.367 |  |  | 0.755 ± 0.190 |
+| conductance | 020 | 515,671 |  | 0.982 ± 0.001 |  |  | 0.584 ± 0.031 | 0.155 ± 0.041 | 0.530 ± 0.039 | 0.588 ± 0.047 | 0.822 ± 0.028 |  |  | 0.826 ± 0.024 |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_005_010_currc20_cv00` | running | 566,790 | `` |
-| `flyvis_noise_005_010_currc20_cv01` | running | 564,264 | `` |
-| `flyvis_noise_005_010_currc20_cv02` | running | 560,475 | `` |
-| `flyvis_noise_005_010_currc20_cv03` | running | 562,159 | `` |
-| `flyvis_noise_005_010_currc20_cv04` | running | 561,738 | `` |
-| `flyvis_noise_005_020_currc20_cv00` | running | 560,054 | `` |
-| `flyvis_noise_005_020_currc20_cv01` | running | 561,317 | `` |
-| `flyvis_noise_005_020_currc20_cv02` | running | 560,054 | `` |
-| `flyvis_noise_005_020_currc20_cv03` | running | 563,001 | `` |
-| `flyvis_noise_005_020_currc20_cv04` | running | 562,159 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv00` | running | 554,764 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv01` | running | 556,984 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv02` | running | 555,652 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv03` | running | 550,324 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv04` | running | 555,652 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv00` | running | 553,876 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv01` | running | 556,540 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv02` | running | 519,097 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv03` | running | 525,044 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv04` | running | 503,892 | `` |
+| `flyvis_noise_005_010_currc20_cv00` | trained | 575,233 | `6ff97411577c` |
+| `flyvis_noise_005_010_currc20_cv01` | running | 572,833 | `` |
+| `flyvis_noise_005_010_currc20_cv02` | running | 569,233 | `` |
+| `flyvis_noise_005_010_currc20_cv03` | running | 570,833 | `` |
+| `flyvis_noise_005_010_currc20_cv04` | running | 570,433 | `` |
+| `flyvis_noise_005_020_currc20_cv00` | running | 568,833 | `` |
+| `flyvis_noise_005_020_currc20_cv01` | running | 570,033 | `` |
+| `flyvis_noise_005_020_currc20_cv02` | running | 568,833 | `` |
+| `flyvis_noise_005_020_currc20_cv03` | running | 571,633 | `` |
+| `flyvis_noise_005_020_currc20_cv04` | running | 570,833 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv00` | running | 563,422 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv01` | running | 565,527 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv02` | running | 564,264 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv03` | running | 559,204 | `` |
+| `flyvis_noise_005_010_condl100rc20_cv04` | running | 564,264 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv00` | running | 562,580 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv01` | running | 565,106 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv02` | running | 529,841 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv03` | running | 535,413 | `` |
+| `flyvis_noise_005_020_condl100rc20_cv04` | running | 516,242 | `` |
 
 <!-- STATUS:END -->
 

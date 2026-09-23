@@ -744,6 +744,19 @@ def _arm_columns(fm):
     return list(fm.get("report", {}).get("arm_columns", {}).items())
 
 
+def _arm_label(fm, arm_id):
+    """What the arm is CALLED in the table, which need not be its id.
+
+    `report.arm_labels: {cond_l25: conductance}`. Once a column carries the one
+    number the two conductance arms differ by, the ids stop earning their keep:
+    `conductance` and `cond_l25` beside a `lasso` column of 100 and 25 says the
+    same thing twice and invites the reader to look for a third difference. The
+    id stays the handle everywhere else -- `--arm`, the job record, the per-run
+    table -- because it has to be unique and this does not.
+    """
+    return fm.get("report", {}).get("arm_labels", {}).get(arm_id, arm_id)
+
+
 def _arm_value(arms, arm_id, key):
     for a in arms:
         if a["id"] == arm_id:
@@ -786,7 +799,7 @@ def _table(fm):
                                        + len(heads))) + r" \\")
     for arm_id, cell, n, cells in rows:
         L.append(" & ".join(
-            [_tex(arm_id)]
+            [_tex(_arm_label(fm, arm_id))]
             + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
             + [_tex(v) for _, v in cell] + [n]
             + [_cellf(c) for c in cells]) + r" \\")
@@ -847,7 +860,7 @@ def _timing_table(fm):
                     + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h in heads])
          + r" \\", r"\midrule"]
     for arm_id, cell, row in out:
-        L.append(" & ".join([_tex(arm_id)]
+        L.append(" & ".join([_tex(_arm_label(fm, arm_id))]
                             + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
                             + [_tex(v) for _, v in cell] + row) + r" \\")
     L += [r"\bottomrule", r"\end{tabular}"]

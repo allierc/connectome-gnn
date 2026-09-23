@@ -42,8 +42,13 @@ job_ids:
   flyvis_noise_005_null400_condl10_cv02: '154396273'
   flyvis_noise_005_null400_condl10_cv03: '154396274'
   flyvis_noise_005_null400_condl10_cv04: '154396275'
+report:
+  arm_order:
+  - current
+  - conductance
+  arm_columns:
+    lasso: training.coeff_g_phi_input_group_L1
 ---
-
 # Experiment 4 — null_edges_400
 
 **+400% null edges: the general form under a group lasso, against nominal current training**
@@ -105,16 +110,16 @@ survive contact with a graph that is 80% spurious.
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm |  | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | |
+| arm |  | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm |  | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |
-| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |
+| arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
 
 ### Per run
 
