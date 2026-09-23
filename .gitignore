@@ -185,3 +185,6 @@ prototype/**/*.pt
 .scratch/
 tools/bench_results/
 log_bsub/
+
+# Session-start notes for experiments/ -- local, not part of the record
+experiments/INSTRUCTION.md
