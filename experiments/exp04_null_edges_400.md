@@ -103,11 +103,40 @@ survive contact with a graph that is 80% spurious.
 | conductance | cv03 | `flyvis_noise_005_null400_condl10_cv03` | `flyvis_noise_005_null_edges_pc_400_blank50_cv03` |
 | conductance | cv04 | `flyvis_noise_005_null400_condl10_cv04` | `flyvis_noise_005_null_edges_pc_400_blank50_cv04` |
 
+## The first launch died on HOST memory, and the queue was not the cause
+
+All ten jobs of the 2026-09-22 launch were killed with `TERM_MEMLIMIT` after
+writing one snapshot each, and went unnoticed for fifteen hours because the tool
+had no `died` state and read their one snapshot as "running".
+
+`Max Memory 169,230 MB` against `Total Requested 163,840 MB` — over by 5,390 MB,
+about 3%. **That is host RAM, not GPU memory**: a card running out would raise a
+CUDA out-of-memory error from Python, not have LSF take the job. LSF allocates
+**20 GB of host RAM per slot**, so the slot count is how a job asks for memory
+and `bsub -n 8` caps it at 160 GB whatever the GPU is. Moving to `gpu_a100`
+would not have changed anything; an A100 job at 8 slots would have died the same
+way.
+
+Why this grid and not the others: `null_edges_pc_400` inflates the connectome
+five-fold, 434,112 → 2.17 M edges, and the per-edge tensors scale with it.
+
+Relaunched 2026-09-23 with `n_cpus: 12` (240 GB) as `154400100`–`154400109`, all
+ten `RUN` on `gpu_rtx6000` within a minute. Measured live: **144–201 GB, peak
+84% of the limit**, and the peak is the data-loading transient — one fold had
+already fallen to 7.5 GB ten minutes in. `gpu_a100` had 2,392 jobs pending
+against `gpu_rtx6000`'s zero at the time, so the RTX 6000 was also the faster
+place to be.
+
+One A100 argument does survive and is not settled here: the **analysis** pass
+runs the template readout over all 2.17 M edges on the GPU, and that is VRAM
+rather than host RAM. If `-o test_plot` hits a CUDA out-of-memory error, the
+answer is `queue: gpu_a100` on the arm, not more slots.
+
 <!-- STATUS:BEGIN -->
 
 ## Status
 
-**0/10 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 10 pending
+**0/10 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -119,22 +148,23 @@ survive contact with a graph that is 80% spurious.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | |
+| current |  | 1 |  | 0.002 ± 0.002 |  |  | -0.005 ± 0.003 | -7.342 ± 2.245 | 0.150 ± 0.237 | 0.112 ± 0.198 | -0.015 ± 0.010 |  |  |  |
+| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | pending |  | `` |  |
-| `flyvis_noise_005_null400_cur_cv01` | pending |  | `` |  |
-| `flyvis_noise_005_null400_cur_cv02` | pending |  | `` |  |
-| `flyvis_noise_005_null400_cur_cv03` | pending |  | `` |  |
-| `flyvis_noise_005_null400_cur_cv04` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv00` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv01` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv02` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv00` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv01` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv02` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv03` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |  |
 
 <!-- STATUS:END -->
 
