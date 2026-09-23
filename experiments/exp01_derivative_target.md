@@ -194,11 +194,11 @@ rollout is unstable, and the rollout is what exposes it.
 | arm | noise | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | nominal | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 |  |  | 0.904 ± 0.022 (0.0) | 0.929 ± 0.018 (2.5) | 0.828 ± 0.058 (11.9) | 0.818 ± 0.063 | 0.963 ± 0.013 (0.2) | 0.020 ± 0.008 |  | 0.856 ± 0.026 |
-| nominal | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.995 ± 0.001 | 0.604 ± 0.047 | 0.956 ± 0.010 (0.0) | 0.979 ± 0.013 (0.1) | 0.874 ± 0.037 (4.0) | 0.756 ± 0.094 | 0.980 ± 0.009 (0.0) | 0.042 ± 0.020 |  | 0.886 ± 0.009 |
-| nominal | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.994 ± 0.001 | 0.695 ± 0.015 | 0.984 ± 0.001 (0.0) | 0.996 ± 0.001 (0.0) | 0.875 ± 0.016 (2.2) | 0.893 ± 0.012 | 0.994 ± 0.001 (0.0) | 0.011 ± 0.005 |  | 0.879 ± 0.018 |
+| nominal | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.995 ± 0.001 (0.0) | 0.604 ± 0.047 (10.9) | 0.956 ± 0.010 (0.0) | 0.979 ± 0.013 (0.1) | 0.874 ± 0.037 (4.0) | 0.756 ± 0.094 | 0.980 ± 0.009 (0.0) | 0.042 ± 0.020 |  | 0.886 ± 0.009 |
+| nominal | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.994 ± 0.001 (0.0) | 0.695 ± 0.015 (2.0) | 0.984 ± 0.001 (0.0) | 0.996 ± 0.001 (0.0) | 0.875 ± 0.016 (2.2) | 0.893 ± 0.012 | 0.994 ± 0.001 (0.0) | 0.011 ± 0.005 |  | 0.879 ± 0.018 |
 | bug | noise_free | 5 | 1.000 ± 0.000 | 0.909 ± 0.180 |  |  | 0.894 ± 0.024 (0.1) | 0.911 ± 0.042 (3.7) | 0.830 ± 0.035 (12.2) | 0.814 ± 0.040 | 0.963 ± 0.018 (0.3) | 0.024 ± 0.007 |  | 0.831 ± 0.043 |
-| bug | noise_005 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.997 ± 0.005 | 0.621 ± 0.066 | 0.981 ± 0.009 (0.0) | 0.995 ± 0.003 (0.0) | 0.967 ± 0.024 (1.4) | 0.939 ± 0.029 | 0.993 ± 0.005 (0.0) | 0.011 ± 0.005 |  | 0.923 ± 0.012 |
-| bug | noise_05 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.641 ± 0.068 | 0.999 ± 0.001 (0.0) | 1.000 ± 0.000 (0.0) | 0.997 ± 0.001 (0.0) | 0.998 ± 0.001 | 1.000 ± 0.000 (0.0) | 0.001 ± 0.000 |  | 0.922 ± 0.004 |
+| bug | noise_005 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.997 ± 0.005 (0.0) | 0.621 ± 0.066 (5.7) | 0.981 ± 0.009 (0.0) | 0.995 ± 0.003 (0.0) | 0.967 ± 0.024 (1.4) | 0.939 ± 0.029 | 0.993 ± 0.005 (0.0) | 0.011 ± 0.005 |  | 0.923 ± 0.012 |
+| bug | noise_05 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 1.000 ± 0.000 (0.0) | 0.641 ± 0.068 (5.2) | 0.999 ± 0.001 (0.0) | 1.000 ± 0.000 (0.0) | 0.997 ± 0.001 (0.0) | 0.998 ± 0.001 | 1.000 ± 0.000 (0.0) | 0.001 ± 0.000 |  | 0.922 ± 0.004 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
@@ -208,38 +208,38 @@ rollout is unstable, and the rollout is what exposes it.
 
 ### Per run
 
-| run | status | iter | commit |
-|---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_noise_free_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_free_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_005_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtbug_cv00` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtbug_cv01` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtbug_cv02` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtbug_cv03` | landed | 1,520,001 | `bce608981ef9` |  |
+| `flyvis_noise_05_blank50_dtbug_cv04` | landed | 1,520,001 | `bce608981ef9` |  |
 
 <!-- STATUS:END -->
 

@@ -285,18 +285,43 @@ def wall_seconds(run):
     return int(hits[-1]) if hits else None
 
 
+_DIED_RE = re.compile(r"^(TERM_[A-Z]+):|^Exited with exit code", re.M)
+
+
+def died(run):
+    """Why LSF ended the job, or None if it did not end badly.
+
+    A JOB THAT DIED LOOKS EXACTLY LIKE A SLOW ONE from the training logs alone,
+    and that is how experiment 4 spent fifteen hours reported as "running" with
+    all ten of its jobs already killed: they had written one snapshot each
+    before LSF took them for TERM_MEMLIMIT, and `live_of` found that snapshot
+    and said running. cluster.out is where the cluster says otherwise.
+    """
+    p = os.path.join(LOG_ROOT, run, "cluster.out")
+    if not os.path.isfile(p):
+        return None
+    m = _DIED_RE.search(open(p, errors="replace").read())
+    return (m.group(1) if m.group(1) else "exited nonzero") if m else None
+
+
 def status_of(run):
-    """landed > trained > running > pending.
+    """landed > trained > died > running > pending.
 
     `trained` IS ITS OWN STATE and the tool was wrong to lack it. `-o train`
     does not write results/metrics.txt -- that is `-o test_plot`'s job -- so a
     run whose training had finished still read as "running", and 69 of them sat
     that way while the held-out table stayed empty and nothing said why.
+
+    `died` is below `trained` on purpose: a run whose training finished and
+    whose ANALYSIS job was then killed is `trained`, which is the actionable
+    state -- resubmit the analysis, not the training.
     """
     if metrics_of(run) is not None:
         return "landed"
     if trained(run):
         return "trained"
+    if died(run):
+        return "died"
     return "running" if live_of(run)[0] is not None else "pending"
 
 
@@ -382,7 +407,14 @@ def launch(number, dry_run=False, only_arm=None, where=None):
             # directory, which staging guarantees is `fly`.
             cluster_cmd=(f"python GNN_Main.py -o {fm['task']} "
                          f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
-            conda_env="connectome-gnn", node_name=node, n_cpus=8, device="gpu",
+            # LSF MEMORY IS PER SLOT, 20 GB of it, so the slot count is how an
+            # experiment asks for RAM. 8 slots = 160 GB is enough for the
+            # 434k-edge grid and was NOT enough for experiment 4's five-fold
+            # inflated connectome: all ten jobs peaked at 169 GB and LSF killed
+            # every one of them for TERM_MEMLIMIT. `n_cpus` in the front matter
+            # is that experiment saying so.
+            conda_env="connectome-gnn", node_name=node,
+            n_cpus=int(fm.get("n_cpus", 8)), device="gpu",
             hard_runtime_limit_min=wall_min,
             stdout_path=os.path.join(log_dir, "cluster.out"),
             stderr_path=os.path.join(log_dir, "cluster.err"),
@@ -432,7 +464,8 @@ def analyse(number, dry_run=False):
         jid, queue, res = _bsub_over_ssh(
             cluster_cmd=(f"python GNN_Main.py -o test_plot "
                          f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
-            conda_env="connectome-gnn", node_name=queue_of[n], n_cpus=8,
+            conda_env="connectome-gnn", node_name=queue_of[n],
+            n_cpus=int(fm.get("n_cpus", 8)),
             device="gpu", hard_runtime_limit_min=240,
             stdout_path=os.path.join(d, "analyse.out"),
             stderr_path=os.path.join(d, "analyse.err"),
@@ -491,8 +524,17 @@ def _mean_sd(vals, nd=3):
 # The R2 columns that have an outlier band, and the metrics key that counts it.
 # Printed in parentheses beside the value, as the first deck does: an R2 read
 # without the fraction it dropped is not comparable with one that dropped none.
-_OUTLIER_OF = {"template_rollout_r": "template_rollout_pct_clamped",
-               "template_alt_rollout_r": "template_alt_rollout_pct_clamped",
+# The percentage printed in a column's parentheses. A LIST because the clamp
+# share has two sources and the first present wins: the tester's own in-loop
+# count of neuron-FRAMES at the +-100 V rail, and -- for runs that landed before
+# the tester counted it -- the share of NEURONS whose whole-trajectory RMSE sits
+# on that rail, backfilled by tools/backfill_clamp_share.py from the saved
+# per-neuron arrays. Different denominators, same question: is this r a
+# measurement or a rail.
+_OUTLIER_OF = {"template_rollout_r": ["template_rollout_pct_clamped",
+                                      "template_rollout_pct_neurons_railed"],
+               "template_alt_rollout_r": ["template_alt_rollout_pct_clamped",
+                                          "template_alt_rollout_pct_neurons_railed"],
                "Wij_R2": "Wij_pct_outliers", "tau_R2": "tau_pct_outliers",
                "V_rest_R2": "V_rest_pct_outliers", "msg_i_R2": "msg_i_pct_outliers"}
 
@@ -532,7 +574,9 @@ def _summary_rows(fm, rs, source, nd=3):
                 for k, _, _ in COLUMNS:
                     acc[k].append(gauge_k(run) if k == "k_i" else m.get(k))
                 for k, pk in _OUTLIER_OF.items():
-                    out_acc.setdefault(k, []).append(m.get(pk))
+                    keys = [pk] if isinstance(pk, str) else pk
+                    val = next((m[q] for q in keys if q in m), None)
+                    out_acc.setdefault(k, []).append(val)
             else:
                 if status_of(run) != "running":
                     continue
@@ -562,7 +606,7 @@ def _summary_rows(fm, rs, source, nd=3):
 
 def status_block(fm):
     rs = runs(fm)
-    counts = {"landed": 0, "trained": 0, "running": 0, "pending": 0}
+    counts = {"landed": 0, "trained": 0, "died": 0, "running": 0, "pending": 0}
     for _arm, _pt, run in rs:
         counts[status_of(run)] += 1
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
@@ -572,7 +616,9 @@ def status_block(fm):
     L = [_BEGIN, "", "## Status", "",
          f"**{counts['landed']}/{len(rs)} landed**, "
          f"{counts['trained']} trained (awaiting `-o test_plot`), "
-         f"{counts['running']} running, {counts['pending']} pending", ""]
+         f"{counts['running']} running, {counts['pending']} pending"
+         + (f", **{counts['died']} KILLED BY THE CLUSTER**" if counts["died"] else ""),
+         ""]
 
     for src, title, last in (
             ("landed", "Landed --- held-out, `results/metrics.txt`", "n"),
@@ -589,11 +635,13 @@ def status_block(fm):
                      + f" | {n} | " + " | ".join(cells) + " |")
         L.append("")
 
-    L += ["### Per run", "", "| run | status | iter | commit |", "|---|---|---|---|"]
+    L += ["### Per run", "", "| run | status | iter | commit | LSF |",
+          "|---|---|---|---|---|"]
     for _arm, _pt, run in rs:
         it = live_of(run)[0]
         L.append(f"| `{run}` | {status_of(run)} | "
-                 f"{f'{it:,}' if it else ''} | `{(commit_of(run) or '')[:12]}` |")
+                 f"{f'{it:,}' if it else ''} | `{(commit_of(run) or '')[:12]}` | "
+                 f"{died(run) or ''} |")
     L += ["", _END]
     return "\n".join(L)
 

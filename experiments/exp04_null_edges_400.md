@@ -12,6 +12,7 @@ specs_dir: experiments/specs/exp04/fly
 task: train
 queue: gpu_rtx6000
 wall: '48:00'
+n_cpus: 12
 axes:
   fold:
   - cv00
@@ -32,16 +33,16 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 10.0
 job_ids:
-  flyvis_noise_005_null400_cur_cv00: '154396266'
-  flyvis_noise_005_null400_cur_cv01: '154396267'
-  flyvis_noise_005_null400_cur_cv02: '154396268'
-  flyvis_noise_005_null400_cur_cv03: '154396269'
-  flyvis_noise_005_null400_cur_cv04: '154396270'
-  flyvis_noise_005_null400_condl10_cv00: '154396271'
-  flyvis_noise_005_null400_condl10_cv01: '154396272'
-  flyvis_noise_005_null400_condl10_cv02: '154396273'
-  flyvis_noise_005_null400_condl10_cv03: '154396274'
-  flyvis_noise_005_null400_condl10_cv04: '154396275'
+  flyvis_noise_005_null400_cur_cv00: '154400100'
+  flyvis_noise_005_null400_cur_cv01: '154400101'
+  flyvis_noise_005_null400_cur_cv02: '154400102'
+  flyvis_noise_005_null400_cur_cv03: '154400103'
+  flyvis_noise_005_null400_cur_cv04: '154400104'
+  flyvis_noise_005_null400_condl10_cv00: '154400105'
+  flyvis_noise_005_null400_condl10_cv01: '154400106'
+  flyvis_noise_005_null400_condl10_cv02: '154400107'
+  flyvis_noise_005_null400_condl10_cv03: '154400108'
+  flyvis_noise_005_null400_condl10_cv04: '154400109'
 report:
   arm_order:
   - current
@@ -106,7 +107,7 @@ survive contact with a graph that is 80% spurious.
 
 ## Status
 
-**0/10 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
+**0/10 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 10 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -118,23 +119,22 @@ survive contact with a graph that is 80% spurious.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
-| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| — | | | | | | | | | | | | | |
 
 ### Per run
 
-| run | status | iter | commit |
-|---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | running | 1 | `` |
-| `flyvis_noise_005_null400_cur_cv01` | running | 1 | `` |
-| `flyvis_noise_005_null400_cur_cv02` | running | 1 | `` |
-| `flyvis_noise_005_null400_cur_cv03` | running | 1 | `` |
-| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |
-| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |
-| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |
-| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_noise_005_null400_cur_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | pending |  | `` |  |
 
 <!-- STATUS:END -->
 

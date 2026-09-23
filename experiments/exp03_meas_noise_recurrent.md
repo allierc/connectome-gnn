@@ -167,33 +167,33 @@ comparable and only loosely comparable with the published pair.
 
 | arm | meas | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| conductance | 010 | 565,948 |  | 0.897 ± 0.193 |  |  | 0.615 ± 0.314 | 0.427 ± 0.408 | 0.634 ± 0.061 | 0.663 ± 0.059 | 0.711 ± 0.365 |  |  | 0.751 ± 0.215 |
-| conductance | 020 | 525,044 |  | 0.982 ± 0.000 |  |  | 0.586 ± 0.031 | 0.158 ± 0.038 | 0.540 ± 0.046 | 0.594 ± 0.035 | 0.818 ± 0.034 |  |  | 0.822 ± 0.030 |
+| conductance | 010 | 567,211 |  | 0.897 ± 0.193 |  |  | 0.616 ± 0.314 | 0.437 ± 0.411 | 0.648 ± 0.051 | 0.671 ± 0.046 | 0.713 ± 0.366 |  |  | 0.742 ± 0.217 |
+| conductance | 020 | 526,643 |  | 0.982 ± 0.001 |  |  | 0.586 ± 0.029 | 0.160 ± 0.042 | 0.566 ± 0.069 | 0.597 ± 0.034 | 0.823 ± 0.025 |  |  | 0.838 ± 0.027 |
 
 ### Per run
 
-| run | status | iter | commit |
-|---|---|---|---|
-| `flyvis_noise_005_010_currc20_cv00` | trained | 575,233 | `6ff97411577c` |
-| `flyvis_noise_005_010_currc20_cv01` | trained | 575,233 | `6ff97411577c` |
-| `flyvis_noise_005_010_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_010_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_010_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_020_currc20_cv00` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_020_currc20_cv01` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_020_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_020_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_020_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |
-| `flyvis_noise_005_010_condl100rc20_cv00` | running | 570,033 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv01` | running | 572,433 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv02` | running | 571,233 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv03` | running | 565,948 | `` |
-| `flyvis_noise_005_010_condl100rc20_cv04` | running | 571,233 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv00` | running | 569,633 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv01` | running | 572,033 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv02` | running | 538,413 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv03` | running | 544,203 | `` |
-| `flyvis_noise_005_020_condl100rc20_cv04` | running | 525,044 | `` |
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_noise_005_010_currc20_cv00` | trained | 575,233 | `6ff97411577c` |  |
+| `flyvis_noise_005_010_currc20_cv01` | trained | 575,233 | `6ff97411577c` |  |
+| `flyvis_noise_005_010_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv00` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv01` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv00` | running | 571,633 | `` |  |
+| `flyvis_noise_005_010_condl100rc20_cv01` | running | 573,633 | `` |  |
+| `flyvis_noise_005_010_condl100rc20_cv02` | running | 572,433 | `` |  |
+| `flyvis_noise_005_010_condl100rc20_cv03` | running | 567,211 | `` |  |
+| `flyvis_noise_005_010_condl100rc20_cv04` | running | 572,833 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv00` | running | 570,833 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv01` | running | 573,233 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv02` | running | 539,913 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv03` | running | 545,613 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv04` | running | 527,176 | `` |  |
 
 <!-- STATUS:END -->
 
