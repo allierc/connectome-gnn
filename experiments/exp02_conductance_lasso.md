@@ -264,7 +264,58 @@ the rollout feeds back its own, and the neglected `-W*relu(v_j)*v_i` term is a
 positive feedback with gain `|W*E|/|v_i|` of that same order. It runs away and
 the clamp catches it.
 
-So there is no bug in the readout arithmetic or in the rollout. There *was* a
+### Per synapse: the readout deletes the inhibition
+
+Reading `models/template_fit.pt` — the conductance known-ODE that is actually
+rolled out — against the generator's `ode_params.pt`, on
+`flyvis_noise_005_blank50_condl100_cv00`:
+
+| | all | truly inhibitory | truly excitatory |
+|---|---|---|---|
+| edges | 434,112 | 151,155 | 282,957 |
+| conductance fit set to **zero** | 44.3% | **90.5%** | 19.6% |
+| current fit keeps the sign | | 62.9% | 49.0% |
+
+| written into the known-ODE | |
+|---|---|
+| edges marked inhibitory | **0.0%** (truth: 34.8%) |
+| `E_exc`, every neuron | **+17.45 V** = 5.1x the 99th percentile of \|v\| (3.44 V) |
+| driving force `E_exc - v_i` | +14.0 to +20.9 V, **never changes sign** |
+| conductance `g >= 0` | 100.0% |
+
+Three steps, each following from the last:
+
+1. **The reversal is unidentified, so it runs away.** `conductance_form_E_absmedian`
+   is 1,130 V against a 3.44 V signal. Only the product `g*E` is determined, so
+   the fit is free to put `E` anywhere far out and scale `g` down to match.
+2. **The sign rule then sees no inhibition.** An edge is called inhibitory when
+   its recovered reversal sits below the postsynaptic cell's resting potential,
+   `E_e < v_rest` ([template_rollout.py:280](../src/connectome_gnn/template_rollout.py#L280)).
+   A runaway `E` is overwhelmingly positive, so **zero** of 434,112 edges
+   qualify against a truth of 34.8%.
+3. **What inhibition survived as a negative conductance is clipped away.** The
+   conductance class squares `W`, so a negative recovered value has no square
+   root and enters as zero
+   ([template_rollout.py:164](../src/connectome_gnn/template_rollout.py#L164)).
+   That deletes **90.5% of the 151,155 inhibitory synapses** against 19.6% of
+   the excitatory ones.
+
+What is rolled out is therefore an **all-excitatory recurrent network** with
+`g >= 0` on every edge and a driving force that never changes sign. That is
+unconditionally unstable — higher voltage, larger `relu(v_j)`, more positive
+current — and it saturates the clamp in under 500 frames. The current-form
+readout of the *same message* keeps the sign on 62.9% of inhibitory edges and
+rolls out without clamping at all.
+
+**So `fit roll r` on the conductance form of a current model measures the
+readout, not the model.** The message is fit at R2 0.999989 by both forms; it is
+the conversion of that message into conductance known-ODE parameters that
+destroys the circuit. Two ways out, neither taken yet: let the known-ODE carry
+signed per-edge reversals instead of two per-neuron rows chosen by a sign rule,
+or stop reporting this column when `conductance_form_E_over_vi` says the
+reversal was never identified.
+
+So there is no bug in the readout ARITHMETIC or in the rollout itself. There *was* a
 reporting defect: a diverged rollout scored as if it were a weak model.
 `Clamped at +/-100 V` now goes into `results_rollout*.log`, through
 `template_rollout_pct_clamped` into `metrics.txt`, and into the report table's
