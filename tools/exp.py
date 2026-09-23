@@ -717,7 +717,7 @@ def _slides(fm):
          r"\vspace*{0.3cm}", r"\centering\tiny",
          r"\setlength{\tabcolsep}{2pt}", _table(fm),
          r"\\[6pt]",
-         r"{\tiny\raggedleft",
+         r"{\tiny\raggedright",
          rf"{_tex(fm['purpose'])} \\[2pt]",
          rf"{n_land} of {len(rs)} runs landed; mean $\pm$ SD over the folds that "
          rf"have, with the percentage of outliers dropped in parentheses. "
