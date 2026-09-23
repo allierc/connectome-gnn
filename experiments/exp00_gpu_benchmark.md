@@ -101,10 +101,20 @@ Held-out, one run per cell, 160,000 iterations:
 |---|---|---|---|---|---|
 | rtx6000 fp32 | 0.948 | 0.967 | 0.806 | 0.978 | 0.898 |
 | rtx6000 bf16 | 0.944 | 0.965 | 0.763 | 0.973 | 0.914 |
+| a100 fp32 | 0.946 | 0.987 | 0.763 | 0.980 | 0.888 |
+| a100 bf16 | 0.939 | 0.934 | 0.836 | 0.980 | 0.909 |
 
-`R2_W` differs by 0.004 and `R2_tau` by 0.002. bf16 costs nothing on recovery.
-(The two A100 arms finished training; their `-o test_plot` is queued behind
-2,506 jobs on `gpu_a100`.)
+`R2_W` spans 0.939 to 0.948 across all four, and the two cards agree to 0.002 at
+fp32. bf16 costs nothing on recovery, on either card. `R2_Vrest` is the noisiest
+column at 0.763-0.836, but this is one run per cell with no fold spread, so that
+is a single-sample artefact rather than a precision effect.
+
+### The answer
+
+**A100, fp32** -- 28.0 it/s against the RTX 6000's 11.8, with identical
+recovery. The caveat is the queue rather than the card: `gpu_a100` had 2,506
+jobs pending against `gpu_rtx6000`'s 344 when this was measured, and the two
+A100 arms' own analysis had to be moved off it to land at all.
 
 ### Speed: the A100 is faster, and bf16 helps only the RTX 6000
 
@@ -139,7 +149,7 @@ queue and that figure to plan a wall.
 
 ## Status
 
-**2/4 landed**, 2 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**4/4 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -147,6 +157,8 @@ queue and that figure to plan a wall.
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | rtx6000 | fp32 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.948 ± 0.000 | 0.967 ± 0.000 | 0.806 ± 0.000 | 0.768 ± 0.000 | 0.978 ± 0.000 | 0.041 ± 0.000 |  | 0.898 ± 0.000 |
 | rtx6000 | bf16 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.944 ± 0.000 | 0.965 ± 0.000 | 0.763 ± 0.000 | 0.745 ± 0.000 | 0.973 ± 0.000 | 0.038 ± 0.000 |  | 0.914 ± 0.000 |
+| a100 | fp32 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.946 ± 0.000 | 0.987 ± 0.000 | 0.763 ± 0.000 | 0.784 ± 0.000 | 0.980 ± 0.000 | 0.040 ± 0.000 |  | 0.888 ± 0.000 |
+| a100 | bf16 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.939 ± 0.000 | 0.934 ± 0.000 | 0.836 ± 0.000 | 0.732 ± 0.000 | 0.980 ± 0.000 | 0.047 ± 0.000 |  | 0.909 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
@@ -160,8 +172,8 @@ queue and that figure to plan a wall.
 |---|---|---|---|
 | `bench_rtx6000_fp32` | landed | 152,001 | `71e4d78710c4` |
 | `bench_rtx6000_bf16` | landed | 152,001 | `71e4d78710c4` |
-| `bench_a100_fp32` | trained | 152,001 | `71e4d78710c4` |
-| `bench_a100_bf16` | trained | 152,001 | `71e4d78710c4` |
+| `bench_a100_fp32` | landed | 152,001 | `71e4d78710c4` |
+| `bench_a100_bf16` | landed | 152,001 | `71e4d78710c4` |
 
 <!-- STATUS:END -->
 
