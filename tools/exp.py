@@ -679,9 +679,9 @@ _FIGURES = {"derivative_target":
                 "neuron 2895 Am, nominal", 0.72)],
             "conductance_lasso":
             [("Fig/exp02_panels_current_noise005.png",
-              "neuron 2895 Am, current form, noise 005", 0.72),
+              "neuron 2895 Am, current form", 0.72),
              ("Fig/exp02_panels_conductance_noise005.png",
-              "neuron 2895 Am, conductance lasso 100, noise 005", 0.72)]}
+              "neuron 2895 Am, conductance lasso 100", 0.72)]}
 _GREEN = 0.9
 
 
@@ -858,7 +858,7 @@ def _slides(fm):
     """One table slide per experiment, then one slide per figure it declares."""
     rs = runs(fm)
     n_land = sum(1 for _a, _p, r in rs if status_of(r) == "landed")
-    L = [rf"\begin{{frame}}{{Experiment {fm['number']} --- {_tex(fm['name'])}}}",
+    L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\vspace*{0.3cm}", r"\centering\tiny",
          r"\setlength{\tabcolsep}{2pt}", _table(fm),
@@ -882,7 +882,7 @@ def _slides(fm):
     for fig, cap, *rest in _FIGURES.get(fm["name"], []):
         box = rest[0] if rest else 0.72
         if os.path.exists(os.path.join(ROOT, "presentation", fig)):
-            L += [rf"\begin{{frame}}{{Experiment {fm['number']} --- {_tex(cap)}}}",
+            L += [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(cap)}}}}}",
                   r"\vspace*{0.2cm}", r"\begin{center}",
                   rf"\setlength{{\panelbox}}{{{box}\textheight}}",
                   rf"\fitgfx{{{fig}}}", r"\end{center}", r"\end{frame}"]
@@ -908,6 +908,17 @@ def report(paths, make_pdf=True):
 \definecolor{goodgreen}{rgb}{0.0,0.45,0.0}
 \newcommand{\good}[1]{\textcolor{goodgreen}{#1}}
 \usepackage{helvet}
+% SMALLER THAN THE THEME'S FRAME TITLE. The Janelia theme sizes it for a short
+% section name; these titles carry an experiment number, its name and what the
+% slide shows, and at the theme's size they wrap onto a second line that the
+% green title bar then clips.
+%
+% \setbeamerfont{frametitle} DOES NOTHING HERE. beamerthemeJanelia.sty:215 draws
+% the title as a literal \LARGE\textbf{\insertframetitle} inside a tikz node, so
+% the beamer font never reaches it. Every frame title in this deck is therefore
+% wrapped in \ft, whose size command is inside that group and wins. Patching the
+% theme would be the other fix, and it is shared with conductance.tex.
+\newcommand{\ft}[1]{{\large #1}}
 \newlength{\panelbox}
 \setlength{\panelbox}{0.68\textheight}
 \newcommand{\fitgfx}[2][\linewidth]{%
