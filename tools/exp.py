@@ -248,9 +248,23 @@ def commit_of(run):
     return None
 
 
+def trained(run):
+    """Has `-o train` finished? The marker it writes on the way out."""
+    return os.path.exists(os.path.join(LOG_ROOT, run, "_completed_train"))
+
+
 def status_of(run):
+    """landed > trained > running > pending.
+
+    `trained` IS ITS OWN STATE and the tool was wrong to lack it. `-o train`
+    does not write results/metrics.txt -- that is `-o test_plot`'s job -- so a
+    run whose training had finished still read as "running", and 69 of them sat
+    that way while the held-out table stayed empty and nothing said why.
+    """
     if metrics_of(run) is not None:
         return "landed"
+    if trained(run):
+        return "trained"
     return "running" if live_of(run)[0] is not None else "pending"
 
 
@@ -349,6 +363,50 @@ def launch(number, dry_run=False, only_arm=None):
     return 0 if len(ids) == len(names) else 1
 
 
+def analyse(number, dry_run=False):
+    """bsub `-o test_plot` for every run whose training has finished.
+
+    The held-out numbers the landed table reads come from results/metrics.txt,
+    which only the plot pass writes. Training and analysis are two jobs, and
+    this is the second one -- skipping runs that already have metrics so it is
+    safe to re-run as more of the grid finishes.
+    """
+    path = exp_path(number)
+    fm, _ = load(path)
+    todo = [r for _a, _pt, r in runs(fm) if trained(r) and metrics_of(r) is None]
+    if not todo:
+        print(f"experiment {number}: nothing to analyse")
+        return 0
+    print(f"experiment {number}: {len(todo)} runs to analyse")
+    if dry_run:
+        for n in todo:
+            print(f"  would submit: -o test_plot {n}")
+        return 0
+    from connectome_gnn.LLM.cluster import _bsub_over_ssh
+    queue_of = {r: (arm.get("queue") or fm["queue"]).replace("gpu_", "")
+                for arm, _pt, r in runs(fm)}
+    ids = {}
+    for n in todo:
+        d = os.path.join(LOG_ROOT, n)
+        jid, queue, res = _bsub_over_ssh(
+            cluster_cmd=(f"python GNN_Main.py -o test_plot "
+                         f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
+            conda_env="connectome-gnn", node_name=queue_of[n], n_cpus=8,
+            device="gpu", hard_runtime_limit_min=240,
+            stdout_path=os.path.join(d, "analyse.out"),
+            stderr_path=os.path.join(d, "analyse.err"),
+            job_name=f"an{int(number):02d}_{n}")
+        if jid is None:
+            print(f"  FAILED {n}: {res.stderr.strip()[:160]}")
+        else:
+            ids[n] = jid
+    print(f"{len(ids)}/{len(todo)} submitted")
+    if ids:
+        fm["analyse_job_ids"] = {**(fm.get("analyse_job_ids") or {}), **ids}
+        _rewrite_front_matter(path, fm)
+    return 0 if len(ids) == len(todo) else 1
+
+
 def _rewrite_front_matter(path, fm):
     text = open(path).read()
     body = re.sub(r"^---\n.*?\n---\n", "", text, count=1, flags=re.S)
@@ -431,7 +489,7 @@ def _summary_rows(fm, rs, source):
 
 def status_block(fm):
     rs = runs(fm)
-    counts = {"landed": 0, "running": 0, "pending": 0}
+    counts = {"landed": 0, "trained": 0, "running": 0, "pending": 0}
     for _arm, _pt, run in rs:
         counts[status_of(run)] += 1
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
@@ -440,6 +498,7 @@ def status_block(fm):
 
     L = [_BEGIN, "", "## Status", "",
          f"**{counts['landed']}/{len(rs)} landed**, "
+         f"{counts['trained']} trained (awaiting `-o test_plot`), "
          f"{counts['running']} running, {counts['pending']} pending", ""]
 
     for src, title, last in (
@@ -579,7 +638,7 @@ repeated here --- they live in the experiment's markdown file.}}\end{{center}}
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("verb", choices=["launch", "poll", "report"])
+    ap.add_argument("verb", choices=["launch", "analyse", "poll", "report"])
     ap.add_argument("numbers", nargs="*", type=int)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-pdf", action="store_true")
@@ -591,6 +650,10 @@ def main(argv=None) -> int:
             raise SystemExit("launch needs an experiment number")
         return max(launch(n, dry_run=a.dry_run, only_arm=a.arm)
                    for n in a.numbers)
+    if a.verb == "analyse":
+        ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
+                           for p in all_experiments()]
+        return max(analyse(n, dry_run=a.dry_run) for n in ns)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]

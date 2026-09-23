@@ -32,6 +32,11 @@ job_ids:
   bench_rtx6000_bf16: '154398323'
   bench_a100_fp32: '154398324'
   bench_a100_bf16: '154398325'
+analyse_job_ids:
+  bench_rtx6000_fp32: '154399699'
+  bench_rtx6000_bf16: '154399700'
+  bench_a100_fp32: '154399701'
+  bench_a100_bf16: '154399702'
 ---
 
 # Experiment 0 — gpu_benchmark
@@ -90,7 +95,7 @@ which is what makes the precision comparison a comparison.
 
 ## Status
 
-**0/4 landed**, 4 running, 0 pending
+**0/4 landed**, 4 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -102,19 +107,16 @@ which is what makes the precision comparison a comparison.
 
 | arm | precision | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| rtx6000 | fp32 | 30,401 |  | 0.997 ± 0.000 | 0.923 ± 0.000 | 0.971 ± 0.000 | 0.708 ± 0.000 | 0.615 ± 0.000 | 0.959 ± 0.000 |  |  | 0.883 ± 0.000 |
-| rtx6000 | bf16 | 30,401 |  | 0.996 ± 0.000 | 0.925 ± 0.000 | 0.964 ± 0.000 | 0.681 ± 0.000 | 0.627 ± 0.000 | 0.955 ± 0.000 |  |  | 0.901 ± 0.000 |
-| a100 | fp32 | 30,401 |  | 0.996 ± 0.000 | 0.927 ± 0.000 | 0.966 ± 0.000 | 0.707 ± 0.000 | 0.619 ± 0.000 | 0.960 ± 0.000 |  |  | 0.892 ± 0.000 |
-| a100 | bf16 | 30,401 |  | 0.996 ± 0.000 | 0.926 ± 0.000 | 0.961 ± 0.000 | 0.692 ± 0.000 | 0.601 ± 0.000 | 0.959 ± 0.000 |  |  | 0.910 ± 0.000 |
+| — | | | | | | | | | | | | |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `bench_rtx6000_fp32` | running | 30,401 | `bce608981ef9` |
-| `bench_rtx6000_bf16` | running | 30,401 | `bce608981ef9` |
-| `bench_a100_fp32` | running | 30,401 | `ceda16fee450` |
-| `bench_a100_bf16` | running | 30,401 | `6ff97411577c` |
+| `bench_rtx6000_fp32` | trained | 152,001 | `71e4d78710c4` |
+| `bench_rtx6000_bf16` | trained | 152,001 | `71e4d78710c4` |
+| `bench_a100_fp32` | trained | 152,001 | `71e4d78710c4` |
+| `bench_a100_bf16` | trained | 152,001 | `71e4d78710c4` |
 
 <!-- STATUS:END -->
 

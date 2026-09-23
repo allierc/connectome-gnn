@@ -62,6 +62,37 @@ job_ids:
   flyvis_noise_05_blank50_dtbug_cv02: '154396118'
   flyvis_noise_05_blank50_dtbug_cv03: '154396119'
   flyvis_noise_05_blank50_dtbug_cv04: '154396120'
+analyse_job_ids:
+  flyvis_noise_free_blank50_dtfd_cv00: '154399703'
+  flyvis_noise_free_blank50_dtfd_cv01: '154399704'
+  flyvis_noise_free_blank50_dtfd_cv02: '154399705'
+  flyvis_noise_free_blank50_dtfd_cv03: '154399706'
+  flyvis_noise_free_blank50_dtfd_cv04: '154399707'
+  flyvis_noise_005_blank50_dtfd_cv00: '154399708'
+  flyvis_noise_005_blank50_dtfd_cv01: '154399709'
+  flyvis_noise_005_blank50_dtfd_cv02: '154399710'
+  flyvis_noise_005_blank50_dtfd_cv03: '154399711'
+  flyvis_noise_005_blank50_dtfd_cv04: '154399712'
+  flyvis_noise_05_blank50_dtfd_cv00: '154399713'
+  flyvis_noise_05_blank50_dtfd_cv01: '154399714'
+  flyvis_noise_05_blank50_dtfd_cv02: '154399715'
+  flyvis_noise_05_blank50_dtfd_cv03: '154399716'
+  flyvis_noise_05_blank50_dtfd_cv04: '154399717'
+  flyvis_noise_free_blank50_dtbug_cv00: '154399718'
+  flyvis_noise_free_blank50_dtbug_cv01: '154399719'
+  flyvis_noise_free_blank50_dtbug_cv02: '154399720'
+  flyvis_noise_free_blank50_dtbug_cv03: '154399721'
+  flyvis_noise_free_blank50_dtbug_cv04: '154399722'
+  flyvis_noise_005_blank50_dtbug_cv00: '154399723'
+  flyvis_noise_005_blank50_dtbug_cv01: '154399724'
+  flyvis_noise_005_blank50_dtbug_cv02: '154399725'
+  flyvis_noise_005_blank50_dtbug_cv03: '154399726'
+  flyvis_noise_005_blank50_dtbug_cv04: '154399728'
+  flyvis_noise_05_blank50_dtbug_cv00: '154399729'
+  flyvis_noise_05_blank50_dtbug_cv01: '154399730'
+  flyvis_noise_05_blank50_dtbug_cv02: '154399731'
+  flyvis_noise_05_blank50_dtbug_cv03: '154399732'
+  flyvis_noise_05_blank50_dtbug_cv04: '154399733'
 ---
 
 # Experiment 1 — derivative_target
@@ -123,7 +154,7 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 
 ## Status
 
-**0/30 landed**, 30 running, 0 pending
+**0/30 landed**, 30 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -135,47 +166,42 @@ sets `dataset`, `simulation.noise_model_level` and the two seeds
 
 | arm | noise | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| nominal | noise_free | 640,001 |  | 0.999 ± 0.000 | 0.896 ± 0.017 | 0.913 ± 0.030 | 0.785 ± 0.045 | 0.774 ± 0.066 | 0.958 ± 0.016 |  |  | 0.862 ± 0.019 |
-| nominal | noise_005 | 640,001 |  | 0.999 ± 0.000 | 0.953 ± 0.011 | 0.977 ± 0.009 | 0.855 ± 0.032 | 0.727 ± 0.071 | 0.977 ± 0.006 |  |  | 0.888 ± 0.017 |
-| nominal | noise_05 | 640,001 |  | 0.993 ± 0.001 | 0.983 ± 0.001 | 0.995 ± 0.001 | 0.882 ± 0.021 | 0.900 ± 0.015 | 0.993 ± 0.001 |  |  | 0.884 ± 0.013 |
-| bug | noise_free | 640,001 |  | 0.999 ± 0.000 | 0.884 ± 0.022 | 0.898 ± 0.028 | 0.824 ± 0.019 | 0.791 ± 0.056 | 0.953 ± 0.019 |  |  | 0.844 ± 0.047 |
-| bug | noise_005 | 640,001 |  | 1.000 ± 0.000 | 0.980 ± 0.010 | 0.994 ± 0.004 | 0.957 ± 0.025 | 0.939 ± 0.039 | 0.992 ± 0.004 |  |  | 0.925 ± 0.019 |
-| bug | noise_05 | 640,001 |  | 1.000 ± 0.000 | 0.998 ± 0.001 | 1.000 ± 0.000 | 0.995 ± 0.002 | 0.998 ± 0.003 | 1.000 ± 0.000 |  |  | 0.924 ± 0.004 |
+| — | | | | | | | | | | | | |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv00` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv01` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv02` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv03` | running | 640,001 | `` |
-| `flyvis_noise_free_blank50_dtbug_cv04` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv00` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv01` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv02` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv03` | running | 640,001 | `` |
-| `flyvis_noise_005_blank50_dtbug_cv04` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv00` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv01` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv02` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv03` | running | 640,001 | `` |
-| `flyvis_noise_05_blank50_dtbug_cv04` | running | 640,001 | `` |
+| `flyvis_noise_free_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtbug_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtbug_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtbug_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtbug_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtbug_cv04` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtbug_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtbug_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtbug_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtbug_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtbug_cv04` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtbug_cv00` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtbug_cv01` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtbug_cv02` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtbug_cv03` | trained | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtbug_cv04` | trained | 1,520,001 | `bce608981ef9` |
 
 <!-- STATUS:END -->
 

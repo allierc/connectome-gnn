@@ -101,7 +101,7 @@ survive contact with a graph that is 80% spurious.
 
 ## Status
 
-**0/10 landed**, 0 running, 10 pending
+**0/10 landed**, 10 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -113,22 +113,23 @@ survive contact with a graph that is 80% spurious.
 
 | arm |  | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | |
+| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |
+| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |
 
 ### Per run
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | pending |  | `` |
-| `flyvis_noise_005_null400_cur_cv01` | pending |  | `` |
-| `flyvis_noise_005_null400_cur_cv02` | pending |  | `` |
-| `flyvis_noise_005_null400_cur_cv03` | pending |  | `` |
-| `flyvis_noise_005_null400_cur_cv04` | pending |  | `` |
-| `flyvis_noise_005_null400_condl10_cv00` | pending |  | `` |
-| `flyvis_noise_005_null400_condl10_cv01` | pending |  | `` |
-| `flyvis_noise_005_null400_condl10_cv02` | pending |  | `` |
-| `flyvis_noise_005_null400_condl10_cv03` | pending |  | `` |
-| `flyvis_noise_005_null400_condl10_cv04` | pending |  | `` |
+| `flyvis_noise_005_null400_cur_cv00` | running | 1 | `` |
+| `flyvis_noise_005_null400_cur_cv01` | running | 1 | `` |
+| `flyvis_noise_005_null400_cur_cv02` | running | 1 | `` |
+| `flyvis_noise_005_null400_cur_cv03` | running | 1 | `` |
+| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |
+| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |
+| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |
+| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |
 
 <!-- STATUS:END -->
 
