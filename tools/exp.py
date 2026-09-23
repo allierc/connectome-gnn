@@ -51,6 +51,8 @@ STAGE_DIR = "/groups/saalfeld/home/allierc/GraphData/config/fly"
 COLUMNS = [
     ("one_step_r",                       "one-step r",   False),
     ("rollout_r",                        "rollout r",    True),
+    ("template_rollout_r",               "fit roll cond", False),
+    ("template_alt_rollout_r",           "fit roll curr", False),
     ("Wij_R2",                           "R2_W",         True),
     ("tau_R2",                           "R2_tau",       True),
     ("V_rest_R2",                        "R2_Vrest",     True),

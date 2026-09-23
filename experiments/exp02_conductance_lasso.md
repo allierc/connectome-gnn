@@ -198,22 +198,25 @@ splits the same way, sigma 0 is.
 
 ## Status
 
-**16/35 landed**, 19 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**35/35 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | noise | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.904 ± 0.022 | 0.929 ± 0.018 | 0.828 ± 0.058 | 0.818 ± 0.063 | 0.963 ± 0.013 | 0.020 ± 0.008 |  | 0.856 ± 0.026 |
-| current | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.956 ± 0.010 | 0.979 ± 0.013 | 0.874 ± 0.037 | 0.756 ± 0.094 | 0.980 ± 0.009 | 0.042 ± 0.020 |  | 0.886 ± 0.009 |
-| current | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.984 ± 0.001 | 0.996 ± 0.001 | 0.875 ± 0.016 | 0.893 ± 0.012 | 0.994 ± 0.001 | 0.011 ± 0.005 |  | 0.879 ± 0.018 |
-| conductance | noise_free | 1 | 0.625 ± 0.000 | 0.491 ± 0.000 | -0.012 ± 0.000 | 0.035 ± 0.000 | 0.476 ± 0.000 | 0.545 ± 0.000 | 0.003 ± 0.000 | 31.019 ± 0.000 |  | 0.471 ± 0.000 |
+| arm | noise | n | one-step r | rollout r | fit roll cond | fit roll curr | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| current | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 |  |  | 0.904 ± 0.022 | 0.929 ± 0.018 | 0.828 ± 0.058 | 0.818 ± 0.063 | 0.963 ± 0.013 | 0.020 ± 0.008 |  | 0.856 ± 0.026 |
+| current | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.995 ± 0.001 | 0.604 ± 0.047 | 0.956 ± 0.010 | 0.979 ± 0.013 | 0.874 ± 0.037 | 0.756 ± 0.094 | 0.980 ± 0.009 | 0.042 ± 0.020 |  | 0.886 ± 0.009 |
+| current | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.994 ± 0.001 | 0.695 ± 0.015 | 0.984 ± 0.001 | 0.996 ± 0.001 | 0.875 ± 0.016 | 0.893 ± 0.012 | 0.994 ± 0.001 | 0.011 ± 0.005 |  | 0.879 ± 0.018 |
+| conductance | noise_free | 5 | 0.847 ± 0.186 | 0.794 ± 0.250 |  |  | 0.487 ± 0.409 | -5.304 ± 12.026 | 0.668 ± 0.127 | 0.625 ± 0.082 | 0.456 ± 0.376 | 6.632 ± 12.208 |  | 0.531 ± 0.110 |
+| conductance | noise_005 | 5 | 0.998 ± 0.000 | 0.929 ± 0.139 | 0.118 ± 0.002 | 0.487 ± 0.018 | 0.963 ± 0.013 | 0.964 ± 0.015 | 0.856 ± 0.026 | 0.843 ± 0.066 | 0.984 ± 0.009 | 0.018 ± 0.011 |  | 0.888 ± 0.015 |
+| conductance | noise_05 | 5 | 0.994 ± 0.001 | 0.902 ± 0.179 | 0.112 ± 0.000 | 0.480 ± 0.004 | 0.984 ± 0.001 | 0.995 ± 0.001 | 0.876 ± 0.035 | 0.909 ± 0.013 | 0.994 ± 0.002 | 0.011 ± 0.006 |  | 0.870 ± 0.021 |
+| cond_l25 | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 |  |  | 0.898 ± 0.007 | 0.902 ± 0.044 | 0.873 ± 0.022 | 0.774 ± 0.027 | 0.940 ± 0.012 | 0.039 ± 0.008 |  | 0.771 ± 0.039 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | noise | iter | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | |
+| arm | noise | iter | one-step r | rollout r | fit roll cond | fit roll curr | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -235,25 +238,25 @@ splits the same way, sigma 0 is.
 | `flyvis_noise_05_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
 | `flyvis_noise_05_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
 | `flyvis_noise_free_blank50_condl100_cv00` | landed | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_free_blank50_condl100_cv01` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_free_blank50_condl100_cv02` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_free_blank50_condl100_cv03` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_free_blank50_condl100_cv04` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_005_blank50_condl100_cv00` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_005_blank50_condl100_cv01` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_005_blank50_condl100_cv02` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_005_blank50_condl100_cv03` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_005_blank50_condl100_cv04` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_05_blank50_condl100_cv00` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_05_blank50_condl100_cv01` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_05_blank50_condl100_cv02` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_05_blank50_condl100_cv03` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_05_blank50_condl100_cv04` | trained | 1,520,001 | `950fc40dfda9` |
-| `flyvis_noise_free_blank50_condl25_cv00` | trained | 1,520,001 | `71e4d78710c4` |
-| `flyvis_noise_free_blank50_condl25_cv01` | trained | 1,520,001 | `71e4d78710c4` |
-| `flyvis_noise_free_blank50_condl25_cv02` | trained | 1,520,001 | `71e4d78710c4` |
-| `flyvis_noise_free_blank50_condl25_cv03` | trained | 1,520,001 | `71e4d78710c4` |
-| `flyvis_noise_free_blank50_condl25_cv04` | trained | 1,520,001 | `71e4d78710c4` |
+| `flyvis_noise_free_blank50_condl100_cv01` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_free_blank50_condl100_cv02` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_free_blank50_condl100_cv03` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_free_blank50_condl100_cv04` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_005_blank50_condl100_cv00` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_005_blank50_condl100_cv01` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_005_blank50_condl100_cv02` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_005_blank50_condl100_cv03` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_005_blank50_condl100_cv04` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_05_blank50_condl100_cv00` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_05_blank50_condl100_cv01` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_05_blank50_condl100_cv02` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_05_blank50_condl100_cv03` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_05_blank50_condl100_cv04` | landed | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_free_blank50_condl25_cv00` | landed | 1,520,001 | `71e4d78710c4` |
+| `flyvis_noise_free_blank50_condl25_cv01` | landed | 1,520,001 | `71e4d78710c4` |
+| `flyvis_noise_free_blank50_condl25_cv02` | landed | 1,520,001 | `71e4d78710c4` |
+| `flyvis_noise_free_blank50_condl25_cv03` | landed | 1,520,001 | `71e4d78710c4` |
+| `flyvis_noise_free_blank50_condl25_cv04` | landed | 1,520,001 | `71e4d78710c4` |
 
 <!-- STATUS:END -->
 
