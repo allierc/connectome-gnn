@@ -32,6 +32,13 @@ arms:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 10.0
+- id: cond_l25
+  label: conductance, group lasso 25
+  spec_pattern: flyvis_noise_005_null400_condl25_{fold}
+  differs_by:
+    graph_model.signal_model_name: flyvis_conductance
+    graph_model.input_size: 6
+    training.coeff_g_phi_input_group_L1: 25.0
 job_ids:
   flyvis_noise_005_null400_cur_cv00: '154400229'
   flyvis_noise_005_null400_cur_cv01: '154400230'
@@ -43,10 +50,18 @@ job_ids:
   flyvis_noise_005_null400_condl10_cv02: '154400236'
   flyvis_noise_005_null400_condl10_cv03: '154400237'
   flyvis_noise_005_null400_condl10_cv04: '154400238'
+  flyvis_noise_005_null400_condl25_cv00: '154400336'
+  flyvis_noise_005_null400_condl25_cv01: '154400337'
+  flyvis_noise_005_null400_condl25_cv02: '154400338'
+  flyvis_noise_005_null400_condl25_cv03: '154400339'
+  flyvis_noise_005_null400_condl25_cv04: '154400340'
 report:
   arm_order:
   - current
+  - cond_l25
   - conductance
+  arm_labels:
+    cond_l25: conductance
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
 ---
@@ -150,7 +165,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 ## Status
 
-**0/10 landed**, 0 trained (awaiting `-o test_plot`), 4 running, 6 pending
+**0/15 landed**, 0 trained (awaiting `-o test_plot`), 15 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -162,22 +177,29 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| current |  | 16,001 |  | 0.701 ± 0.349 |  |  | -0.005 ± 0.003 | -7.314 ± 2.253 | 0.060 ± 0.261 | 0.031 ± 0.232 | -0.014 ± 0.010 |  |  |  |
+| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| cond_l25 |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_cur_cv01` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_cur_cv02` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_cur_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_cur_cv04` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv00` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv01` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv02` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | pending |  | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_null400_cur_cv00` | running | 16,001 | `` |  |
+| `flyvis_noise_005_null400_cur_cv01` | running | 16,001 | `` |  |
+| `flyvis_noise_005_null400_cur_cv02` | running | 16,001 | `` |  |
+| `flyvis_noise_005_null400_cur_cv03` | running | 16,001 | `` |  |
+| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv00` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv01` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv02` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv03` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv04` | running | 1 | `` |  |
 
 <!-- STATUS:END -->
 

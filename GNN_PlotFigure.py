@@ -1567,16 +1567,20 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     x_ts = load_simulation_data(x_path,
                                 fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
 
-    # Apply same stride as training to reduce memory for recurrent models with time_step > 1
-    _stride = tc.time_step if (tc.recurrent_training and tc.time_step > 1) else 1
-    if _stride > 1:
-        print(f"\033[93msubsampling plot data: {x_ts.n_frames} → {x_ts.n_frames // _stride} frames (stride={_stride})\033[0m")
-        for _field in ['voltage', 'stimulus']:
-            _val = getattr(x_ts, _field)
-            if _val is not None:
-                setattr(x_ts, _field, _val[::_stride])
+    # NO STRIDE HERE ANY MORE, AND THAT IS THE POINT OF REMOVING time_step.
+    # This block used to decimate the plot trajectory by `tc.time_step` to match
+    # what training had done to the DATASET. Nothing decimates the dataset now:
+    # `rollout_loss_stride` masks which steps of the rollout carry loss and
+    # leaves every frame in place, so striding here would throw away frames the
+    # model was trained on and score the readout against a different
+    # trajectory. MAX_PLOT_FRAMES below is what bounds the memory.
+    #
+    # The dangling `tc.time_step` read cost experiment 3 a full pass: every
+    # recurrent run's `-o test_plot` died with AttributeError after writing only
+    # the rollout lines of metrics.txt, so fourteen runs sat as `trained` with
+    # an empty held-out table and nothing saying why.
 
-    # Cap plot data after stride (e.g. non-recurrent 320K hold-out → 64K)
+    # Cap plot data (e.g. non-recurrent 320K hold-out → 64K)
     MAX_PLOT_FRAMES = 64000
     if x_ts.n_frames > MAX_PLOT_FRAMES:
         print(f"\033[93mcapping plot data: {x_ts.n_frames} → {MAX_PLOT_FRAMES} frames\033[0m")

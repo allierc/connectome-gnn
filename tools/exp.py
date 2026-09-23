@@ -726,7 +726,11 @@ _FIGURES = {"derivative_target":
                ("Fig/exp01_panels_nominal_noise005.png",
                 "neuron 2895 Am, nominal", 0.72)],
             "conductance_lasso":
-            [("Fig/exp02_panels_current_noise005.png",
+            # The three-arm error comparison FIRST, then the per-neuron panels:
+            # the distributions say whether the arms differ, the panels say why.
+            [("Fig/exp02_errors.png",
+              "recovery errors, three arms, five folds pooled"),
+             ("Fig/exp02_panels_current_noise005.png",
               "neuron 2895 Am, current form", 0.72),
              ("Fig/exp02_panels_conductance_noise005.png",
               "neuron 2895 Am, conductance lasso 100", 0.72)]}
@@ -792,6 +796,18 @@ def _arm_columns(fm):
     return list(fm.get("report", {}).get("arm_columns", {}).items())
 
 
+def _axis_label(fm, key, value):
+    """What an axis VALUE is called in the table.
+
+    `report.axis_labels: {horizon: {h05: '5', h20: '20'}}`. The axis value is a
+    token inside a spec name -- `flyvis_noise_005_s5h20_cur_cv00` -- so it
+    cannot simply be renamed to `20` without renaming twenty files and their
+    job records. The column heading already says `horizon`; `h20` in the cell
+    then says it twice and says the number once, badly.
+    """
+    return fm.get("report", {}).get("axis_labels", {}).get(key, {}).get(value, value)
+
+
 def _arm_label(fm, arm_id):
     """What the arm is CALLED in the table, which need not be its id.
 
@@ -855,7 +871,7 @@ def _table(fm, source="landed"):
         L.append(" & ".join(
             [_tex(_arm_label(fm, arm_id))]
             + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
-            + [_tex(v) for _, v in cell] + [n]
+            + [_tex(_axis_label(fm, k, v)) for k, v in cell] + [n]
             + [_cellf(c) for c in cells]) + r" \\")
     L += [r"\bottomrule", r"\end{tabular}}"]
     return "\n".join(L)
@@ -916,7 +932,7 @@ def _timing_table(fm):
     for arm_id, cell, row in out:
         L.append(" & ".join([_tex(_arm_label(fm, arm_id))]
                             + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
-                            + [_tex(v) for _, v in cell] + row) + r" \\")
+                            + [_tex(_axis_label(fm, k, v)) for k, v in cell] + row) + r" \\")
     L += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(L)
 
@@ -928,7 +944,12 @@ def _slides(fm):
     L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\vspace*{0.3cm}", r"\centering\tiny",
-         r"\setlength{\tabcolsep}{2pt}", _table(fm),
+         r"\setlength{\tabcolsep}{2pt}",
+         # THE TWO TABLES ARE NAMED. Unlabelled, a slide carrying both invites
+         # "why are there two of these" and, worse, reading a train-split number
+         # as a result. The first is held-out, the second is not.
+         r"{\scriptsize\bfseries held-out, finished runs\par}\vspace*{2pt}",
+         _table(fm),
          r"\\[6pt]",
          r"{\tiny\raggedright",
          rf"{_tex(fm['purpose'])} \\[2pt]",
@@ -944,7 +965,10 @@ def _slides(fm):
     # at a stated iteration, not held-out, so it is a second table with its own
     # caption rather than blanks filled in from a different meaning.
     if _summary_rows(fm, rs, "running", nd=2):
-        L += [r"\\[10pt]", r"\centering\tiny", _table(fm, "running"), r"\\[4pt]",
+        L += [r"\\[10pt]", r"\centering\tiny",
+              r"{\scriptsize\bfseries still training --- train split, not a result"
+              r"\par}\vspace*{2pt}",
+              _table(fm, "running"), r"\\[4pt]",
               r"{\tiny\raggedright Still training --- the TRAIN split from "
               r"\texttt{tmp\_training/}, every fold read at the same iteration. "
               r"Not held-out and not comparable to the table above; the "

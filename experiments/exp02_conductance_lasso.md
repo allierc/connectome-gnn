@@ -294,8 +294,8 @@ read against the table above.
 
 | arm | noise | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cond_l25 | noise_005 | 240,001 |  | 0.998 ± 0.000 |  |  | 0.973 ± 0.002 | 0.977 ± 0.008 | 0.878 ± 0.014 | 0.875 ± 0.015 | 0.987 ± 0.003 |  |  | 0.893 ± 0.010 |
-| cond_l25 | noise_05 | 240,001 |  | 0.993 ± 0.001 |  |  | 0.985 ± 0.001 | 0.996 ± 0.001 | 0.867 ± 0.034 | 0.901 ± 0.017 | 0.993 ± 0.001 |  |  | 0.887 ± 0.016 |
+| cond_l25 | noise_005 | 400,001 |  | 0.998 ± 0.000 |  |  | 0.973 ± 0.003 | 0.979 ± 0.003 | 0.882 ± 0.016 | 0.893 ± 0.011 | 0.988 ± 0.003 |  |  | 0.890 ± 0.012 |
+| cond_l25 | noise_05 | 480,001 |  | 0.993 ± 0.001 |  |  | 0.985 ± 0.001 | 0.997 ± 0.001 | 0.875 ± 0.021 | 0.921 ± 0.017 | 0.994 ± 0.001 |  |  | 0.891 ± 0.011 |
 
 ### Per run
 
@@ -336,16 +336,16 @@ read against the table above.
 | `flyvis_noise_free_blank50_condl25_cv02` | landed | 1,520,001 | `71e4d78710c4` |  |
 | `flyvis_noise_free_blank50_condl25_cv03` | landed | 1,520,001 | `71e4d78710c4` |  |
 | `flyvis_noise_free_blank50_condl25_cv04` | landed | 1,520,001 | `71e4d78710c4` |  |
-| `flyvis_noise_005_blank50_condl25_cv00` | running | 240,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv01` | running | 240,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv02` | running | 240,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv03` | running | 240,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv04` | running | 240,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv00` | running | 240,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv01` | running | 240,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv02` | running | 240,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv03` | running | 240,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv04` | running | 240,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv00` | running | 480,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv01` | running | 480,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv02` | running | 480,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv03` | running | 480,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv04` | running | 480,001 | `` |  |
+| `flyvis_noise_05_blank50_condl25_cv00` | running | 480,001 | `` |  |
+| `flyvis_noise_05_blank50_condl25_cv01` | running | 480,001 | `` |  |
+| `flyvis_noise_05_blank50_condl25_cv02` | running | 480,001 | `` |  |
+| `flyvis_noise_05_blank50_condl25_cv03` | running | 480,001 | `` |  |
+| `flyvis_noise_05_blank50_condl25_cv04` | running | 480,001 | `` |  |
 
 <!-- STATUS:END -->
 
