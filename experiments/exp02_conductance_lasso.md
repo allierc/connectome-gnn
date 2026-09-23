@@ -198,13 +198,16 @@ splits the same way, sigma 0 is.
 
 ## Status
 
-**0/35 landed**, 35 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**16/35 landed**, 19 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
 | arm | noise | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | |
+| current | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.904 ± 0.022 | 0.929 ± 0.018 | 0.828 ± 0.058 | 0.818 ± 0.063 | 0.963 ± 0.013 | 0.020 ± 0.008 |  | 0.856 ± 0.026 |
+| current | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.956 ± 0.010 | 0.979 ± 0.013 | 0.874 ± 0.037 | 0.756 ± 0.094 | 0.980 ± 0.009 | 0.042 ± 0.020 |  | 0.886 ± 0.009 |
+| current | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.984 ± 0.001 | 0.996 ± 0.001 | 0.875 ± 0.016 | 0.893 ± 0.012 | 0.994 ± 0.001 | 0.011 ± 0.005 |  | 0.879 ± 0.018 |
+| conductance | noise_free | 1 | 0.625 ± 0.000 | 0.491 ± 0.000 | -0.012 ± 0.000 | 0.035 ± 0.000 | 0.476 ± 0.000 | 0.545 ± 0.000 | 0.003 ± 0.000 | 31.019 ± 0.000 |  | 0.471 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
@@ -216,22 +219,22 @@ splits the same way, sigma 0 is.
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `flyvis_noise_free_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_005_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv00` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv01` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv02` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv03` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_05_blank50_dtfd_cv04` | trained | 1,520,001 | `bce608981ef9` |
-| `flyvis_noise_free_blank50_condl100_cv00` | trained | 1,520,001 | `950fc40dfda9` |
+| `flyvis_noise_free_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_005_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv00` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv01` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv02` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv03` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_05_blank50_dtfd_cv04` | landed | 1,520,001 | `bce608981ef9` |
+| `flyvis_noise_free_blank50_condl100_cv00` | landed | 1,520,001 | `950fc40dfda9` |
 | `flyvis_noise_free_blank50_condl100_cv01` | trained | 1,520,001 | `950fc40dfda9` |
 | `flyvis_noise_free_blank50_condl100_cv02` | trained | 1,520,001 | `950fc40dfda9` |
 | `flyvis_noise_free_blank50_condl100_cv03` | trained | 1,520,001 | `950fc40dfda9` |

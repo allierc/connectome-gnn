@@ -101,7 +101,7 @@ survive contact with a graph that is 80% spurious.
 
 ## Status
 
-**0/10 landed**, 10 running, 0 pending
+**0/10 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 

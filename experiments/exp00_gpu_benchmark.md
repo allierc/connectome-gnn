@@ -91,17 +91,62 @@ which is what makes the precision comparison a comparison.
 | a100 | `gpu_a100` | fp32 | `bench_a100_fp32` |
 | a100 | `gpu_a100` | bf16 | `bench_a100_bf16` |
 
+## Results
+
+### Precision: bf16 is free
+
+Held-out, one run per cell, 160,000 iterations:
+
+| | `R2_W` | `R2_tau` | `R2_Vrest` | `R2_msg` | cluster |
+|---|---|---|---|---|---|
+| rtx6000 fp32 | 0.948 | 0.967 | 0.806 | 0.978 | 0.898 |
+| rtx6000 bf16 | 0.944 | 0.965 | 0.763 | 0.973 | 0.914 |
+
+`R2_W` differs by 0.004 and `R2_tau` by 0.002. bf16 costs nothing on recovery.
+(The two A100 arms finished training; their `-o test_plot` is queued behind
+2,506 jobs on `gpu_a100`.)
+
+### Speed: the A100 is faster, and bf16 helps only the RTX 6000
+
+152,001 iterations, 24 snapshots each, so the instrument cost is identical
+across the four and the RANKING is sound:
+
+| arm | wall | rate | extrapolated 1.6 M |
+|---|---|---|---|
+| a100 fp32 | 90 min | **28.0 it/s** | 15.9 h |
+| a100 bf16 | 125 min | 20.3 it/s | 21.9 h |
+| rtx6000 bf16 | 203 min | 12.5 it/s | 35.6 h |
+| rtx6000 fp32 | 215 min | 11.8 it/s | 37.6 h |
+
+bf16 is +6% on the RTX 6000 and **-27% on the A100** -- it is not a free speedup
+on a card whose fp32 path is already tensor-core backed.
+
+### The absolute rates are still wrong, and this bench cannot fix them
+
+The relaunch set `checkpoint_saves_per_epoch: 3`, which is NOT the knob: the
+cadence is `snapshots_per_epoch` (default 5), and on top of it an early-phase
+burst adds a fixed NUMBER of extra snapshots. A short run pays that fixed count
+over few iterations, so 24 snapshots landed in 152,001 iterations -- one every
+6,300 against production's one every 58,666 -- and the metric pass still
+dominates. 11.8 it/s here against the 72 it/s the same card does on
+experiment 1.
+
+**The honest throughput number is the production runs': 72 it/s on RTX 6000,
+about 6 h for a full 1.6 M-iteration run.** Use the ranking above to choose a
+queue and that figure to plan a wall.
+
 <!-- STATUS:BEGIN -->
 
 ## Status
 
-**0/4 landed**, 4 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**2/4 landed**, 2 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
 | arm | precision | n | one-step r | rollout r | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | |
+| rtx6000 | fp32 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.948 ± 0.000 | 0.967 ± 0.000 | 0.806 ± 0.000 | 0.768 ± 0.000 | 0.978 ± 0.000 | 0.041 ± 0.000 |  | 0.898 ± 0.000 |
+| rtx6000 | bf16 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.944 ± 0.000 | 0.965 ± 0.000 | 0.763 ± 0.000 | 0.745 ± 0.000 | 0.973 ± 0.000 | 0.038 ± 0.000 |  | 0.914 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
@@ -113,8 +158,8 @@ which is what makes the precision comparison a comparison.
 
 | run | status | iter | commit |
 |---|---|---|---|
-| `bench_rtx6000_fp32` | trained | 152,001 | `71e4d78710c4` |
-| `bench_rtx6000_bf16` | trained | 152,001 | `71e4d78710c4` |
+| `bench_rtx6000_fp32` | landed | 152,001 | `71e4d78710c4` |
+| `bench_rtx6000_bf16` | landed | 152,001 | `71e4d78710c4` |
 | `bench_a100_fp32` | trained | 152,001 | `71e4d78710c4` |
 | `bench_a100_bf16` | trained | 152,001 | `71e4d78710c4` |
 
