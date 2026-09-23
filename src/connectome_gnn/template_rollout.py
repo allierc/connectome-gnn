@@ -409,7 +409,7 @@ def _alt_view(rec):
 
 
 def _parse_rollout_log(path):
-    """The Fisher-z pooled r and the RMSE the tester wrote, as a dict."""
+    """The Fisher-z pooled r, the RMSE and the clamp share the tester wrote."""
     out = {}
     if not os.path.isfile(path):
         return out
@@ -417,6 +417,13 @@ def _parse_rollout_log(path):
     m = re.search(r"^RMSE:\s*([-\d.eE]+)", text, re.M)
     if m:
         out["rmse"] = float(m.group(1))
+    # CARRIED INTO metrics.txt BESIDE THE r IT QUALIFIES. A template rollout
+    # that saturates the divergence clamp still reports an r -- exp02's
+    # conductance arm reported 0.112-0.120 with 67-71% of neuron-frames on the
+    # rail -- and that r ranks nothing. `pct_clamped` is what says so.
+    m = re.search(r"^Clamped at \+/-[\d.]+ V:\s*([-\d.eE]+)%", text, re.M)
+    if m:
+        out["pct_clamped"] = float(m.group(1))
     m = re.search(r"Pearson r \(Fisher-z pooled over neurons\):\s*([-\d.eE]+)", text)
     if m:
         out["r"] = float(m.group(1))
@@ -485,6 +492,8 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template",
             out[f"{prefix}_r"] = got["r"]
         if "rmse" in got:
             out[f"{prefix}_rmse"] = got["rmse"]
+        if "pct_clamped" in got:
+            out[f"{prefix}_pct_clamped"] = got["pct_clamped"]
         out[f"{prefix}_dataset"] = nf.dataset
         out[f"{prefix}_model"] = name
         return out

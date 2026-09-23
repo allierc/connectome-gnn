@@ -261,6 +261,30 @@ def trained(run):
     return os.path.exists(os.path.join(LOG_ROOT, run, "_completed_train"))
 
 
+_RUNTIME_RE = re.compile(r"^\s*Run time :\s+(\d+) sec\.", re.M)
+
+
+def wall_seconds(run):
+    """LSF's own wall clock for the TRAIN job, from cluster.out.
+
+    THE ONLY HONEST SOURCE for how long a run took. The training logs carry no
+    timestamps, file mtimes move when a later pass rewrites a figure, and a rate
+    typed into a markdown file is a number nobody can re-derive -- which is
+    exactly how experiment 0's first speed table came to disagree with the
+    cluster by a factor of two to three. `-o train` is submitted as
+    <exp>_<spec> and writes cluster.out; `-o test_plot` writes analyse.out, so
+    this is training wall only.
+
+    None when the job has not reported yet, so a running job shows blank rather
+    than a rate computed against a clock that is still going.
+    """
+    p = os.path.join(LOG_ROOT, run, "cluster.out")
+    if not os.path.isfile(p):
+        return None
+    hits = _RUNTIME_RE.findall(open(p, errors="replace").read())
+    return int(hits[-1]) if hits else None
+
+
 def status_of(run):
     """landed > trained > running > pending.
 
@@ -295,24 +319,33 @@ def stage(fm, names):
     return names
 
 
-def launch(number, dry_run=False, only_arm=None):
-    """Submit an experiment, or just one arm of it.
+def launch(number, dry_run=False, only_arm=None, where=None):
+    """Submit an experiment, or just one arm of it, or one slice of one arm.
 
     `only_arm` exists because an arm failing on its own is ordinary -- a code
     path the other arm does not take, a dataset the other arm does not read --
     and relaunching all thirty would kill the fifteen that are running fine.
+
+    `where` is the finer cut, `[("noise", {"noise_005", "noise_05"})]`. WIDENING
+    AN ARM'S AXIS IS THE CASE IT EXISTS FOR: exp02's lasso-25 arm was a
+    noise-free probe and then wanted the other two levels, and `--arm cond_l25`
+    alone would have cleared and resubmitted the five folds that had already
+    landed. Anything not named in `where` is unconstrained.
     """
     path = exp_path(number)
     fm, _ = load(path)
+    where = dict(where or [])
     # AN ARM WITH `submit: false` IS READ, NEVER RUN. A comparison arm is often
     # another experiment's runs -- exp02's reference is exp01's nominal folds --
     # and launching it would resubmit them AND, because launch clears a run
     # directory before reusing it, delete a running experiment's logs.
-    names = [r for arm, _, r in runs(fm)
+    names = [r for arm, pt, r in runs(fm)
              if arm.get("submit", True)
-             and (only_arm is None or arm["id"] == only_arm)]
+             and (only_arm is None or arm["id"] == only_arm)
+             and all(pt.get(k) in v for k, v in where.items())]
     if not names:
-        raise SystemExit(f"no arm {only_arm!r} in experiment {number}")
+        raise SystemExit(f"no runs match arm={only_arm!r} where={where} "
+                         f"in experiment {number}")
     stage(fm, names)
     print(f"staged {len(names)} specs -> {STAGE_DIR}")
     if dry_run:
@@ -458,7 +491,9 @@ def _mean_sd(vals, nd=3):
 # The R2 columns that have an outlier band, and the metrics key that counts it.
 # Printed in parentheses beside the value, as the first deck does: an R2 read
 # without the fraction it dropped is not comparable with one that dropped none.
-_OUTLIER_OF = {"Wij_R2": "Wij_pct_outliers", "tau_R2": "tau_pct_outliers",
+_OUTLIER_OF = {"template_rollout_r": "template_rollout_pct_clamped",
+               "template_alt_rollout_r": "template_alt_rollout_pct_clamped",
+               "Wij_R2": "Wij_pct_outliers", "tau_R2": "tau_pct_outliers",
                "V_rest_R2": "V_rest_pct_outliers", "msg_i_R2": "msg_i_pct_outliers"}
 
 
@@ -639,9 +674,14 @@ _FIGURES = {"derivative_target":
             # square and carry small print, so they get the whole slide where
             # the error histograms are wide and do not need it.
             + [("Fig/exp01_panels_bug_noise005.png",
-                "neuron 2895 Am, bug", 0.84),
+                "neuron 2895 Am, bug", 0.72),
                ("Fig/exp01_panels_nominal_noise005.png",
-                "neuron 2895 Am, nominal", 0.84)]}
+                "neuron 2895 Am, nominal", 0.72)],
+            "conductance_lasso":
+            [("Fig/exp02_panels_current_noise005.png",
+              "neuron 2895 Am, current form, noise 005", 0.72),
+             ("Fig/exp02_panels_conductance_noise005.png",
+              "neuron 2895 Am, conductance lasso 100, noise 005", 0.72)]}
 _GREEN = 0.9
 
 
@@ -660,18 +700,58 @@ def _cellf(txt):
 def _form_heads(rs):
     """Name the two `fit roll` columns after the families they actually are.
 
-    `alt_form_family` is the OTHER family, so the model's own is the remaining
-    one of the pair. Returns None when the landed runs disagree or none says --
-    a mixed table has no single answer, and "own/other" is still true there.
+    FROM THE ROLLOUT'S OWN RECORD, NOT FROM `alt_form_family`. The two are about
+    different things and only agree by accident. `alt_form_family` is the family
+    of the ALTERNATIVE FIT ON THE MESSAGE, and `metrics.py` decides it from
+    `_is_conductance_data(ode_params)` -- the family of the GENERATOR. The
+    rollout's own/other, in contrast, follows the MODEL: on current data a
+    conductance model reports `alt_form_family: conductance` while its
+    `template_rollout_model` is `flyvis_conductance_known_ode`, so reading the
+    header off `alt_form_family` labels that table backwards.
+
+    `template_rollout_model` and `template_alt_rollout_model` name the known-ODE
+    each column was actually rolled out with, per run, which is the thing the
+    header claims. Returns None when the landed runs disagree -- experiment 2
+    mixes current and conductance models in one table, and there "own form" and
+    "other form" are the only true names.
     """
-    fams = {m["alt_form_family"] for _a, _p, r in rs
-            if (m := metrics_of(r)) and "alt_form_family" in m}
-    if len(fams) != 1:
+    def fam(name):
+        return "conductance" if "conductance" in (name or "") else "current"
+
+    pairs = {(fam(m["template_rollout_model"]), fam(m["template_alt_rollout_model"]))
+             for _a, _p, r in rs
+             if (m := metrics_of(r)) and "template_rollout_model" in m
+             and "template_alt_rollout_model" in m}
+    if len(pairs) != 1:
         return None
-    alt = fams.pop()
-    own = "current" if alt == "conductance" else "conductance"
+    own, alt = pairs.pop()
+    if own == alt:                      # cannot happen, but do not claim it did
+        return None
     short = {"current": r"curr.\ form", "conductance": r"cond.\ form"}
     return short[own], short[alt]
+
+
+def _arm_columns(fm):
+    """Extra leading columns read off each arm's `differs_by`.
+
+    Declared as `report.arm_columns: {<header>: <config key>}`. The arm id alone
+    does not say what an arm IS -- `conductance` and `cond_l25` differ in one
+    number and the reader has to go and find it -- and that number is already in
+    the front matter, so the column is derived, not typed. An arm that does not
+    set the key gets "---", which is the true answer for the current arm: it has
+    no lasso at all, which is not the same as a lasso of zero.
+    """
+    return list(fm.get("report", {}).get("arm_columns", {}).items())
+
+
+def _arm_value(arms, arm_id, key):
+    for a in arms:
+        if a["id"] == arm_id:
+            v = (a.get("differs_by") or {}).get(key)
+            if v is None:
+                return "---"
+            return f"{v:g}" if isinstance(v, (int, float)) else str(v)
+    return "---"
 
 
 def _table(fm):
@@ -684,15 +764,17 @@ def _table(fm):
             heads[[c[1] for c in COLUMNS].index(h)] = \
                 r"\shortstack{fit roll $r$\\" + name + "}"
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
+    extra = _arm_columns(fm)
     # NUMBERS RIGHT, NAMES CENTRED. The values line up on their decimal point,
     # which `r` gives; the two-line headers are wider than the values they sit
     # over, so left as `r` they hang off to one side. `\multicolumn{1}{c}` centres
     # each name over its own column without moving the values under it.
-    spec = "l" + " l" * len(axes_no_fold) + " r" + " r" * len(heads)
+    spec = "l" + " r" * len(extra) + " l" * len(axes_no_fold) + " r" + " r" * len(heads)
     heads = [r"\multicolumn{1}{c}{" + h + "}" for h in heads]
     L = [r"\resizebox{\textwidth}{!}{%", rf"\begin{{tabular}}{{{spec}}}",
          r"\toprule",
-         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold]
+         " & ".join(["arm"] + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h, _ in extra]
+                    + [_tex(k) for k in axes_no_fold]
                     + [r"\multicolumn{1}{c}{n}"] + heads)
          + r" \\", r"\midrule"]
     rows = _summary_rows(fm, rs, "landed", nd=2)
@@ -700,11 +782,75 @@ def _table(fm):
     if _first:
         rows.sort(key=lambda r: _first.index(r[0]) if r[0] in _first else len(_first))
     if not rows:
-        L.append(" & ".join(["---"] * (2 + len(axes_no_fold) + len(heads))) + r" \\")
+        L.append(" & ".join(["---"] * (2 + len(extra) + len(axes_no_fold)
+                                       + len(heads))) + r" \\")
     for arm_id, cell, n, cells in rows:
-        L.append(" & ".join([_tex(arm_id)] + [_tex(v) for _, v in cell] + [n]
-                            + [_cellf(c) for c in cells]) + r" \\")
+        L.append(" & ".join(
+            [_tex(arm_id)]
+            + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
+            + [_tex(v) for _, v in cell] + [n]
+            + [_cellf(c) for c in cells]) + r" \\")
     L += [r"\bottomrule", r"\end{tabular}}"]
+    return "\n".join(L)
+
+
+def _hms(sec):
+    return f"{int(sec) // 3600}:{(int(sec) % 3600) // 60:02d}"
+
+
+def _timing_table(fm):
+    """Wall clock per arm, from LSF, with the rate it implies.
+
+    Every number here is derived: `Run time` out of each run's cluster.out and
+    the last iteration in its tmp_training/Wij.log. The projection is that rate
+    held for `report.timing_iters` iterations -- experiment 0 runs a tenth of a
+    campaign run, so the useful question is not "how long did the benchmark
+    take" but "how long would the real thing take at this rate".
+    """
+    rs = runs(fm)
+    iters = int(fm.get("report", {}).get("timing_iters", 0)) or None
+    axes_no_fold = [k for k in fm["axes"] if k != "fold"]
+    extra = _arm_columns(fm)
+    heads = ["wall (h:mm)", "iterations", "it/s"]
+    if iters:
+        heads.append(f"{iters / 1e6:g} M it (h)")
+    groups, out = [], []
+    for arm, pt, run in rs:
+        g = (arm["id"], _cell(pt))
+        if g not in groups:
+            groups.append(g)
+    for arm_id, cell in groups:
+        secs, its = [], []
+        for arm, pt, run in rs:
+            if arm["id"] != arm_id or _cell(pt) != cell:
+                continue
+            w, it = wall_seconds(run), live_of(run)[0]
+            if w and it:
+                secs.append(w)
+                its.append(it)
+        if not secs:
+            continue
+        w, it = sum(secs) / len(secs), sum(its) / len(its)
+        row = [_hms(w), f"{it:,.0f}", f"{it / w:.1f}"]
+        if iters:
+            row.append(f"{iters / (it / w) / 3600:.1f}")
+        out.append((arm_id, cell, row))
+    _first = fm.get("report", {}).get("arm_order")
+    if _first:
+        out.sort(key=lambda r: _first.index(r[0]) if r[0] in _first else len(_first))
+    if not out:
+        return ""
+    spec = "l" + " r" * len(extra) + " l" * len(axes_no_fold) + " r" * len(heads)
+    L = [rf"\begin{{tabular}}{{{spec}}}", r"\toprule",
+         " & ".join(["arm"] + [_tex(h) for h, _ in extra]
+                    + [_tex(k) for k in axes_no_fold]
+                    + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h in heads])
+         + r" \\", r"\midrule"]
+    for arm_id, cell, row in out:
+        L.append(" & ".join([_tex(arm_id)]
+                            + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
+                            + [_tex(v) for _, v in cell] + row) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(L)
 
 
@@ -720,9 +866,19 @@ def _slides(fm):
          r"{\tiny\raggedright",
          rf"{_tex(fm['purpose'])} \\[2pt]",
          rf"{n_land} of {len(rs)} runs landed; mean $\pm$ SD over the folds that "
-         rf"have, with the percentage of outliers dropped in parentheses. "
-         rf"Green above ${_GREEN}$.\par}}",
-         r"\end{frame}"]
+         rf"have. In parentheses: the percentage of outliers dropped on the "
+         rf"$R^2$ columns, and on the two fit-roll columns the percentage of "
+         rf"neuron-frames the $\pm$100\,V divergence clamp was holding --- a "
+         rf"fit roll $r$ beside a large one is a diverged rollout, not a score. "
+         rf"Green above ${_GREEN}$.\par}}"]
+    tt = _timing_table(fm) if fm.get("report", {}).get("timing") else ""
+    if tt:
+        L += [r"\\[10pt]", r"\centering\tiny", tt, r"\\[4pt]",
+              r"{\tiny\raggedright LSF \texttt{Run time} from each run's "
+              r"\texttt{cluster.out}, over the last iteration its "
+              r"\texttt{tmp\_training/Wij.log} reached. Training wall only; "
+              r"\texttt{-o test\_plot} is a separate job.\par}"]
+    L += [r"\end{frame}"]
     for fig, cap, *rest in _FIGURES.get(fm["name"], []):
         box = rest[0] if rest else 0.72
         if os.path.exists(os.path.join(ROOT, "presentation", fig)):
@@ -799,12 +955,17 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-pdf", action="store_true")
     ap.add_argument("--arm", default=None, help="submit only this arm")
+    ap.add_argument("--where", action="append", default=[], metavar="AXIS=V1,V2",
+                    help="submit only these values of an axis, e.g. "
+                         "--where noise=noise_005,noise_05")
     a = ap.parse_args(argv)
 
     if a.verb == "launch":
         if not a.numbers:
             raise SystemExit("launch needs an experiment number")
-        return max(launch(n, dry_run=a.dry_run, only_arm=a.arm)
+        where = [(w.split("=", 1)[0], set(w.split("=", 1)[1].split(",")))
+                 for w in a.where]
+        return max(launch(n, dry_run=a.dry_run, only_arm=a.arm, where=where)
                    for n in a.numbers)
     if a.verb == "analyse":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))

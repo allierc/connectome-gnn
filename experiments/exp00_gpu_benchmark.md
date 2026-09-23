@@ -37,6 +37,9 @@ analyse_job_ids:
   bench_rtx6000_bf16: '154399700'
   bench_a100_fp32: '154399701'
   bench_a100_bf16: '154399702'
+report:
+  timing: true
+  timing_iters: 1600000
 ---
 
 # Experiment 0 — gpu_benchmark
@@ -109,24 +112,40 @@ fp32. bf16 costs nothing on recovery, on either card. `R2_Vrest` is the noisiest
 column at 0.763-0.836, but this is one run per cell with no fold spread, so that
 is a single-sample artefact rather than a precision effect.
 
+### Speed
+
+The table on the slide is built by `tools/exp.py` from LSF's own `Run time` in
+each run's `cluster.out`, over the last iteration in its
+`tmp_training/Wij.log` — 152,001 on all four, 24 snapshots each, so the
+instrument cost is identical across them and the ranking is sound:
+
+| arm | precision | wall | rate | 1.6 M it |
+|---|---|---|---|---|
+| rtx6000 | bf16 | 0:52 | **48.6 it/s** | 9.1 h |
+| a100 | bf16 | 1:02 | 40.5 it/s | 11.0 h |
+| rtx6000 | fp32 | 1:03 | 39.7 it/s | 11.2 h |
+| a100 | fp32 | 1:20 | 31.6 it/s | 14.1 h |
+
+**This replaces an earlier table in this file that was typed rather than
+derived** and read 90/125/203/215 min at 28.0/20.3/12.5/11.8 it/s — a factor of
+two to three out, and in the opposite order. It also carried the conclusion
+"A100, fp32", which these numbers do not support. Nothing in the run tree
+matches the old figures; they are not re-derivable and are withdrawn.
+
 ### The answer
 
-**A100, fp32** -- 28.0 it/s against the RTX 6000's 11.8, with identical
-recovery. The caveat is the queue rather than the card: `gpu_a100` had 2,506
-jobs pending against `gpu_rtx6000`'s 344 when this was measured, and the two
-A100 arms' own analysis had to be moved off it to land at all.
+**RTX 6000, bf16** — 48.6 it/s, 9.1 h for a 1.6 M-iteration run, against the
+A100 fp32's 31.6 it/s and 14.1 h. Recovery is identical either way (above), so
+the choice is free. The queue agrees: `gpu_a100` had 2,506 jobs pending against
+`gpu_rtx6000`'s 344 when this was measured, and the two A100 arms' own analysis
+had to be moved off it to land at all.
 
-### Speed: the A100 is faster, and bf16 helps only the RTX 6000
-
-152,001 iterations, 24 snapshots each, so the instrument cost is identical
-across the four and the RANKING is sound:
-
-| arm | wall | rate | extrapolated 1.6 M |
-|---|---|---|---|
-| a100 fp32 | 90 min | **28.0 it/s** | 15.9 h |
-| a100 bf16 | 125 min | 20.3 it/s | 21.9 h |
-| rtx6000 bf16 | 203 min | 12.5 it/s | 35.6 h |
-| rtx6000 fp32 | 215 min | 11.8 it/s | 37.6 h |
+Two caveats on the timing, neither of which changes the ranking. Each pair of
+arms overlapped on the cluster (the two A100 jobs shared 17:38–18:06, the two
+RTX 6000 jobs started six seconds apart), so these are rates under the
+contention a real campaign also runs under rather than isolated peak rates. And
+`Run time` includes data loading and model setup, which is the same work in all
+four.
 
 bf16 is +6% on the RTX 6000 and **-27% on the A100** -- it is not a free speedup
 on a card whose fp32 path is already tensor-core backed.

@@ -36,11 +36,8 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
 - id: cond_l25
-  label: conductance, group lasso 25 (noise_free probe)
+  label: conductance, group lasso 25
   spec_pattern: flyvis_{noise}_blank50_condl25_{fold}
-  axes_only:
-    noise:
-    - noise_free
   differs_by:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
@@ -66,6 +63,16 @@ job_ids:
   flyvis_noise_free_blank50_condl25_cv02: '154396311'
   flyvis_noise_free_blank50_condl25_cv03: '154396312'
   flyvis_noise_free_blank50_condl25_cv04: '154396313'
+  flyvis_noise_005_blank50_condl25_cv00: '154399862'
+  flyvis_noise_005_blank50_condl25_cv01: '154399863'
+  flyvis_noise_005_blank50_condl25_cv02: '154399864'
+  flyvis_noise_005_blank50_condl25_cv03: '154399865'
+  flyvis_noise_005_blank50_condl25_cv04: '154399866'
+  flyvis_noise_05_blank50_condl25_cv00: '154399867'
+  flyvis_noise_05_blank50_condl25_cv01: '154399868'
+  flyvis_noise_05_blank50_condl25_cv02: '154399869'
+  flyvis_noise_05_blank50_condl25_cv03: '154399870'
+  flyvis_noise_05_blank50_condl25_cv04: '154399871'
 analyse_job_ids:
   flyvis_noise_free_blank50_dtfd_cv00: '154399734'
   flyvis_noise_free_blank50_dtfd_cv01: '154399735'
@@ -102,6 +109,13 @@ analyse_job_ids:
   flyvis_noise_free_blank50_condl25_cv02: '154399769'
   flyvis_noise_free_blank50_condl25_cv03: '154399770'
   flyvis_noise_free_blank50_condl25_cv04: '154399771'
+report:
+  arm_order:
+  - cond_l25
+  - conductance
+  - current
+  arm_columns:
+    lasso: training.coeff_g_phi_input_group_L1
 ---
 
 # Experiment 2 — conductance_lasso
@@ -127,14 +141,28 @@ Three keys, and they go together:
 Everything else is the baseline's, including `deterministic`,
 `torch_compile` and every other coefficient.
 
-## The two arms
+## The three arms
 
 **`current` is not run here.** It is experiment 1's `nominal` arm — the
 same fifteen runs, same seeds, same datasets — read from the log tree for
 the comparison. It carries `submit: false`, so `exp launch 2` neither
 resubmits it nor clears its directories.
 
-**15 new jobs**: 3 model-noise levels x 5 folds, conductance arm only.
+**`conductance`**, 15 jobs, lasso 100: 3 model-noise levels x 5 folds.
+
+**`cond_l25`**, 15 jobs, lasso 25. It began as a 5-fold probe at `noise_free`
+only, to separate "lambda 100 is too strong" from "sigma 0 cannot hold the
+message"; it answered the first (see below), so on 2026-09-23 it was widened to
+the full noise axis and the missing **10 jobs** — `noise_005` and `noise_05`,
+five folds each — were launched as `154399862`–`154399871`. The five
+`noise_free` runs that had already landed were not resubmitted:
+
+```
+python tools/exp.py launch 2 --arm cond_l25 --where noise=noise_005,noise_05
+```
+
+`--where` exists for exactly this: `--arm cond_l25` alone would have cleared and
+relaunched all fifteen.
 
 ## Specs
 
@@ -193,6 +221,54 @@ there is no process noise to keep the message alive against the penalty. The
 `cond_l25` arm is five folds at lambda 25 on the same `noise_free` data, and
 nothing else changed. If it recovers on all five, the lasso is too strong; if it
 splits the same way, sigma 0 is.
+
+**Answered: the lasso is too strong.** All five lambda-25 folds recovered —
+`R2_W` 0.898 +- 0.007 against lambda 100's 0.487 +- 0.409, and no fold collapsed.
+Sigma 0 is not the problem. That is what widened this arm to the whole noise
+axis.
+
+## The conductance fit-roll column is a clamp, not a score
+
+The lasso-100 arm reports `template_rollout_r` between **0.112 and 0.120** on
+every one of its ten `noise_005` and `noise_05` runs, with RMSE 83–85 V. Ten
+independent runs at two noise levels agreeing to three digits is a rail, not a
+measurement, and it is: **67–71% of the 13,741 neurons sit on the +-100 V
+divergence clamp** in
+[graph_tester.py:725](../src/connectome_gnn/models/graph_tester.py#L725), which
+exists to stop a NaN and instead turns a divergence into a finite number. Flyvis
+voltages span about 3.4 V (99th percentile of |v|), so a neuron held at 100 V is
+not a bad prediction, it is no prediction. The per-window CSV shows it locking in
+the first 500 frames and never moving: RMSE 89.05 in every window thereafter,
+pearson 0.03.
+
+| readout | conductance model (lasso 100) | current model (exp01 nominal) |
+|---|---|---|
+| conductance form | r 0.112–0.120, **67–71% clamped** | r 0.54–0.71, 0.3–19.6% clamped |
+| current form | r 0.47–0.51, 0% clamped | r 0.99, 0% clamped |
+
+Read down the column, not across: the current-form readout never clamps and the
+conductance-form readout clamps on both models. `template_rollout_roundtrip_rel_dev`
+is 0.000000, so the fitted constants were written into the known-ODE faithfully —
+the instability is in the constants, not in the write.
+
+**Why the conductance constants are unstable.** All three form-R2 medians are
+0.999989 on this run, so the conductance template describes the message as well
+as the current one does. It does so degenerately: `conductance_form_E_over_vi`
+is 76–593, i.e. the reversal it wants sits one to six hundred times the voltage
+scale away from any voltage the data visits. There `W*relu(v_j)*(E - v_i)` is
+`W*E*relu(v_j)` plus a term in `v_i` that is negligible **at the true voltages**,
+so only the product `W*E` is identified. The R2 is measured at the true `v_i`;
+the rollout feeds back its own, and the neglected `-W*relu(v_j)*v_i` term is a
+positive feedback with gain `|W*E|/|v_i|` of that same order. It runs away and
+the clamp catches it.
+
+So there is no bug in the readout arithmetic or in the rollout. There *was* a
+reporting defect: a diverged rollout scored as if it were a weak model.
+`Clamped at +/-100 V` now goes into `results_rollout*.log`, through
+`template_rollout_pct_clamped` into `metrics.txt`, and into the report table's
+parentheses, so the rail is visible beside the number it produced. Runs that
+landed before 2026-09-23 have no such field and their fit-roll numbers must be
+read against the table above.
 
 <!-- STATUS:BEGIN -->
 

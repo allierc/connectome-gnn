@@ -632,6 +632,10 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
     rollout_stim_list = []
     stimuli_true_list = []   # true stimulus (input neurons only)
     stimuli_pred_list = []   # SIREN predicted stimulus (input neurons only)
+    # The divergence guard below is a hard clamp; these count how often it fired.
+    _V_CLAMP = 100.0
+    _n_clamped = 0
+    _n_voltages = 0
 
     with torch.no_grad():
         _int_method = getattr(tc, 'integration_method', 'euler')
@@ -722,7 +726,17 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             if torch.isnan(x.voltage).any() or torch.isinf(x.voltage).any():
                 logger.error(f"rollout diverged at frame {k} (NaN/Inf in voltage) — aborting")
                 break
-            x.voltage = torch.clamp(x.voltage, min=-100.0, max=100.0)
+            # THE CLAMP TURNS A DIVERGENCE INTO A NUMBER, so count how much of
+            # the trajectory it is holding up. Without this a diverged rollout
+            # scores like a weak model instead of like a failure: the conductance
+            # template readout of exp02's lasso-100 arm reported r = 0.112-0.120
+            # and RMSE 83-85 V across all ten runs, identical to three digits,
+            # because 67-71% of the 13,741 neurons were sitting on this +-100 V
+            # rail. Flyvis voltages span about 3.4 V (99th percentile of |v|), so
+            # a neuron at 100 V is not a bad prediction, it is no prediction.
+            _n_clamped += int((x.voltage.abs() >= _V_CLAMP).sum())
+            _n_voltages += int(x.voltage.numel())
+            x.voltage = torch.clamp(x.voltage, min=-_V_CLAMP, max=_V_CLAMP)
 
             # Calcium dynamics
             if sim.calcium_type == "leaky":
@@ -809,6 +823,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         f.write("Rollout Metrics\n")
         f.write("=" * 60 + "\n")
         f.write(f"RMSE: {np.mean(rmse_ro):.4f} +/- {np.std(rmse_ro):.4f}\n")
+        # NAMED BEFORE THE CORRELATION, because it decides whether the
+        # correlation means anything: this is the share of all neuron-frames the
+        # +-100 V divergence clamp was holding. Anything above a few percent and
+        # the rollout is diverging, not predicting.
+        f.write(f"Clamped at +/-{_V_CLAMP:g} V: "
+                f"{100.0 * _n_clamped / max(_n_voltages, 1):.2f}% of "
+                f"{_n_voltages} neuron-frames\n")
         f.write(_pearson_log_line(pearson_ro))
         f.write(f'Pearson r (Fisher-z mean, sd): {_rollout_fz["z_mean"]:.4f} {_rollout_fz["z_sd"]:.4f}\n')
         if hidden_rollout_pearson is not None:

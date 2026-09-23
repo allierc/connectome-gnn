@@ -35,18 +35,29 @@ _SPEC.loader.exec_module(exp)
 _FAMILY_WORDS = ("cond", "curr", "conductance", "current")
 
 
-def _runs_saying(*families):
-    """Fake `runs(fm)` rows whose metrics report the given `alt_form_family`."""
-    return [({"id": "a"}, {}, f"run{i}") for i in range(len(families))]
+_KNOWN_ODE = {"current": "flyvis_known_ode",
+              "conductance": "flyvis_conductance_known_ode"}
 
 
 @pytest.fixture
 def patched(monkeypatch):
-    def use(*families):
-        by_run = {f"run{i}": {"alt_form_family": f} if f else {}
-                  for i, f in enumerate(families)}
+    """Fake `runs(fm)` rows carrying the known-ODE each column rolled out with.
+
+    `own` is the family of the model, which is what the rollout's own column is;
+    the other column is the remaining family. `None` stands for a run that has
+    not landed and so names neither.
+    """
+    def use(*owns):
+        by_run = {}
+        for i, own in enumerate(owns):
+            if own is None:
+                by_run[f"run{i}"] = {}
+                continue
+            alt = "current" if own == "conductance" else "conductance"
+            by_run[f"run{i}"] = {"template_rollout_model": _KNOWN_ODE[own],
+                                 "template_alt_rollout_model": _KNOWN_ODE[alt]}
         monkeypatch.setattr(exp, "metrics_of", lambda r: by_run.get(r) or None)
-        return _runs_saying(*families)
+        return [({"id": "a"}, {}, f"run{i}") for i in range(len(owns))]
     return use
 
 
@@ -67,22 +78,40 @@ def test_pretty_does_not_name_a_family():
 
 
 def test_a_current_model_reads_own_as_current(patched):
-    """alt_form_family == conductance means the model's own form is current."""
-    rs = patched(*["conductance"] * 5)
-    own, alt = exp._form_heads(rs)
+    own, alt = exp._form_heads(patched(*["current"] * 5))
     assert "curr" in own and "cond" in alt
 
 
 def test_a_conductance_model_reads_own_as_conductance(patched):
-    rs = patched(*["current"] * 5)
-    own, alt = exp._form_heads(rs)
+    own, alt = exp._form_heads(patched(*["conductance"] * 5))
     assert "cond" in own and "curr" in alt
 
 
-def test_mixed_families_refuse_to_name_either(patched):
-    """One table cannot label a column for two different model families."""
+def test_mixed_models_refuse_to_name_either(patched):
+    """Experiment 2's shape: current and conductance models in one table.
+
+    There is no single family for the column, so the honest header is the
+    relative one; naming a family here is the original defect in a new place.
+    """
     assert exp._form_heads(patched("conductance", "current")) is None
 
 
 def test_nothing_landed_refuses_too(patched):
     assert exp._form_heads(patched(None, None)) is None
+
+
+def test_alt_form_family_is_not_what_decides_it(patched, monkeypatch):
+    """The field that looks right and is not.
+
+    `alt_form_family` comes from `_is_conductance_data(ode_params)` -- the
+    GENERATOR's family -- so on current data it reads "conductance" for a
+    conductance model too. If `_form_heads` ever goes back to reading it, this
+    run would be labelled current-form-own when the rollout used the
+    conductance known-ODE.
+    """
+    by_run = {"run0": {"alt_form_family": "conductance",
+                       "template_rollout_model": "flyvis_conductance_known_ode",
+                       "template_alt_rollout_model": "flyvis_known_ode"}}
+    monkeypatch.setattr(exp, "metrics_of", lambda r: by_run.get(r))
+    own, _alt = exp._form_heads([({"id": "a"}, {}, "run0")])
+    assert "cond" in own
