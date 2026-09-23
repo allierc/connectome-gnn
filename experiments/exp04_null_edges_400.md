@@ -33,16 +33,16 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 10.0
 job_ids:
-  flyvis_noise_005_null400_cur_cv00: '154400100'
-  flyvis_noise_005_null400_cur_cv01: '154400101'
-  flyvis_noise_005_null400_cur_cv02: '154400102'
-  flyvis_noise_005_null400_cur_cv03: '154400103'
-  flyvis_noise_005_null400_cur_cv04: '154400104'
-  flyvis_noise_005_null400_condl10_cv00: '154400105'
-  flyvis_noise_005_null400_condl10_cv01: '154400106'
-  flyvis_noise_005_null400_condl10_cv02: '154400107'
-  flyvis_noise_005_null400_condl10_cv03: '154400108'
-  flyvis_noise_005_null400_condl10_cv04: '154400109'
+  flyvis_noise_005_null400_cur_cv00: '154400229'
+  flyvis_noise_005_null400_cur_cv01: '154400230'
+  flyvis_noise_005_null400_cur_cv02: '154400231'
+  flyvis_noise_005_null400_cur_cv03: '154400232'
+  flyvis_noise_005_null400_cur_cv04: '154400233'
+  flyvis_noise_005_null400_condl10_cv00: '154400234'
+  flyvis_noise_005_null400_condl10_cv01: '154400235'
+  flyvis_noise_005_null400_condl10_cv02: '154400236'
+  flyvis_noise_005_null400_condl10_cv03: '154400237'
+  flyvis_noise_005_null400_condl10_cv04: '154400238'
 report:
   arm_order:
   - current
@@ -127,6 +127,20 @@ already fallen to 7.5 GB ten minutes in. `gpu_a100` had 2,392 jobs pending
 against `gpu_rtx6000`'s zero at the time, so the RTX 6000 was also the faster
 place to be.
 
+## Precision: bf16, and it is the only half-precision option
+
+The ten runs are `training.mlp_precision: bf16` as of 2026-09-23,
+`154400229`–`154400238`. **fp16 is not accepted** — `mlp_precision` is
+`Literal["fp32", "tf32", "bf16"]` and a spec naming fp16 fails validation at
+load. bf16 is the half-precision that exists, and experiment 0 measured it as
+free on recovery (`R2_W` 0.944 against fp32's 0.948, within the 0.939–0.948
+spread of all four arms) and +6% in throughput on this card, 48.6 against
+39.7 it/s.
+
+Both arms carry it, so the current-against-conductance comparison this
+experiment exists for is unaffected. It does make exp04 the only experiment not
+at fp32; exp00 is what licenses that.
+
 One A100 argument does survive and is not settled here: the **analysis** pass
 runs the template readout over all 2.17 M edges on the GPU, and that is VRAM
 rather than host RAM. If `-o test_plot` hits a CUDA out-of-memory error, the
@@ -136,7 +150,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 ## Status
 
-**0/10 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
+**0/10 landed**, 0 trained (awaiting `-o test_plot`), 4 running, 6 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -148,8 +162,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current |  | 1 |  | 0.002 ± 0.002 |  |  | -0.005 ± 0.003 | -7.342 ± 2.245 | 0.150 ± 0.237 | 0.112 ± 0.198 | -0.015 ± 0.010 |  |  |  |
-| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| current |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
 
 ### Per run
 
@@ -159,12 +172,12 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 | `flyvis_noise_005_null400_cur_cv01` | running | 1 | `` |  |
 | `flyvis_noise_005_null400_cur_cv02` | running | 1 | `` |  |
 | `flyvis_noise_005_null400_cur_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | pending |  | `` |  |
 
 <!-- STATUS:END -->
 
