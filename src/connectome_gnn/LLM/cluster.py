@@ -109,9 +109,19 @@ def _bsub_over_ssh(cluster_cmd, conda_env, node_name, n_cpus, device,
 
 
 def _resolve_n_cpus(node_name, n_cpus_default=2):
-    """Return the bsub -n count for a given GPU node. Override per-node via
-    _CPUS_PER_NODE; otherwise use the caller's default."""
-    return _CPUS_PER_NODE.get(node_name, n_cpus_default)
+    """Return the bsub -n count for a given GPU node: the larger of the
+    per-node floor and what the caller asked for.
+
+    THE MAX, NOT THE MAP. `_CPUS_PER_NODE` used to WIN outright, so a caller
+    asking for more was silently cut back to 8 -- and on LSF a slot is 20 GB of
+    host RAM, so that is a memory request being silently cut back to 160 GB.
+    Experiment 4's five-fold inflated connectome peaks at about 200 GB and had
+    already been killed once for TERM_MEMLIMIT at exactly that ceiling; sending
+    it to `gpu_h100` or `gpu_a100` would have reproduced the kill while looking
+    like a bigger machine. The map stays as the FLOOR it was written to be --
+    the default of 2 starves the input pipeline -- and an explicit ask wins.
+    """
+    return max(_CPUS_PER_NODE.get(node_name, 0), n_cpus_default)
 
 
 def check_cluster_repo():
