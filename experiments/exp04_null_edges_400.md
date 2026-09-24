@@ -64,6 +64,20 @@ report:
     cond_l25: conductance
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
+analyse_job_ids:
+  flyvis_noise_005_null400_cur_cv00: '154431190'
+  flyvis_noise_005_null400_cur_cv01: '154431191'
+  flyvis_noise_005_null400_cur_cv02: '154431192'
+  flyvis_noise_005_null400_cur_cv03: '154431193'
+  flyvis_noise_005_null400_cur_cv04: '154431194'
+  flyvis_noise_005_null400_condl10_cv00: '154431195'
+  flyvis_noise_005_null400_condl10_cv01: '154431196'
+  flyvis_noise_005_null400_condl10_cv02: '154431197'
+  flyvis_noise_005_null400_condl25_cv00: '154431198'
+  flyvis_noise_005_null400_condl25_cv01: '154431199'
+  flyvis_noise_005_null400_condl25_cv02: '154431200'
+  flyvis_noise_005_null400_condl25_cv03: '154431201'
+  flyvis_noise_005_null400_condl25_cv04: '154431202'
 ---
 # Experiment 4 — null_edges_400
 
@@ -165,7 +179,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 ## Status
 
-**0/15 landed**, 0 trained (awaiting `-o test_plot`), 15 running, 0 pending
+**0/15 landed**, 13 trained (awaiting `-o test_plot`), 2 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -177,29 +191,27 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current |  | 16,001 |  | 0.701 ± 0.349 |  |  | -0.005 ± 0.003 | -7.314 ± 2.253 | 0.060 ± 0.261 | 0.031 ± 0.232 | -0.014 ± 0.010 |  |  |  |
-| conductance |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
-| cond_l25 |  | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| conductance |  | 880,001 |  | 0.885 ± 0.005 |  |  | 0.866 ± 0.063 | 0.952 ± 0.012 | 0.517 ± 0.157 | 0.302 ± 0.033 | 0.842 ± 0.112 |  |  | 0.814 ± 0.010 |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | running | 16,001 | `` |  |
-| `flyvis_noise_005_null400_cur_cv01` | running | 16,001 | `` |  |
-| `flyvis_noise_005_null400_cur_cv02` | running | 16,001 | `` |  |
-| `flyvis_noise_005_null400_cur_cv03` | running | 16,001 | `` |  |
-| `flyvis_noise_005_null400_cur_cv04` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv01` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv02` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv01` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv02` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_cur_cv00` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv01` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv02` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv03` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv04` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv00` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv01` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 960,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 960,001 | `` |  |
+| `flyvis_noise_005_null400_condl25_cv00` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv01` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv02` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv03` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv04` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
 
 <!-- STATUS:END -->
 

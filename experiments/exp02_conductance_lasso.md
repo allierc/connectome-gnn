@@ -66,7 +66,7 @@ job_ids:
   flyvis_noise_005_blank50_condl25_cv00: '154399862'
   flyvis_noise_005_blank50_condl25_cv01: '154399863'
   flyvis_noise_005_blank50_condl25_cv02: '154399864'
-  flyvis_noise_005_blank50_condl25_cv03: '154399865'
+  flyvis_noise_005_blank50_condl25_cv03: '154428041'
   flyvis_noise_005_blank50_condl25_cv04: '154399866'
   flyvis_noise_05_blank50_condl25_cv00: '154399867'
   flyvis_noise_05_blank50_condl25_cv01: '154399868'
@@ -109,6 +109,16 @@ analyse_job_ids:
   flyvis_noise_free_blank50_condl25_cv02: '154399769'
   flyvis_noise_free_blank50_condl25_cv03: '154399770'
   flyvis_noise_free_blank50_condl25_cv04: '154399771'
+  flyvis_noise_005_blank50_condl25_cv00: '154431175'
+  flyvis_noise_005_blank50_condl25_cv01: '154431176'
+  flyvis_noise_005_blank50_condl25_cv02: '154431177'
+  flyvis_noise_005_blank50_condl25_cv03: '154431178'
+  flyvis_noise_005_blank50_condl25_cv04: '154431179'
+  flyvis_noise_05_blank50_condl25_cv00: '154431180'
+  flyvis_noise_05_blank50_condl25_cv01: '154431181'
+  flyvis_noise_05_blank50_condl25_cv02: '154431182'
+  flyvis_noise_05_blank50_condl25_cv03: '154431183'
+  flyvis_noise_05_blank50_condl25_cv04: '154431184'
 report:
   arm_order:
   - current
@@ -327,7 +337,7 @@ read against the table above.
 
 ## Status
 
-**35/45 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
+**35/45 landed**, 10 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -345,8 +355,7 @@ read against the table above.
 
 | arm | noise | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cond_l25 | noise_005 | 400,001 |  | 0.998 ± 0.000 |  |  | 0.973 ± 0.003 | 0.979 ± 0.003 | 0.882 ± 0.016 | 0.893 ± 0.011 | 0.988 ± 0.003 |  |  | 0.890 ± 0.012 |
-| cond_l25 | noise_05 | 480,001 |  | 0.993 ± 0.001 |  |  | 0.985 ± 0.001 | 0.997 ± 0.001 | 0.875 ± 0.021 | 0.921 ± 0.017 | 0.994 ± 0.001 |  |  | 0.891 ± 0.011 |
+| — | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -387,16 +396,16 @@ read against the table above.
 | `flyvis_noise_free_blank50_condl25_cv02` | landed | 1,520,001 | `71e4d78710c4` |  |
 | `flyvis_noise_free_blank50_condl25_cv03` | landed | 1,520,001 | `71e4d78710c4` |  |
 | `flyvis_noise_free_blank50_condl25_cv04` | landed | 1,520,001 | `71e4d78710c4` |  |
-| `flyvis_noise_005_blank50_condl25_cv00` | running | 480,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv01` | running | 480,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv02` | running | 480,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv03` | running | 480,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_cv04` | running | 480,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv00` | running | 480,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv01` | running | 480,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv02` | running | 480,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv03` | running | 480,001 | `` |  |
-| `flyvis_noise_05_blank50_condl25_cv04` | running | 480,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_cv00` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_005_blank50_condl25_cv01` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_005_blank50_condl25_cv02` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_005_blank50_condl25_cv03` | trained | 1,520,001 | `69d59d4e6a93` |  |
+| `flyvis_noise_005_blank50_condl25_cv04` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_05_blank50_condl25_cv00` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_05_blank50_condl25_cv01` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_05_blank50_condl25_cv02` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_05_blank50_condl25_cv03` | trained | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_05_blank50_condl25_cv04` | trained | 1,520,001 | `7278aa10679f` |  |
 
 <!-- STATUS:END -->
 

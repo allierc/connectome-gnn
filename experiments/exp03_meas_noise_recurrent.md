@@ -105,6 +105,11 @@ analyse_job_ids:
   flyvis_noise_005_010_condl100rc20_cv02: '154400367'
   flyvis_noise_005_010_condl100rc20_cv04: '154400368'
   flyvis_noise_005_020_condl100rc20_cv01: '154400369'
+  flyvis_noise_005_010_condl100rc20_cv03: '154431185'
+  flyvis_noise_005_020_condl100rc20_cv00: '154431186'
+  flyvis_noise_005_020_condl100rc20_cv02: '154431187'
+  flyvis_noise_005_020_condl100rc20_cv03: '154431188'
+  flyvis_noise_005_020_condl100rc20_cv04: '154431189'
 ---
 # Experiment 3 — meas_noise_recurrent
 
@@ -183,57 +188,58 @@ comparable and only loosely comparable with the published pair.
 
 ## Status
 
-**0/30 landed**, 16 trained (awaiting `-o test_plot`), 14 running, 0 pending
+**15/30 landed**, 5 trained (awaiting `-o test_plot`), 10 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
 | arm | meas | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | | |
+| current | 010 | 5 | 0.985 ± 0.001 | 0.994 ± 0.000 | 0.989 ± 0.005 (0.0) | 0.660 ± 0.032 (2.3) | 0.769 ± 0.012 (0.1) | 0.576 ± 0.054 (5.2) | 0.717 ± 0.029 (23.6) | 0.702 ± 0.059 | 0.884 ± 0.035 (0.3) | 0.034 ± 0.011 |  | 0.843 ± 0.014 |
+| current | 020 | 5 | 0.956 ± 0.003 | 0.741 ± 0.306 | 0.938 ± 0.030 (0.0) | 0.584 ± 0.042 (4.9) | 0.579 ± 0.039 (0.1) | 0.145 ± 0.054 (9.7) | 0.619 ± 0.027 (40.0) | 0.606 ± 0.018 | 0.801 ± 0.034 (2.6) | 0.043 ± 0.016 |  | 0.810 ± 0.023 |
+| conductance | 010 | 4 | 0.982 ± 0.001 | 0.993 ± 0.000 | 0.143 ± 0.013 (75.3) | 0.456 ± 0.007 (0.0) | 0.773 ± 0.008 (0.1) | 0.663 ± 0.065 (4.6) | 0.657 ± 0.034 (26.2) | 0.697 ± 0.034 | 0.893 ± 0.020 (0.2) | 0.043 ± 0.007 |  | 0.832 ± 0.007 |
+| conductance | 020 | 1 | 0.956 ± 0.000 | 0.985 ± 0.000 | 0.193 ± 0.000 (74.2) | 0.467 ± 0.000 (0.0) | 0.617 ± 0.000 (0.1) | 0.181 ± 0.000 (9.7) | 0.478 ± 0.000 (38.3) | 0.593 ± 0.000 | 0.849 ± 0.000 (1.2) | 0.026 ± 0.000 |  | 0.839 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | meas | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| conductance | 010 | 571,633 |  | 0.512 ± 0.000 |  |  | -0.012 ± 0.000 | -0.375 ± 0.000 | 0.571 ± 0.000 | 0.571 ± 0.000 | -0.019 ± 0.000 |  |  | 0.329 ± 0.000 |
-| conductance | 020 | 532,413 |  | 0.982 ± 0.001 |  |  | 0.577 ± 0.034 | 0.134 ± 0.030 | 0.536 ± 0.026 | 0.617 ± 0.013 | 0.801 ± 0.027 |  |  | 0.802 ± 0.012 |
-| cond_l25 | 010 | 8,001 |  | 0.752 ± 0.378 |  |  | 0.736 ± 0.008 | 0.323 ± 0.038 | 0.575 ± 0.080 | 0.508 ± 0.028 | 0.676 ± 0.412 |  |  |  |
-| cond_l25 | 020 | 1,601 |  | 0.863 ± 0.008 |  |  | 0.458 ± 0.013 | 0.047 ± 0.024 | 0.521 ± 0.062 | 0.311 ± 0.055 | 0.872 ± 0.032 |  |  |  |
+| cond_l25 | 010 | 477,358 |  | 0.992 ± 0.001 |  |  | 0.770 ± 0.006 | 0.470 ± 0.029 | 0.676 ± 0.035 | 0.710 ± 0.039 | 0.903 ± 0.017 |  |  | 0.864 ± 0.023 |
+| cond_l25 | 020 | 549,843 |  | 0.984 ± 0.001 |  |  | 0.589 ± 0.041 | 0.194 ± 0.029 | 0.588 ± 0.028 | 0.660 ± 0.056 | 0.823 ± 0.021 |  |  | 0.823 ± 0.019 |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_010_currc20_cv00` | trained | 575,233 | `6ff97411577c` |  |
-| `flyvis_noise_005_010_currc20_cv01` | trained | 575,233 | `6ff97411577c` |  |
-| `flyvis_noise_005_010_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_currc20_cv00` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_currc20_cv01` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_currc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_currc20_cv03` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_currc20_cv04` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_condl100rc20_cv00` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_condl100rc20_cv01` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_condl100rc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_010_condl100rc20_cv03` | running | 571,633 | `` |  |
-| `flyvis_noise_005_010_condl100rc20_cv04` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_currc20_cv00` | landed | 575,233 | `6ff97411577c` |  |
+| `flyvis_noise_005_010_currc20_cv01` | landed | 575,233 | `6ff97411577c` |  |
+| `flyvis_noise_005_010_currc20_cv02` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_currc20_cv03` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_currc20_cv04` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv00` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv01` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv02` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv03` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_currc20_cv04` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv00` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv01` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv02` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv03` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_010_condl100rc20_cv04` | landed | 575,233 | `d543c97a1fd0` |  |
 | `flyvis_noise_005_020_condl100rc20_cv00` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_condl100rc20_cv01` | trained | 575,233 | `d543c97a1fd0` |  |
-| `flyvis_noise_005_020_condl100rc20_cv02` | running | 545,143 | `` |  |
-| `flyvis_noise_005_020_condl100rc20_cv03` | running | 550,588 | `` |  |
-| `flyvis_noise_005_020_condl100rc20_cv04` | running | 532,913 | `` |  |
-| `flyvis_noise_005_010_condl25rc20_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_010_condl25rc20_cv01` | running | 1,601 | `` |  |
-| `flyvis_noise_005_010_condl25rc20_cv02` | running | 8,001 | `` |  |
-| `flyvis_noise_005_010_condl25rc20_cv03` | running | 8,001 | `` |  |
-| `flyvis_noise_005_010_condl25rc20_cv04` | running | 6,401 | `` |  |
-| `flyvis_noise_005_020_condl25rc20_cv00` | running | 6,401 | `` |  |
-| `flyvis_noise_005_020_condl25rc20_cv01` | running | 6,401 | `` |  |
-| `flyvis_noise_005_020_condl25rc20_cv02` | running | 6,401 | `` |  |
-| `flyvis_noise_005_020_condl25rc20_cv03` | running | 6,401 | `` |  |
-| `flyvis_noise_005_020_condl25rc20_cv04` | running | 3,201 | `` |  |
+| `flyvis_noise_005_020_condl100rc20_cv01` | landed | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_condl100rc20_cv02` | trained | 575,233 | `d543c97a1fd0` |  |
+| `flyvis_noise_005_020_condl100rc20_cv03` | trained | 575,233 | `900703a509a8` |  |
+| `flyvis_noise_005_020_condl100rc20_cv04` | trained | 575,233 | `71e4d78710c4` |  |
+| `flyvis_noise_005_010_condl25rc20_cv00` | running | 478,085 | `` |  |
+| `flyvis_noise_005_010_condl25rc20_cv01` | running | 489,173 | `` |  |
+| `flyvis_noise_005_010_condl25rc20_cv02` | running | 556,540 | `` |  |
+| `flyvis_noise_005_010_condl25rc20_cv03` | running | 560,054 | `` |  |
+| `flyvis_noise_005_010_condl25rc20_cv04` | running | 557,872 | `` |  |
+| `flyvis_noise_005_020_condl25rc20_cv00` | running | 557,428 | `` |  |
+| `flyvis_noise_005_020_condl25rc20_cv01` | running | 557,872 | `` |  |
+| `flyvis_noise_005_020_condl25rc20_cv02` | running | 556,540 | `` |  |
+| `flyvis_noise_005_020_condl25rc20_cv03` | running | 556,984 | `` |  |
+| `flyvis_noise_005_020_condl25rc20_cv04` | running | 549,843 | `` |  |
 
 <!-- STATUS:END -->
 
