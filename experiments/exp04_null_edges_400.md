@@ -179,13 +179,15 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 ## Status
 
-**0/15 landed**, 13 trained (awaiting `-o test_plot`), 2 running, 0 pending
+**11/15 landed**, 2 trained (awaiting `-o test_plot`), 2 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
 | arm |  | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | |
+| current |  | 5 | 0.997 ± 0.000 | 0.996 ± 0.000 |  |  | 0.889 ± 0.013 (0.0) | 0.963 ± 0.023 (0.3) | 0.537 ± 0.068 (18.8) | 0.242 ± 0.064 | 0.943 ± 0.009 (0.0) | 0.062 ± 0.007 |  | 0.821 ± 0.007 |
+| conductance |  | 1 | 0.996 ± 0.000 | 0.995 ± 0.000 |  |  | 0.926 ± 0.000 (0.0) | 0.962 ± 0.000 (1.6) | 0.411 ± 0.000 (20.2) | 0.131 ± 0.000 | 0.937 ± 0.000 (0.0) | 0.045 ± 0.000 |  | 0.840 ± 0.000 |
+| cond_l25 |  | 5 | 0.996 ± 0.000 | 0.797 ± 0.395 |  |  | 0.945 ± 0.019 (0.0) | 0.965 ± 0.010 (0.9) | 0.420 ± 0.062 (16.2) | 0.337 ± 0.075 | 0.949 ± 0.009 (0.2) | 0.021 ± 0.010 |  | 0.831 ± 0.026 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
@@ -197,21 +199,21 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_null400_cur_cv00` | trained | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_cur_cv01` | trained | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_cur_cv02` | trained | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_cur_cv03` | trained | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_cur_cv04` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv00` | landed | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv01` | landed | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv02` | landed | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv03` | landed | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_cur_cv04` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv00` | trained | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv01` | trained | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_condl10_cv02` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv02` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv03` | running | 960,001 | `` |  |
 | `flyvis_noise_005_null400_condl10_cv04` | running | 960,001 | `` |  |
-| `flyvis_noise_005_null400_condl25_cv00` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
-| `flyvis_noise_005_null400_condl25_cv01` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
-| `flyvis_noise_005_null400_condl25_cv02` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
-| `flyvis_noise_005_null400_condl25_cv03` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
-| `flyvis_noise_005_null400_condl25_cv04` | trained | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv00` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv01` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv02` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv03` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_null400_condl25_cv04` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 
 <!-- STATUS:END -->
 
