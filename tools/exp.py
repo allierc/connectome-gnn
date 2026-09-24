@@ -731,19 +731,30 @@ _FIGURES = {"derivative_target":
             # fraction of the slide's text height. These panels are nearly
             # square and carry small print, so they get the whole slide where
             # the error histograms are wide and do not need it.
-            + [("Fig/exp01_panels_bug_noise005.png",
-                "neuron 2895 Am, bug", 0.72),
-               ("Fig/exp01_panels_nominal_noise005.png",
-                "neuron 2895 Am, nominal", 0.72)],
+            # SPLIT IN TWO BY tools/split_neuron_panels.py. The whole sheet on
+            # one slide renders panel f's per-synapse numbers at about 2 pt;
+            # a half-sheet doubles the linear scale of everything on it.
+            + [("Fig/exp01_panels_bug_noise005_top.png",
+                "neuron 2895 Am, bug --- a, b, c, e", 0.72),
+               ("Fig/exp01_panels_bug_noise005_bot.png",
+                "neuron 2895 Am, bug --- d, f", 0.80),
+               ("Fig/exp01_panels_nominal_noise005_top.png",
+                "neuron 2895 Am, nominal --- a, b, c, e", 0.72),
+               ("Fig/exp01_panels_nominal_noise005_bot.png",
+                "neuron 2895 Am, nominal --- d, f", 0.80)],
             "conductance_lasso":
             # The three-arm error comparison FIRST, then the per-neuron panels:
             # the distributions say whether the arms differ, the panels say why.
             [("Fig/exp02_errors.png",
               "recovery errors, three arms, five folds pooled"),
-             ("Fig/exp02_panels_current_noise005.png",
-              "neuron 2895 Am, current form", 0.72),
-             ("Fig/exp02_panels_conductance_noise005.png",
-              "neuron 2895 Am, conductance lasso 100", 0.72)]}
+             ("Fig/exp02_panels_current_noise005_top.png",
+              "neuron 2895 Am, current form --- a, b, c, e", 0.72),
+             ("Fig/exp02_panels_current_noise005_bot.png",
+              "neuron 2895 Am, current form --- d, f", 0.80),
+             ("Fig/exp02_panels_conductance_noise005_top.png",
+              "neuron 2895 Am, conductance lasso 100 --- a, b, c, e", 0.72),
+             ("Fig/exp02_panels_conductance_noise005_bot.png",
+              "neuron 2895 Am, conductance lasso 100 --- d, f", 0.80)]}
 _GREEN = 0.9
 
 
@@ -863,7 +874,7 @@ def _table(fm, source="landed"):
     # each name over its own column without moving the values under it.
     spec = "l" + " r" * len(extra) + " l" * len(axes_no_fold) + " r" + " r" * len(heads)
     heads = [r"\multicolumn{1}{c}{" + h + "}" for h in heads]
-    L = [r"\resizebox{\textwidth}{!}{%", rf"\begin{{tabular}}{{{spec}}}",
+    L = [rf"\begin{{tabular}}{{{spec}}}",
          r"\toprule",
          " & ".join(["arm"] + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h, _ in extra]
                     + [_tex(k) for k in axes_no_fold]
@@ -883,7 +894,7 @@ def _table(fm, source="landed"):
             + [_tex(_arm_value(fm["arms"], arm_id, k)) for _h, k in extra]
             + [_tex(_axis_label(fm, k, v)) for k, v in cell] + [n]
             + [_cellf(c) for c in cells]) + r" \\")
-    L += [r"\bottomrule", r"\end{tabular}}"]
+    L += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(L)
 
 
@@ -955,11 +966,10 @@ def _slides(fm):
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\vspace*{0.3cm}", r"\centering\tiny",
          r"\setlength{\tabcolsep}{2pt}",
-         # THE TWO TABLES ARE NAMED. Unlabelled, a slide carrying both invites
-         # "why are there two of these" and, worse, reading a train-split number
-         # as a result. The first is held-out, the second is not.
-         r"{\scriptsize\bfseries held-out, finished runs\par}\vspace*{2pt}",
-         _table(fm),
+         # ONLY THE SECOND TABLE IS NAMED. The first is the default reading of
+         # the slide and needs no banner; the second does, because a train-split
+         # number read as a result is the mistake worth one line of type.
+         r"\firsttable{" + _table(fm) + "}",
          r"\\[6pt]",
          r"{\tiny\raggedright",
          rf"{_tex(fm['purpose'])} \\[2pt]",
@@ -978,7 +988,7 @@ def _slides(fm):
         L += [r"\\[10pt]", r"\centering\tiny",
               r"{\scriptsize\bfseries still training --- train split, not a result"
               r"\par}\vspace*{2pt}",
-              _table(fm, "running"), r"\\[4pt]",
+              r"\nexttable{" + _table(fm, "running") + "}", r"\\[4pt]",
               r"{\tiny\raggedright Still training --- the TRAIN split from "
               r"\texttt{tmp\_training/}, every fold read at the same iteration. "
               r"Not held-out and not comparable to the table above; the "
@@ -986,7 +996,8 @@ def _slides(fm):
               r"borrowed from it.\par}"]
     tt = _timing_table(fm) if fm.get("report", {}).get("timing") else ""
     if tt:
-        L += [r"\\[10pt]", r"\centering\tiny", tt, r"\\[4pt]",
+        L += [r"\\[10pt]", r"\centering\tiny",
+              r"\nexttable{" + tt + "}", r"\\[4pt]",
               r"{\tiny\raggedright LSF \texttt{Run time} from each run's "
               r"\texttt{cluster.out}, over the last iteration its "
               r"\texttt{tmp\_training/Wij.log} reached. Training wall only; "
@@ -1032,6 +1043,24 @@ def report(paths, make_pdf=True):
 % wrapped in \ft, whose size command is inside that group and wins. Patching the
 % theme would be the other fix, and it is shared with conductance.tex.
 \newcommand{\ft}[1]{{\large #1}}
+% TWO TABLES ON ONE SLIDE, ONE FONT SIZE. The landed table has sixteen columns
+% and only fits once \resizebox has squeezed it, which also shrinks its type; a
+% second, narrower table left at \tiny then renders visibly LARGER than the
+% table above it. \firsttable measures the wide one and records the factor
+% \resizebox used; \nexttable applies that same factor instead of computing its
+% own, so both tables end up at one size whatever their natural widths are.
+\newsavebox{\tblbx}
+\newlength{\tblnat}
+\makeatletter
+\newcommand{\lenpt}[1]{\strip@pt\dimexpr#1\relax}
+\makeatother
+\newcommand{\firsttable}[1]{%
+  \sbox{\tblbx}{#1}%
+  \global\tblnat=\wd\tblbx
+  \resizebox{\textwidth}{!}{\usebox{\tblbx}}}
+\newcommand{\nexttable}[1]{%
+  \pgfmathsetmacro{\tblscl}{\lenpt{\textwidth}/\lenpt{\tblnat}}%
+  \scalebox{\tblscl}{#1}}
 \newlength{\panelbox}
 \setlength{\panelbox}{0.68\textheight}
 \newcommand{\fitgfx}[2][\linewidth]{%

@@ -236,16 +236,16 @@ than the stride.
 | `flyvis_noise_005_s5h20_condl100_cv02` | landed | 332,931 | `71e4d78710c4` |  |
 | `flyvis_noise_005_s5h20_condl100_cv03` | landed | 332,931 | `71e4d78710c4` |  |
 | `flyvis_noise_005_s5h20_condl100_cv04` | landed | 332,931 | `71e4d78710c4` |  |
-| `flyvis_noise_005_s5h05_condl25_cv00` | landed | 598,401 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h05_condl25_cv01` | landed | 624,001 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h05_condl25_cv02` | landed | 622,401 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h05_condl25_cv03` | landed | 625,601 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h05_condl25_cv04` | landed | 624,001 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h20_condl25_cv00` | landed | 291,726 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h20_condl25_cv01` | landed | 285,330 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h20_condl25_cv02` | landed | 303,731 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h20_condl25_cv03` | landed | 304,531 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_s5h20_condl25_cv04` | landed | 306,131 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h05_condl25_cv00` | landed | 603,201 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h05_condl25_cv01` | landed | 628,801 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h05_condl25_cv02` | landed | 628,801 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h05_condl25_cv03` | landed | 630,401 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h05_condl25_cv04` | landed | 628,801 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h20_condl25_cv00` | landed | 292,792 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h20_condl25_cv01` | landed | 287,462 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h20_condl25_cv02` | landed | 304,931 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h20_condl25_cv03` | landed | 306,131 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_s5h20_condl25_cv04` | landed | 307,731 | `948eb7b17ab2` |  |
 
 <!-- STATUS:END -->
 

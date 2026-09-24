@@ -207,8 +207,8 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 | `flyvis_noise_005_null400_condl10_cv00` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv01` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv02` | landed | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1,040,001 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1,040,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 1,120,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 1,120,001 | `` |  |
 | `flyvis_noise_005_null400_condl25_cv00` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv01` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv02` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
