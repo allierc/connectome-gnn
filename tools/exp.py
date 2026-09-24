@@ -436,17 +436,27 @@ def launch(number, dry_run=False, only_arm=None, where=None):
     return 0 if len(ids) == len(names) else 1
 
 
-def analyse(number, dry_run=False):
+def analyse(number, dry_run=False, only_arm=None, preliminary=False):
     """bsub `-o test_plot` for every run whose training has finished.
 
     The held-out numbers the landed table reads come from results/metrics.txt,
     which only the plot pass writes. Training and analysis are two jobs, and
     this is the second one -- skipping runs that already have metrics so it is
     safe to re-run as more of the grid finishes.
+
+    `preliminary` also takes runs that are STILL TRAINING, reading whatever
+    checkpoint they have written so far. Waiting a full run to find out an arm
+    has collapsed is the thing it exists to avoid -- exp05's conductance arm
+    reported R2_W -0.012 only after 30 jobs finished. The numbers it produces
+    are a mid-training snapshot and the final pass overwrites them, so the
+    table's own iteration column is what says which you are reading.
     """
     path = exp_path(number)
     fm, _ = load(path)
-    todo = [r for _a, _pt, r in runs(fm) if trained(r) and metrics_of(r) is None]
+    todo = [r for _a, _pt, r in runs(fm)
+            if (only_arm is None or _a["id"] == only_arm)
+            and metrics_of(r) is None
+            and (trained(r) or (preliminary and status_of(r) == "running"))]
     if not todo:
         print(f"experiment {number}: nothing to analyse")
         return 0
@@ -1069,6 +1079,8 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-pdf", action="store_true")
     ap.add_argument("--arm", default=None, help="submit only this arm")
+    ap.add_argument("--preliminary", action="store_true",
+                    help="analyse still-training runs too, off their latest checkpoint")
     ap.add_argument("--where", action="append", default=[], metavar="AXIS=V1,V2",
                     help="submit only these values of an axis, e.g. "
                          "--where noise=noise_005,noise_05")
@@ -1084,7 +1096,8 @@ def main(argv=None) -> int:
     if a.verb == "analyse":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]
-        return max(analyse(n, dry_run=a.dry_run) for n in ns)
+        return max(analyse(n, dry_run=a.dry_run, only_arm=a.arm,
+                           preliminary=a.preliminary) for n in ns)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]
