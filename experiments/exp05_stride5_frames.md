@@ -1,13 +1,12 @@
 ---
 number: 5
 name: stride5_frames
-title: 'One frame in five observed: horizon 5 against horizon 20, current against
-  the general form'
-purpose: 'redo the 1/5-frames row of the NeurIPS supplementary table with the sampling
-  stated once instead of three times: does scoring the rollout only on the observed
-  frames recover the circuit, does a deeper horizon over the same sparse supervision
-  help, and does the general form under a group lasso of 100 hold up where the current
-  form does'
+title: 'One frame in five observed: horizon 5 against horizon 20, current against the general
+  form'
+purpose: 'redo the 1/5-frames row of the NeurIPS supplementary table with the sampling stated
+  once instead of three times: does scoring the rollout only on the observed frames recover
+  the circuit, does a deeper horizon over the same sparse supervision help, and does the general
+  form under a group lasso of 100 hold up where the current form does'
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp05/fly
 task: train
@@ -15,8 +14,8 @@ queue: gpu_rtx6000
 wall: '96:00'
 axes:
   horizon:
-  - h05
-  - h20
+  - h06
+  - h21
   fold:
   - cv00
   - cv01
@@ -45,47 +44,8 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.rollout_loss_stride: 5
-job_ids:
-  flyvis_noise_005_s5h05_cur_cv00: '154397959'
-  flyvis_noise_005_s5h05_cur_cv01: '154397960'
-  flyvis_noise_005_s5h05_cur_cv02: '154397961'
-  flyvis_noise_005_s5h05_cur_cv03: '154397962'
-  flyvis_noise_005_s5h05_cur_cv04: '154397963'
-  flyvis_noise_005_s5h20_cur_cv00: '154397964'
-  flyvis_noise_005_s5h20_cur_cv01: '154397965'
-  flyvis_noise_005_s5h20_cur_cv02: '154397966'
-  flyvis_noise_005_s5h20_cur_cv03: '154397967'
-  flyvis_noise_005_s5h20_cur_cv04: '154397968'
-  flyvis_noise_005_s5h05_condl100_cv00: '154397969'
-  flyvis_noise_005_s5h05_condl100_cv01: '154397970'
-  flyvis_noise_005_s5h05_condl100_cv02: '154397971'
-  flyvis_noise_005_s5h05_condl100_cv03: '154397974'
-  flyvis_noise_005_s5h05_condl100_cv04: '154397975'
-  flyvis_noise_005_s5h20_condl100_cv00: '154397976'
-  flyvis_noise_005_s5h20_condl100_cv01: '154397977'
-  flyvis_noise_005_s5h20_condl100_cv02: '154397978'
-  flyvis_noise_005_s5h20_condl100_cv03: '154397979'
-  flyvis_noise_005_s5h20_condl100_cv04: '154397980'
-  flyvis_noise_005_s5h05_condl25_cv00: '154400341'
-  flyvis_noise_005_s5h05_condl25_cv01: '154400342'
-  flyvis_noise_005_s5h05_condl25_cv02: '154400343'
-  flyvis_noise_005_s5h05_condl25_cv03: '154400344'
-  flyvis_noise_005_s5h05_condl25_cv04: '154400345'
-  flyvis_noise_005_s5h20_condl25_cv00: '154400346'
-  flyvis_noise_005_s5h20_condl25_cv01: '154428043'
-  flyvis_noise_005_s5h20_condl25_cv02: '154400348'
-  flyvis_noise_005_s5h20_condl25_cv03: '154400349'
-  flyvis_noise_005_s5h20_condl25_cv04: '154400350'
+job_ids: {}
 report:
-  withdrawn: 'All 30 runs trained against the wrong frames. rollout_loss_stride
-    masks on (s + 1) % m == 0, but step s is 0-indexed and the state at step s is
-    frame k+s, so with stride 5 the loss landed on frames k+4, k+9, k+14, k+19
-    while a 1-in-5 recording anchored at k observes k, k+5, k+10, k+15, k+20 --
-    no overlap, and step 0, the only zero-drift anchor, was never scored. Both
-    arms are affected: the conductance arm collapsed to R2_W -0.012 and the
-    current arm was degraded to 0.753 against 0.956 for unstrided training on the
-    same data, with R2_tau 0.655 against 0.979. The numbers are withdrawn pending
-    the mask fix and a relaunch of all 30. See the audit section of this file.'
   arm_order:
   - current
   - cond_l25
@@ -94,41 +54,11 @@ report:
     cond_l25: conductance
   axis_labels:
     horizon:
-      h05: '5'
-      h20: '20'
+      h06: '6'
+      h21: '21'
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
-analyse_job_ids:
-  flyvis_noise_005_s5h05_cur_cv00: '154431206'
-  flyvis_noise_005_s5h05_cur_cv01: '154431207'
-  flyvis_noise_005_s5h05_cur_cv02: '154431208'
-  flyvis_noise_005_s5h05_cur_cv03: '154431209'
-  flyvis_noise_005_s5h05_cur_cv04: '154431210'
-  flyvis_noise_005_s5h20_cur_cv00: '154431211'
-  flyvis_noise_005_s5h20_cur_cv01: '154431212'
-  flyvis_noise_005_s5h20_cur_cv02: '154431213'
-  flyvis_noise_005_s5h20_cur_cv03: '154431214'
-  flyvis_noise_005_s5h20_cur_cv04: '154431215'
-  flyvis_noise_005_s5h05_condl100_cv00: '154431216'
-  flyvis_noise_005_s5h05_condl100_cv01: '154431217'
-  flyvis_noise_005_s5h05_condl100_cv02: '154431218'
-  flyvis_noise_005_s5h05_condl100_cv03: '154431219'
-  flyvis_noise_005_s5h05_condl100_cv04: '154431220'
-  flyvis_noise_005_s5h20_condl100_cv00: '154431221'
-  flyvis_noise_005_s5h20_condl100_cv01: '154431222'
-  flyvis_noise_005_s5h20_condl100_cv02: '154431223'
-  flyvis_noise_005_s5h20_condl100_cv03: '154431224'
-  flyvis_noise_005_s5h20_condl100_cv04: '154431225'
-  flyvis_noise_005_s5h05_condl25_cv00: '154431265'
-  flyvis_noise_005_s5h05_condl25_cv01: '154431266'
-  flyvis_noise_005_s5h05_condl25_cv02: '154431267'
-  flyvis_noise_005_s5h05_condl25_cv03: '154431268'
-  flyvis_noise_005_s5h05_condl25_cv04: '154431269'
-  flyvis_noise_005_s5h20_condl25_cv00: '154431270'
-  flyvis_noise_005_s5h20_condl25_cv01: '154431271'
-  flyvis_noise_005_s5h20_condl25_cv02: '154431272'
-  flyvis_noise_005_s5h20_condl25_cv03: '154431273'
-  flyvis_noise_005_s5h20_condl25_cv04: '154431274'
+analyse_job_ids: {}
 ---
 # Experiment 5 — stride5_frames
 

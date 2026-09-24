@@ -137,16 +137,36 @@ def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0):
     positive scaling is equivalent. All schemes return [1.0] at K=1, which is what
     keeps the K=1 objective identical to one-step training.
 
-    `loss_stride` m > 0 then ZEROES every step but m, 2m, 3m, ..., which is
+    `loss_stride` m > 0 then ZEROES every step but 0, m, 2m, ..., which is
     partial temporal sampling: the model still integrates each intermediate
     frame, it is simply not scored there. The mask is applied AFTER the
     weighting, so "one frame in five, discounted" is expressible and the two
     knobs stay orthogonal.
+
+    STEP 0 IS SCORED AND THE INDEX IS NOT SHIFTED, and both halves of that
+    sentence were wrong until 2026-09-24. `_dense_rollout_loss` runs step s with
+    the state at frame k+s against target y_ts[k+s] -- step 0 being the
+    un-integrated observed frame k itself. The mask used to read
+    `(s + 1) % m == 0`, which selects s = m-1, 2m-1, ..., so with m = 5 the loss
+    landed on frames k+4, k+9, k+14, k+19 while a 1-in-5 recording anchored at k
+    observes k, k+5, k+10, k+15, k+20: NO OVERLAP. It scored exactly the frames
+    the knob exists to skip, and it dropped step 0, the one term whose state is
+    an observation with zero integration drift.
+
+    That cost experiment 5 all thirty of its runs. Its conductance arm collapsed
+    to R2_W -0.012 -- the strided fit gradient on g_phi's first layer fell to
+    0.69-6.1 against a constant group-lasso pull of 200, which annihilated the
+    v_j input column -- and its current arm was degraded to 0.753 against 0.956
+    for unstrided training on the same data, with R2_tau 0.655 against 0.979.
+
+    A HORIZON OF K THEREFORE SCORES floor((K-1)/m) + 1 STEPS, and reaching step
+    s = m needs K >= m + 1: "one observed interval" is horizon m+1, not m.
     """
     w = _rollout_step_weights_dense(weighting, n_steps, gamma)
     if loss_stride and loss_stride > 0:
-        # step s is 0-indexed, so the m-th observed step is s = m - 1.
-        w = [x if (s + 1) % loss_stride == 0 else 0.0 for s, x in enumerate(w)]
+        # s is 0-indexed and the state at step s is frame k+s, so the observed
+        # grid k, k+m, k+2m, ... is exactly s % m == 0.
+        w = [x if s % loss_stride == 0 else 0.0 for s, x in enumerate(w)]
     return w
 
 
