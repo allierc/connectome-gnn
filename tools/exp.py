@@ -616,6 +616,17 @@ def _summary_rows(fm, rs, source, nd=3):
 
 def status_block(fm):
     rs = runs(fm)
+    # AN EXPERIMENT CAN WITHDRAW ITS OWN RESULTS. `report.withdrawn: <why>` blanks
+    # both tables and prints the reason instead. The runs stay on disk -- they are
+    # the evidence for why they were withdrawn -- but nothing reads a number off
+    # them by accident, which deleting the log tree would also achieve and at the
+    # cost of the evidence.
+    _w = fm.get("report", {}).get("withdrawn")
+    if _w:
+        return "\n".join([_BEGIN, "", "## Status", "",
+                           f"**WITHDRAWN.** {_w}", "",
+                           f"{len(rs)} runs are on disk and are not reported here.",
+                           "", _END])
     counts = {"landed": 0, "trained": 0, "died": 0, "running": 0, "pending": 0}
     for _arm, _pt, run in rs:
         counts[status_of(run)] += 1
@@ -962,6 +973,22 @@ def _slides(fm):
     """One table slide per experiment, then one slide per figure it declares."""
     rs = runs(fm)
     n_land = sum(1 for _a, _p, r in rs if status_of(r) == "landed")
+    _w = fm.get("report", {}).get("withdrawn")
+    if _w:
+        # The slide stays, so the deck does not silently lose an experiment; what
+        # goes is every number on it.
+        return "\n".join([
+            rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
+            rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
+            r"\vspace*{1.2cm}", r"\centering",
+            r"{\large\bfseries results withdrawn\par}", r"\vspace*{0.4cm}",
+            r"\begin{minipage}{0.86\textwidth}\small\raggedright",
+            # \par after the minipage: without it the footnote below flows
+            # BESIDE the box rather than under it, because a minipage is inline.
+            _tex(_w), r"\end{minipage}\par",
+            r"\vspace*{0.5cm}",
+            rf"{{\footnotesize {len(rs)} runs are on disk and are not reported here.\par}}",
+            r"\end{frame}"])
     L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\vspace*{0.3cm}", r"\centering\tiny",
@@ -1003,7 +1030,7 @@ def _slides(fm):
               r"\texttt{tmp\_training/Wij.log} reached. Training wall only; "
               r"\texttt{-o test\_plot} is a separate job.\par}"]
     L += [r"\end{frame}"]
-    for fig, cap, *rest in _FIGURES.get(fm["name"], []):
+    for fig, cap, *rest in ([] if _w else _FIGURES.get(fm["name"], [])):
         box = rest[0] if rest else 0.72
         if os.path.exists(os.path.join(ROOT, "presentation", fig)):
             L += [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(cap)}}}}}",
