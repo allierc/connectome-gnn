@@ -193,7 +193,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| conductance |  | 1,040,001 |  | 0.886 ± 0.005 |  |  | 0.875 ± 0.060 | 0.959 ± 0.006 | 0.482 ± 0.171 | 0.271 ± 0.045 | 0.845 ± 0.108 |  |  | 0.840 ± 0.005 |
+| conductance |  | 1,280,001 |  | 0.886 ± 0.005 |  |  | 0.882 ± 0.057 | 0.955 ± 0.007 | 0.479 ± 0.208 | 0.259 ± 0.055 | 0.844 ± 0.108 |  |  | 0.824 ± 0.005 |
 
 ### Per run
 
@@ -207,8 +207,8 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 | `flyvis_noise_005_null400_condl10_cv00` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv01` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv02` | landed | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1,120,001 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1,120,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | running | 1,280,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | running | 1,280,001 | `` |  |
 | `flyvis_noise_005_null400_condl25_cv00` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv01` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv02` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
