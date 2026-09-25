@@ -2632,6 +2632,7 @@ def run_recurrent_train_step(
     ynorm,
     rollout_horizon,
     target_weight=None,
+    rollout_burn_in=None,
 ):
     """One iteration of recurrent training. Returns the loss, same contract as
     run_nominal_train_step — the caller owns backward/step and the shared
@@ -2669,6 +2670,7 @@ def run_recurrent_train_step(
         hn=hn,
         n_steps=rollout_horizon,
         target_weight=target_weight,
+        burn_in=rollout_burn_in,
     )
 
     return loss

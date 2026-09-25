@@ -88,7 +88,7 @@ def test_guard_accepts_a_schedule_past_the_burn_in():
 
 def test_guard_refuses_a_horizon_inside_the_burn_in():
     """exp03's [1..20] ramp with burn-in 8: epochs 0-7 would train on nothing."""
-    with pytest.raises(ValueError, match=r"\[1, 2, 3, 4, 5, 6, 7, 8\]"):
+    with pytest.raises(ValueError, match=r"\(0, 1\), \(1, 2\).*\(7, 8\)\]"):
         validate_rollout_masks(_training(rollout_horizon_schedule=list(range(1, 21)),
                                          rollout_burn_in=8))
 
@@ -112,7 +112,7 @@ def test_guard_refuses_a_stride_horizon_that_reaches_only_the_anchor():
 
 def test_guard_sees_stride_and_burn_in_together():
     """Stride 5 at horizon 6 scores 0 and 5; burn-in 8 removes both."""
-    with pytest.raises(ValueError, match=r"\[6\]"):
+    with pytest.raises(ValueError, match=r"\[\(0, 6\)\]"):
         validate_rollout_masks(_training(rollout_horizon_schedule=[6, 11],
                                          rollout_loss_stride=5, rollout_burn_in=8))
 
@@ -248,3 +248,99 @@ def test_zero_burn_in_is_the_existing_objective():
     model = _LinearModel()
     tc_default = _loss(model, x_ts, y_ts, 20).item()
     assert _loss(model, x_ts, y_ts, 20, burn_in=0).item() == tc_default
+
+
+# --------------------------------------------------------------------------- #
+#  the warm start: rollout_burn_in_start_epoch                                 #
+# --------------------------------------------------------------------------- #
+from connectome_gnn.models.recurrent_step import burn_in_at_epoch, recurrent_loss  # noqa: E402
+
+
+def test_burn_in_is_off_during_the_warm_start():
+    tr = _training(rollout_burn_in=8, rollout_burn_in_start_epoch=2)
+    assert [burn_in_at_epoch(tr, e) for e in range(5)] == [0, 0, 8, 8, 8]
+
+
+def test_no_warm_start_means_burn_in_from_epoch_zero():
+    tr = _training(rollout_burn_in=8)
+    assert burn_in_at_epoch(tr, 0) == 8
+
+
+def test_guard_lets_warm_up_epochs_use_short_horizons():
+    """The cold-start fix: epoch 0 at horizon 9 scores every step, including
+    step 0, and only the burned-in epochs have to reach past step 7."""
+    validate_rollout_masks(_training(
+        n_epochs=20, rollout_horizon_schedule=[1] + list(range(9, 21)),
+        rollout_burn_in=8, rollout_burn_in_start_epoch=1))
+
+
+def test_guard_still_checks_the_burned_in_epochs():
+    with pytest.raises(ValueError, match=r"\(1, 5\)"):
+        validate_rollout_masks(_training(
+            n_epochs=4, rollout_horizon_schedule=[1, 5, 9, 9],
+            rollout_burn_in=8, rollout_burn_in_start_epoch=1))
+
+
+def test_guard_checks_the_padded_tail():
+    """The trainer pads a short schedule with its last value; so does the guard."""
+    with pytest.raises(ValueError, match=r"\(3, 5\)"):
+        validate_rollout_masks(_training(
+            n_epochs=4, rollout_horizon_schedule=[9, 5],
+            rollout_burn_in=8, rollout_burn_in_start_epoch=2))
+
+
+def test_guard_refuses_a_warm_start_without_a_burn_in():
+    with pytest.raises(ValueError, match="would do nothing"):
+        validate_rollout_masks(_training(
+            n_epochs=4, rollout_horizon_schedule=[9], rollout_burn_in_start_epoch=1))
+
+
+def test_guard_refuses_a_warm_start_that_never_ends():
+    with pytest.raises(ValueError, match="never apply"):
+        validate_rollout_masks(_training(
+            n_epochs=4, rollout_horizon_schedule=[9], rollout_burn_in=8,
+            rollout_burn_in_start_epoch=4))
+
+
+def test_an_explicit_burn_in_overrides_the_configured_one():
+    """What the trainer does in a warm-up epoch: config says 8, the epoch says 0,
+    and the loss must be the dense one."""
+    x_ts, y_ts = _data()
+    model = _LinearModel()
+    dense = _loss(model, x_ts, y_ts, 20, burn_in=0).item()
+    tc = types.SimpleNamespace(
+        batch_size=2, fit_reduction="norm2", fit_huber_delta=1.0,
+        rollout_step_weighting="uniform", rollout_step_reduction="mean",
+        rollout_discount=0.9, rollout_bptt_window=0, rollout_shooting_stride=0,
+        rollout_loss_stride=0, rollout_burn_in=8, integration_method="euler",
+        n_rollout_substeps=1, noise_recurrent_level=0.0)
+    sim = types.SimpleNamespace(n_neurons=N, measurement_noise_level=0.0, delta_t=DT)
+    edges = torch.tensor([[0, 1, 2], [1, 2, 3]])
+    args = (model, x_ts, y_ts, edges, torch.arange(N), np.array([3, 11]), 0,
+            20, sim, tc, "cpu", 1.0, 1.0, _NoRegularizer(), False)
+    warm, _ = _dense_rollout_loss(*args, burn_in=0)
+    burned, _ = _dense_rollout_loss(*args)          # None -> the configured 8
+    assert warm.item() == pytest.approx(dense, rel=1e-12)
+    assert burned.item() == pytest.approx(_loss(model, x_ts, y_ts, 20, burn_in=8).item(), rel=1e-12)
+    assert warm.item() != pytest.approx(burned.item(), rel=1e-6)
+
+
+def test_recurrent_loss_forwards_the_epoch_burn_in():
+    """The dispatcher is the one hop between the trainer and the loss."""
+    x_ts, y_ts = _data()
+    model = _LinearModel()
+    tc = types.SimpleNamespace(
+        batch_size=2, fit_reduction="norm2", fit_huber_delta=1.0,
+        rollout_step_weighting="uniform", rollout_step_reduction="mean",
+        rollout_discount=0.9, rollout_bptt_window=0, rollout_shooting_stride=0,
+        rollout_loss_stride=0, rollout_burn_in=8, integration_method="euler",
+        n_rollout_substeps=1, noise_recurrent_level=0.0)
+    sim = types.SimpleNamespace(n_neurons=N, measurement_noise_level=0.0, delta_t=DT)
+    config = types.SimpleNamespace(simulation=sim, training=tc)
+    edges = torch.tensor([[0, 1, 2], [1, 2, 3]])
+    kw = dict(model=model, x_ts=x_ts, y_ts=y_ts, edges=edges, ids=torch.arange(N),
+              frame_indices=np.array([3, 11]), iter_idx=0, config=config,
+              device="cpu", xnorm=1.0, ynorm=1.0, regularizer=_NoRegularizer(),
+              n_steps=20)
+    warm, _ = recurrent_loss(**kw, burn_in=0)
+    assert warm.item() == pytest.approx(_loss(model, x_ts, y_ts, 20, burn_in=0).item(), rel=1e-12)

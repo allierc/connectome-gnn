@@ -1916,6 +1916,28 @@ class TrainingConfig(BaseModel):
     # must score at least one step, which graph_trainer checks.
     rollout_burn_in: int = 0
 
+    # THE EPOCH FROM WHICH rollout_burn_in APPLIES -- the warm start. Epochs
+    # before it score every step, step 0 included; from this epoch on the
+    # burn-in masks steps 0 .. B-1. 0 (default) applies the burn-in from the
+    # first epoch.
+    #
+    # WHY: A BURN-IN CANNOT START FROM SCRATCH. Step 0 is the only term whose
+    # state is an observation with no integration drift, and it is what gets a
+    # randomly initialised model off the ground: exp03's dense run reached R2_W
+    # 0.725 by iteration 4,800. The first burn-in launch (2026-09-25) started
+    # cold at horizon 9 with only step 8 scored, and 8 of 10 current-form folds
+    # were still at W ~ 0 -- learned/true slope 0.002-0.006 -- after 20-29k
+    # iterations, the constant W L1 pull holding the weights down against a
+    # fit gradient that reaches them only through eight unscored integrations.
+    # The known-ODE test that motivated the burn-in started from the TRUE
+    # parameters and never faced that cold start. So: warm the model up on the
+    # dense objective for the first E epochs, then thin its supervision.
+    #
+    # Only epochs >= E must score a step past the burn-in; the warm-up epochs
+    # may use any horizon. graph_trainer checks both, and refuses an E that
+    # would leave the burn-in never applied.
+    rollout_burn_in_start_epoch: int = 0
+
     # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
     # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
     # observed voltage (dense supervision), on an UNSTRIDED dataset. Empty (default) keeps

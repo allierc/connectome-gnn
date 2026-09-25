@@ -101,10 +101,13 @@ def recurrent_loss(
     hn=None,
     n_steps=None,
     target_weight=None,
+    burn_in=None,
 ):
     """Dispatch to one of the three modes. See the module docstring.
 
     n_steps: the epoch's rollout horizon K. Given -> ROLLOUT; None -> mode 1 or 2.
+    burn_in: the epoch's burn-in (burn_in_at_epoch). None falls back to
+        training.rollout_burn_in, ignoring any warm start.
     hn: HiddenNeuronHandler, or None if the model has no hidden neurons.
 
     Returns (loss including regularisation, regularisation value for logging).
@@ -117,7 +120,7 @@ def recurrent_loss(
         return _dense_rollout_loss(
             model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
             int(n_steps), sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-            hn=hn, target_weight=target_weight,
+            hn=hn, target_weight=target_weight, burn_in=burn_in,
         )
     return _standard_recurrent_loss(
         model, x_ts, edges, ids, frame_indices, iter_idx,
@@ -184,6 +187,19 @@ def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0, burn_in=0):
     return w
 
 
+def burn_in_at_epoch(training, epoch):
+    """The rollout burn-in in force at `epoch`: 0 during the warm-up epochs
+    (epoch < rollout_burn_in_start_epoch), rollout_burn_in after.
+
+    One function, called by the trainer to set each epoch's mask and by
+    validate_rollout_masks to check the schedule, so the two cannot disagree
+    about which epochs are burned in.
+    """
+    burn = int(getattr(training, "rollout_burn_in", 0) or 0)
+    start = int(getattr(training, "rollout_burn_in_start_epoch", 0) or 0)
+    return burn if epoch >= start else 0
+
+
 def validate_rollout_masks(training):
     """Refuse a rollout configuration whose step masks would silently misbehave.
 
@@ -212,6 +228,9 @@ def validate_rollout_masks(training):
     horizons = [int(h) for h in (getattr(training, "rollout_horizon_schedule", []) or [])]
     stride = int(getattr(training, "rollout_loss_stride", 0) or 0)
     burn = int(getattr(training, "rollout_burn_in", 0) or 0)
+    start = int(getattr(training, "rollout_burn_in_start_epoch", 0) or 0)
+    n_epochs = int(getattr(training, "n_epochs", len(horizons)) or len(horizons))
+
 
     for knob, value in (("rollout_loss_stride", stride), ("rollout_burn_in", burn)):
         if value > 0 and not horizons:
@@ -221,6 +240,18 @@ def validate_rollout_masks(training):
                 f"ignored. Set a schedule, or drop {knob}.")
     if not horizons:
         return
+
+    # A WARM START WITH NOTHING TO WARM UP FOR, OR THAT NEVER ENDS. Either would
+    # be accepted and silently change nothing.
+    if start > 0 and burn == 0:
+        raise ValueError(
+            f"rollout_burn_in_start_epoch {start} delays a burn-in that is not "
+            f"set (rollout_burn_in 0); it would do nothing. Set rollout_burn_in "
+            f"or drop the start epoch.")
+    if burn > 0 and start >= n_epochs:
+        raise ValueError(
+            f"rollout_burn_in_start_epoch {start} is not before n_epochs "
+            f"{n_epochs}, so the burn-in would never apply.")
 
     if stride > 1:
         short = sorted({h for h in horizons if h < stride + 1})
@@ -237,17 +268,23 @@ def validate_rollout_masks(training):
     if burn > 0:
         weighting = getattr(training, "rollout_step_weighting", "uniform")
         gamma = getattr(training, "rollout_discount", 0.9)
-        empty = sorted({h for h in horizons
+        # The schedule as the trainer will run it: padded with its last value to
+        # n_epochs. Only the epochs where the burn-in is in force are checked;
+        # the warm-up epochs score step 0 and may use any horizon.
+        per_epoch = (horizons + [horizons[-1]] * max(0, n_epochs - len(horizons)))[:n_epochs]
+        empty = sorted({(e, h) for e, h in enumerate(per_epoch)
                         if not any(w > 0.0 for w in _rollout_step_weights(
-                            weighting, h, gamma, loss_stride=stride, burn_in=burn))})
+                            weighting, h, gamma, loss_stride=stride,
+                            burn_in=burn_in_at_epoch(training, e)))})
         if empty:
             raise ValueError(
-                f"rollout_burn_in: {burn} leaves steps 0..{burn - 1} unscored, "
-                f"and with rollout_step_weighting '{weighting}'"
+                f"rollout_burn_in: {burn} leaves steps 0..{burn - 1} unscored "
+                f"from epoch {start}, and with rollout_step_weighting "
+                f"'{weighting}'"
                 + (f" and rollout_loss_stride {stride}" if stride > 1 else "")
-                + f" the horizons {empty} in rollout_horizon_schedule score no "
-                f"step at all. Every scheduled horizon must reach past the "
-                f"burn-in, e.g. start the schedule at {burn + 1}.")
+                + f" these (epoch, horizon) pairs score no step at all: "
+                f"{empty}. Every horizon from epoch {start} on must reach past "
+                f"the burn-in, e.g. {burn + 1}.")
 
 
 def _rollout_step_weights_dense(weighting, n_steps, gamma):
@@ -267,7 +304,7 @@ def _rollout_step_weights_dense(weighting, n_steps, gamma):
 def _dense_rollout_loss(
     model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
     n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-    hn=None, target_weight=None,
+    hn=None, target_weight=None, burn_in=None,
 ):
     """ROLLOUT: unroll K = n_steps from frame k, scoring every step.
 
@@ -361,7 +398,11 @@ def _dense_rollout_loss(
     step_weights = _rollout_step_weights(
         weighting, n_steps, gamma,
         loss_stride=int(getattr(tc, "rollout_loss_stride", 0) or 0),
-        burn_in=int(getattr(tc, "rollout_burn_in", 0) or 0))
+        # The trainer passes the epoch's burn-in (burn_in_at_epoch), which is 0
+        # during a warm start. None -- a direct caller with no epoch -- falls back
+        # to the configured value.
+        burn_in=(int(getattr(tc, "rollout_burn_in", 0) or 0)
+                 if burn_in is None else int(burn_in)))
 
     batched_state, batched_edges = _batch_frames(state_batch, edges)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)

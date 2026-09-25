@@ -392,6 +392,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # -----------------------------------------------------------------
 
         rollout_horizon = horizon_schedule[epoch] if horizon_schedule is not None else None
+        # The burn-in in force this epoch: 0 during a warm start
+        # (rollout_burn_in_start_epoch), rollout_burn_in after.
+        from connectome_gnn.models.recurrent_step import burn_in_at_epoch
+        rollout_burn_in = burn_in_at_epoch(training, epoch)
+        if rollout_burn_in != burn_in_at_epoch(training, epoch - 1) or epoch == start_epoch:
+            if int(getattr(training, "rollout_burn_in", 0) or 0) > 0:
+                logger.info(f"epoch {epoch}: rollout burn-in {rollout_burn_in} "
+                            f"(steps 0..{rollout_burn_in - 1} unscored)"
+                            if rollout_burn_in else
+                            f"epoch {epoch}: warm start, every rollout step scored")
 
         # SUB-STEP TRAINING NEEDS A HORIZON OF AT LEAST 2. recurrent_loss scores
         # the derivative at each step and only INTEGRATES between them, so at
@@ -642,6 +652,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     xnorm=xnorm,
                     ynorm=ynorm,
                     rollout_horizon=rollout_horizon,
+                    rollout_burn_in=rollout_burn_in,
                     target_weight=target_weight,
                 )
 
