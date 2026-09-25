@@ -130,7 +130,7 @@ def recurrent_loss(
 #  ROLLOUT: unroll K steps, score every one                          #
 # ------------------------------------------------------------------ #
 
-def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0):
+def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0, burn_in=0):
     """Per-step weights: "uniform" | "discount" | "linear_decay" | "last".
 
     Unnormalised -- the caller divides by the weight actually applied, so any
@@ -161,13 +161,93 @@ def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0):
 
     A HORIZON OF K THEREFORE SCORES floor((K-1)/m) + 1 STEPS, and reaching step
     s = m needs K >= m + 1: "one observed interval" is horizon m+1, not m.
+
+    `burn_in` B > 0 then zeroes steps 0 .. B-1 as well. It is a MASK, like the
+    stride, and deliberately not a detach: the loop still integrates the
+    burn-in steps and autograd still runs back through them, so a scored step
+    at s >= B keeps its whole chain to the parameters. Under measurement noise
+    the early steps are where the loss is biased (see TrainingConfig.
+    rollout_burn_in), and detaching at the boundary measured worse than not
+    burning in at all.
+
+    Applied last, after the weighting and the stride, so the three compose: a
+    step is scored when its dense weight is non-zero, it sits on the stride's
+    grid, and s >= B.
     """
     w = _rollout_step_weights_dense(weighting, n_steps, gamma)
     if loss_stride and loss_stride > 0:
         # s is 0-indexed and the state at step s is frame k+s, so the observed
         # grid k, k+m, k+2m, ... is exactly s % m == 0.
         w = [x if s % loss_stride == 0 else 0.0 for s, x in enumerate(w)]
+    if burn_in and burn_in > 0:
+        w = [x if s >= burn_in else 0.0 for s, x in enumerate(w)]
     return w
+
+
+def validate_rollout_masks(training):
+    """Refuse a rollout configuration whose step masks would silently misbehave.
+
+    Lives here, beside the weights it reasons about, rather than inline in
+    graph_trainer's training function where no test could reach it -- the
+    stride audit found both of its sibling guards untested. graph_trainer calls
+    this once, before the schedule is expanded. Raises ValueError; returns None.
+
+    Three refusals:
+
+    NO SCHEDULE. rollout_loss_stride and rollout_burn_in are read by
+    _dense_rollout_loss alone; without rollout_horizon_schedule the dispatcher
+    takes the legacy endpoint path, which never looks at them, so either knob
+    would be accepted and do nothing.
+
+    A STRIDE HORIZON THAT REACHES ONLY THE ANCHOR. With stride m the scored steps
+    are 0, m, 2m, ..., so a horizon K < m + 1 scores step 0 alone -- one-step
+    training wearing a rollout's clothes.
+
+    A HORIZON THAT SCORES NOTHING. A burn-in B zeroes steps 0 .. B-1, so a
+    horizon K <= B -- or one whose stride-grid steps all fall inside the burn-in
+    -- contributes a loss of exactly zero and trains on nothing while looking
+    busy. Decided by calling _rollout_step_weights itself, with this run's
+    weighting, stride and burn-in, so the check and the loss cannot drift apart.
+    """
+    horizons = [int(h) for h in (getattr(training, "rollout_horizon_schedule", []) or [])]
+    stride = int(getattr(training, "rollout_loss_stride", 0) or 0)
+    burn = int(getattr(training, "rollout_burn_in", 0) or 0)
+
+    for knob, value in (("rollout_loss_stride", stride), ("rollout_burn_in", burn)):
+        if value > 0 and not horizons:
+            raise ValueError(
+                f"{knob} is only read by the dense rollout, which needs "
+                f"rollout_horizon_schedule; without one it would be silently "
+                f"ignored. Set a schedule, or drop {knob}.")
+    if not horizons:
+        return
+
+    if stride > 1:
+        short = sorted({h for h in horizons if h < stride + 1})
+        if short:
+            raise ValueError(
+                f"rollout_loss_stride: {stride} scores steps 0, {stride}, "
+                f"{2 * stride}, ..., and step s holds the state at frame k+s, so "
+                f"a horizon must reach {stride + 1} for the first observed frame "
+                f"after the anchor to be in the rollout at all; "
+                f"rollout_horizon_schedule contains {short}, whose epochs would "
+                f"score the anchor and nothing else. Use {stride + 1}, "
+                f"{2 * stride + 1}, ...")
+
+    if burn > 0:
+        weighting = getattr(training, "rollout_step_weighting", "uniform")
+        gamma = getattr(training, "rollout_discount", 0.9)
+        empty = sorted({h for h in horizons
+                        if not any(w > 0.0 for w in _rollout_step_weights(
+                            weighting, h, gamma, loss_stride=stride, burn_in=burn))})
+        if empty:
+            raise ValueError(
+                f"rollout_burn_in: {burn} leaves steps 0..{burn - 1} unscored, "
+                f"and with rollout_step_weighting '{weighting}'"
+                + (f" and rollout_loss_stride {stride}" if stride > 1 else "")
+                + f" the horizons {empty} in rollout_horizon_schedule score no "
+                f"step at all. Every scheduled horizon must reach past the "
+                f"burn-in, e.g. start the schedule at {burn + 1}.")
 
 
 def _rollout_step_weights_dense(weighting, n_steps, gamma):
@@ -280,7 +360,8 @@ def _dense_rollout_loss(
     shooting_stride = int(getattr(tc, "rollout_shooting_stride", 0) or 0)
     step_weights = _rollout_step_weights(
         weighting, n_steps, gamma,
-        loss_stride=int(getattr(tc, "rollout_loss_stride", 0) or 0))
+        loss_stride=int(getattr(tc, "rollout_loss_stride", 0) or 0),
+        burn_in=int(getattr(tc, "rollout_burn_in", 0) or 0))
 
     batched_state, batched_edges = _batch_frames(state_batch, edges)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)

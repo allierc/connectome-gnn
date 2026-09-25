@@ -1872,20 +1872,49 @@ class TrainingConfig(BaseModel):
     # attributed to any one of the three.
 
     # WHICH STEPS OF THE ROLLOUT THE LOSS IS SCORED ON. 0 (default) scores every
-    # one; m > 0 scores only steps m, 2m, 3m, ... of the unrolled horizon, and
-    # nothing else.
+    # one; m > 0 scores only 0-indexed steps 0, m, 2m, ... of the unrolled
+    # horizon, and nothing else. Step s holds the state at frame k+s, so those
+    # are exactly the frames k, k+m, k+2m a 1-in-m recording observes.
     #
     # THIS IS WHAT "ONE FRAME IN FIVE IS OBSERVED" ACTUALLY MEANS. The old
     # `time_step: 5` expressed it by DECIMATING THE DATASET, which also deepened
     # the rollout and moved the target -- three effects from one number. Here the
     # data is untouched and the model still integrates every intermediate frame;
     # only the supervision is sparse, which is the honest statement of partial
-    # temporal sampling. With rollout_horizon_schedule ramping to 20 and a stride
-    # of 5, the loss lands on steps 5, 10, 15 and 20.
+    # temporal sampling. With horizon 21 and a stride of 5, the loss lands on
+    # frames k, k+5, k+10, k+15 and k+20. (Until 2026-09-24 the mask was off by
+    # one and scored k+4, k+9, ... -- none of them observed.)
     #
-    # A horizon shorter than the stride scores NOTHING, so the schedule has to
-    # reach at least m; graph_trainer raises rather than training on a zero loss.
+    # A horizon of m or less scores only the anchor, so graph_trainer requires
+    # every scheduled horizon to reach m + 1.
     rollout_loss_stride: int = 0
+
+    # HOW MANY LEADING ROLLOUT STEPS ARE LEFT UNSCORED. 0 (default) scores from
+    # step 0; B > 0 zeroes the loss weight of steps 0 .. B-1 and scores the rest.
+    # The model still integrates those steps and the gradient still flows back
+    # through them -- nothing is detached -- so a scored late step keeps its full
+    # chain to the parameters. Only the supervision moves.
+    #
+    # WHY: MEASUREMENT NOISE BIASES THE EARLY STEPS. At step 0 the input is
+    # v + eta and the observed-difference target contains -eta/dt, an
+    # errors-in-variables pair that dilutes every weight out of a noisy sender
+    # and drags slow cells' leak toward 1/dt; that eta then lingers in the state
+    # for steps 1-4 while those targets carry only fresh noise, so the loss
+    # rewards shrinking the messages. Measured on exp03 at meas 0.20: the trained
+    # GNN scores 5.9% BELOW the true generator on the dense loss, and all of that
+    # preference is in steps 0-8 -- from step 9 on, the truth wins. In a
+    # known-ODE test trained from the true parameters, leaving 8 steps unscored
+    # lifts R2_W 0.921 -> 0.988 and R2 on log tau 0.61 -> 0.91.
+    #
+    # DO NOT DETACH AT THE BOUNDARY. The same test with the state detached after
+    # the burn-in falls to 0.753: detaching makes the update a fixed-point
+    # iteration on states the parameters produced rather than the gradient of any
+    # objective. That is why this is a weight mask and not rollout_bptt_window.
+    #
+    # Composes with rollout_loss_stride and rollout_step_weighting: all three
+    # are applied to the same per-step weight vector. Every scheduled horizon
+    # must score at least one step, which graph_trainer checks.
+    rollout_burn_in: int = 0
 
     # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
     # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
