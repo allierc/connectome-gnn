@@ -78,6 +78,8 @@ analyse_job_ids:
   flyvis_noise_005_null400_condl25_cv02: '154431200'
   flyvis_noise_005_null400_condl25_cv03: '154431201'
   flyvis_noise_005_null400_condl25_cv04: '154431202'
+  flyvis_noise_005_null400_condl10_cv03: '154451107'
+  flyvis_noise_005_null400_condl10_cv04: '154451108'
 ---
 # Experiment 4 — null_edges_400
 
@@ -179,7 +181,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 ## Status
 
-**13/15 landed**, 0 trained (awaiting `-o test_plot`), 2 running, 0 pending
+**13/15 landed**, 2 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -193,7 +195,7 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 
 | arm |  | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| conductance |  | 1,280,001 |  | 0.886 ± 0.005 |  |  | 0.882 ± 0.057 | 0.955 ± 0.007 | 0.479 ± 0.208 | 0.259 ± 0.055 | 0.844 ± 0.108 |  |  | 0.824 ± 0.005 |
+| — | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -207,8 +209,8 @@ answer is `queue: gpu_a100` on the arm, not more slots.
 | `flyvis_noise_005_null400_condl10_cv00` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv01` | landed | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl10_cv02` | landed | 1,520,001 | `aeb17d0a3c57` |  |
-| `flyvis_noise_005_null400_condl10_cv03` | running | 1,280,001 | `` |  |
-| `flyvis_noise_005_null400_condl10_cv04` | running | 1,280,001 | `` |  |
+| `flyvis_noise_005_null400_condl10_cv03` | trained | 1,520,001 | `aeb17d0a3c57` |  |
+| `flyvis_noise_005_null400_condl10_cv04` | trained | 1,520,001 | `aeb17d0a3c57` |  |
 | `flyvis_noise_005_null400_condl25_cv00` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv01` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv02` | landed | 1,520,001 | `64c8a3b9e6ca` |  |

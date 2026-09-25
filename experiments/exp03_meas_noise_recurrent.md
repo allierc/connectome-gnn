@@ -241,8 +241,8 @@ comparable and only loosely comparable with the published pair.
 | `flyvis_noise_005_020_condl100rc20_cv02` | landed | 575,233 | `d543c97a1fd0` |  |
 | `flyvis_noise_005_020_condl100rc20_cv03` | landed | 575,233 | `900703a509a8` |  |
 | `flyvis_noise_005_020_condl100rc20_cv04` | landed | 575,233 | `71e4d78710c4` |  |
-| `flyvis_noise_005_010_condl25rc20_cv00` | landed | 527,176 | `948eb7b17ab2` |  |
-| `flyvis_noise_005_010_condl25rc20_cv01` | landed | 550,313 | `948eb7b17ab2` |  |
+| `flyvis_noise_005_010_condl25rc20_cv00` | landed | 575,233 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_010_condl25rc20_cv01` | landed | 575,233 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_010_condl25rc20_cv02` | landed | 575,233 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_010_condl25rc20_cv03` | landed | 575,233 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_010_condl25rc20_cv04` | landed | 575,233 | `64c8a3b9e6ca` |  |

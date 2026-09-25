@@ -1,12 +1,13 @@
 ---
 number: 5
 name: stride5_frames
-title: 'One frame in five observed: horizon 5 against horizon 20, current against the general
-  form'
-purpose: 'redo the 1/5-frames row of the NeurIPS supplementary table with the sampling stated
-  once instead of three times: does scoring the rollout only on the observed frames recover
-  the circuit, does a deeper horizon over the same sparse supervision help, and does the general
-  form under a group lasso of 100 hold up where the current form does'
+title: 'One frame in five observed: horizon 5 against horizon 20, current against
+  the general form'
+purpose: 'redo the 1/5-frames row of the NeurIPS supplementary table with the sampling
+  stated once instead of three times: does scoring the rollout only on the observed
+  frames recover the circuit, does a deeper horizon over the same sparse supervision
+  help, and does the general form under a group lasso of 100 hold up where the current
+  form does'
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp05/fly
 task: train
@@ -44,7 +45,37 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.rollout_loss_stride: 5
-job_ids: {}
+job_ids:
+  flyvis_noise_005_s5h06_cur_cv00: '154448167'
+  flyvis_noise_005_s5h06_cur_cv01: '154448168'
+  flyvis_noise_005_s5h06_cur_cv02: '154448169'
+  flyvis_noise_005_s5h06_cur_cv03: '154448170'
+  flyvis_noise_005_s5h06_cur_cv04: '154448171'
+  flyvis_noise_005_s5h21_cur_cv00: '154448172'
+  flyvis_noise_005_s5h21_cur_cv01: '154448173'
+  flyvis_noise_005_s5h21_cur_cv02: '154448174'
+  flyvis_noise_005_s5h21_cur_cv03: '154448175'
+  flyvis_noise_005_s5h21_cur_cv04: '154448176'
+  flyvis_noise_005_s5h06_condl100_cv00: '154448177'
+  flyvis_noise_005_s5h06_condl100_cv01: '154448178'
+  flyvis_noise_005_s5h06_condl100_cv02: '154448179'
+  flyvis_noise_005_s5h06_condl100_cv03: '154448180'
+  flyvis_noise_005_s5h06_condl100_cv04: '154448181'
+  flyvis_noise_005_s5h21_condl100_cv00: '154448182'
+  flyvis_noise_005_s5h21_condl100_cv01: '154448183'
+  flyvis_noise_005_s5h21_condl100_cv02: '154448184'
+  flyvis_noise_005_s5h21_condl100_cv03: '154448185'
+  flyvis_noise_005_s5h21_condl100_cv04: '154448186'
+  flyvis_noise_005_s5h06_condl25_cv00: '154448187'
+  flyvis_noise_005_s5h06_condl25_cv01: '154448188'
+  flyvis_noise_005_s5h06_condl25_cv02: '154448189'
+  flyvis_noise_005_s5h06_condl25_cv03: '154448190'
+  flyvis_noise_005_s5h06_condl25_cv04: '154448191'
+  flyvis_noise_005_s5h21_condl25_cv00: '154448192'
+  flyvis_noise_005_s5h21_condl25_cv01: '154448193'
+  flyvis_noise_005_s5h21_condl25_cv02: '154448194'
+  flyvis_noise_005_s5h21_condl25_cv03: '154448195'
+  flyvis_noise_005_s5h21_condl25_cv04: '154448196'
 report:
   arm_order:
   - current
@@ -274,9 +305,59 @@ an inference from one measurement, not a controlled comparison.
 
 ## Status
 
-**WITHDRAWN.** All 30 runs trained against the wrong frames. rollout_loss_stride masks on (s + 1) % m == 0, but step s is 0-indexed and the state at step s is frame k+s, so with stride 5 the loss landed on frames k+4, k+9, k+14, k+19 while a 1-in-5 recording anchored at k observes k, k+5, k+10, k+15, k+20 -- no overlap, and step 0, the only zero-drift anchor, was never scored. Both arms are affected: the conductance arm collapsed to R2_W -0.012 and the current arm was degraded to 0.753 against 0.956 for unstrided training on the same data, with R2_tau 0.655 against 0.979. The numbers are withdrawn pending the mask fix and a relaunch of all 30. See the audit section of this file.
+**0/30 landed**, 0 trained (awaiting `-o test_plot`), 30 running, 0 pending
 
-30 runs are on disk and are not reported here.
+### Landed --- held-out, `results/metrics.txt`
+
+| arm | horizon | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | | |
+
+### Running --- train split, `tmp_training/`, blank where not written per checkpoint
+
+| arm | horizon | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| current | h06 | 369,320 |  | 0.998 ± 0.000 |  |  | 0.943 ± 0.014 | 0.944 ± 0.029 | 0.838 ± 0.049 | 0.798 ± 0.070 | 0.975 ± 0.014 |  |  | 0.879 ± 0.017 |
+| current | h21 | 212,056 |  | 0.997 ± 0.001 |  |  | 0.925 ± 0.014 | 0.915 ± 0.024 | 0.797 ± 0.041 | 0.747 ± 0.065 | 0.966 ± 0.013 |  |  | 0.876 ± 0.010 |
+| conductance | h06 | 377,324 |  | 0.702 ± 0.241 |  |  | 0.369 ± 0.467 | 0.637 ± 0.263 | 0.667 ± 0.116 | 0.757 ± 0.044 | 0.349 ± 0.524 |  |  | 0.568 ± 0.258 |
+| conductance | h21 | 243,556 |  | 0.603 ± 0.197 |  |  | 0.177 ± 0.379 | 0.639 ± 0.150 | 0.621 ± 0.081 | 0.739 ± 0.050 | -0.040 ± 0.544 |  |  | 0.484 ± 0.201 |
+| cond_l25 | h06 | 393,320 |  | 0.998 ± 0.000 |  |  | 0.962 ± 0.005 | 0.948 ± 0.017 | 0.846 ± 0.024 | 0.839 ± 0.021 | 0.979 ± 0.005 |  |  | 0.882 ± 0.009 |
+| cond_l25 | h21 | 236,356 |  | 0.997 ± 0.000 |  |  | 0.947 ± 0.006 | 0.930 ± 0.013 | 0.828 ± 0.022 | 0.822 ± 0.023 | 0.974 ± 0.007 |  |  |  |
+
+### Per run
+
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_noise_005_s5h06_cur_cv00` | running | 426,923 | `` |  |
+| `flyvis_noise_005_s5h06_cur_cv01` | running | 405,323 | `` |  |
+| `flyvis_noise_005_s5h06_cur_cv02` | running | 370,653 | `` |  |
+| `flyvis_noise_005_s5h06_cur_cv03` | running | 429,323 | `` |  |
+| `flyvis_noise_005_s5h06_cur_cv04` | running | 429,323 | `` |  |
+| `flyvis_noise_005_s5h21_cur_cv00` | running | 212,556 | `` |  |
+| `flyvis_noise_005_s5h21_cur_cv01` | running | 212,556 | `` |  |
+| `flyvis_noise_005_s5h21_cur_cv02` | running | 261,756 | `` |  |
+| `flyvis_noise_005_s5h21_cur_cv03` | running | 263,276 | `` |  |
+| `flyvis_noise_005_s5h21_cur_cv04` | running | 262,896 | `` |  |
+| `flyvis_noise_005_s5h06_condl100_cv00` | running | 379,990 | `` |  |
+| `flyvis_noise_005_s5h06_condl100_cv01` | running | 382,656 | `` |  |
+| `flyvis_noise_005_s5h06_condl100_cv02` | running | 401,055 | `` |  |
+| `flyvis_noise_005_s5h06_condl100_cv03` | running | 378,657 | `` |  |
+| `flyvis_noise_005_s5h06_condl100_cv04` | running | 401,055 | `` |  |
+| `flyvis_noise_005_s5h21_condl100_cv00` | running | 250,056 | `` |  |
+| `flyvis_noise_005_s5h21_condl100_cv01` | running | 250,556 | `` |  |
+| `flyvis_noise_005_s5h21_condl100_cv02` | running | 256,284 | `` |  |
+| `flyvis_noise_005_s5h21_condl100_cv03` | running | 244,056 | `` |  |
+| `flyvis_noise_005_s5h21_condl100_cv04` | running | 248,056 | `` |  |
+| `flyvis_noise_005_s5h06_condl25_cv00` | running | 394,653 | `` |  |
+| `flyvis_noise_005_s5h06_condl25_cv01` | running | 403,990 | `` |  |
+| `flyvis_noise_005_s5h06_condl25_cv02` | running | 406,656 | `` |  |
+| `flyvis_noise_005_s5h06_condl25_cv03` | running | 407,989 | `` |  |
+| `flyvis_noise_005_s5h06_condl25_cv04` | running | 407,989 | `` |  |
+| `flyvis_noise_005_s5h21_condl25_cv00` | running | 260,236 | `` |  |
+| `flyvis_noise_005_s5h21_condl25_cv01` | running | 238,556 | `` |  |
+| `flyvis_noise_005_s5h21_condl25_cv02` | running | 236,456 | `` |  |
+| `flyvis_noise_005_s5h21_condl25_cv03` | running | 237,056 | `` |  |
+| `flyvis_noise_005_s5h21_condl25_cv04` | running | 261,756 | `` |  |
 
 <!-- STATUS:END -->
 
