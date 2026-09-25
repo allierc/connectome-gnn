@@ -1,13 +1,12 @@
 ---
 number: 3
 name: meas_noise_recurrent
-title: 'Measurement noise with 20-step recurrent training: current against the general
-  form'
-purpose: does 20-step recurrent training recover the circuit at measurement noise
-  0.1 and 0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published
-  rows; and does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
-  of 100 recover as well as the current form while killing the per-edge offset C_ij,
-  read as R2_Vrest against R2_Vrest without the C_i correction
+title: 'Measurement noise with 20-step recurrent training: current against the general form'
+purpose: does 20-step recurrent training recover the circuit at measurement noise 0.1 and
+  0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published rows; and does
+  the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso of 100 recover as well
+  as the current form while killing the per-edge offset C_ij, read as R2_Vrest against R2_Vrest
+  without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp03/fly
 task: train
@@ -54,15 +53,16 @@ arms:
     training.recurrent_training: true
     training.rollout_horizon_schedule: '[1..20]'
 - id: current_bi8
-  label: current form, recurrent, burn-in 8
-  spec_pattern: flyvis_noise_005_{meas}_curbi8_{fold}
+  label: current form, recurrent, burn-in 8, warm start 1 epoch
+  spec_pattern: flyvis_noise_005_{meas}_curbi8w1_{fold}
   differs_by:
     training.recurrent_training: true
     training.rollout_horizon_schedule: '[9..20]'
     training.rollout_burn_in: 8
+    training.rollout_burn_in_start_epoch: 1
 - id: cond_l25_bi8
-  label: conductance, lasso 25, recurrent, burn-in 8
-  spec_pattern: flyvis_noise_005_{meas}_condl25bi8_{fold}
+  label: conductance, lasso 25, recurrent, burn-in 8, warm start 1 epoch
+  spec_pattern: flyvis_noise_005_{meas}_condl25bi8w1_{fold}
   differs_by:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
@@ -70,6 +70,7 @@ arms:
     training.recurrent_training: true
     training.rollout_horizon_schedule: '[9..20]'
     training.rollout_burn_in: 8
+    training.rollout_burn_in_start_epoch: 1
 job_ids:
   flyvis_noise_005_010_currc20_cv00: '154396214'
   flyvis_noise_005_010_currc20_cv01: '154396215'
@@ -101,36 +102,6 @@ job_ids:
   flyvis_noise_005_020_condl25rc20_cv02: '154400333'
   flyvis_noise_005_020_condl25rc20_cv03: '154400334'
   flyvis_noise_005_020_condl25rc20_cv04: '154400335'
-  flyvis_noise_005_010_cur1s_cv00: '154451712'
-  flyvis_noise_005_010_cur1s_cv01: '154451713'
-  flyvis_noise_005_010_cur1s_cv02: '154451714'
-  flyvis_noise_005_010_cur1s_cv03: '154451715'
-  flyvis_noise_005_010_cur1s_cv04: '154451716'
-  flyvis_noise_005_020_cur1s_cv00: '154451717'
-  flyvis_noise_005_020_cur1s_cv01: '154451718'
-  flyvis_noise_005_020_cur1s_cv02: '154451719'
-  flyvis_noise_005_020_cur1s_cv03: '154451720'
-  flyvis_noise_005_020_cur1s_cv04: '154451721'
-  flyvis_noise_005_010_curbi8_cv00: '154451835'
-  flyvis_noise_005_010_curbi8_cv01: '154451836'
-  flyvis_noise_005_010_curbi8_cv02: '154451837'
-  flyvis_noise_005_010_curbi8_cv03: '154451838'
-  flyvis_noise_005_010_curbi8_cv04: '154451839'
-  flyvis_noise_005_020_curbi8_cv00: '154451840'
-  flyvis_noise_005_020_curbi8_cv01: '154451841'
-  flyvis_noise_005_020_curbi8_cv02: '154451842'
-  flyvis_noise_005_020_curbi8_cv03: '154451843'
-  flyvis_noise_005_020_curbi8_cv04: '154451844'
-  flyvis_noise_005_010_condl25bi8_cv00: '154451845'
-  flyvis_noise_005_010_condl25bi8_cv01: '154451846'
-  flyvis_noise_005_010_condl25bi8_cv02: '154451847'
-  flyvis_noise_005_010_condl25bi8_cv03: '154451848'
-  flyvis_noise_005_010_condl25bi8_cv04: '154451849'
-  flyvis_noise_005_020_condl25bi8_cv00: '154451850'
-  flyvis_noise_005_020_condl25bi8_cv01: '154451851'
-  flyvis_noise_005_020_condl25bi8_cv02: '154451852'
-  flyvis_noise_005_020_condl25bi8_cv03: '154451853'
-  flyvis_noise_005_020_condl25bi8_cv04: '154451854'
 report:
   arm_order:
   - current_1s
@@ -274,6 +245,19 @@ shrunken connectome over the true one, and all of that preference sits in steps
 0.988 and R2 on log tau 0.61 -> 0.91. How much of that reaches the GNN is what
 these arms measure.
 
+**The first launch started cold and was stopped.** Launched on 2026-09-25 with
+the burn-in active from epoch 0, the arms began training at horizon 9 with only
+step 8 scored and nothing anchored at step 0. After 20-29k iterations, 8 of the
+10 current-form folds were still at W ~ 0 (learned/true slope 0.002-0.006),
+while every run that scores step 0 had reached `R2_W` 0.72 by iteration 4,800.
+The known-ODE test behind the burn-in started from the TRUE parameters and never
+faced that. All 30 new jobs were stopped, including the one-step controls, and
+relaunched with `training.rollout_burn_in_start_epoch: 1`: epoch 0 (horizon 9)
+scores every step, step 0 included, and the burn-in applies from epoch 1. The
+cold-start runs keep their directories (`_curbi8_`, `_condl25bi8_`) as the
+evidence; the relaunch is `_curbi8w1_` and `_condl25bi8w1_`, differing only in
+that one key.
+
 **These arms change two things, not one.** A burn-in of 8 makes horizons 1-8
 score nothing, and the trainer refuses a schedule containing them, so the
 schedule starts at 9. The burn-in arms therefore also drop exp03's short-horizon
@@ -398,13 +382,13 @@ settles this inside one table.
 
 | arm | meas | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current_1s | 010 | 112,001 |  | 0.965 ± 0.000 |  |  | 0.742 ± 0.000 | 0.329 ± 0.000 | 0.554 ± 0.000 | 0.586 ± 0.000 | 0.883 ± 0.000 |  |  | 0.906 ± 0.000 |
+| current_1s | 010 | 232,001 |  | 0.968 ± 0.000 |  |  | 0.739 ± 0.000 | 0.320 ± 0.000 | 0.573 ± 0.000 | 0.578 ± 0.000 | 0.883 ± 0.000 |  |  | 0.921 ± 0.000 |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_noise_005_010_cur1s_cv00` | running | 112,001 | `` |  |
+| `flyvis_noise_005_010_cur1s_cv00` | running | 232,001 | `` |  |
 | `flyvis_noise_005_010_cur1s_cv01` | pending |  | `` |  |
 | `flyvis_noise_005_010_cur1s_cv02` | pending |  | `` |  |
 | `flyvis_noise_005_010_cur1s_cv03` | pending |  | `` |  |
