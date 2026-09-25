@@ -1,13 +1,12 @@
 ---
 number: 3
 name: meas_noise_recurrent
-title: 'Measurement noise with 20-step recurrent training: current against the general
-  form'
-purpose: does 20-step recurrent training recover the circuit at measurement noise
-  0.1 and 0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published
-  rows; and does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
-  of 100 recover as well as the current form while killing the per-edge offset C_ij,
-  read as R2_Vrest against R2_Vrest without the C_i correction
+title: 'Measurement noise with 20-step recurrent training: current against the general form'
+purpose: does 20-step recurrent training recover the circuit at measurement noise 0.1 and
+  0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published rows; and does
+  the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso of 100 recover as well
+  as the current form while killing the per-edge offset C_ij, read as R2_Vrest against R2_Vrest
+  without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp03/fly
 task: train
@@ -24,6 +23,11 @@ axes:
   - cv03
   - cv04
 arms:
+- id: current_1s
+  label: current form, one-step (control)
+  spec_pattern: flyvis_noise_005_{meas}_cur1s_{fold}
+  differs_by:
+    training.recurrent_training: false
 - id: current
   label: current form, no lasso, recurrent 20
   spec_pattern: flyvis_noise_005_{meas}_currc20_{fold}
@@ -81,11 +85,13 @@ job_ids:
   flyvis_noise_005_020_condl25rc20_cv04: '154400335'
 report:
   arm_order:
+  - current_1s
   - current
   - cond_l25
   - conductance
   arm_labels:
     cond_l25: conductance
+    current_1s: current, one-step
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
     horizon: training.rollout_horizon_schedule
