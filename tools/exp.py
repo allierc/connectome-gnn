@@ -989,14 +989,25 @@ def _slides(fm):
             r"\vspace*{0.5cm}",
             rf"{{\footnotesize {len(rs)} runs are on disk and are not reported here.\par}}",
             r"\end{frame}"])
+    # EVERY TABLE ON THE SLIDE IS BOXED BEFORE ANY IS PLACED, so one scale can be
+    # taken from the widest (see \settablescale in the preamble). An absent
+    # table is an empty box, width zero, which the max ignores.
+    _running = (_table(fm, "running")
+                if _summary_rows(fm, rs, "running", nd=2) else "")
+    _timing = (_timing_table(fm)
+               if fm.get("report", {}).get("timing") else "")
     L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
-         r"\vspace*{0.3cm}", r"\centering\tiny",
          r"\setlength{\tabcolsep}{2pt}",
+         r"\sbox{\tblA}{\tiny " + _table(fm) + "}",
+         r"\sbox{\tblB}{\tiny " + _running + "}",
+         r"\sbox{\tblC}{\tiny " + _timing + "}",
+         r"\settablescale",
+         r"\vspace*{0.3cm}", r"\centering\tiny",
          # ONLY THE SECOND TABLE IS NAMED. The first is the default reading of
          # the slide and needs no banner; the second does, because a train-split
          # number read as a result is the mistake worth one line of type.
-         r"\firsttable{" + _table(fm) + "}",
+         r"\placetable{\tblA}",
          r"\\[6pt]",
          r"{\tiny\raggedright",
          rf"{_tex(fm['purpose'])} \\[2pt]",
@@ -1011,20 +1022,19 @@ def _slides(fm):
     # have been writing per-checkpoint numbers for hours. This is the TRAIN split
     # at a stated iteration, not held-out, so it is a second table with its own
     # caption rather than blanks filled in from a different meaning.
-    if _summary_rows(fm, rs, "running", nd=2):
+    if _running:
         L += [r"\\[10pt]", r"\centering\tiny",
               r"{\scriptsize\bfseries still training --- train split, not a result"
               r"\par}\vspace*{2pt}",
-              r"\nexttable{" + _table(fm, "running") + "}", r"\\[4pt]",
+              r"\placetable{\tblB}", r"\\[4pt]",
               r"{\tiny\raggedright Still training --- the TRAIN split from "
               r"\texttt{tmp\_training/}, every fold read at the same iteration. "
               r"Not held-out and not comparable to the table above; the "
               r"quantities not written per checkpoint are blank rather than "
               r"borrowed from it.\par}"]
-    tt = _timing_table(fm) if fm.get("report", {}).get("timing") else ""
-    if tt:
+    if _timing:
         L += [r"\\[10pt]", r"\centering\tiny",
-              r"\nexttable{" + tt + "}", r"\\[4pt]",
+              r"\placetable{\tblC}", r"\\[4pt]",
               r"{\tiny\raggedright LSF \texttt{Run time} from each run's "
               r"\texttt{cluster.out}, over the last iteration its "
               r"\texttt{tmp\_training/Wij.log} reached. Training wall only; "
@@ -1070,24 +1080,26 @@ def report(paths, make_pdf=True):
 % wrapped in \ft, whose size command is inside that group and wins. Patching the
 % theme would be the other fix, and it is shared with conductance.tex.
 \newcommand{\ft}[1]{{\large #1}}
-% TWO TABLES ON ONE SLIDE, ONE FONT SIZE. The landed table has sixteen columns
-% and only fits once \resizebox has squeezed it, which also shrinks its type; a
-% second, narrower table left at \tiny then renders visibly LARGER than the
-% table above it. \firsttable measures the wide one and records the factor
-% \resizebox used; \nexttable applies that same factor instead of computing its
-% own, so both tables end up at one size whatever their natural widths are.
-\newsavebox{\tblbx}
-\newlength{\tblnat}
+% ONE SCALE FOR EVERY TABLE ON A SLIDE, set by the widest, never enlarging.
+% The landed table has sixteen columns and only fits once it is squeezed, which
+% shrinks its type; a second table on the same slide has to be squeezed by the
+% SAME factor or the two render at visibly different sizes.
+%
+% THE FACTOR COMES FROM THE WIDEST TABLE, not from the first. The first used to
+% set it, and an experiment with nothing landed yet has a first table that is
+% one row of dashes -- narrow -- so the factor ENLARGED it to fill the slide and
+% the running table below, wide with real numbers, was then enlarged by the same
+% factor and ran off the right edge and the bottom (experiment 5, 2026-09-25).
+% So every table is boxed before any is placed, the factor is
+% min(1, textwidth / widest), and each is placed at that one factor.
+\newsavebox{\tblA}\newsavebox{\tblB}\newsavebox{\tblC}
 \makeatletter
 \newcommand{\lenpt}[1]{\strip@pt\dimexpr#1\relax}
 \makeatother
-\newcommand{\firsttable}[1]{%
-  \sbox{\tblbx}{#1}%
-  \global\tblnat=\wd\tblbx
-  \resizebox{\textwidth}{!}{\usebox{\tblbx}}}
-\newcommand{\nexttable}[1]{%
-  \pgfmathsetmacro{\tblscl}{\lenpt{\textwidth}/\lenpt{\tblnat}}%
-  \scalebox{\tblscl}{#1}}
+\newcommand{\settablescale}{%
+  \pgfmathsetmacro{\tblscl}{min(1, \lenpt{\textwidth} /
+    max(max(\lenpt{\wd\tblA}, \lenpt{\wd\tblB}), max(\lenpt{\wd\tblC}, 1)))}}
+\newcommand{\placetable}[1]{\scalebox{\tblscl}{\usebox{#1}}}
 \newlength{\panelbox}
 \setlength{\panelbox}{0.68\textheight}
 \newcommand{\fitgfx}[2][\linewidth]{%
