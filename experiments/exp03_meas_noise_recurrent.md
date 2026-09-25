@@ -1,12 +1,13 @@
 ---
 number: 3
 name: meas_noise_recurrent
-title: 'Measurement noise with 20-step recurrent training: current against the general form'
-purpose: does 20-step recurrent training recover the circuit at measurement noise 0.1 and
-  0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published rows; and does
-  the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso of 100 recover as well
-  as the current form while killing the per-edge offset C_ij, read as R2_Vrest against R2_Vrest
-  without the C_i correction
+title: 'Measurement noise with 20-step recurrent training: current against the general
+  form'
+purpose: does 20-step recurrent training recover the circuit at measurement noise
+  0.1 and 0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published
+  rows; and does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
+  of 100 recover as well as the current form while killing the per-edge offset C_ij,
+  read as R2_Vrest against R2_Vrest without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp03/fly
 task: train
@@ -83,6 +84,16 @@ job_ids:
   flyvis_noise_005_020_condl25rc20_cv02: '154400333'
   flyvis_noise_005_020_condl25rc20_cv03: '154400334'
   flyvis_noise_005_020_condl25rc20_cv04: '154400335'
+  flyvis_noise_005_010_cur1s_cv00: '154451712'
+  flyvis_noise_005_010_cur1s_cv01: '154451713'
+  flyvis_noise_005_010_cur1s_cv02: '154451714'
+  flyvis_noise_005_010_cur1s_cv03: '154451715'
+  flyvis_noise_005_010_cur1s_cv04: '154451716'
+  flyvis_noise_005_020_cur1s_cv00: '154451717'
+  flyvis_noise_005_020_cur1s_cv01: '154451718'
+  flyvis_noise_005_020_cur1s_cv02: '154451719'
+  flyvis_noise_005_020_cur1s_cv03: '154451720'
+  flyvis_noise_005_020_cur1s_cv04: '154451721'
 report:
   arm_order:
   - current_1s
