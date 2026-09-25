@@ -1,13 +1,12 @@
 ---
 number: 3
 name: meas_noise_recurrent
-title: 'Measurement noise with 20-step recurrent training: current against the general
-  form'
-purpose: does 20-step recurrent training recover the circuit at measurement noise
-  0.1 and 0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published
-  rows; and does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
-  of 100 recover as well as the current form while killing the per-edge offset C_ij,
-  read as R2_Vrest against R2_Vrest without the C_i correction
+title: 'Measurement noise with 20-step recurrent training: current against the general form'
+purpose: does 20-step recurrent training recover the circuit at measurement noise 0.1 and
+  0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published rows; and does
+  the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso of 100 recover as well
+  as the current form while killing the per-edge offset C_ij, read as R2_Vrest against R2_Vrest
+  without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp03/fly
 task: train
@@ -53,6 +52,23 @@ arms:
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true
     training.rollout_horizon_schedule: '[1..20]'
+- id: current_bi8
+  label: current form, recurrent, burn-in 8
+  spec_pattern: flyvis_noise_005_{meas}_curbi8_{fold}
+  differs_by:
+    training.recurrent_training: true
+    training.rollout_horizon_schedule: '[9..20]'
+    training.rollout_burn_in: 8
+- id: cond_l25_bi8
+  label: conductance, lasso 25, recurrent, burn-in 8
+  spec_pattern: flyvis_noise_005_{meas}_condl25bi8_{fold}
+  differs_by:
+    graph_model.signal_model_name: flyvis_conductance
+    graph_model.input_size: 6
+    training.coeff_g_phi_input_group_L1: 25.0
+    training.recurrent_training: true
+    training.rollout_horizon_schedule: '[9..20]'
+    training.rollout_burn_in: 8
 job_ids:
   flyvis_noise_005_010_currc20_cv00: '154396214'
   flyvis_noise_005_010_currc20_cv01: '154396215'
@@ -98,14 +114,19 @@ report:
   arm_order:
   - current_1s
   - current
+  - current_bi8
   - cond_l25
+  - cond_l25_bi8
   - conductance
   arm_labels:
     cond_l25: conductance
     current_1s: current, one-step
+    current_bi8: current
+    cond_l25_bi8: conductance
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
     horizon: training.rollout_horizon_schedule
+    burn-in: training.rollout_burn_in
 analyse_job_ids:
   flyvis_noise_005_010_currc20_cv00: '154400355'
   flyvis_noise_005_010_currc20_cv01: '154400356'
@@ -210,6 +231,43 @@ comparable and only loosely comparable with the published pair.
 | conductance | 0.2 | cv02 | `flyvis_noise_005_020_condl100rc20_cv02` | `flyvis_noise_005_020_blank50_cv02` |
 | conductance | 0.2 | cv03 | `flyvis_noise_005_020_condl100rc20_cv03` | `flyvis_noise_005_020_blank50_cv03` |
 | conductance | 0.2 | cv04 | `flyvis_noise_005_020_condl100rc20_cv04` | `flyvis_noise_005_020_blank50_cv04` |
+
+## Two controls added 2026-09-25: one-step, and burn-in
+
+**`current_1s`, 10 jobs -- the one-step control.** The `currc20` spec with
+`recurrent_training: false` and no horizon schedule, nothing else changed. exp03
+had no one-step arm, so its recurrent gain was read against the published rows,
+which use a different readout; this arm puts the one-step number in the same
+table, on the same readout, folds, seeds and GPU model.
+
+**`current_bi8` and `cond_l25_bi8`, 20 jobs -- the burn-in arms.** The `currc20`
+and `condl25rc20` specs with `training.rollout_burn_in: 8` and
+`rollout_horizon_schedule: [9..20]` held at 20 for the remaining epochs, nothing
+else changed -- verified by parsing each against its parent.
+
+The burn-in leaves rollout steps 0-7 unscored while still integrating them and
+back-propagating through them; it is a weight mask, not a detach. It is the
+audit's top proposal (below): under measurement noise the dense loss prefers a
+shrunken connectome over the true one, and all of that preference sits in steps
+0-8. In a known-ODE test at meas 0.20, a burn-in of 8 lifted `R2_W` 0.921 ->
+0.988 and R2 on log tau 0.61 -> 0.91. How much of that reaches the GNN is what
+these arms measure.
+
+**These arms change two things, not one.** A burn-in of 8 makes horizons 1-8
+score nothing, and the trainer refuses a schedule containing them, so the
+schedule starts at 9. The burn-in arms therefore also drop exp03's short-horizon
+epochs, including the 160,000-iteration one-step epoch that the audit found sets
+the slow cells' leak. If they beat `current` and `cond_l25`, the gain belongs to
+the pair; separating the two would take a third arm on `[9..20]` with no burn-in.
+
+The conductance form is at lasso 25, the setting exp02, exp04 and the fixed
+exp05 all favour; lasso 100 is not repeated.
+
+| | `current` | `current_bi8` | `cond_l25_bi8` |
+|---|---|---|---|
+| schedule | `[1..20]` | `[9..20]`, then 20 | `[9..20]`, then 20 |
+| scored steps at horizon 20 | 0-19 | 8-19 | 8-19 |
+| `coeff_g_phi_input_group_L1` | 0 | 0 | 25 |
 
 ## Audit of the dense recurrent path, 2026-09-25
 
