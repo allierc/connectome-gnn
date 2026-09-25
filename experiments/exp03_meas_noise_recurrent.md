@@ -1,12 +1,13 @@
 ---
 number: 3
 name: meas_noise_recurrent
-title: 'Measurement noise with 20-step recurrent training: current against the general form'
-purpose: does 20-step recurrent training recover the circuit at measurement noise 0.1 and
-  0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published rows; and does
-  the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso of 100 recover as well
-  as the current form while killing the per-edge offset C_ij, read as R2_Vrest against R2_Vrest
-  without the C_i correction
+title: 'Measurement noise with 20-step recurrent training: current against the general
+  form'
+purpose: does 20-step recurrent training recover the circuit at measurement noise
+  0.1 and 0.2, where one-step training fell to R2_W 0.63 and 0.38 in the published
+  rows; and does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
+  of 100 recover as well as the current form while killing the per-edge offset C_ij,
+  read as R2_Vrest against R2_Vrest without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp03/fly
 task: train
@@ -110,6 +111,26 @@ job_ids:
   flyvis_noise_005_020_cur1s_cv02: '154451719'
   flyvis_noise_005_020_cur1s_cv03: '154451720'
   flyvis_noise_005_020_cur1s_cv04: '154451721'
+  flyvis_noise_005_010_curbi8_cv00: '154451835'
+  flyvis_noise_005_010_curbi8_cv01: '154451836'
+  flyvis_noise_005_010_curbi8_cv02: '154451837'
+  flyvis_noise_005_010_curbi8_cv03: '154451838'
+  flyvis_noise_005_010_curbi8_cv04: '154451839'
+  flyvis_noise_005_020_curbi8_cv00: '154451840'
+  flyvis_noise_005_020_curbi8_cv01: '154451841'
+  flyvis_noise_005_020_curbi8_cv02: '154451842'
+  flyvis_noise_005_020_curbi8_cv03: '154451843'
+  flyvis_noise_005_020_curbi8_cv04: '154451844'
+  flyvis_noise_005_010_condl25bi8_cv00: '154451845'
+  flyvis_noise_005_010_condl25bi8_cv01: '154451846'
+  flyvis_noise_005_010_condl25bi8_cv02: '154451847'
+  flyvis_noise_005_010_condl25bi8_cv03: '154451848'
+  flyvis_noise_005_010_condl25bi8_cv04: '154451849'
+  flyvis_noise_005_020_condl25bi8_cv00: '154451850'
+  flyvis_noise_005_020_condl25bi8_cv01: '154451851'
+  flyvis_noise_005_020_condl25bi8_cv02: '154451852'
+  flyvis_noise_005_020_condl25bi8_cv03: '154451853'
+  flyvis_noise_005_020_condl25bi8_cv04: '154451854'
 report:
   arm_order:
   - current_1s
@@ -360,7 +381,7 @@ settles this inside one table.
 
 ## Status
 
-**30/30 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**30/60 landed**, 0 trained (awaiting `-o test_plot`), 1 running, 29 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -377,12 +398,22 @@ settles this inside one table.
 
 | arm | meas | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | | |
+| current_1s | 010 | 112,001 |  | 0.965 ± 0.000 |  |  | 0.742 ± 0.000 | 0.329 ± 0.000 | 0.554 ± 0.000 | 0.586 ± 0.000 | 0.883 ± 0.000 |  |  | 0.906 ± 0.000 |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
+| `flyvis_noise_005_010_cur1s_cv00` | running | 112,001 | `` |  |
+| `flyvis_noise_005_010_cur1s_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_010_cur1s_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_010_cur1s_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_010_cur1s_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_020_cur1s_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_020_cur1s_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_020_cur1s_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_020_cur1s_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_020_cur1s_cv04` | pending |  | `` |  |
 | `flyvis_noise_005_010_currc20_cv00` | landed | 575,233 | `6ff97411577c` |  |
 | `flyvis_noise_005_010_currc20_cv01` | landed | 575,233 | `6ff97411577c` |  |
 | `flyvis_noise_005_010_currc20_cv02` | landed | 575,233 | `d543c97a1fd0` |  |
@@ -413,6 +444,26 @@ settles this inside one table.
 | `flyvis_noise_005_020_condl25rc20_cv02` | landed | 575,233 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_020_condl25rc20_cv03` | landed | 575,233 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_020_condl25rc20_cv04` | landed | 575,233 | `64c8a3b9e6ca` |  |
+| `flyvis_noise_005_010_curbi8_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_010_curbi8_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_010_curbi8_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_010_curbi8_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_010_curbi8_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_020_curbi8_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_020_curbi8_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_020_curbi8_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_020_curbi8_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_020_curbi8_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_010_condl25bi8_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_010_condl25bi8_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_010_condl25bi8_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_010_condl25bi8_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_010_condl25bi8_cv04` | pending |  | `` |  |
+| `flyvis_noise_005_020_condl25bi8_cv00` | pending |  | `` |  |
+| `flyvis_noise_005_020_condl25bi8_cv01` | pending |  | `` |  |
+| `flyvis_noise_005_020_condl25bi8_cv02` | pending |  | `` |  |
+| `flyvis_noise_005_020_condl25bi8_cv03` | pending |  | `` |  |
+| `flyvis_noise_005_020_condl25bi8_cv04` | pending |  | `` |  |
 
 <!-- STATUS:END -->
 
