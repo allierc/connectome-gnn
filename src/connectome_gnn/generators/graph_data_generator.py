@@ -17,6 +17,8 @@ except ImportError:
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
+from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablation_mask
+from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
 from connectome_gnn.generators.voltage.integrate import _run_ode_generation
 from connectome_gnn.generators.voltage.network import build_network
 from connectome_gnn.generators.voltage.postprocess import _compute_noisy_derivatives, _tile_train_zarrs
@@ -2344,78 +2346,15 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     ledger.begin("add_null_edges", draws=True)
     if spec.edges.n_extra_null_edges > 0:
-        logger.info(f"adding {spec.edges.n_extra_null_edges} extra null edges (mode={spec.edges.null_edges_mode})...")
-        import random
-
-        src_np = edge_index[0].cpu().numpy()
-        dst_np = edge_index[1].cpu().numpy()
-        existing_edges = set(zip(src_np, dst_np))
-        extra_edges = []
-
-        if spec.edges.null_edges_mode == "per_column":
-            # Per pre-synaptic neuron: add a proportional number of false targets
-            # Compute out-degree per source neuron
-            from collections import Counter
-
-            out_degree = Counter(src_np.tolist())
-            total_real = edge_index.shape[1]
-            ratio = spec.edges.n_extra_null_edges / total_real
-
-            # Build per-neuron target sets for fast lookup
-            targets_by_source = {}
-            for s, d in zip(src_np, dst_np):
-                targets_by_source.setdefault(int(s), set()).add(int(d))
-
-            all_neurons = list(range(n_neurons))
-            for source in range(n_neurons):
-                deg = out_degree.get(source, 0)
-                if deg == 0:
-                    continue
-                n_false = max(1, int(round(deg * ratio)))
-                existing_targets = targets_by_source.get(source, set())
-                # Sample false targets not already connected and not self
-                candidates = [t for t in all_neurons if t != source and t not in existing_targets]
-                if len(candidates) <= n_false:
-                    chosen = candidates
-                else:
-                    chosen = random.sample(candidates, n_false)
-                for t in chosen:
-                    extra_edges.append([source, t])
-                    existing_targets.add(t)
-
-            logger.info(
-                f"per_column: added {len(extra_edges)} false edges "
-                f"(requested ratio {ratio:.2f}, effective {len(extra_edges) / total_real:.2f})"
-            )
-        else:
-            # Random: sample uniformly across the full matrix
-            max_attempts = spec.edges.n_extra_null_edges * 10
-            attempts = 0
-            while len(extra_edges) < spec.edges.n_extra_null_edges and attempts < max_attempts:
-                source = random.randint(0, n_neurons - 1)
-                target = random.randint(0, n_neurons - 1)
-                if (source, target) not in existing_edges and source != target:
-                    extra_edges.append([source, target])
-                    existing_edges.add((source, target))
-                attempts += 1
-
-        if extra_edges:
-            extra_edge_index = torch.tensor(extra_edges, dtype=torch.long, device=device).t()
-            edge_index = torch.cat([edge_index, extra_edge_index], dim=1)
-            ode_params.edge_index = edge_index
-            ode_params.W = torch.cat([ode_params.W, torch.zeros(len(extra_edges), device=device)])
-            logger.info(f"Total extra edges added: {len(extra_edges)}")
+        edge_index = add_null_edges(ode_params, edge_index, spec.edges, device)
 
     ledger.begin("ablate", draws=False)
     # Edge ablation: zero out a fraction of edge weights before ODE simulation
     ablation_mask = None
     if spec.edges.ablation_ratio > 0:
-        rng = np.random.RandomState(spec.edges.ablation_seed)
         n_edges = edge_index.shape[1]
-        n_ablate = int(np.round(n_edges * spec.edges.ablation_ratio))
-        ablate_indices = rng.choice(n_edges, size=n_ablate, replace=False)
-        ablation_mask = torch.ones(n_edges, dtype=torch.bool, device=device)
-        ablation_mask[ablate_indices] = False
+        ablation_mask, n_ablate = edge_ablation_mask(n_edges, spec.edges.ablation_ratio, spec.edges.ablation_seed,
+                                                     device)
         ode_params.W[~ablation_mask] = 0.0
         logger.info(f"ablated {n_ablate}/{n_edges} edges ({spec.edges.ablation_ratio * 100:.0f}%)")
 
@@ -2700,61 +2639,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     torch.set_grad_enabled(True)
 
     ledger.begin("remove_edges", draws=False)
-    # --- Edge removal: applied AFTER activity generation ---
-    # Activity data (x_list, y_list) was generated with the full connectome above.
-    # Now prune ode_params so the GNN only sees the incomplete adjacency matrix.
-    print(f"{_G}[GENERATE] activity generated with full connectivity: "
-          f"edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
-    if spec.edges.edge_removal_ratio > 0:
-        if save:
-            torch.save(ode_params.W.clone(), store.path("weights_full.pt"))
-            torch.save(edge_index.clone(), store.path("edge_index_full.pt"))
-
-        n_total = edge_index.shape[1]
-        edge_mask_path = spec.edges.edge_mask_path
-        if edge_mask_path and os.path.exists(edge_mask_path):
-            kept_indices = torch.load(edge_mask_path, weights_only=True)
-            print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
-                  f"{len(kept_indices)}/{n_total} edges kept{_X}")
-        else:
-            if edge_mask_path:
-                print(f"{_R}[GENERATE] edge_mask_path set but NOT FOUND: {edge_mask_path} "
-                      f"— computing new mask{_X}")
-            else:
-                print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
-                      f"(mode={spec.edges.edge_removal_mode}, "
-                      f"ratio={spec.edges.edge_removal_ratio}){_X}")
-            rng_rm = np.random.RandomState(spec.edges.edge_removal_seed)
-            removal_mode = spec.edges.edge_removal_mode
-            if removal_mode == 'per_column':
-                src_np = edge_index[0].cpu().numpy()
-                keep_mask = np.ones(n_total, dtype=bool)
-                for source in np.unique(src_np):
-                    source_edges = np.where(src_np == source)[0]
-                    n_remove = max(1, int(round(len(source_edges) * spec.edges.edge_removal_ratio)))
-                    if n_remove >= len(source_edges):
-                        n_remove = len(source_edges) - 1
-                    remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
-                    keep_mask[remove_idx] = False
-                kept_indices = np.where(keep_mask)[0]
-            else:
-                n_keep = int(n_total * (1 - spec.edges.edge_removal_ratio))
-                kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
-
-        edge_index = edge_index[:, kept_indices]
-        ode_params.edge_index = edge_index
-        ode_params.W = ode_params.W[kept_indices]
-        pct_removed = (1 - len(kept_indices) / n_total) * 100
-        expected_pct = spec.edges.edge_removal_ratio * 100
-        color = _G if abs(pct_removed - expected_pct) < 2 else _R
-        print(f"{color}[GENERATE] ode_params pruned: edge_index={edge_index.shape}  "
-              f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
-              f"(expected {expected_pct:.0f}%){_X}")
-        if save:
-            torch.save(torch.tensor(kept_indices, device=device),
-                       store.path("kept_edge_indices.pt"))
-    else:
-        print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
+    edge_index = remove_edges(ode_params, edge_index, spec.edges, store, save, device)
 
     ledger.begin("save_ground_truth", draws=False)
     if save:
