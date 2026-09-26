@@ -17,6 +17,29 @@ from tqdm import trange
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.utils import get_equidistant_points, graphs_data_path, large_tensor_nonzero, to_numpy
 
+
+def rmtree_robust(path):
+    """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
+
+    Python 3.12 changed shutil.rmtree on Linux to use _rmtree_safe_fd, which
+    calls openat()/unlinkat() relative to a directory fd.  On Lustre/GPFS
+    these syscalls can raise ENOTEMPTY on rmdir() even after all child files
+    were successfully unlinked, because Lustre's metadata propagation lags
+    behind the unlinkat() calls.  This is a known Python 3.12 + Lustre
+    incompatibility, not a bug in our code.
+
+    Workaround: use os.walk() bottom-up with plain path-based unlink()/rmdir(),
+    which go through Lustre's regular code path and do not exhibit the race.
+    """
+    path = str(path)
+    for root, dirs, files in os.walk(path, topdown=False):
+        for f in files:
+            os.unlink(os.path.join(root, f))
+        for d in dirs:
+            os.rmdir(os.path.join(root, d))
+    os.rmdir(path)
+
+
 # Optional imports
 try:
     from fa2_modified import ForceAtlas2

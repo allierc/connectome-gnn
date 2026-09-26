@@ -19,6 +19,7 @@ from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
 from connectome_gnn.generators.voltage.rng import RngLedger
 from connectome_gnn.generators.voltage.spec import GenerationSpec
+from connectome_gnn.generators.voltage.store import DatasetStore
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
@@ -41,28 +42,6 @@ from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 # n_frames default), so a dataset's activity.png and that run's
 # tmp_training/traces/rollout_*.png can be laid side by side.
 ACTIVITY_TRACE_FRAMES = 1000
-
-
-def _rmtree(path):
-    """Remove a directory tree robustly on network filesystems (Lustre/GPFS).
-
-    Python 3.12 changed shutil.rmtree on Linux to use _rmtree_safe_fd, which
-    calls openat()/unlinkat() relative to a directory fd.  On Lustre/GPFS
-    these syscalls can raise ENOTEMPTY on rmdir() even after all child files
-    were successfully unlinked, because Lustre's metadata propagation lags
-    behind the unlinkat() calls.  This is a known Python 3.12 + Lustre
-    incompatibility, not a bug in our code.
-
-    Workaround: use os.walk() bottom-up with plain path-based unlink()/rmdir(),
-    which go through Lustre's regular code path and do not exhibit the race.
-    """
-    path = str(path)
-    for root, dirs, files in os.walk(path, topdown=False):
-        for f in files:
-            os.unlink(os.path.join(root, f))
-        for d in dirs:
-            os.rmdir(os.path.join(root, d))
-    os.rmdir(path)
 
 
 try:
@@ -89,6 +68,7 @@ from connectome_gnn.generators.utils import (
     is_flyvis_hybrid_model,
     mseq_bits,
 )
+from connectome_gnn.generators.utils import rmtree_robust as _rmtree
 from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
@@ -2245,6 +2225,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     )
     # Still handed to the helpers that have not been moved onto the spec yet.
     sim = config.simulation
+    store = DatasetStore(spec.output.dataset)
 
     ledger.begin("prepare_output", draws=False)
     fig_style = dark_style if "black" in style else default_style
@@ -2252,12 +2233,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
-        for split in ['train', 'test']:
-            for data_file in ['x_list', 'y_list']:
-                old_path = graphs_data_path(spec.output.dataset, f"{data_file}_{split}")
-                if os.path.exists(old_path):
-                    _rmtree(old_path)
-                    logger.info(f"erased old {data_file}_{split}")
+        store.erase_legacy()
 
     ledger.begin("seed", draws=True)
     torch.random.fork_rng(devices=device)
@@ -2308,14 +2284,8 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     ledger.begin("make_folders", draws=False)
     run = 0
 
-    os.makedirs(graphs_data_path("fly"), exist_ok=True)
-    folder = graphs_data_path(spec.output.dataset) + "/"
-    print(f"\033[93m[data folder] {folder}\033[0m", flush=True)
-    os.makedirs(folder, exist_ok=True)
-    os.makedirs(graphs_data_path(spec.output.dataset, "Fig"), exist_ok=True)
-    files = glob.glob(graphs_data_path(spec.output.dataset, "Fig", "*"))
-    for f in files:
-        os.remove(f)
+    store.make_folders()
+    folder = store.folder
 
     ledger.begin("build_network", draws=True)
     # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
@@ -2810,24 +2780,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     else:
         logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
 
-    x_writer = ZarrSimulationWriterV3(
-        path=graphs_data_path(spec.output.dataset, "x_list_train"),
-        n_neurons=n_neurons,
-        time_chunks=2000,
-        # ce0d1d9 ("finish calcium strip") removed sim.save_calcium along with
-        # the 9 other calcium fields but left these call sites, so flyvis
-        # voltage generation has raised AttributeError since 2026-08-03.
-        # Defaulting False keeps the writer plumbing intact: making calcium
-        # generation actually WORK needs calcium_tau/alpha/beta back too, which
-        # is separate work and not needed for the conductance-vs-current survey.
-        save_calcium=spec.save_calcium,
-    )
-    y_writer = ZarrArrayWriter(
-        path=graphs_data_path(spec.output.dataset, "y_list_train"),
-        n_neurons=n_neurons,
-        n_features=1,
-        time_chunks=2000,
-    )
+    x_writer, y_writer = store.split_writers("train", n_neurons, spec.save_calcium)
 
     it, id_fig = _run_ode_generation(
         stimulus_sequences=train_sequences,
@@ -2900,18 +2853,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     test_target = len(test_sequences) * frames_per_sequence
     logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
 
-    x_writer = ZarrSimulationWriterV3(
-        path=graphs_data_path(spec.output.dataset, "x_list_test"),
-        n_neurons=n_neurons,
-        time_chunks=2000,
-        save_calcium=spec.save_calcium,
-    )
-    y_writer = ZarrArrayWriter(
-        path=graphs_data_path(spec.output.dataset, "y_list_test"),
-        n_neurons=n_neurons,
-        n_features=1,
-        time_chunks=2000,
-    )
+    x_writer, y_writer = store.split_writers("test", n_neurons, spec.save_calcium)
 
     _run_ode_generation(
         stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
@@ -2936,7 +2878,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     logger.info(f"generated {n_frames_test} TEST frames {_noise_tag} (saved as .zarr)")
     if spec.noisy_test_data:
         # Marker for consumers that need to know the test split carries train-level noise
-        open(graphs_data_path(spec.output.dataset, "noisy_test_data.ok"), "w").close()
+        open(store.path("noisy_test_data.ok"), "w").close()
 
     ledger.begin("derive_noisy_targets_test", draws=False)
     # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
@@ -2955,8 +2897,8 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
           f"edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
     if spec.edges.edge_removal_ratio > 0:
         if save:
-            torch.save(ode_params.W.clone(), graphs_data_path(spec.output.dataset, "weights_full.pt"))
-            torch.save(edge_index.clone(), graphs_data_path(spec.output.dataset, "edge_index_full.pt"))
+            torch.save(ode_params.W.clone(), store.path("weights_full.pt"))
+            torch.save(edge_index.clone(), store.path("edge_index_full.pt"))
 
         n_total = edge_index.shape[1]
         edge_mask_path = spec.edges.edge_mask_path
@@ -3000,7 +2942,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
               f"(expected {expected_pct:.0f}%){_X}")
         if save:
             torch.save(torch.tensor(kept_indices, device=device),
-                       graphs_data_path(spec.output.dataset, "kept_edge_indices.pt"))
+                       store.path("kept_edge_indices.pt"))
     else:
         print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
 
@@ -3010,14 +2952,14 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
               f"W={ode_params.W.shape}  → {folder}{_X}")
         if ablation_mask is not None:
-            torch.save(ablation_mask, graphs_data_path(spec.output.dataset, "ablation_mask.pt"))
+            torch.save(ablation_mask, store.path("ablation_mask.pt"))
 
     ledger.begin("load_train_split", draws=False)
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 
-    x_ts = load_simulation_data(graphs_data_path(spec.output.dataset, "x_list_train"))
-    y_list = load_raw_array(graphs_data_path(spec.output.dataset, "y_list_train"))
+    x_ts = load_simulation_data(store.path("x_list_train"))
+    y_list = load_raw_array(store.path("y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
     ledger.begin("check_bracket", draws=False)
@@ -3060,7 +3002,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
             # dataset still validated.
             logger.warning(_msg + "  [conductance_bracket_strict False: recorded, "
                                   "not fatal]")
-            with open(graphs_data_path(spec.output.dataset, "BRACKET_CROSSINGS.txt"), "w") as _bf:
+            with open(store.path("BRACKET_CROSSINGS.txt"), "w") as _bf:
                 _bf.write(_msg + "\n")
                 for _k, _v in _bracket.items():
                     _bf.write(f"{_k}: {_v}\n")
@@ -3071,7 +3013,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
             # and .generate_done, without which _have_data refuses the dataset.
             # Record the numbers next to the half-written data so the failure is
             # inspectable later rather than only in whatever captured stderr.
-            with open(graphs_data_path(spec.output.dataset, "BRACKET_VIOLATION.txt"), "w") as _bf:
+            with open(store.path("BRACKET_VIOLATION.txt"), "w") as _bf:
                 _bf.write(_msg + "\n")
                 for _k, _v in _bracket.items():
                     _bf.write(f"{_k}: {_v}\n")
@@ -3163,7 +3105,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         plot_kinograph(
             activity=activity_full.T,
             stimulus=x_ts.stimulus[:, : spec.network.n_input_neurons].numpy().T,
-            output_path=graphs_data_path(spec.output.dataset, "kinograph.png"),
+            output_path=store.path("kinograph.png"),
             rank_90_act=rank_90_act,
             rank_99_act=rank_99_act,
             rank_90_inp=rank_90_inp,
@@ -3205,7 +3147,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
             if visualize:
                 plot_activity_traces(
                     activity=noisy_activity.T,
-                    output_path=graphs_data_path(spec.output.dataset, "activity_traces_noisy.png"),
+                    output_path=store.path("activity_traces_noisy.png"),
                     n_traces=100,
                     max_frames=10000,
                     n_input_neurons=spec.network.n_input_neurons,
@@ -3226,7 +3168,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
             # derivative noise = (noise[t+1] - noise[t]) / dt
             deriv_noise = np.diff(noise_data, axis=0) / spec.delta_t  # (T-1, N)
             deriv_noise_std = np.std(deriv_noise, axis=0)  # (N,)
-            y_clean = load_raw_array(graphs_data_path(spec.output.dataset, "y_list_train"))  # (T, N, 1)
+            y_clean = load_raw_array(store.path("y_list_train"))  # (T, N, 1)
             deriv_signal_std = np.std(y_clean[:, :, 0], axis=0)  # (N,)
             deriv_snr = np.where(deriv_noise_std > 0, deriv_signal_std / deriv_noise_std, np.inf)
             deriv_snr_finite = deriv_snr[np.isfinite(deriv_snr)]
@@ -3286,7 +3228,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     #     )
 
     # Save ranks to log file
-    gen_log_path = graphs_data_path(spec.output.dataset, 'generation_log.txt')
+    gen_log_path = store.path('generation_log.txt')
     with open(gen_log_path, 'w') as log_f:
         log_f.write(f'dataset: {spec.output.dataset}\n')
         log_f.write(f'n_neurons: {n_neurons}\n')
@@ -3430,7 +3372,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         n_neurons,
         n_frames,
         spec.delta_t,
-        graphs_data_path(spec.output.dataset) + "/",
+        store.folder,
     )
 
     logger.info("plot figure activity ...")
@@ -3452,7 +3394,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     stim_np = (to_numpy(x_ts.stimulus[:n_trace_frames, 0])
                if x_ts.stimulus is not None else None)
     save_trace_figure(
-        graphs_data_path(spec.output.dataset, 'activity.png'),
+        store.path('activity.png'),
         activity_np[:n_trace_frames],
         None,
         stim_np,
@@ -3482,7 +3424,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
             if not _ids:
                 continue
             save_trace_figure(
-                graphs_data_path(spec.output.dataset, _name),
+                store.path(_name),
                 activity_np[:n_trace_frames][:, _ids],
                 None,
                 stim_np,
@@ -3505,17 +3447,15 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         logger.info("generating lossless video ...")
 
         output_name = spec.output.dataset.split("flyvis_")[1] if "flyvis_" in spec.output.dataset else "no_id"
-        src = graphs_data_path(spec.output.dataset, "Fig", "Fig_0_000000.png")
-        dst = graphs_data_path(spec.output.dataset, f"input_{output_name}.png")
+        src = store.path("Fig", "Fig_0_000000.png")
+        dst = store.path(f"input_{output_name}.png")
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
             fdst.write(fsrc.read())
 
-        generate_compressed_video_mp4(output_dir=graphs_data_path(spec.output.dataset), run=run,
+        generate_compressed_video_mp4(output_dir=store.path(), run=run,
                                       output_name=output_name, framerate=10)
 
-        files = glob.glob(graphs_data_path(spec.output.dataset, "Fig", "*"))
-        for f in files:
-            os.remove(f)
+        store.clear_figs()
 
 
 def _run_ode_generation(
