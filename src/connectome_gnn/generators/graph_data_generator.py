@@ -20,19 +20,25 @@ from connectome_gnn.generators.optogenetics import build_input_perturbation
 from connectome_gnn.generators.voltage.dynamics import build_ode, extract_ode_params
 from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablation_mask
 from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
+from connectome_gnn.generators.voltage.figures import plot_previews
+from connectome_gnn.generators.voltage.initial import init_geometry, init_state, steady_state
 from connectome_gnn.generators.voltage.integrate import _run_ode_generation
 from connectome_gnn.generators.voltage.network import build_network
 from connectome_gnn.generators.voltage.postprocess import _compute_noisy_derivatives, _tile_train_zarrs
 from connectome_gnn.generators.voltage.rng import RngLedger
 from connectome_gnn.generators.voltage.spec import GenerationSpec
-from connectome_gnn.generators.voltage.stimulus import build_sources
+from connectome_gnn.generators.voltage.stimulus import (
+    FRAMES_PER_SEQUENCE,
+    build_sources,
+    materialize_sequences,
+    split_videos,
+)
 from connectome_gnn.generators.voltage.store import DatasetStore
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
     plot_activity_traces,
     plot_connconstr_diagnostics,
-    plot_sequence_preview,
     plot_kinograph,
     plot_spiking_traces,
     plot_task_pi_traces,
@@ -2299,11 +2305,6 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     network = build_network(spec)
     net = network.net
     boxfilter_arg = network.boxfilter
-    from connectome_gnn.generators.flyvis_ode import (
-        get_photoreceptor_positions_from_net,
-        group_by_direction_and_function,
-    )
-
     ledger.begin("load_stimuli", draws=True)
     stimuli = build_sources(spec, boxfilter_arg)
     davis_dataset = stimuli.davis_dataset
@@ -2331,132 +2332,28 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     _X = '\033[0m'   # reset
 
     ledger.begin("init_geometry", draws=False)
-    # Per-neuron hexagonal Cartesian positions for the *full* network — every
-    # node carries (u, v) in net.connectome.nodes, so we use the standard
-    # x = u + 0.5*v, y = v*sqrt(3)/2 mapping for both photoreceptors and
-    # non-retinal neurons. This replaces the previous behaviour where
-    # non-retinal neurons received random equidistant positions; the spatial
-    # NGP path (ngp_hidden_spatial=True) and any column-aware figure that
-    # reads pos[hidden_ids] depend on this fix.
-    from connectome_gnn.generators.flyvis_ode import (
-        get_all_neuron_positions_from_net,
-    )
-    x_coords_all, y_coords_all, _u_all, _v_all = get_all_neuron_positions_from_net(net)
-    # Keep the photoreceptor-only arrays available for downstream code that
-    # filters on input neurons (visual SIREN initialisation, etc.).
-    x_coords, y_coords, u_coords, v_coords = get_photoreceptor_positions_from_net(net)
-
-    node_types = np.array(net.connectome.nodes["type"])
-    node_types_str = [t.decode("utf-8") if isinstance(t, bytes) else str(t) for t in node_types]
-    # available node types: {'T5d', 'R3', 'T2a', 'TmY14', 'R7', 'CT1(Lo1)', 'Tm4', 'TmY10', 'T4d', 'L1', 'R1', 'R6', 'Am', 'T2', 'Tm5Y', 'L5', 'Tm20', 'L2', 'Mi4', 'Mi12', 'T4c', 'TmY4', 'CT1(M10)', 'TmY15', 'Lawf1', 'T1', 'TmY13', 'Tm5b', 'Tm28', 'L3', 'R8', 'L4', 'C3', 'Mi14', 'Tm2', 'R5', 'R2', 'Mi15', 'Tm9', 'Tm16', 'T5a', 'Mi3', 'TmY9', 'T4b', 'Mi9', 'Mi1', 'T5b', 'Tm1', 'Lawf2', 'C2', 'T4a', 'TmY3', 'Mi2', 'T3', 'TmY5a', 'Mi11', 'Tm5a', 'TmY18', 'Tm30', 'R4', 'Mi13', 'Tm5c', 'T5c', 'Mi10', 'Tm3'}
-    grouped_types = np.array([group_by_direction_and_function(t) for t in node_types_str])
-    _, node_types_int = np.unique(node_types, return_inverse=True)
-
-    X1 = torch.tensor(
-        np.stack((x_coords_all, y_coords_all), axis=1),
-        dtype=torch.float32, device=device,
-    )
+    geometry = init_geometry(net, device)
+    X1, u_coords, v_coords = geometry.X1, geometry.u_coords, geometry.v_coords
+    node_types_int = geometry.node_types_int
 
     ledger.begin("steady_state", draws=False)
-    _ss_value = spec.network.steady_state_value
-    state = net.steady_state(t_pre=2.0, dt=spec.delta_t, batch_size=1, value=_ss_value)
-    initial_state = state.nodes.activity.squeeze().to(device)
+    initial_state = steady_state(spec, net, device)
     n_neurons = len(initial_state)
 
     ledger.begin("init_state", draws=True)
-    sequences = stimuli.item(0)["lum"]
-    frame = sequences[0][None, None]
-    net.stimulus.add_input(frame)
-
-    # init neuron state x
-
-    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
-
-    x = NeuronState(
-        index=torch.arange(n_neurons, dtype=torch.long, device=device),
-        pos=X1,
-        voltage=initial_state.to(device),
-        stimulus=net.stimulus().squeeze().to(device),
-        group_type=torch.tensor(grouped_types, dtype=torch.long, device=device),
-        neuron_type=torch.tensor(node_types_int, dtype=torch.long, device=device),
-        calcium=_init_calcium,
-        fluorescence=torch.zeros(n_neurons, dtype=torch.float32, device=device),
-        noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
-    )
+    x = init_state(net, stimuli, geometry, initial_state, device)
 
     ledger.begin("split_videos", draws=True)
-    # --- Subdirectory-level train/test split ---
-    # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
-    # Split by original_index so all augmentations of the same base video stay together.
-    df = stimuli.arg_df
-    original_indices = df["original_index"].values
-    unique_videos = np.unique(original_indices)
-    np.random.shuffle(unique_videos)
-    n_train_vids = int(len(unique_videos) * 0.8)
-    train_video_set = set(unique_videos[:n_train_vids])
-    test_video_set = set(unique_videos[n_train_vids:])
-
-    train_indices = [i for i, oi in enumerate(original_indices) if oi in train_video_set]
-    test_indices = [i for i, oi in enumerate(original_indices) if oi in test_video_set]
-
-    # Extract the actual video subdirectory names for logging
-    train_video_names = sorted(set(df.iloc[train_indices]["name"].values))
-    test_video_names = sorted(set(df.iloc[test_indices]["name"].values))
-
-    # Verify exclusivity
-    train_name_set = set(train_video_names)
-    test_name_set = set(test_video_names)
-    overlap = train_name_set & test_name_set
-    assert len(overlap) == 0, f"TRAIN/TEST OVERLAP: {overlap}"
-    logger.info(
-        f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
-        f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)"
-    )
-    logger.info(f"overlap: {overlap} (must be empty)")
+    split = split_videos(stimuli)
+    n_train_vids = split.n_train_vids
 
     ledger.begin("materialize_sequences", draws=False)
-    # Build sequences lists for ODE generation
-    train_sequences = stimuli.items(train_indices)
-    test_sequences = stimuli.items(test_indices)
+    sequences = materialize_sequences(spec, stimuli, split)
+    train_sequences, test_sequences = sequences.train, sequences.test
+    frames_per_sequence = FRAMES_PER_SEQUENCE
 
-    # Optionally limit number of sequences for faster debugging
-    if spec.stimulus.max_train_sequences > 0:
-        train_sequences = train_sequences[: spec.stimulus.max_train_sequences]
-        test_sequences = test_sequences[: max(1, spec.stimulus.max_train_sequences // 4)]
-        logger.info(
-            f"max_train_sequences={spec.stimulus.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences"
-        )
-
-    # Build metadata labels for preview plots (name, flip_ax, n_rot)
-    train_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in train_indices]
-    test_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in test_indices]
-
-    # Plot preview for train and test splits
-    frames_per_sequence = 35
-    n_hexals = stimuli.item(0)["lum"].shape[-1]
     ledger.begin("plot_previews", draws=False)
-    hex_x = x_coords[:n_hexals]
-    hex_y = y_coords[:n_hexals]
-    plot_sequence_preview(
-        train_sequences,
-        hex_x,
-        hex_y,
-        f"TRAIN: {len(train_sequences)} seqs from {n_train_vids} videos",
-        os.path.join(folder, "shuffle_first_frames_train.png"),
-        fig_style,
-        metadata=train_meta,
-        logger=logger,
-    )
-    plot_sequence_preview(
-        test_sequences,
-        hex_x,
-        hex_y,
-        f"TEST: {len(test_sequences)} seqs from {len(test_video_set)} videos",
-        os.path.join(folder, "shuffle_first_frames_test.png"),
-        fig_style,
-        metadata=test_meta,
-        logger=logger,
-    )
+    plot_previews(sequences, split, geometry, folder, fig_style)
 
     ledger.begin("integrate_train", draws=True)
     # --- Generate TRAIN split ---
@@ -2882,9 +2779,9 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         log_f.write(f'n_sequences_train: {len(train_sequences)}\n')
         log_f.write(f'n_sequences_test: {len(test_sequences)}\n')
         log_f.write(f'n_train_videos: {n_train_vids}\n')
-        log_f.write(f'n_test_videos: {len(test_video_set)}\n')
-        log_f.write(f'train_videos: {train_video_names}\n')
-        log_f.write(f'test_videos: {test_video_names}\n')
+        log_f.write(f'n_test_videos: {split.n_test_vids}\n')
+        log_f.write(f'train_videos: {split.train_video_names}\n')
+        log_f.write(f'test_videos: {split.test_video_names}\n')
         log_f.write(f'visual_input_type: {spec.stimulus.visual_input_type}\n')
         if spec.stimulus.datavis_roots:
             log_f.write(f'datavis_roots: {list(spec.stimulus.datavis_roots)}\n')

@@ -17,7 +17,10 @@ exactly the accesses legacy makes, in legacy order:
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
+
+import numpy as np
 
 from connectome_gnn.log import get_logger
 from connectome_gnn.utils import get_datavis_root_dir
@@ -137,3 +140,100 @@ def build_sources(spec, boxfilter: dict) -> StimulusSource:
         stimulus_dataset = AugmentedSintel(**sintel_config)
         print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
     return StimulusSource(stimulus_dataset, davis_dataset)
+
+
+# Frames per sequence as legacy counts them to size the train passes and the
+# test target (the sequences themselves are longer or shorter).
+FRAMES_PER_SEQUENCE = 35
+
+
+@dataclass(frozen=True)
+class VideoSplit:
+    """Which sequences go to train and which to test, split by source video."""
+
+    train_indices: list
+    test_indices: list
+    train_video_names: list        # sorted
+    test_video_names: list
+    n_train_vids: int
+    n_test_vids: int               # len(test_video_set)
+
+
+@dataclass(frozen=True)
+class Sequences:
+    """The sequences each split runs over, materialised from the dataset."""
+
+    train: list                    # truncated to max_train_sequences when that is > 0
+    test: list                     # truncated to max(1, max_train_sequences // 4)
+    train_meta: list               # (name, flip_ax, n_rot) of EVERY train index, not only the kept ones
+    test_meta: list
+    n_hexals: int
+
+
+def split_videos(stimuli: StimulusSource) -> VideoSplit:
+    """80/20 split of the source videos, so all augmentations of one video stay together.
+
+    Draws from the GLOBAL numpy stream (``np.random.shuffle`` of the unique
+    video indices), seeded by ``seed``.
+    """
+    # --- Subdirectory-level train/test split ---
+    # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
+    # Split by original_index so all augmentations of the same base video stay together.
+    df = stimuli.arg_df
+    original_indices = df["original_index"].values
+    unique_videos = np.unique(original_indices)
+    np.random.shuffle(unique_videos)
+    n_train_vids = int(len(unique_videos) * 0.8)
+    train_video_set = set(unique_videos[:n_train_vids])
+    test_video_set = set(unique_videos[n_train_vids:])
+
+    train_indices = [i for i, oi in enumerate(original_indices) if oi in train_video_set]
+    test_indices = [i for i, oi in enumerate(original_indices) if oi in test_video_set]
+
+    # Extract the actual video subdirectory names for logging
+    train_video_names = sorted(set(df.iloc[train_indices]["name"].values))
+    test_video_names = sorted(set(df.iloc[test_indices]["name"].values))
+
+    # Verify exclusivity
+    train_name_set = set(train_video_names)
+    test_name_set = set(test_video_names)
+    overlap = train_name_set & test_name_set
+    assert len(overlap) == 0, f"TRAIN/TEST OVERLAP: {overlap}"
+    logger.info(
+        f"subdirectory split: {n_train_vids} train / {len(unique_videos) - n_train_vids} test videos"
+        f"  ({len(train_indices)} train seqs, {len(test_indices)} test seqs)"
+    )
+    logger.info(f"overlap: {overlap} (must be empty)")
+    return VideoSplit(train_indices=train_indices, test_indices=test_indices,
+                      train_video_names=train_video_names, test_video_names=test_video_names,
+                      n_train_vids=n_train_vids, n_test_vids=len(test_video_set))
+
+
+def materialize_sequences(spec, stimuli: StimulusSource, split: VideoSplit) -> Sequences:
+    """Index every train and test sequence (ALL of them, before truncation), then truncate.
+
+    The number and order of dataset accesses is part of the RNG contract (see
+    the module docstring): all train items, all test items, then item(0) again
+    for the hexal count.
+    """
+    # Build sequences lists for ODE generation
+    train_sequences = stimuli.items(split.train_indices)
+    test_sequences = stimuli.items(split.test_indices)
+
+    # Optionally limit number of sequences for faster debugging
+    max_train = spec.stimulus.max_train_sequences
+    if max_train > 0:
+        train_sequences = train_sequences[: max_train]
+        test_sequences = test_sequences[: max(1, max_train // 4)]
+        logger.info(
+            f"max_train_sequences={max_train}: using {len(train_sequences)} train, {len(test_sequences)} test sequences"
+        )
+
+    # Build metadata labels for preview plots (name, flip_ax, n_rot)
+    df = stimuli.arg_df
+    train_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in split.train_indices]
+    test_meta = [(df.iloc[idx]["name"], df.iloc[idx]["flip_ax"], df.iloc[idx]["n_rot"]) for idx in split.test_indices]
+
+    n_hexals = stimuli.item(0)["lum"].shape[-1]
+    return Sequences(train=train_sequences, test=test_sequences, train_meta=train_meta, test_meta=test_meta,
+                     n_hexals=n_hexals)
