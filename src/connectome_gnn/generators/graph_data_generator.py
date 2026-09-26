@@ -2222,41 +2222,45 @@ def data_generate_voltage(
     save=True,
     compute_ranks=True,
 ):
+    from connectome_gnn.generators.voltage.spec import GenerationSpec
+
+    spec = GenerationSpec.from_config(
+        config, visualize=visualize, run_vizualized=run_vizualized, style=style, erase=erase, step=step,
+        device=device, save=save, compute_ranks=compute_ranks,
+    )
+    # Still handed to the helpers that have not been moved onto the spec yet.
+    sim = config.simulation
 
     fig_style = dark_style if "black" in style else default_style
     fig_style.apply_globally()
-
-    sim = config.simulation
-    tc = config.training
-    model_config = config.graph_model
 
     # Erase old data if requested (prevents appending to old runs)
     if erase:
         for split in ['train', 'test']:
             for data_file in ['x_list', 'y_list']:
-                old_path = graphs_data_path(config.dataset, f"{data_file}_{split}")
+                old_path = graphs_data_path(spec.output.dataset, f"{data_file}_{split}")
                 if os.path.exists(old_path):
                     _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
     torch.random.fork_rng(devices=device)
-    torch.random.manual_seed(sim.seed)
-    np.random.seed(sim.seed)
+    torch.random.manual_seed(spec.seed)
+    np.random.seed(spec.seed)
 
-    n_frames = sim.n_frames
-    n_neurons = sim.n_neurons
+    n_frames = spec.n_frames
+    n_neurons = spec.edges.n_neurons_config
 
     logger.info(
-        f"generating data ... {model_config.signal_model_name}  dynamics_noise: {sim.noise_model_level}  measurement_noise: {sim.measurement_noise_level}  seed: {sim.seed}  steady_state_value: {getattr(sim, 'steady_state_value', 0.5)}"
+        f"generating data ... {spec.network.signal_model_name}  dynamics_noise: {spec.train_noise.process_std}  measurement_noise: {spec.train_noise.measurement_std}  seed: {spec.seed}  steady_state_value: {spec.network.steady_state_value}"
     )
 
     # Stimulus / blank-prefix summary -- printed up-front so the user sees the
     # actual parameters used at generation time (vs whatever default the loader
     # might silently apply if the YAML is incomplete).
-    _bpf = float(getattr(sim, 'blank_prefix_fraction', 0.0))
-    _vis_type = getattr(sim, 'visual_input_type', 'DAVIS')
-    _datavis_roots = getattr(sim, 'datavis_roots', None) or ['<flyvis default Sintel>']
-    _skip_short = bool(getattr(sim, 'skip_short_videos', True))
+    _bpf = float(spec.stimulus.blank_prefix_fraction)
+    _vis_type = spec.stimulus.visual_input_type
+    _datavis_roots = list(spec.stimulus.datavis_roots) or ['<flyvis default Sintel>']
+    _skip_short = bool(spec.stimulus.skip_short_videos)
     # `visual_input_type` is the renderer class (DAVIS/mixed/flash/...), not
     # the dataset identity. For video-based renderers the actual data source
     # comes from `datavis_roots` — surface its basename so the log isn't
@@ -2274,10 +2278,10 @@ def data_generate_voltage(
         flush=True,
     )
     print(f"\033[93m[stimulus] datavis_roots={_datavis_roots}\033[0m", flush=True)
-    _ar1_rho = float(getattr(sim, 'noise_ar1_rho', 0.0))
+    _ar1_rho = spec.train_noise.ar1_rho
     print(
-        f"\033[93m[noise] noise_model_level={sim.noise_model_level}  "
-        f"measurement_noise_level={sim.measurement_noise_level}  "
+        f"\033[93m[noise] noise_model_level={spec.train_noise.process_std}  "
+        f"measurement_noise_level={spec.train_noise.measurement_std}  "
         f"noise_ar1_rho={_ar1_rho:.3f} "
         f"({'AR(1) ENABLED' if _ar1_rho > 0 else 'i.i.d.'})\033[0m",
         flush=True,
@@ -2286,16 +2290,16 @@ def data_generate_voltage(
     run = 0
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
-    folder = graphs_data_path(config.dataset) + "/"
+    folder = graphs_data_path(spec.output.dataset) + "/"
     print(f"\033[93m[data folder] {folder}\033[0m", flush=True)
     os.makedirs(folder, exist_ok=True)
-    os.makedirs(graphs_data_path(config.dataset, "Fig"), exist_ok=True)
-    files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
+    os.makedirs(graphs_data_path(spec.output.dataset, "Fig"), exist_ok=True)
+    files = glob.glob(graphs_data_path(spec.output.dataset, "Fig", "*"))
     for f in files:
         os.remove(f)
 
     # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
-    extent = 15 if getattr(sim, 'all_columns', False) else 8
+    extent = spec.network.extent
 
     # flyvis.__init__ sets root logger to INFO via basicConfig — restore to WARNING
     import logging
@@ -2321,13 +2325,13 @@ def data_generate_voltage(
     import logging as _logging
     _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
 
-    if is_flyvis_hybrid_model(model_config.signal_model_name):
+    if is_flyvis_hybrid_model(spec.network.signal_model_name):
         # --- Flywirevis hybrid: load pre-computed connectome tables ---
         from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
 
-        signal_name = model_config.signal_model_name
-        edge_uncertainty = getattr(sim, "edge_uncertainty", 1)
-        flyvis_model_id = f"flow/{sim.ensemble_id}/{sim.model_id}"
+        signal_name = spec.network.signal_model_name
+        edge_uncertainty = spec.network.edge_uncertainty
+        flyvis_model_id = f"flow/{spec.network.ensemble_id}/{spec.network.model_id}"
         logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
         net, _orig_net = load_hybrid_network(
             signal_name=signal_name,
@@ -2340,7 +2344,7 @@ def data_generate_voltage(
             f"{net.connectome.edges.source_index[:].shape[0]} edges"
         )
     else:
-        assert "flywire" not in model_config.signal_model_name, "Should have taken the if-branch"
+        assert "flywire" not in spec.network.signal_model_name, "Should have taken the if-branch"
         # --- Standard flyvis network ---
         config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
         config_net.connectome.extent = extent
@@ -2349,8 +2353,8 @@ def data_generate_voltage(
         # hard-coded 0; a TASK-TRAINED run of ours has 65 and 0 is the untrained
         # network, so generating from it would silently produce data from a model
         # that never learned anything.
-        _chkpt = int(getattr(sim, "conductance_checkpoint_index", 0))
-        if sim.ground_truth_model == "flyvis_conductance":
+        _chkpt = spec.network.conductance_checkpoint_index
+        if spec.network.ground_truth_model == "flyvis_conductance":
             # THE SAME TRANSPLANT, WITH THE CONDUCTANCE DYNAMICS. flyvis shares
             # every parameter by cell type and filter tap, so a state dict trained
             # at extent 15 loads into an extent-8 network unchanged -- that is what
@@ -2373,17 +2377,17 @@ def data_generate_voltage(
             # NOT checkpoint 0: that is the untrained network. See
             # SimulationConfig.conductance_checkpoint_index.
         net = Network(**config_net)
-        nnv = NetworkView(f"flow/{sim.ensemble_id}/{sim.model_id}")
+        nnv = NetworkView(f"flow/{spec.network.ensemble_id}/{spec.network.model_id}")
         trained_net = nnv.init_network(checkpoint=_chkpt)
         net.load_state_dict(trained_net.state_dict())
-        if sim.ground_truth_model == "flyvis_conductance":
+        if spec.network.ground_truth_model == "flyvis_conductance":
             got = type(net.dynamics).__name__
             if got != CONDUCTANCE_DYNAMICS:
                 raise RuntimeError(
                     f"network.dynamics is {got}, not {CONDUCTANCE_DYNAMICS}; flyvis "
                     "fell back to a base class whose methods are `pass`.")
-            print(f"\033[96m  conductance generator: flow/{sim.ensemble_id}/"
-                  f"{sim.model_id} checkpoint {_chkpt}, {got}\033[0m", flush=True)
+            print(f"\033[96m  conductance generator: flow/{spec.network.ensemble_id}/"
+                  f"{spec.network.model_id} checkpoint {_chkpt}, {got}\033[0m", flush=True)
     torch.set_grad_enabled(False)
 
     _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
@@ -2401,7 +2405,7 @@ def data_generate_voltage(
     # augmentations unchanged (they require a regular lattice); the
     # projection then maps each augmented frame onto the actual FlyWire
     # input columns at ``Stimulus.add_input`` time.
-    if getattr(sim, 'flywire_stimulus', False):
+    if spec.stimulus.flywire_stimulus:
         from connectome_gnn.generators.flywire_eye import (
             standard_boxeye_and_flywire_index,
         )
@@ -2428,14 +2432,13 @@ def data_generate_voltage(
         boxfilter_arg = dict(extent=extent, kernel_size=13)
 
     # Initialize datasets
-    print(f"[DBG] visual_input_type={sim.visual_input_type!r}  datavis_roots={sim.datavis_roots}", flush=True)
-    if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
+    print(f"[DBG] visual_input_type={spec.stimulus.visual_input_type!r}  datavis_roots={list(spec.stimulus.datavis_roots)}", flush=True)
+    if "DAVIS" in spec.stimulus.visual_input_type or "mixed" in spec.stimulus.visual_input_type:
         # determine dataset roots: use config list if provided, otherwise fall back to default
-        if sim.datavis_roots:
-            # roots may name a local variable ($WEB_DATASETS_ROOT/...): cluster paths stay out of
-            # committed YAML, so expand here, at use, and never write the expansion back
+        if spec.stimulus.datavis_roots:
+            # Roots may name a local variable; expand at use without modifying the config.
             datavis_root_list = [os.path.join(os.path.expandvars(r), "JPEGImages/480p")
-                                 for r in sim.datavis_roots]
+                                 for r in spec.stimulus.datavis_roots]
         else:
             datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
 
@@ -2447,7 +2450,7 @@ def data_generate_voltage(
 
         video_config = {
             "n_frames": 50,
-            "max_frames": sim.truncate_max_frames,  # None = no per-clip truncation
+            "max_frames": spec.stimulus.truncate_max_frames,  # None = no per-clip truncation
             # Hex rotate/flip rely on a regular hex-disk lattice; the FlyWire
             # column lattice is irregular, so disable them when rendering on it.
             # (augment=False already neutralises them at runtime, but this also
@@ -2459,17 +2462,17 @@ def data_generate_voltage(
             "flip_axes": [0, 1],
             "n_rotations": [0, 90, 180, 270],
             "temporal_split": False,
-            "dt": sim.delta_t,
+            "dt": spec.delta_t,
             "boxfilter": boxfilter_arg,
             "vertical_splits": 1,
             "center_crop_fraction": 0.6,
             "augment": False,
             "unittest": False,
-            "skip_short_videos": sim.skip_short_videos,
+            "skip_short_videos": spec.stimulus.skip_short_videos,
             "shuffle_sequences": True,
-            "shuffle_seed": sim.seed,
+            "shuffle_seed": spec.seed,
         }
-        print(f"[DBG] video_config built (skip_short={sim.skip_short_videos} max_frames={sim.truncate_max_frames} seed={sim.seed})", flush=True)
+        print(f"[DBG] video_config built (skip_short={spec.stimulus.skip_short_videos} max_frames={spec.stimulus.truncate_max_frames} seed={spec.seed})", flush=True)
 
         # create dataset(s)
         if len(datavis_root_list) == 1:
@@ -2484,7 +2487,7 @@ def data_generate_voltage(
     else:
         davis_dataset = None
 
-    if "DAVIS" in sim.visual_input_type:
+    if "DAVIS" in spec.stimulus.visual_input_type:
         stimulus_dataset = davis_dataset
         print(f"[DBG] using DAVIS-branch dataset: {len(stimulus_dataset)} sequences", flush=True)
     else:
@@ -2493,7 +2496,7 @@ def data_generate_voltage(
             "flip_axes": [0, 1],
             "n_rotations": [0, 1, 2, 3, 4, 5],
             "temporal_split": True,
-            "dt": sim.delta_t,
+            "dt": spec.delta_t,
             "interpolate": True,
             "boxfilter": boxfilter_arg,
             "vertical_splits": 3,
@@ -2506,8 +2509,8 @@ def data_generate_voltage(
     # Extract ground-truth parameters. WHICH synapse model generates the data is
     # sim.ground_truth_model, NOT the model that will be trained on it -- see
     # SimulationConfig.ground_truth_model for why those are separate axes.
-    print(f"[DBG] extracting ODE params ({sim.ground_truth_model}) ...", flush=True)
-    if sim.ground_truth_model == "conductance":
+    print(f"[DBG] extracting ODE params ({spec.network.ground_truth_model}) ...", flush=True)
+    if spec.network.ground_truth_model == "conductance":
         from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
 
         # The connectome supplies the graph; the trained student supplies the
@@ -2515,12 +2518,12 @@ def data_generate_voltage(
         # fit, so it comes from the flyvis network either way.
         _edges = FlyVisCurrentODEParams.from_flyvis_network(net, device=device).edge_index
         ode_params = FlyVisConductanceODEParams.from_twin_checkpoint(
-            sim.conductance_checkpoint, _edges, device=device)
+            spec.network.conductance_checkpoint, _edges, device=device)
         logger.info(
-            f"conductance ground truth from {sim.conductance_checkpoint}: "
+            f"conductance ground truth from {spec.network.conductance_checkpoint}: "
             f"E_inh={float(ode_params.E_inh[0]):+.3f} E_exc={float(ode_params.E_exc[0]):+.3f}, "
             f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
-    elif sim.ground_truth_model == "flyvis_conductance":
+    elif spec.network.ground_truth_model == "flyvis_conductance":
         # The parameters are already in the network -- `write_derived_params` has
         # materialised both reversals per neuron -- so unlike the twin path there is
         # no checkpoint to read and no square root to undo.
@@ -2528,7 +2531,7 @@ def data_generate_voltage(
 
         ode_params = FlyVisConductanceODEParams.from_flyvis_network(net, device=device)
         logger.info(
-            f"conductance ground truth from flow/{sim.ensemble_id}/{sim.model_id}: "
+            f"conductance ground truth from flow/{spec.network.ensemble_id}/{spec.network.model_id}: "
             f"E_exc {float(ode_params.E_exc.min()):+.3f}..{float(ode_params.E_exc.max()):+.3f}, "
             f"E_inh {float(ode_params.E_inh.min()):+.3f}..{float(ode_params.E_inh.max()):+.3f}, "
             f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
@@ -2537,8 +2540,8 @@ def data_generate_voltage(
     edge_index = ode_params.edge_index.to(device)
     print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
-    if sim.n_extra_null_edges > 0:
-        logger.info(f"adding {sim.n_extra_null_edges} extra null edges (mode={sim.null_edges_mode})...")
+    if spec.edges.n_extra_null_edges > 0:
+        logger.info(f"adding {spec.edges.n_extra_null_edges} extra null edges (mode={spec.edges.null_edges_mode})...")
         import random
 
         src_np = edge_index[0].cpu().numpy()
@@ -2546,14 +2549,14 @@ def data_generate_voltage(
         existing_edges = set(zip(src_np, dst_np))
         extra_edges = []
 
-        if sim.null_edges_mode == "per_column":
+        if spec.edges.null_edges_mode == "per_column":
             # Per pre-synaptic neuron: add a proportional number of false targets
             # Compute out-degree per source neuron
             from collections import Counter
 
             out_degree = Counter(src_np.tolist())
             total_real = edge_index.shape[1]
-            ratio = sim.n_extra_null_edges / total_real
+            ratio = spec.edges.n_extra_null_edges / total_real
 
             # Build per-neuron target sets for fast lookup
             targets_by_source = {}
@@ -2583,9 +2586,9 @@ def data_generate_voltage(
             )
         else:
             # Random: sample uniformly across the full matrix
-            max_attempts = sim.n_extra_null_edges * 10
+            max_attempts = spec.edges.n_extra_null_edges * 10
             attempts = 0
-            while len(extra_edges) < sim.n_extra_null_edges and attempts < max_attempts:
+            while len(extra_edges) < spec.edges.n_extra_null_edges and attempts < max_attempts:
                 source = random.randint(0, n_neurons - 1)
                 target = random.randint(0, n_neurons - 1)
                 if (source, target) not in existing_edges and source != target:
@@ -2602,22 +2605,22 @@ def data_generate_voltage(
 
     # Edge ablation: zero out a fraction of edge weights before ODE simulation
     ablation_mask = None
-    if sim.ablation_ratio > 0:
-        rng = np.random.RandomState(sim.ablation_seed)
+    if spec.edges.ablation_ratio > 0:
+        rng = np.random.RandomState(spec.edges.ablation_seed)
         n_edges = edge_index.shape[1]
-        n_ablate = int(np.round(n_edges * sim.ablation_ratio))
+        n_ablate = int(np.round(n_edges * spec.edges.ablation_ratio))
         ablate_indices = rng.choice(n_edges, size=n_ablate, replace=False)
         ablation_mask = torch.ones(n_edges, dtype=torch.bool, device=device)
         ablation_mask[ablate_indices] = False
         ode_params.W[~ablation_mask] = 0.0
-        logger.info(f"ablated {n_ablate}/{n_edges} edges ({sim.ablation_ratio * 100:.0f}%)")
+        logger.info(f"ablated {n_ablate}/{n_edges} edges ({spec.edges.ablation_ratio * 100:.0f}%)")
 
     pde = FlyVisODE(
         ode_params=ode_params,
         g_phi=torch.nn.functional.relu,
-        params=sim.params,
-        model_type=model_config.signal_model_name,
-        n_neuron_types=sim.n_neuron_types,
+        params=spec.network.ode_params_list(),
+        model_type=spec.network.signal_model_name,
+        n_neuron_types=spec.network.n_neuron_types,
         device=device,
     )
 
@@ -2660,8 +2663,8 @@ def data_generate_voltage(
         dtype=torch.float32, device=device,
     )
 
-    _ss_value = getattr(sim, 'steady_state_value', 0.5)
-    state = net.steady_state(t_pre=2.0, dt=sim.delta_t, batch_size=1, value=_ss_value)
+    _ss_value = spec.network.steady_state_value
+    state = net.steady_state(t_pre=2.0, dt=spec.delta_t, batch_size=1, value=_ss_value)
     initial_state = state.nodes.activity.squeeze().to(device)
     n_neurons = len(initial_state)
 
@@ -2719,11 +2722,11 @@ def data_generate_voltage(
     test_sequences = [stimulus_dataset[i] for i in test_indices]
 
     # Optionally limit number of sequences for faster debugging
-    if sim.max_train_sequences > 0:
-        train_sequences = train_sequences[: sim.max_train_sequences]
-        test_sequences = test_sequences[: max(1, sim.max_train_sequences // 4)]
+    if spec.stimulus.max_train_sequences > 0:
+        train_sequences = train_sequences[: spec.stimulus.max_train_sequences]
+        test_sequences = test_sequences[: max(1, spec.stimulus.max_train_sequences // 4)]
         logger.info(
-            f"max_train_sequences={sim.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences"
+            f"max_train_sequences={spec.stimulus.max_train_sequences}: using {len(train_sequences)} train, {len(test_sequences)} test sequences"
         )
 
     # Build metadata labels for preview plots (name, flip_ax, n_rot)
@@ -2759,7 +2762,7 @@ def data_generate_voltage(
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
 
-    repeat_factor = max(1, int(getattr(sim, 'repeat_short_sequence_factor', 1)))
+    repeat_factor = spec.stimulus.repeat_factor
     if n_frames == 0:
         num_passes_needed = 1
         target_frames = float("inf")
@@ -2776,7 +2779,7 @@ def data_generate_voltage(
         logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
-        path=graphs_data_path(config.dataset, "x_list_train"),
+        path=graphs_data_path(spec.output.dataset, "x_list_train"),
         n_neurons=n_neurons,
         time_chunks=2000,
         # ce0d1d9 ("finish calcium strip") removed sim.save_calcium along with
@@ -2785,10 +2788,10 @@ def data_generate_voltage(
         # Defaulting False keeps the writer plumbing intact: making calcium
         # generation actually WORK needs calcium_tau/alpha/beta back too, which
         # is separate work and not needed for the conductance-vs-current survey.
-        save_calcium=getattr(sim, "save_calcium", False),
+        save_calcium=spec.save_calcium,
     )
     y_writer = ZarrArrayWriter(
-        path=graphs_data_path(config.dataset, "y_list_train"),
+        path=graphs_data_path(spec.output.dataset, "y_list_train"),
         n_neurons=n_neurons,
         n_features=1,
         time_chunks=2000,
@@ -2809,14 +2812,14 @@ def data_generate_voltage(
         n_neurons=n_neurons,
         device=device,
         to_numpy_fn=to_numpy,
-        noise_model_level=sim.noise_model_level,
-        measurement_noise_level=sim.measurement_noise_level,
+        noise_model_level=spec.train_noise.process_std,
+        measurement_noise_level=spec.train_noise.measurement_std,
         visualize=visualize,
         run=run,
         run_vizualized=run_vizualized,
         step=step,
         id_fig_start=0,
-        it_start=sim.start_frame,
+        it_start=spec.start_frame,
         fig_style=fig_style,
         config=config,
         davis_dataset=davis_dataset,
@@ -2830,12 +2833,12 @@ def data_generate_voltage(
     logger.info(f"generated {n_frames_train} TRAIN frames (saved as .zarr)")
 
     # --- Compute noisy derivatives for TRAIN split ---
-    if sim.measurement_noise_level > 0:
+    if spec.train_noise.gate_measurement_std > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="train")
 
     # --- Tile unique block ×factor across all dynamic train fields ---
     if repeat_factor > 1:
-        _tile_train_zarrs(config, repeat_factor, save_calcium=getattr(sim, "save_calcium", False))
+        _tile_train_zarrs(config, repeat_factor, save_calcium=spec.save_calcium)
         # Reflect the post-tile length in the generation log so _have_data
         # validates the on-disk zarr without flagging it as incomplete.
         n_frames_train = n_frames_train * repeat_factor
@@ -2845,8 +2848,8 @@ def data_generate_voltage(
     # comparison against ground truth reflects the model's dynamics, not observation
     # noise. Set sim.noisy_test_data=True to keep train-level noise on the test split
     # (e.g. for figures that show the noisy stimulus-response trace the model saw).
-    test_noise_model = sim.noise_model_level if sim.noisy_test_data else 0.0
-    test_noise_meas = sim.measurement_noise_level if sim.noisy_test_data else 0.0
+    test_noise_model = spec.test_noise.process_std
+    test_noise_meas = spec.test_noise.measurement_std
 
     # Reset neural state to avoid train→test leakage
     x.voltage[:] = initial_state
@@ -2855,20 +2858,20 @@ def data_generate_voltage(
     x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
     # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
-    MAX_TEST_FRAMES = 8000
-    _n_frames_test_cap = getattr(sim, 'n_frames_test', 0)
+    MAX_TEST_FRAMES = spec.max_test_frames
+    _n_frames_test_cap = spec.n_frames_test_cap
     test_target_frames = (_n_frames_test_cap if _n_frames_test_cap > 0 else MAX_TEST_FRAMES)
     test_target = len(test_sequences) * frames_per_sequence
     logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
 
     x_writer = ZarrSimulationWriterV3(
-        path=graphs_data_path(config.dataset, "x_list_test"),
+        path=graphs_data_path(spec.output.dataset, "x_list_test"),
         n_neurons=n_neurons,
         time_chunks=2000,
-        save_calcium=getattr(sim, "save_calcium", False),
+        save_calcium=spec.save_calcium,
     )
     y_writer = ZarrArrayWriter(
-        path=graphs_data_path(config.dataset, "y_list_test"),
+        path=graphs_data_path(spec.output.dataset, "y_list_test"),
         n_neurons=n_neurons,
         n_features=1,
         time_chunks=2000,
@@ -2892,15 +2895,15 @@ def data_generate_voltage(
     y_writer.finalize()
     _noise_tag = (
         f"noisy (noise_model={test_noise_model:g}, meas={test_noise_meas:g})"
-        if sim.noisy_test_data else "without noise"
+        if spec.noisy_test_data else "without noise"
     )
     logger.info(f"generated {n_frames_test} TEST frames {_noise_tag} (saved as .zarr)")
-    if sim.noisy_test_data:
+    if spec.noisy_test_data:
         # Marker for consumers that need to know the test split carries train-level noise
-        open(graphs_data_path(config.dataset, "noisy_test_data.ok"), "w").close()
+        open(graphs_data_path(spec.output.dataset, "noisy_test_data.ok"), "w").close()
 
     # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
-    if sim.noisy_test_data and sim.measurement_noise_level > 0:
+    if spec.noisy_test_data and spec.test_noise.gate_measurement_std > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="test")
 
     # restore gradient computation now (before any early-return paths)
@@ -2911,13 +2914,13 @@ def data_generate_voltage(
     # Now prune ode_params so the GNN only sees the incomplete adjacency matrix.
     print(f"{_G}[GENERATE] activity generated with full connectivity: "
           f"edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
-    if sim.edge_removal_ratio > 0:
+    if spec.edges.edge_removal_ratio > 0:
         if save:
-            torch.save(ode_params.W.clone(), graphs_data_path(config.dataset, "weights_full.pt"))
-            torch.save(edge_index.clone(), graphs_data_path(config.dataset, "edge_index_full.pt"))
+            torch.save(ode_params.W.clone(), graphs_data_path(spec.output.dataset, "weights_full.pt"))
+            torch.save(edge_index.clone(), graphs_data_path(spec.output.dataset, "edge_index_full.pt"))
 
         n_total = edge_index.shape[1]
-        edge_mask_path = getattr(sim, 'edge_mask_path', '')
+        edge_mask_path = spec.edges.edge_mask_path
         if edge_mask_path and os.path.exists(edge_mask_path):
             kept_indices = torch.load(edge_mask_path, weights_only=True)
             print(f"{_G}[GENERATE] mask loaded from {edge_mask_path}: "
@@ -2928,37 +2931,37 @@ def data_generate_voltage(
                       f"— computing new mask{_X}")
             else:
                 print(f"{_G}[GENERATE] no edge_mask_path — computing new mask "
-                      f"(mode={getattr(sim,'edge_removal_mode','random')}, "
-                      f"ratio={sim.edge_removal_ratio}){_X}")
-            rng_rm = np.random.RandomState(sim.edge_removal_seed)
-            removal_mode = getattr(sim, 'edge_removal_mode', 'random')
+                      f"(mode={spec.edges.edge_removal_mode}, "
+                      f"ratio={spec.edges.edge_removal_ratio}){_X}")
+            rng_rm = np.random.RandomState(spec.edges.edge_removal_seed)
+            removal_mode = spec.edges.edge_removal_mode
             if removal_mode == 'per_column':
                 src_np = edge_index[0].cpu().numpy()
                 keep_mask = np.ones(n_total, dtype=bool)
                 for source in np.unique(src_np):
                     source_edges = np.where(src_np == source)[0]
-                    n_remove = max(1, int(round(len(source_edges) * sim.edge_removal_ratio)))
+                    n_remove = max(1, int(round(len(source_edges) * spec.edges.edge_removal_ratio)))
                     if n_remove >= len(source_edges):
                         n_remove = len(source_edges) - 1
                     remove_idx = rng_rm.choice(source_edges, n_remove, replace=False)
                     keep_mask[remove_idx] = False
                 kept_indices = np.where(keep_mask)[0]
             else:
-                n_keep = int(n_total * (1 - sim.edge_removal_ratio))
+                n_keep = int(n_total * (1 - spec.edges.edge_removal_ratio))
                 kept_indices = np.sort(rng_rm.choice(n_total, n_keep, replace=False))
 
         edge_index = edge_index[:, kept_indices]
         ode_params.edge_index = edge_index
         ode_params.W = ode_params.W[kept_indices]
         pct_removed = (1 - len(kept_indices) / n_total) * 100
-        expected_pct = sim.edge_removal_ratio * 100
+        expected_pct = spec.edges.edge_removal_ratio * 100
         color = _G if abs(pct_removed - expected_pct) < 2 else _R
         print(f"{color}[GENERATE] ode_params pruned: edge_index={edge_index.shape}  "
               f"W={ode_params.W.shape}  removed={pct_removed:.1f}% "
               f"(expected {expected_pct:.0f}%){_X}")
         if save:
             torch.save(torch.tensor(kept_indices, device=device),
-                       graphs_data_path(config.dataset, "kept_edge_indices.pt"))
+                       graphs_data_path(spec.output.dataset, "kept_edge_indices.pt"))
     else:
         print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
 
@@ -2967,13 +2970,13 @@ def data_generate_voltage(
         print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
               f"W={ode_params.W.shape}  → {folder}{_X}")
         if ablation_mask is not None:
-            torch.save(ablation_mask, graphs_data_path(config.dataset, "ablation_mask.pt"))
+            torch.save(ablation_mask, graphs_data_path(spec.output.dataset, "ablation_mask.pt"))
 
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 
-    x_ts = load_simulation_data(graphs_data_path(config.dataset, "x_list_train"))
-    y_list = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))
+    x_ts = load_simulation_data(graphs_data_path(spec.output.dataset, "x_list_train"))
+    y_list = load_raw_array(graphs_data_path(spec.output.dataset, "y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
     # ---- conductance bracket check -------------------------------------------
@@ -2993,7 +2996,7 @@ def data_generate_voltage(
     #      sign per edge -- it cannot fit data containing crossings, which would
     #      silently handicap the models this dataset exists to train.
     _bracket = None
-    if getattr(sim, "ground_truth_model", "current") == "conductance":
+    if spec.network.ground_truth_model == "conductance":
         _n_exc, _n_inh, _worst = ode_params.bracket_violation(x_ts.voltage)
         _bracket = dict(n_exc=_n_exc, n_inh=_n_inh, worst_margin=_worst,
                         E_exc=float(ode_params.E_exc.min()),
@@ -3004,7 +3007,7 @@ def data_generate_voltage(
                 f"worst margin {_worst:+.4f} "
                 f"(v {_bracket['v_min']:+.3f}..{_bracket['v_max']:+.3f} vs "
                 f"[{_bracket['E_inh']:+.3f}, {_bracket['E_exc']:+.3f}])")
-        _strict = bool(getattr(sim, "conductance_bracket_strict", True))
+        _strict = spec.network.conductance_bracket_strict
         if _tot and not _strict:
             # A CROSSING IS EXPECTED, NOT A FAILURE, once the reversals are
             # physiological. A real chloride equilibrium potential sits INSIDE the
@@ -3015,7 +3018,7 @@ def data_generate_voltage(
             # dataset still validated.
             logger.warning(_msg + "  [conductance_bracket_strict False: recorded, "
                                   "not fatal]")
-            with open(graphs_data_path(config.dataset, "BRACKET_CROSSINGS.txt"), "w") as _bf:
+            with open(graphs_data_path(spec.output.dataset, "BRACKET_CROSSINGS.txt"), "w") as _bf:
                 _bf.write(_msg + "\n")
                 for _k, _v in _bracket.items():
                     _bf.write(f"{_k}: {_v}\n")
@@ -3026,7 +3029,7 @@ def data_generate_voltage(
             # and .generate_done, without which _have_data refuses the dataset.
             # Record the numbers next to the half-written data so the failure is
             # inspectable later rather than only in whatever captured stderr.
-            with open(graphs_data_path(config.dataset, "BRACKET_VIOLATION.txt"), "w") as _bf:
+            with open(graphs_data_path(spec.output.dataset, "BRACKET_VIOLATION.txt"), "w") as _bf:
                 _bf.write(_msg + "\n")
                 for _k, _v in _bracket.items():
                     _bf.write(f"{_k}: {_v}\n")
@@ -3072,7 +3075,7 @@ def data_generate_voltage(
         else:
             rank_90_mc = rank_99_mc = 0
 
-        input_for_svd = x_ts.stimulus[:, : sim.n_input_neurons].numpy()
+        input_for_svd = x_ts.stimulus[:, : spec.network.n_input_neurons].numpy()
         n_comp_input = min(50, min(input_for_svd.shape) - 1)
         S_inp = _svd_lowrank(input_for_svd, n_comp_input, _svd_device)
         cumvar_inp = np.cumsum(S_inp**2) / np.sum(S_inp**2)
@@ -3097,7 +3100,7 @@ def data_generate_voltage(
                     if len(idx) > 0:
                         act_labels.append((name, int(idx.min()), int(idx.max()) + 1))
                 # Stimulus labels: find which neurons receive non-zero stimulus
-                stim_np = x_ts.stimulus[:, : sim.n_input_neurons].numpy()
+                stim_np = x_ts.stimulus[:, : spec.network.n_input_neurons].numpy()
                 stim_power = np.sum(stim_np**2, axis=0)  # (N,)
                 stim_labels = []
                 for ti, name in enumerate(tnames):
@@ -3116,8 +3119,8 @@ def data_generate_voltage(
         logger.info("plotting kinograph ...")
         plot_kinograph(
             activity=activity_full.T,
-            stimulus=x_ts.stimulus[:, : sim.n_input_neurons].numpy().T,
-            output_path=graphs_data_path(config.dataset, "kinograph.png"),
+            stimulus=x_ts.stimulus[:, : spec.network.n_input_neurons].numpy().T,
+            output_path=graphs_data_path(spec.output.dataset, "kinograph.png"),
             rank_90_act=rank_90_act,
             rank_99_act=rank_99_act,
             rank_90_inp=rank_90_inp,
@@ -3134,13 +3137,13 @@ def data_generate_voltage(
     if visualize:
         warmup_ms = 100.0
         window_ms = 800.0
-        warmup_frames = int(warmup_ms / sim.delta_t)
-        window_frames = int(window_ms / sim.delta_t)
+        warmup_frames = int(warmup_ms / spec.delta_t)
+        window_frames = int(window_ms / spec.delta_t)
         activity_plot = activity_full[warmup_frames:] if activity_full.shape[0] > warmup_frames + 10 else activity_full
         stim_plot = (
-            x_ts.stimulus[warmup_frames:, : sim.n_input_neurons].numpy()
+            x_ts.stimulus[warmup_frames:, : spec.network.n_input_neurons].numpy()
             if x_ts.stimulus.shape[0] > warmup_frames + 10
-            else x_ts.stimulus[:, : sim.n_input_neurons].numpy()
+            else x_ts.stimulus[:, : spec.network.n_input_neurons].numpy()
         )
         logger.info(
             f"plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)"
@@ -3149,7 +3152,7 @@ def data_generate_voltage(
     # HH-specific spiking plots (detect spikes from voltage threshold crossings)
     # Plot noisy activity traces using the same neurons + compute SNR
     snr_stats = None
-    if sim.measurement_noise_level > 0:
+    if spec.train_noise.gate_measurement_std > 0:
         logger.debug("plot noisy activity traces ...")
         noise_data = x_ts.noise.numpy() if x_ts.noise is not None else None
         if noise_data is not None:
@@ -3157,10 +3160,10 @@ def data_generate_voltage(
             if visualize:
                 plot_activity_traces(
                     activity=noisy_activity.T,
-                    output_path=graphs_data_path(config.dataset, "activity_traces_noisy.png"),
+                    output_path=graphs_data_path(spec.output.dataset, "activity_traces_noisy.png"),
                     n_traces=100,
                     max_frames=10000,
-                    n_input_neurons=sim.n_input_neurons,
+                    n_input_neurons=spec.network.n_input_neurons,
                     style=fig_style,
                     type_list=node_types_int,
                     dpi=300,
@@ -3176,14 +3179,14 @@ def data_generate_voltage(
 
             # Derivative SNR: std(clean_derivative) / std(derivative_noise) per neuron
             # derivative noise = (noise[t+1] - noise[t]) / dt
-            deriv_noise = np.diff(noise_data, axis=0) / sim.delta_t  # (T-1, N)
+            deriv_noise = np.diff(noise_data, axis=0) / spec.delta_t  # (T-1, N)
             deriv_noise_std = np.std(deriv_noise, axis=0)  # (N,)
-            y_clean = load_raw_array(graphs_data_path(config.dataset, "y_list_train"))  # (T, N, 1)
+            y_clean = load_raw_array(graphs_data_path(spec.output.dataset, "y_list_train"))  # (T, N, 1)
             deriv_signal_std = np.std(y_clean[:, :, 0], axis=0)  # (N,)
             deriv_snr = np.where(deriv_noise_std > 0, deriv_signal_std / deriv_noise_std, np.inf)
             deriv_snr_finite = deriv_snr[np.isfinite(deriv_snr)]
 
-            deriv_noise_std_theoretical = sim.measurement_noise_level * np.sqrt(2) / sim.delta_t
+            deriv_noise_std_theoretical = spec.train_noise.measurement_std * np.sqrt(2) / spec.delta_t
             deriv_noise_std_empirical = np.mean(deriv_noise_std)
 
             snr_stats = {
@@ -3237,11 +3240,11 @@ def data_generate_voltage(
     #     )
 
     # Save ranks to log file
-    gen_log_path = graphs_data_path(config.dataset, 'generation_log.txt')
+    gen_log_path = graphs_data_path(spec.output.dataset, 'generation_log.txt')
     with open(gen_log_path, 'w') as log_f:
-        log_f.write(f'dataset: {config.dataset}\n')
+        log_f.write(f'dataset: {spec.output.dataset}\n')
         log_f.write(f'n_neurons: {n_neurons}\n')
-        log_f.write(f'n_input_neurons: {sim.n_input_neurons}\n')
+        log_f.write(f'n_input_neurons: {spec.network.n_input_neurons}\n')
         log_f.write(f'n_frames_train: {n_frames_train}\n')
         log_f.write(f'n_frames_test: {n_frames_test}\n')
         log_f.write(f'n_sequences_train: {len(train_sequences)}\n')
@@ -3250,22 +3253,22 @@ def data_generate_voltage(
         log_f.write(f'n_test_videos: {len(test_video_set)}\n')
         log_f.write(f'train_videos: {train_video_names}\n')
         log_f.write(f'test_videos: {test_video_names}\n')
-        log_f.write(f'visual_input_type: {sim.visual_input_type}\n')
-        if sim.datavis_roots:
-            log_f.write(f'datavis_roots: {sim.datavis_roots}\n')
-        log_f.write(f'noise_model_level: {sim.noise_model_level}\n')
-        log_f.write(f'measurement_noise_level: {sim.measurement_noise_level}\n')
-        log_f.write(f'ground_truth_model: {getattr(sim, "ground_truth_model", "current")}\n')
+        log_f.write(f'visual_input_type: {spec.stimulus.visual_input_type}\n')
+        if spec.stimulus.datavis_roots:
+            log_f.write(f'datavis_roots: {list(spec.stimulus.datavis_roots)}\n')
+        log_f.write(f'noise_model_level: {spec.train_noise.process_std}\n')
+        log_f.write(f'measurement_noise_level: {spec.train_noise.measurement_std}\n')
+        log_f.write(f'ground_truth_model: {spec.network.ground_truth_model}\n')
         if _bracket is not None:
-            log_f.write(f'conductance_checkpoint: {sim.conductance_checkpoint}\n')
+            log_f.write(f'conductance_checkpoint: {spec.network.conductance_checkpoint}\n')
             log_f.write(f'E_inh: {_bracket["E_inh"]:.6f}\n')
             log_f.write(f'E_exc: {_bracket["E_exc"]:.6f}\n')
             log_f.write(f'voltage_range: {_bracket["v_min"]:.6f} .. {_bracket["v_max"]:.6f}\n')
             log_f.write(f'bracket_crossings_above_E_exc: {_bracket["n_exc"]}\n')
             log_f.write(f'bracket_crossings_below_E_inh: {_bracket["n_inh"]}\n')
             log_f.write(f'bracket_worst_margin: {_bracket["worst_margin"]:.6f}\n')
-        log_f.write(f'model_id: {sim.model_id}\n')
-        log_f.write(f'ensemble_id: {sim.ensemble_id}\n')
+        log_f.write(f'model_id: {spec.network.model_id}\n')
+        log_f.write(f'ensemble_id: {spec.network.ensemble_id}\n')
         log_f.write('\n')
         if compute_ranks:
             log_f.write(f"activity_rank_90: {rank_90_act}\n")
@@ -3379,8 +3382,8 @@ def data_generate_voltage(
         index_to_name,
         n_neurons,
         n_frames,
-        sim.delta_t,
-        graphs_data_path(config.dataset) + "/",
+        spec.delta_t,
+        graphs_data_path(spec.output.dataset) + "/",
     )
 
     logger.info("plot figure activity ...")
@@ -3402,11 +3405,11 @@ def data_generate_voltage(
     stim_np = (to_numpy(x_ts.stimulus[:n_trace_frames, 0])
                if x_ts.stimulus is not None else None)
     save_trace_figure(
-        graphs_data_path(config.dataset, 'activity.png'),
+        graphs_data_path(spec.output.dataset, 'activity.png'),
         activity_np[:n_trace_frames],
         None,
         stim_np,
-        sim.delta_t,
+        spec.delta_t,
         None,
         type_names=index_to_name,
         type_list=to_numpy(type_list.squeeze()),
@@ -3432,11 +3435,11 @@ def data_generate_voltage(
             if not _ids:
                 continue
             save_trace_figure(
-                graphs_data_path(config.dataset, _name),
+                graphs_data_path(spec.output.dataset, _name),
                 activity_np[:n_trace_frames][:, _ids],
                 None,
                 stim_np,
-                sim.delta_t,
+                spec.delta_t,
                 None,
                 n_traces=len(_ids),
                 type_names=index_to_name,
@@ -3453,16 +3456,16 @@ def data_generate_voltage(
     if visualize & (run == run_vizualized):
         logger.info("generating lossless video ...")
 
-        output_name = config.dataset.split("flyvis_")[1] if "flyvis_" in config.dataset else "no_id"
-        src = graphs_data_path(config.dataset, "Fig", "Fig_0_000000.png")
-        dst = graphs_data_path(config.dataset, f"input_{output_name}.png")
+        output_name = spec.output.dataset.split("flyvis_")[1] if "flyvis_" in spec.output.dataset else "no_id"
+        src = graphs_data_path(spec.output.dataset, "Fig", "Fig_0_000000.png")
+        dst = graphs_data_path(spec.output.dataset, f"input_{output_name}.png")
         with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
             fdst.write(fsrc.read())
 
-        generate_compressed_video_mp4(output_dir=graphs_data_path(config.dataset), run=run,
+        generate_compressed_video_mp4(output_dir=graphs_data_path(spec.output.dataset), run=run,
                                       output_name=output_name, framerate=10)
 
-        files = glob.glob(graphs_data_path(config.dataset, "Fig", "*"))
+        files = glob.glob(graphs_data_path(spec.output.dataset, "Fig", "*"))
         for f in files:
             os.remove(f)
 
