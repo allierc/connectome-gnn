@@ -210,7 +210,7 @@ def render_figures(spec, trace, x, n_neurons: int, store) -> None:
             ("activity_selected.png",
              [_first_of_type[t] for t in CURATED_TYPES if t in _first_of_type]),
         ):
-            if not _ids:  # golden-partial: B55 (every network has all 65 types)
+            if not _ids:  # golden-uncovered: B55 (every network has all 65 types)
                 continue
             save_trace_figure(
                 store.path(_name),

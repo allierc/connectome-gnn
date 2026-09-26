@@ -106,7 +106,7 @@ class Mixed:
         current_type = self.TYPES[self.mixed_current_type]
 
         if current_type == "sintel":
-            if self.current_sintel_seq is None or self.sintel_frame_idx >= self.current_sintel_seq["lum"].shape[0]:
+            if self.current_sintel_seq is None or self.sintel_frame_idx >= self.current_sintel_seq["lum"].shape[0]:  # golden-partial: R10
                 try:
                     self.current_sintel_seq = next(self.sintel_iter)
                     self.sintel_frame_idx = 0
@@ -117,7 +117,7 @@ class Mixed:
             sequences = self.current_sintel_seq["lum"]
             self.start_frame = self.sintel_frame_idx
         elif current_type == "davis":
-            if self.current_davis_seq is None or self.davis_frame_idx >= self.current_davis_seq["lum"].shape[0]:
+            if self.current_davis_seq is None or self.davis_frame_idx >= self.current_davis_seq["lum"].shape[0]:  # golden-partial: R10
                 try:
                     self.current_davis_seq = next(self.davis_iter)
                     self.davis_frame_idx = 0

@@ -114,9 +114,6 @@ class RngSnapshot:
             "python": sha(repr(self.python).encode()),
         }
 
-    def digest(self) -> str:
-        return hashlib.sha256(json.dumps(self.digests(), sort_keys=True).encode()).hexdigest()
-
 
 class RngLedger:
     """Per-stage record of RNG consumption (see the module docstring)."""
@@ -161,7 +158,7 @@ class RngLedger:
         self.entries.append({"stage": name, "declared_draws": bool(draws), "advanced": advanced,
                              "wall_s": round(time.perf_counter() - t0, 4), "raised": raised})
         self._write()
-        if self.check and not draws and advanced and not raised:
+        if self.check and not draws and advanced and not raised:  # golden-uncovered: ledger-violation
             raise RngLedgerError(
                 f"stage {name!r} is declared draws=False but advanced {advanced}; "
                 "either the stage draws RNG (declare draws=True) or code was moved across a draw")

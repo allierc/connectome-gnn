@@ -459,7 +459,7 @@ def add_optogenetics_stimulus(config) -> None:
     Noise handling
     --------------
     Uses config.simulation.seed (matching the source) and mirrors the per-frame
-    RNG order from data_generate_voltage._run_ode_generation:
+    RNG order of data_generate_voltage's frame loop (generators/voltage/integrate.py, run_frames):
       1. compute dv from ODE
       2. sample measurement noise (state.noise)
       3. write state at time t
@@ -557,7 +557,7 @@ def add_optogenetics_stimulus(config) -> None:
             continue
 
         # Match data_generate_voltage's split-conditional noise levels
-        # (graph_data_generator.py L1400-1401).
+        # (generators/voltage/spec.py, GenerationSpec.test_noise).
         if split == 'train':
             split_noise_model = float(sim.noise_model_level)
             split_noise_meas = float(sim.measurement_noise_level)
@@ -634,7 +634,7 @@ def add_optogenetics_stimulus(config) -> None:
         )
 
         # Forward integration. Per-frame RNG order MATCHES
-        # graph_data_generator._run_ode_generation L2208-2253 so that with a
+        # generators/voltage/integrate.py run_frames so that with a
         # matched seed the noise streams are statistically equivalent.
         from tqdm import tqdm
         with torch.no_grad():

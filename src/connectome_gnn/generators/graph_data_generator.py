@@ -17,38 +17,8 @@ except ImportError:
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
-from connectome_gnn.generators.voltage.diagnostics import (
-    GenerationSummary,
-    check_bracket,
-    kinograph_labels,
-    load_train_split,
-    log_trace_window,
-    measurement_snr,
-    write_generation_log,
-)
-from connectome_gnn.generators.voltage.diagnostics import compute_ranks as diag_compute_ranks
-from connectome_gnn.generators.voltage.dynamics import build_ode, extract_ode_params
-from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablation_mask
-from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
-from connectome_gnn.generators.voltage.figures import (  # noqa: F401  (ACTIVITY_TRACE_FRAMES: re-export)
-    ACTIVITY_TRACE_FRAMES,
-    plot_kinograph_figure,
-    plot_previews,
-    render_figures,
-    render_video,
-)
-from connectome_gnn.generators.voltage.initial import init_geometry, init_state, steady_state
-from connectome_gnn.generators.voltage.integrate import integrate_split, reset_for_test
-from connectome_gnn.generators.voltage.network import build_network
-from connectome_gnn.generators.voltage.postprocess import noisy_derivatives, tile_train
-from connectome_gnn.generators.voltage.rng import RngLedger
-from connectome_gnn.generators.voltage.spec import GenerationSpec
-from connectome_gnn.generators.voltage.stimulus import (
-    build_sources,
-    materialize_sequences,
-    split_videos,
-)
-from connectome_gnn.generators.voltage.store import DatasetStore
+from connectome_gnn.generators.voltage.figures import ACTIVITY_TRACE_FRAMES  # noqa: F401  (re-export)
+from connectome_gnn.generators.voltage.pipeline import VoltageGeneration
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
@@ -2225,223 +2195,24 @@ def data_generate_voltage(
     save=True,
     compute_ranks=True,
 ):
-    # The ledger records which stage advanced which global RNG stream
-    # (generators/voltage/rng.py); an exception closes the open stage as raised.
-    ledger = RngLedger(device)
-    try:
-        _data_generate_voltage(config, visualize=visualize, run_vizualized=run_vizualized, style=style,
-                               erase=erase, step=step, device=device, save=save, compute_ranks=compute_ranks,
-                               ledger=ledger)
-    except BaseException:
-        ledger.abort()
-        raise
-    ledger.end()
+    """Generate a flyvis voltage dataset under graphs_data/<config.dataset>/.
 
-
-def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, step, device, save,
-                           compute_ranks, ledger):
-    spec = GenerationSpec.from_config(
-        config, visualize=visualize, run_vizualized=run_vizualized, style=style, erase=erase, step=step,
-        device=device, save=save, compute_ranks=compute_ranks,
-    )
-    store = DatasetStore(spec.output.dataset)
-
-    ledger.begin("prepare_output", draws=False)
-    fig_style = dark_style if "black" in style else default_style
-    fig_style.apply_globally()
-
-    # Erase old data if requested (prevents appending to old runs)
-    if erase:
-        store.erase_legacy()
-
-    ledger.begin("seed", draws=True)
-    torch.random.fork_rng(devices=device)
-    torch.random.manual_seed(spec.seed)
-    np.random.seed(spec.seed)
-
-    ledger.begin("log_banner", draws=False)
-    n_frames = spec.n_frames
-    n_neurons = spec.edges.n_neurons_config
-
-    logger.info(
-        f"generating data ... {spec.network.signal_model_name}  dynamics_noise: {spec.train_noise.process_std}  measurement_noise: {spec.train_noise.measurement_std}  seed: {spec.seed}  steady_state_value: {spec.network.steady_state_value}"
-    )
-
-    # Stimulus / blank-prefix summary -- printed up-front so the user sees the
-    # actual parameters used at generation time (vs whatever default the loader
-    # might silently apply if the YAML is incomplete).
-    _bpf = float(spec.stimulus.blank_prefix_fraction)
-    _vis_type = spec.stimulus.visual_input_type
-    _datavis_roots = list(spec.stimulus.datavis_roots) or ['<flyvis default Sintel>']
-    _skip_short = bool(spec.stimulus.skip_short_videos)
-    # `visual_input_type` is the renderer class (DAVIS/mixed/flash/...), not
-    # the dataset identity. For video-based renderers the actual data source
-    # comes from `datavis_roots` — surface its basename so the log isn't
-    # misleading when e.g. visual_input_type='DAVIS' but the root is YouTube-VOS.
-    if 'DAVIS' in _vis_type or 'mixed' in _vis_type:
-        _data_source = ', '.join(os.path.basename(r.rstrip('/')) for r in _datavis_roots)
-        _renderer_str = f"renderer={_vis_type}  data_source={_data_source}"
-    else:
-        _renderer_str = f"renderer={_vis_type}"
-    print(
-        f"\033[93m[stimulus] {_renderer_str}  "
-        f"blank_prefix_fraction={_bpf:.3f} "
-        f"({'BLANK PREFIX ENABLED' if _bpf > 0 else 'no blank prefix'})  "
-        f"skip_short_videos={_skip_short}\033[0m",
-        flush=True,
-    )
-    print(f"\033[93m[stimulus] datavis_roots={_datavis_roots}\033[0m", flush=True)
-    _ar1_rho = spec.train_noise.ar1_rho
-    print(
-        f"\033[93m[noise] noise_model_level={spec.train_noise.process_std}  "
-        f"measurement_noise_level={spec.train_noise.measurement_std}  "
-        f"noise_ar1_rho={_ar1_rho:.3f} "
-        f"({'AR(1) ENABLED' if _ar1_rho > 0 else 'i.i.d.'})\033[0m",
-        flush=True,
-    )
-
-    ledger.begin("make_folders", draws=False)
-    run = 0
-
-    store.make_folders()
-    folder = store.folder
-
-    ledger.begin("build_network", draws=True)
-    network = build_network(spec)
-    net = network.net
-    boxfilter_arg = network.boxfilter
-    ledger.begin("load_stimuli", draws=True)
-    stimuli = build_sources(spec, boxfilter_arg)
-    davis_dataset = stimuli.davis_dataset
-
-    ledger.begin("extract_ode_params", draws=False)
-    ode_params, edge_index = extract_ode_params(spec, net, device)
-
-    ledger.begin("add_null_edges", draws=True)
-    if spec.edges.n_extra_null_edges > 0:
-        edge_index = add_null_edges(ode_params, edge_index, spec.edges, device)
-
-    ledger.begin("ablate", draws=False)
-    # Edge ablation: zero out a fraction of edge weights before ODE simulation
-    ablation_mask = None
-    if spec.edges.ablation_ratio > 0:
-        n_edges = edge_index.shape[1]
-        ablation_mask, n_ablate = edge_ablation_mask(n_edges, spec.edges.ablation_ratio, spec.edges.ablation_seed,
-                                                     device)
-        ode_params.W[~ablation_mask] = 0.0
-        logger.info(f"ablated {n_ablate}/{n_edges} edges ({spec.edges.ablation_ratio * 100:.0f}%)")
-
-    ledger.begin("build_ode", draws="multiple_ReLU" in spec.network.signal_model_name)
-    pde = build_ode(spec, ode_params, edge_index, device)
-    _G = '\033[92m'  # green
-    _X = '\033[0m'   # reset
-
-    ledger.begin("init_geometry", draws=False)
-    geometry = init_geometry(net, device)
-    node_types_int = geometry.node_types_int
-
-    ledger.begin("steady_state", draws=False)
-    initial_state = steady_state(spec, net, device)
-    n_neurons = len(initial_state)
-
-    ledger.begin("init_state", draws=True)
-    x = init_state(net, stimuli, geometry, initial_state, device)
-
-    ledger.begin("split_videos", draws=True)
-    split = split_videos(stimuli)
-    n_train_vids = split.n_train_vids
-
-    ledger.begin("materialize_sequences", draws=False)
-    sequences = materialize_sequences(spec, stimuli, split)
-    train_sequences, test_sequences = sequences.train, sequences.test
-
-    ledger.begin("plot_previews", draws=False)
-    plot_previews(sequences, split, geometry, folder, fig_style)
-
-    ledger.begin("integrate_train", draws=True)
-    split_args = dict(net=net, pde=pde, x=x, edge_index=edge_index, initial_state=initial_state, n_neurons=n_neurons,
-                      davis_dataset=davis_dataset, geometry=geometry, store=store, fig_style=fig_style, run=run)
-    train_run = integrate_split(spec, "train", sequences=train_sequences, id_fig_start=0, **split_args)
-    n_frames_train = train_run.n_frames
-
-    ledger.begin("derive_noisy_targets_train", draws=False)
-    # --- Compute noisy derivatives for TRAIN split ---
-    if spec.train_noise.gate_measurement_std > 0:
-        noisy_derivatives(spec, store, n_neurons, split="train")
-
-    ledger.begin("tile_train", draws=False)
-    # --- Tile unique block ×factor across all dynamic train fields ---
-    repeat_factor = spec.stimulus.repeat_factor
-    if repeat_factor > 1:
-        tile_train(store, repeat_factor, save_calcium=spec.save_calcium)
-        # Reflect the post-tile length in the generation log so _have_data
-        # validates the on-disk zarr without flagging it as incomplete.
-        n_frames_train = n_frames_train * repeat_factor
-
-    ledger.begin("reset_for_test", draws=True)
-    reset_for_test(x, initial_state, n_neurons, device)
-
-    ledger.begin("integrate_test", draws=True)
-    test_run = integrate_split(spec, "test", sequences=test_sequences, id_fig_start=train_run.id_fig, **split_args)
-    n_frames_test = test_run.n_frames
-
-    ledger.begin("derive_noisy_targets_test", draws=False)
-    # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
-    if spec.noisy_test_data and spec.test_noise.gate_measurement_std > 0:
-        noisy_derivatives(spec, store, n_neurons, split="test")
-
-    ledger.begin("restore_grad", draws=False)
-    # restore gradient computation now (before any early-return paths)
-    torch.set_grad_enabled(True)
-
-    ledger.begin("remove_edges", draws=False)
-    edge_index = remove_edges(ode_params, edge_index, spec.edges, store, save, device)
-
-    ledger.begin("save_ground_truth", draws=False)
-    if save:
-        ode_params.save(folder)
-        print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
-              f"W={ode_params.W.shape}  → {folder}{_X}")
-        if ablation_mask is not None:
-            torch.save(ablation_mask, store.path("ablation_mask.pt"))
-
-    ledger.begin("load_train_split", draws=False)
-    trace = load_train_split(store)
-    x_ts = trace.x_ts
-
-    ledger.begin("check_bracket", draws=False)
-    _bracket = check_bracket(spec, ode_params, trace, store)
-
-    ledger.begin("compute_ranks", draws=True)
-    ranks = None
-    if compute_ranks:
-        ranks = diag_compute_ranks(spec, trace)
-        act_labels, stim_labels = kinograph_labels(spec, ode_params, trace)
-        plot_kinograph_figure(spec, trace, ranks, act_labels, stim_labels, store, fig_style)
-
-    ledger.begin("log_trace_window", draws=False)
-    if visualize:
-        log_trace_window(spec, trace)
-
-    ledger.begin("measurement_snr", draws=False)
-    snr_stats = None
-    if spec.train_noise.gate_measurement_std > 0:
-        snr_stats = measurement_snr(spec, trace, store, node_types_int, fig_style)
-
-    ledger.begin("write_generation_log", draws=False)
-    write_generation_log(spec, store, GenerationSummary(
-        n_neurons=n_neurons, n_frames_train=n_frames_train, n_frames_test=n_frames_test,
-        n_sequences_train=len(train_sequences), n_sequences_test=len(test_sequences), split=split,
-        bracket=_bracket, ranks=ranks, snr=snr_stats))
-
-    ledger.begin("render_figures", draws=False)
-    if not visualize:
-        return
-    render_figures(spec, trace, x, n_neurons, store)
-
-    ledger.begin("render_video", draws=False)
-    if visualize & (run == run_vizualized):
-        render_video(spec, store, run)
+    The stages are the VoltageGeneration chain of generators/voltage/pipeline.py,
+    in the order below; what each writes, draws and keeps from legacy
+    (QUIRKS) is documented there and listed in generators/voltage/__init__.py.
+    Returns None.
+    """
+    (VoltageGeneration.from_config(config, visualize=visualize, run_vizualized=run_vizualized, style=style,
+                                   erase=erase, step=step, device=device, save=save, compute_ranks=compute_ranks)
+        .prepare_output().seed().log_banner().make_folders()
+        .build_network().load_stimuli().extract_ode_params().add_null_edges().ablate().build_ode()
+        .init_geometry().steady_state().init_state().split_videos().materialize_sequences()
+        .plot_previews()
+        .integrate("train").derive_noisy_targets("train").tile_train()
+        .reset_for_test().integrate("test").derive_noisy_targets("test")
+        .restore_grad().remove_edges().save_ground_truth()
+        .load_train_split().check_bracket().compute_ranks().log_trace_window().measurement_snr()
+        .write_generation_log().render_figures().render_video().finish())
 
 
 # ============================================================================

@@ -219,9 +219,9 @@ def kinograph_labels(spec, ode_params, trace: TrainTrace) -> tuple:
             if not stim_labels:
                 stim_labels = None
 
-    if act_labels:  # golden-partial: B46
+    if act_labels:  # golden-uncovered: B46
         logger.info(f"kinograph act_labels: {act_labels}")
-    if stim_labels:  # golden-partial: B46
+    if stim_labels:  # golden-uncovered: B46
         logger.info(f"kinograph stim_labels: {stim_labels}")
     return act_labels, stim_labels
 
