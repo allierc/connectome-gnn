@@ -177,3 +177,35 @@ Conditional expressions (`a if c else b`) are not arcs, so B07, B44 and B47
 are not measured. B07 and B47 are exercised in both directions
 (all_columns_extent15 / long_vis_5100 against the rest); B44's CUDA arm is not,
 since there is no CUDA device locally.
+
+## Phase 2 (the refactor into generators/voltage/), measured 2026-09-26
+
+* **RNG ledger check mode.** Every cell except F1_base runs with
+  `CGNN_RNG_LEDGER_CHECK=1` (driver.py), so each stage's `draws=False` claim
+  (generators/voltage/rng.py) is enforced in every golden run; F1_base runs
+  the ledger as production does. `golden_voltage.py ledger <label>`
+  summarises which stage advanced which stream.
+* **Quirks 7-10 above, re-verified on the HEAD chain** (scratch runs in the
+  golden environment):
+  * 7: F3 with a cold rendering cache (one RenderedDavis created) differs from
+    the warm run in voltage, noise, y_list, noisy_y_list, generation_log.txt and
+    kinograph.png; the cold run's ledger shows `load_stimuli` advancing
+    torch_cpu (warm: python only).
+  * 8: truncate_max_frames 20 and 80 give the same 48 DAVIS sequences of 64
+    frames from the same cached rendering.
+  * 9: cell combined_roots raises AttributeError on `arg_df` (full tier).
+  * 10: in F7_mixed the train split reads DAVIS items 0, 1 and 2 through the
+    mixed iterator, all three from the two TEST videos
+    (sequence_01_vid_00, sequence_04_vid_04). Train data contains test frames.
+* All ten quirks are listed in `generators/voltage/__init__.py` and
+  documented in CAPS at the top of the chain method that keeps them.
+* **Head coverage** (`coverage --tier full --impl head`, 74 cells): lines
+  1447/1447 and branches 234/234 of the voltage package plus the
+  data_generate_voltage wrapper, outside 19 marked places under 10 IDs of
+  JUSTIFIED_UNCOVERED_HEAD.yaml (the same dead / env-gated code as at base,
+  plus the CUDA/MPS RNG snapshot, the StaleStageError guard and the ledger's
+  raise); no stale marker.
+* **Mutant self-test against HEAD** (the eleven mutants re-planted in the new
+  modules): all as expected. init_calcium_after_materialize, equivalent in
+  phase 1 (the data cannot show it), is now CAUGHT: it moves a torch draw into
+  materialize_sequences, which is declared draws=False, and the ledger raises.

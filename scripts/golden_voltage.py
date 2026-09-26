@@ -11,6 +11,8 @@
 
     # branch coverage of the BASE implementation over the cells
     python scripts/golden_voltage.py coverage --tier full
+    # ... of the HEAD voltage package (justifications are markers in the code)
+    python scripts/golden_voltage.py coverage --tier full --impl head
 
     # harness self-test: planted mutants must be caught by the fast tier
     python scripts/golden_voltage.py mutants
@@ -203,6 +205,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("coverage")
     common(p)
     p.add_argument("--reuse", action="store_true", help="only re-report existing coverage data")
+    p.add_argument("--impl", default="base", choices=["base", "head"],
+                   help="base: the legacy function at BASE_SHA; head: the generators/voltage package")
+    p.add_argument("--head-root", default="", help="head tree to measure (default: this checkout)")
     p.set_defaults(fn=cmd_coverage)
     p = sub.add_parser("mutants")
     common(p)

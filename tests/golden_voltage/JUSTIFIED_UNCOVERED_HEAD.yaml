@@ -1,0 +1,85 @@
+# Code of the HEAD voltage package (src/connectome_gnn/generators/voltage/ and the
+# data_generate_voltage wrapper) that no golden cell reaches.
+#
+# Head line numbers move with every edit, so the justification is a comment on
+# the line itself:
+#     if cond:  # golden-uncovered: <ID>   the whole block is excluded
+#     if cond:  # golden-partial: <ID>     one arc of the branch is never taken
+# and each <ID> used by a marker has one entry here. coverage_report.py
+# (--impl head) fails on unmarked uncovered code, on marker IDs missing here,
+# on IDs here that no marker uses, and on markers whose code now runs.
+# IDs B.., R.. are those of JUSTIFIED_UNCOVERED.yaml (the same code at BASE_SHA).
+#
+# Categories:
+#   env-gated   reachable, but only with resources absent locally
+#   dead        unreachable for every config this function accepts
+#   guard       reachable only by misusing the API or by a regression
+
+ids:
+  env-gated-device:
+    category: env-gated
+    reason: >
+      RngSnapshot capture / restore of the CUDA or MPS generator. Every golden
+      cell runs on CPU (DETERMINISM.md: MPS runs are not reproducible, CUDA is
+      cluster-only).
+    reach: The CUDA cells of the cluster tier (device=cuda).
+
+  B10:
+    category: env-gated
+    reason: >
+      The flyvis_conductance dynamics-class check after load_state_dict; needs a
+      conductance-trained flow run (flyvis_conductance_optical_flow). The local
+      stub cell stops in load_state_dict, before it.
+    reach: Cluster cell with ground_truth_model=flyvis_conductance (see JUSTIFIED_UNCOVERED.yaml B10).
+
+  B17:
+    category: env-gated
+    reason: FlyVisConductanceODEParams.from_flyvis_network needs the same network as B10.
+    reach: Same cluster cell as B10.
+
+  B46:
+    category: dead
+    reason: >
+      Kinograph labels need ode_params.neuron_types, which neither ODE-parameter
+      class this generator builds has; act_labels / stim_labels are always None.
+    reach: None without a code change (remove in a follow-up).
+
+  B49:
+    category: dead
+    reason: noise.zarr is always written, so the train split's noise is never None.
+    reach: none
+
+  B51:
+    category: dead
+    reason: svd_results is the constant {} since analyze_data_svd was disabled (2026-09-07).
+    reach: None without a code change.
+
+  B55:
+    category: dead
+    reason: >
+      Every network this function builds contains all 65 types, so neither
+      per-type id list is empty.
+    reach: A network lacking all ten curated types; none exists.
+
+  R10:
+    category: dead
+    reason: >
+      Mixed mode, "keep the current clip" at a sequence start: every sintel /
+      davis phase plays its clip to the end, so at the next start the clip index
+      is past the clip and it is refetched.
+    reach: none
+
+  stale-guard:
+    category: guard
+    reason: >
+      StaleStageError: a stage (or finish) called on a VoltageGeneration an
+      earlier stage already consumed. data_generate_voltage calls each link once.
+    reach: Reusing a consumed link of the chain (API misuse).
+
+  ledger-violation:
+    category: guard
+    reason: >
+      RngLedgerError in check mode: a stage declared draws=False advanced a global
+      RNG stream. Every claim holds in every golden cell (that is what the
+      harness checks), so the raise never runs.
+    reach: A code change that draws RNG in a draws=False stage.

@@ -28,7 +28,11 @@ from . import driver as D
 from . import fixtures as FX
 from . import manifest as M
 
-GEN = "src/connectome_gnn/generators/graph_data_generator.py"
+V = "src/connectome_gnn/generators/voltage/"
+INTEGRATE = V + "integrate.py"
+INITIAL = V + "initial.py"
+PIPELINE = V + "pipeline.py"
+SPEC = V + "spec.py"
 DAVIS = "src/connectome_gnn/generators/davis.py"
 
 
@@ -41,72 +45,81 @@ class Mutant:
     also: tuple = field(default=())   # full-tier cells run as well; same expectation as the fast tier
 
 
+# Phase 2 moved data_generate_voltage into generators/voltage/, so every mutant
+# is planted where the same behaviour lives now (phase 1 planted them in
+# graph_data_generator.py at BASE_SHA; same eleven behaviours, same expectations).
 MUTANTS = [
     Mutant("eta_xi_draw_order", (
-        (GEN, "                    y = pde(x, edge_index, has_field=False)\n"
-              "                    dv_step = y.squeeze()\n",
-              "                    y = pde(x, edge_index, has_field=False)\n"
-              "                    dv_step = y.squeeze()\n"
-              "                    _xi_first = (torch.randn(n_neurons, dtype=torch.float32, device=device)\n"
-              "                                 if noise_model_level > 0 else None)\n"),
-        (GEN, "                        x.voltage = x.voltage + torch.randn(\n"
-              "                            n_neurons, dtype=torch.float32, device=device\n"
-              "                        ) * noise_model_level\n",
-              "                        x.voltage = x.voltage + _xi_first * noise_model_level\n"),
+        (INTEGRATE, "                    y = pde(x, edge_index, has_field=False)\n"
+                    "                    dv_step = y.squeeze()\n",
+                    "                    y = pde(x, edge_index, has_field=False)\n"
+                    "                    dv_step = y.squeeze()\n"
+                    "                    _xi_first = (torch.randn(n_neurons, dtype=torch.float32, device=device)\n"
+                    "                                 if noise_model_level > 0 else None)\n"),
+        (INTEGRATE, "                        x.voltage = x.voltage + torch.randn(\n"
+                    "                            n_neurons, dtype=torch.float32, device=device\n"
+                    "                        ) * noise_model_level\n",
+                    "                        x.voltage = x.voltage + _xi_first * noise_model_level\n"),
     ), "caught", "process noise drawn before measurement noise; F3 has both"),
     Mutant("store_finite_difference", (
-        (GEN, "                    # Save x[t] BEFORE updating voltage to x[t+1]\n                    x_writer.append_state(x)\n",
-              "                    # Save x[t] BEFORE updating voltage to x[t+1]\n                    x_writer.append_state(x)\n"
-              "                    _v_prev = x.voltage.clone()\n"),
-        (GEN, "                    y_writer.append(to_numpy_fn(y.clone().detach()))\n",
-              "                    y_writer.append(to_numpy_fn(((x.voltage - _v_prev) / sim.delta_t).unsqueeze(-1)))\n"),
+        (INTEGRATE, "                    writer.write_state(x, record)\n",
+                    "                    writer.write_state(x, record)\n"
+                    "                    _v_prev = x.voltage.clone()\n"),
+        (INTEGRATE, "                    writer.write_drift(record)\n",
+                    "                    writer.write_drift(record._replace(\n"
+                    "                        drift=((x.voltage - _v_prev) / spec.delta_t).unsqueeze(-1)))\n"),
     ), "caught", "y_list gets (v[t+1]-v[t])/dt instead of f(v[t]); they differ even at sigma=0 (exp. Euler)"),
     Mutant("clone_W_before_save", (
-        (GEN, "        ode_params.save(folder)\n",
-              "        ode_params.W = ode_params.W.clone()\n        ode_params.save(folder)\n"),
+        (PIPELINE, "        self.ode_params.save(folder)\n",
+                   "        self.ode_params.W = self.ode_params.W.clone()\n        self.ode_params.save(folder)\n"),
     ), "equivalent", "every saved W owns exactly its storage (measured), so a clone writes the same bytes"),
     Mutant("W_view_of_larger_storage", (
-        (GEN, "        ode_params.save(folder)\n",
-              "        ode_params.W = torch.cat([ode_params.W, ode_params.W])[: ode_params.W.numel()]\n"
-              "        ode_params.save(folder)\n"),
+        (PIPELINE, "        self.ode_params.save(folder)\n",
+                   "        self.ode_params.W = torch.cat([self.ode_params.W, self.ode_params.W])"
+                   "[: self.ode_params.W.numel()]\n"
+                   "        self.ode_params.save(folder)\n"),
     ), "caught", "finding 8: equal values, but torch.save writes the whole storage of a view"),
     Mutant("extra_dataset_access", (
-        (GEN, '    sequences = stimulus_dataset[0]["lum"]\n    frame = sequences[0][None, None]\n',
-              '    _ = stimulus_dataset[0]\n    sequences = stimulus_dataset[0]["lum"]\n'
-              '    frame = sequences[0][None, None]\n'),
+        (INITIAL, '    sequences = stimuli.item(0)["lum"]\n    frame = sequences[0][None, None]\n',
+                  '    _ = stimuli.item(0)\n    sequences = stimuli.item(0)["lum"]\n'
+                  '    frame = sequences[0][None, None]\n'),
     ), "equivalent", "no __getitem__ draws RNG here: DAVIS is built with augment=False, and Sintel's "
                      "jitter/noise/gamma draws are guarded by `if self.<x>_std`, all None in this config "
                      "(n_rot=0, flip_axis=0 are passed explicitly); the Sintel cells confirm it",
         also=("sintel_only_noise", "sintel_mixed")),
     Mutant("init_calcium_after_shuffle", (
-        (GEN, "    # init neuron state x\n\n    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n",
-              "    # init neuron state x\n\n    _init_calcium = None\n"),
-        (GEN, "    np.random.shuffle(unique_videos)\n",
-              "    np.random.shuffle(unique_videos)\n"
-              "    x.calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n"),
+        (INITIAL, "    # init neuron state x\n\n    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n",
+                  "    # init neuron state x\n\n    _init_calcium = None\n"),
+        (PIPELINE, "        return dict(split=stimulus_mod.split_videos(self.stimuli))\n",
+                   "        _split = stimulus_mod.split_videos(self.stimuli)\n"
+                   "        self.x.calcium = torch.rand(self.n_neurons, dtype=torch.float32, device=self.spec.device)\n"
+                   "        return dict(split=_split)\n"),
     ), "equivalent", "no torch draw lies between the old and the new position (the shuffle is numpy), "
                      "so the torch stream is unchanged; calcium is not saved (save_calcium False)"),
     Mutant("init_calcium_after_materialize", (
-        (GEN, "    # init neuron state x\n\n    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n",
-              "    # init neuron state x\n\n    _init_calcium = None\n"),
-        (GEN, "    test_sequences = [stimulus_dataset[i] for i in test_indices]\n",
-              "    test_sequences = [stimulus_dataset[i] for i in test_indices]\n"
-              "    x.calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n"),
-    ), "equivalent", "materialisation draws no RNG on either path (see extra_dataset_access), so the draw "
-                     "still precedes every other torch draw",
+        (INITIAL, "    # init neuron state x\n\n    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)\n",
+                  "    # init neuron state x\n\n    _init_calcium = None\n"),
+        (PIPELINE, "        return dict(sequences=stimulus_mod.materialize_sequences(self.spec, self.stimuli, self.split))\n",
+                   "        _seqs = stimulus_mod.materialize_sequences(self.spec, self.stimuli, self.split)\n"
+                   "        self.x.calcium = torch.rand(self.n_neurons, dtype=torch.float32, device=self.spec.device)\n"
+                   "        return dict(sequences=_seqs)\n"),
+    ), "caught", "the DATA would not show it (materialisation draws no RNG on either path, see "
+                 "extra_dataset_access, so the draw still precedes every other torch draw; equivalent in "
+                 "phase 1), but the draw now sits in materialize_sequences, declared draws=False, so the "
+                 "RNG ledger raises RngLedgerError in every check-mode cell (all but F1_base): D and C",
         also=("sintel_only_noise",)),
     Mutant("break_stimulus_alias", (
-        (GEN, "        stimulus=net.stimulus().squeeze().to(device),\n",
-              "        stimulus=net.stimulus().squeeze().to(device).clone(),\n"),
+        (INITIAL, "        stimulus=net.stimulus().squeeze().to(device),\n",
+                  "        stimulus=net.stimulus().squeeze().to(device).clone(),\n"),
     ), "caught", "finding 3: F9's stored stimulus after it=0 is the rendered frame only through the alias"),
     Mutant("drop_davis_random_seed", (
         (DAVIS, "            random.seed(self.shuffle_seed)\n", "            pass\n"),
     ), "caught", "the sequence shuffle then follows the runner's pre-seeded stdlib stream"),
     Mutant("max_test_frames_50", (
-        (GEN, "    MAX_TEST_FRAMES = 8000\n", "    MAX_TEST_FRAMES = 50\n"),
+        (SPEC, "MAX_TEST_FRAMES = 8000\n", "MAX_TEST_FRAMES = 50\n"),
     ), "caught", "fast-tier test splits have 64 frames"),
     Mutant("max_test_frames_7000", (
-        (GEN, "    MAX_TEST_FRAMES = 8000\n", "    MAX_TEST_FRAMES = 7000\n"),
+        (SPEC, "MAX_TEST_FRAMES = 8000\n", "MAX_TEST_FRAMES = 7000\n"),
     ), "caught", "no data changes (no test split reaches 7000 frames; the largest is 1024), but the cap is "
                  "echoed in the 'generating TEST data (capped at N frames ...)' log line: E only"),
 ]
@@ -130,9 +143,10 @@ def make_scratch(src_root: Path, dst: Path) -> Path:
     return dst
 
 
-# Edits to the generator are confined to the legacy voltage path (data_generate_voltage
-# through _compute_noisy_derivatives): data_generate_spiking repeats many of its lines.
-SCOPES = {GEN: ("def data_generate_voltage(", "def _resolve_task_config_path(")}
+# Per-file scopes an edit is confined to (none since phase 2: every planted file
+# is a voltage-generation module; phase 1 needed one inside graph_data_generator.py
+# because data_generate_spiking repeats many of the voltage path's lines).
+SCOPES: dict = {}
 
 
 def _scope(rel: str, text: str) -> tuple[int, int]:
