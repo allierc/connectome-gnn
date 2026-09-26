@@ -30,7 +30,13 @@ from connectome_gnn.generators.voltage.diagnostics import compute_ranks as diag_
 from connectome_gnn.generators.voltage.dynamics import build_ode, extract_ode_params
 from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablation_mask
 from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
-from connectome_gnn.generators.voltage.figures import plot_kinograph_figure, plot_previews
+from connectome_gnn.generators.voltage.figures import (  # noqa: F401  (ACTIVITY_TRACE_FRAMES: re-export)
+    ACTIVITY_TRACE_FRAMES,
+    plot_kinograph_figure,
+    plot_previews,
+    render_figures,
+    render_video,
+)
 from connectome_gnn.generators.voltage.initial import init_geometry, init_state, steady_state
 from connectome_gnn.generators.voltage.integrate import integrate_split, reset_for_test
 from connectome_gnn.generators.voltage.network import build_network
@@ -55,12 +61,6 @@ from connectome_gnn.plot import (
 # can be edited without affecting non-task code paths.
 from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
-# Length of the window shown in <dataset>/activity.png, in simulation FRAMES.
-# 1,000 frames is 20 s of simulated time at the flyvis delta_t of 20 ms, and it
-# is the same window the trainer's rollout figures use (teacher_eval's
-# n_frames default), so a dataset's activity.png and that run's
-# tmp_training/traces/rollout_*.png can be laid side by side.
-ACTIVITY_TRACE_FRAMES = 1000
 
 
 try:
@@ -2437,174 +2437,11 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     ledger.begin("render_figures", draws=False)
     if not visualize:
         return
-
-    # Neuron type index to name mapping (CamelCase for legacy plot_neuron_activity_analysis)
-    index_to_name = {
-        0: "Am",
-        1: "C2",
-        2: "C3",
-        3: "CT1(Lo1)",
-        4: "CT1(M10)",
-        5: "L1",
-        6: "L2",
-        7: "L3",
-        8: "L4",
-        9: "L5",
-        10: "Lawf1",
-        11: "Lawf2",
-        12: "Mi1",
-        13: "Mi10",
-        14: "Mi11",
-        15: "Mi12",
-        16: "Mi13",
-        17: "Mi14",
-        18: "Mi15",
-        19: "Mi2",
-        20: "Mi3",
-        21: "Mi4",
-        22: "Mi9",
-        23: "R1",
-        24: "R2",
-        25: "R3",
-        26: "R4",
-        27: "R5",
-        28: "R6",
-        29: "R7",
-        30: "R8",
-        31: "T1",
-        32: "T2",
-        33: "T2a",
-        34: "T3",
-        35: "T4a",
-        36: "T4b",
-        37: "T4c",
-        38: "T4d",
-        39: "T5a",
-        40: "T5b",
-        41: "T5c",
-        42: "T5d",
-        43: "Tm1",
-        44: "Tm16",
-        45: "Tm2",
-        46: "Tm20",
-        47: "Tm28",
-        48: "Tm3",
-        49: "Tm30",
-        50: "Tm4",
-        51: "Tm5Y",
-        52: "Tm5a",
-        53: "Tm5b",
-        54: "Tm5c",
-        55: "Tm9",
-        56: "TmY10",
-        57: "TmY13",
-        58: "TmY14",
-        59: "TmY15",
-        60: "TmY18",
-        61: "TmY3",
-        62: "TmY4",
-        63: "TmY5a",
-        64: "TmY9",
-    }
-
-    activity = x_ts.voltage.to(device).t()  # (n_neurons, n_frames)
-    type_list = x.neuron_type.unsqueeze(-1).to(device)
-
-    target_type_name_list = ["R1", "R7", "C2", "Mi11", "Tm1", "Tm4", "Tm30"]
-    from GNN_PlotFigure import plot_neuron_activity_analysis
-
-    plot_neuron_activity_analysis(
-        activity,
-        target_type_name_list,
-        type_list,
-        index_to_name,
-        n_neurons,
-        n_frames,
-        spec.delta_t,
-        store.folder,
-    )
-
-    logger.info("plot figure activity ...")
-    # activity.png used to be plot_selected_neuron_traces over the WHOLE run
-    # (start_frame=0, end_frame=n_frames): 64,000 frames squeezed into one axis,
-    # which draws every trace as a solid band and shows nothing. It is now the
-    # same nominal trace figure the trainer writes into
-    # tmp_training/traces/rollout_*.png -- save_trace_figure from
-    # models/teacher_eval.py -- over a 1,000-frame window, i.e. 20 s of
-    # simulated time at delta_t = 20 ms. No prediction and no rollout
-    # correlation exist at generation time, so pred and r are passed as None and
-    # only the green ground truth plus the red stimulus are drawn.
-    from connectome_gnn.models.teacher_eval import save_trace_figure
-
-    activity_np = to_numpy(activity).T  # (n_frames, n_neurons), as save_trace_figure expects
-    n_trace_frames = int(min(ACTIVITY_TRACE_FRAMES, activity_np.shape[0]))
-    # Neuron 0's drive, one value per frame -- the same scalar the trainer's
-    # rollout figure puts on its "stim" row.
-    stim_np = (to_numpy(x_ts.stimulus[:n_trace_frames, 0])
-               if x_ts.stimulus is not None else None)
-    save_trace_figure(
-        store.path('activity.png'),
-        activity_np[:n_trace_frames],
-        None,
-        stim_np,
-        spec.delta_t,
-        None,
-        type_names=index_to_name,
-        type_list=to_numpy(type_list.squeeze()),
-    )
-
-    # THE SAME RENDERER, ONE ROW PER CELL TYPE. `activity.png` samples 12 neurons
-    # by index, which is a thin slice of 65 types; these two answer "what does
-    # every type look like" and "what do the types we always look at look like".
-    # Black rather than green and a dashed stimulus, because at generation time
-    # there is no prediction to contrast a green ground truth against -- the
-    # figure is the data, not a comparison.
-    try:
-        _types = to_numpy(x_ts.neuron_type).astype(int)
-        _first_of_type = {}
-        for _i, _t in enumerate(_types):
-            _first_of_type.setdefault(int(_t), _i)
-        _CURATED = [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]
-        for _name, _ids in (
-            ("activity_all.png", [_first_of_type[t] for t in sorted(_first_of_type)]),
-            ("activity_selected.png",
-             [_first_of_type[t] for t in _CURATED if t in _first_of_type]),
-        ):
-            if not _ids:
-                continue
-            save_trace_figure(
-                store.path(_name),
-                activity_np[:n_trace_frames][:, _ids],
-                None,
-                stim_np,
-                spec.delta_t,
-                None,
-                n_traces=len(_ids),
-                type_names=index_to_name,
-                type_list=_types[_ids],
-                n_neurons=len(_ids),
-                true_color="black",
-                stim_linestyle="--",
-                figsize=(9.0, 0.28 * len(_ids) + 1.6),
-            )
-            logger.info(f"wrote {_name} ({len(_ids)} cell types)")
-    except Exception as _e:
-        logger.warning(f"per-type trace figures skipped: {type(_e).__name__}: {_e}")
+    render_figures(spec, trace, x, n_neurons, store)
 
     ledger.begin("render_video", draws=False)
     if visualize & (run == run_vizualized):
-        logger.info("generating lossless video ...")
-
-        output_name = spec.output.dataset.split("flyvis_")[1] if "flyvis_" in spec.output.dataset else "no_id"
-        src = store.path("Fig", "Fig_0_000000.png")
-        dst = store.path(f"input_{output_name}.png")
-        with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
-            fdst.write(fsrc.read())
-
-        generate_compressed_video_mp4(output_dir=store.path(), run=run,
-                                      output_name=output_name, framerate=10)
-
-        store.clear_figs()
+        render_video(spec, store, run)
 
 
 # ============================================================================
