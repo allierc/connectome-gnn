@@ -6,6 +6,8 @@ write, the step, process noise -- is the per-frame step below, unchanged.
 ``graph_data_generator._run_ode_generation`` stays importable.
 """
 
+from typing import NamedTuple
+
 import numpy as np
 import torch
 from tqdm import tqdm
@@ -13,8 +15,23 @@ from tqdm import tqdm
 from connectome_gnn.generators.voltage.programs import SplitStimulus
 from connectome_gnn.log import get_logger
 from connectome_gnn.plot import plot_spatial_activity_grid
+from connectome_gnn.utils import to_numpy
 
 logger = get_logger(__name__)
+
+
+class FrameRecord(NamedTuple):
+    """Frame t of a split as it is written: WHICH ARRAY CARRIES WHICH NOISE.
+
+    xi is the process noise (noise_model_level), eta the measurement noise
+    (measurement_noise_level). References into the running state, not copies:
+    the writer copies when it buffers.
+    """
+
+    voltage: torch.Tensor            # v[t], before the step of frame t: xi[0..t-1], never eta -> voltage.zarr
+    stimulus: torch.Tensor           # the input of frame t (on CPU a view of net.stimulus.buffer) -> stimulus.zarr
+    measurement_noise: torch.Tensor  # eta[t]; added to no stored voltage                     -> noise.zarr
+    drift: torch.Tensor              # f(v[t]) from pde(): neither xi nor eta                 -> y_list_<split>.zarr
 
 
 def _run_ode_generation(
@@ -26,13 +43,11 @@ def _run_ode_generation(
     initial_state,
     spec,
     store,
-    x_writer,
-    y_writer,
+    writer,
     target_frames,
     num_passes,
     n_neurons,
     device,
-    to_numpy_fn,
     noise_model_level: float,
     measurement_noise_level: float,
     visualize=False,
@@ -134,8 +149,9 @@ def _run_ode_generation(
                     else:
                         x.noise = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
+                    record = FrameRecord(voltage=x.voltage, stimulus=x.stimulus, measurement_noise=x.noise, drift=y)
                     # Save x[t] BEFORE updating voltage to x[t+1]
-                    x_writer.append_state(x)
+                    writer.write_state(x, record)
 
                     # EXPONENTIAL EULER ON THE CONDUCTANCE BRANCH. Forward Euler
                     # contracts only while (dt/tau_i)(1 + G_i) < 2 and the generating
@@ -160,18 +176,18 @@ def _run_ode_generation(
                             "Restore those fields before using it -- it has been dead "
                             "since 2026-08-03 and no tracked config selects it.")
 
-                    y_writer.append(to_numpy_fn(y.clone().detach()))
+                    writer.write_drift(record)
 
                     if (visualize & (run == run_vizualized) & (it > 0) & (it % 4 == 0) & (it <= 400)):
                         num = f"{id_fig:06}"
                         id_fig += 1
                         plot_spatial_activity_grid(
-                            positions=to_numpy_fn(X1),
-                            voltages=to_numpy_fn(x.voltage),
-                            stimulus=to_numpy_fn(x.stimulus[: n_input_neurons]),
-                            neuron_types=to_numpy_fn(x.neuron_type).astype(int),
+                            positions=to_numpy(X1),
+                            voltages=to_numpy(x.voltage),
+                            stimulus=to_numpy(x.stimulus[: n_input_neurons]),
+                            neuron_types=to_numpy(x.neuron_type).astype(int),
                             output_path=store.path("Fig", f"Fig_{run}_{num}.png"),
-                            calcium=to_numpy_fn(x.calcium) if spec.calcium_type != "none" else None,
+                            calcium=to_numpy(x.calcium) if spec.calcium_type != "none" else None,
                             n_input_neurons=n_input_neurons,
                             style=fig_style,
                         )

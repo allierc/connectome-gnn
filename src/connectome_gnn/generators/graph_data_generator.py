@@ -2375,7 +2375,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     else:
         logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
 
-    x_writer, y_writer = store.split_writers("train", n_neurons, spec.save_calcium)
+    writer = store.split_writer("train", n_neurons, spec.save_calcium, to_numpy)
 
     it, id_fig = _run_ode_generation(
         stimulus_sequences=train_sequences,
@@ -2386,13 +2386,11 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         initial_state=initial_state,
         spec=spec,
         store=store,
-        x_writer=x_writer,
-        y_writer=y_writer,
+        writer=writer,
         target_frames=target_frames,
         num_passes=num_passes_needed,
         n_neurons=n_neurons,
         device=device,
-        to_numpy_fn=to_numpy,
         noise_model_level=spec.train_noise.process_std,
         measurement_noise_level=spec.train_noise.measurement_std,
         visualize=visualize,
@@ -2408,8 +2406,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         v_coords=v_coords,
     )
 
-    n_frames_train = x_writer.finalize()
-    y_writer.finalize()
+    n_frames_train = writer.finalize()
     logger.info(f"generated {n_frames_train} TRAIN frames (saved as .zarr)")
 
     ledger.begin("derive_noisy_targets_train", draws=False)
@@ -2448,14 +2445,14 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     test_target = len(test_sequences) * frames_per_sequence
     logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
 
-    x_writer, y_writer = store.split_writers("test", n_neurons, spec.save_calcium)
+    writer = store.split_writer("test", n_neurons, spec.save_calcium, to_numpy)
 
     _run_ode_generation(
         stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
         edge_index=edge_index, initial_state=initial_state, spec=spec, store=store,
-        x_writer=x_writer, y_writer=y_writer,
+        writer=writer,
         target_frames=test_target_frames, num_passes=1,
-        n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
+        n_neurons=n_neurons, device=device,
         noise_model_level=test_noise_model,
         measurement_noise_level=test_noise_meas,
         visualize=False, run=run, run_vizualized=run_vizualized,
@@ -2464,8 +2461,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         X1=X1, u_coords=u_coords, v_coords=v_coords,
     )
 
-    n_frames_test = x_writer.finalize()
-    y_writer.finalize()
+    n_frames_test = writer.finalize()
     _noise_tag = (
         f"noisy (noise_model={test_noise_model:g}, meas={test_noise_meas:g})"
         if spec.noisy_test_data else "without noise"

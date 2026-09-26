@@ -85,8 +85,8 @@ class DatasetStore:
         for f in glob.glob(self.path("Fig", "*")):
             os.remove(f)
 
-    def split_writers(self, split: str, n_neurons: int, save_calcium) -> tuple:
-        """(x_list_<split> writer, y_list_<split> writer); neither touches disk before its first frame."""
+    def split_writer(self, split: str, n_neurons: int, save_calcium, to_numpy_fn) -> "SplitWriter":
+        """The writer of x_list_<split>/ and y_list_<split>.zarr; nothing touches disk before the first frame."""
         x_writer = ZarrSimulationWriterV3(
             path=self.path(f"x_list_{split}"),
             n_neurons=n_neurons,
@@ -105,4 +105,44 @@ class DatasetStore:
             n_features=1,
             time_chunks=TIME_CHUNKS,
         )
-        return x_writer, y_writer
+        return SplitWriter(x_writer, y_writer, to_numpy_fn)
+
+
+class _FrameView:
+    """What ZarrSimulationWriterV3.append_state reads, with the dynamic fields taken from a FrameRecord."""
+
+    __slots__ = ("pos", "group_type", "neuron_type", "voltage", "stimulus", "noise", "calcium", "fluorescence")
+
+    def __init__(self, x, record):
+        self.pos, self.group_type, self.neuron_type = x.pos, x.group_type, x.neuron_type
+        self.calcium, self.fluorescence = x.calcium, x.fluorescence
+        self.voltage = record.voltage
+        self.stimulus = record.stimulus
+        self.noise = record.measurement_noise
+
+
+class SplitWriter:
+    """Writes one split frame by frame from integrate.FrameRecord values (see ARRAY_PROVENANCE).
+
+    Two calls per frame, in legacy order: ``write_state`` BEFORE the state
+    update (voltage, stimulus and measurement noise of frame t; static fields
+    and, with save_calcium, calcium and fluorescence from x), ``write_drift``
+    after it (the drift of frame t, copied once, as legacy did).
+    """
+
+    def __init__(self, x_writer, y_writer, to_numpy_fn):
+        self._x = x_writer
+        self._y = y_writer
+        self._to_numpy = to_numpy_fn
+
+    def write_state(self, x, record) -> None:
+        self._x.append_state(_FrameView(x, record))
+
+    def write_drift(self, record) -> None:
+        self._y.append(self._to_numpy(record.drift.clone().detach()))
+
+    def finalize(self) -> int:
+        """Flush both stores; the number of frames written."""
+        n_frames = self._x.finalize()
+        self._y.finalize()
+        return n_frames
