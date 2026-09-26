@@ -15,6 +15,9 @@
     # harness self-test: planted mutants must be caught by the fast tier
     python scripts/golden_voltage.py mutants
 
+    # which stage advanced which RNG stream, over the HEAD runs of a label
+    python scripts/golden_voltage.py ledger <label>
+
 Environment:
   CGNN_GOLDEN_WORK       work dir (fixtures, base worktree, runs); default ~/.cache/cgnn-golden-voltage
   CGNN_GOLDEN_BASE_ROOT  an existing worktree of BASE_SHA to use instead of <work>/base_worktree
@@ -97,6 +100,39 @@ def cmd_run(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_ledger(args) -> int:
+    """Per stage, which global RNG streams the HEAD runs of a label advanced (rng_ledger.json)."""
+    import json
+    root = FX.work_root() / "runs" / args.label
+    reports = sorted(root.glob("*/head/rng_ledger.json"))
+    if not reports:
+        print(f"no rng_ledger.json under {root}/*/head")
+        return 1
+    order, stages = [], {}
+    for rp in reports:
+        cell = rp.parent.parent.name
+        for e in json.loads(rp.read_text())["stages"]:
+            st = stages.setdefault(e["stage"], {"declared": set(), "advanced": {}, "cells": 0, "raised": []})
+            if e["stage"] not in order:
+                order.append(e["stage"])
+            st["declared"].add(e["declared_draws"])
+            st["cells"] += 1
+            if e["raised"]:
+                st["raised"].append(cell)
+            for s in e["advanced"]:
+                st["advanced"].setdefault(s, []).append(cell)
+    print(f"{len(reports)} reports under {root}")
+    for name in order:
+        st = stages[name]
+        adv = ", ".join(f"{s} in {len(c)}/{st['cells']}" for s, c in sorted(st["advanced"].items())) or "none"
+        decl = "/".join("draws" if d else "no-draw" for d in sorted(st["declared"]))
+        print(f"  {name:28s} declared {decl:14s} advanced: {adv}" + (f"  raised in {st['raised']}" if st["raised"] else ""))
+        if args.verbose:
+            for s, c in sorted(st["advanced"].items()):
+                print(f"      {s}: {sorted(c)}")
+    return 0
+
+
 def cmd_fixtures(args) -> int:
     work = FX.work_root()
     base = D.ensure_base_worktree(work)
@@ -136,6 +172,10 @@ def main(argv=None) -> int:
     common(p)
     p.add_argument("--impl", default="both", choices=["base", "head", "both"])
     p.set_defaults(fn=cmd_run)
+    p = sub.add_parser("ledger", help="summarise the HEAD runs' RNG ledgers of a label")
+    p.add_argument("label")
+    p.add_argument("-v", "--verbose", action="store_true")
+    p.set_defaults(fn=cmd_ledger)
     p = sub.add_parser("fixtures")
     common(p)
     p.set_defaults(fn=cmd_fixtures)

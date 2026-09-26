@@ -17,6 +17,8 @@ except ImportError:
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
+from connectome_gnn.generators.voltage.rng import RngLedger
+from connectome_gnn.generators.voltage.spec import GenerationSpec
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
 from connectome_gnn.plot import (
@@ -2222,8 +2224,21 @@ def data_generate_voltage(
     save=True,
     compute_ranks=True,
 ):
-    from connectome_gnn.generators.voltage.spec import GenerationSpec
+    # The ledger records which stage advanced which global RNG stream
+    # (generators/voltage/rng.py); an exception closes the open stage as raised.
+    ledger = RngLedger(device)
+    try:
+        _data_generate_voltage(config, visualize=visualize, run_vizualized=run_vizualized, style=style,
+                               erase=erase, step=step, device=device, save=save, compute_ranks=compute_ranks,
+                               ledger=ledger)
+    except BaseException:
+        ledger.abort()
+        raise
+    ledger.end()
 
+
+def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, step, device, save,
+                           compute_ranks, ledger):
     spec = GenerationSpec.from_config(
         config, visualize=visualize, run_vizualized=run_vizualized, style=style, erase=erase, step=step,
         device=device, save=save, compute_ranks=compute_ranks,
@@ -2231,6 +2246,7 @@ def data_generate_voltage(
     # Still handed to the helpers that have not been moved onto the spec yet.
     sim = config.simulation
 
+    ledger.begin("prepare_output", draws=False)
     fig_style = dark_style if "black" in style else default_style
     fig_style.apply_globally()
 
@@ -2243,10 +2259,12 @@ def data_generate_voltage(
                     _rmtree(old_path)
                     logger.info(f"erased old {data_file}_{split}")
 
+    ledger.begin("seed", draws=True)
     torch.random.fork_rng(devices=device)
     torch.random.manual_seed(spec.seed)
     np.random.seed(spec.seed)
 
+    ledger.begin("log_banner", draws=False)
     n_frames = spec.n_frames
     n_neurons = spec.edges.n_neurons_config
 
@@ -2287,6 +2305,7 @@ def data_generate_voltage(
         flush=True,
     )
 
+    ledger.begin("make_folders", draws=False)
     run = 0
 
     os.makedirs(graphs_data_path("fly"), exist_ok=True)
@@ -2298,6 +2317,7 @@ def data_generate_voltage(
     for f in files:
         os.remove(f)
 
+    ledger.begin("build_network", draws=True)
     # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
     extent = spec.network.extent
 
@@ -2431,6 +2451,7 @@ def data_generate_voltage(
     else:
         boxfilter_arg = dict(extent=extent, kernel_size=13)
 
+    ledger.begin("load_stimuli", draws=True)
     # Initialize datasets
     print(f"[DBG] visual_input_type={spec.stimulus.visual_input_type!r}  datavis_roots={list(spec.stimulus.datavis_roots)}", flush=True)
     if "DAVIS" in spec.stimulus.visual_input_type or "mixed" in spec.stimulus.visual_input_type:
@@ -2506,6 +2527,7 @@ def data_generate_voltage(
         stimulus_dataset = AugmentedSintel(**sintel_config)
         print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
 
+    ledger.begin("extract_ode_params", draws=False)
     # Extract ground-truth parameters. WHICH synapse model generates the data is
     # sim.ground_truth_model, NOT the model that will be trained on it -- see
     # SimulationConfig.ground_truth_model for why those are separate axes.
@@ -2540,6 +2562,7 @@ def data_generate_voltage(
     edge_index = ode_params.edge_index.to(device)
     print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
 
+    ledger.begin("add_null_edges", draws=True)
     if spec.edges.n_extra_null_edges > 0:
         logger.info(f"adding {spec.edges.n_extra_null_edges} extra null edges (mode={spec.edges.null_edges_mode})...")
         import random
@@ -2603,6 +2626,7 @@ def data_generate_voltage(
             ode_params.W = torch.cat([ode_params.W, torch.zeros(len(extra_edges), device=device)])
             logger.info(f"Total extra edges added: {len(extra_edges)}")
 
+    ledger.begin("ablate", draws=False)
     # Edge ablation: zero out a fraction of edge weights before ODE simulation
     ablation_mask = None
     if spec.edges.ablation_ratio > 0:
@@ -2615,6 +2639,7 @@ def data_generate_voltage(
         ode_params.W[~ablation_mask] = 0.0
         logger.info(f"ablated {n_ablate}/{n_edges} edges ({spec.edges.ablation_ratio * 100:.0f}%)")
 
+    ledger.begin("build_ode", draws="multiple_ReLU" in spec.network.signal_model_name)
     pde = FlyVisODE(
         ode_params=ode_params,
         g_phi=torch.nn.functional.relu,
@@ -2637,6 +2662,7 @@ def data_generate_voltage(
     # despite missing edges.
     print(f"{_G}[GENERATE] full connectivity: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
 
+    ledger.begin("init_geometry", draws=False)
     # Per-neuron hexagonal Cartesian positions for the *full* network — every
     # node carries (u, v) in net.connectome.nodes, so we use the standard
     # x = u + 0.5*v, y = v*sqrt(3)/2 mapping for both photoreceptors and
@@ -2663,11 +2689,13 @@ def data_generate_voltage(
         dtype=torch.float32, device=device,
     )
 
+    ledger.begin("steady_state", draws=False)
     _ss_value = spec.network.steady_state_value
     state = net.steady_state(t_pre=2.0, dt=spec.delta_t, batch_size=1, value=_ss_value)
     initial_state = state.nodes.activity.squeeze().to(device)
     n_neurons = len(initial_state)
 
+    ledger.begin("init_state", draws=True)
     sequences = stimulus_dataset[0]["lum"]
     frame = sequences[0][None, None]
     net.stimulus.add_input(frame)
@@ -2688,6 +2716,7 @@ def data_generate_voltage(
         noise=torch.zeros(n_neurons, dtype=torch.float32, device=device),
     )
 
+    ledger.begin("split_videos", draws=True)
     # --- Subdirectory-level train/test split ---
     # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
     # Split by original_index so all augmentations of the same base video stay together.
@@ -2717,6 +2746,7 @@ def data_generate_voltage(
     )
     logger.info(f"overlap: {overlap} (must be empty)")
 
+    ledger.begin("materialize_sequences", draws=False)
     # Build sequences lists for ODE generation
     train_sequences = [stimulus_dataset[i] for i in train_indices]
     test_sequences = [stimulus_dataset[i] for i in test_indices]
@@ -2736,6 +2766,7 @@ def data_generate_voltage(
     # Plot preview for train and test splits
     frames_per_sequence = 35
     n_hexals = stimulus_dataset[0]["lum"].shape[-1]
+    ledger.begin("plot_previews", draws=False)
     hex_x = x_coords[:n_hexals]
     hex_y = y_coords[:n_hexals]
     plot_sequence_preview(
@@ -2759,6 +2790,7 @@ def data_generate_voltage(
         logger=logger,
     )
 
+    ledger.begin("integrate_train", draws=True)
     # --- Generate TRAIN split ---
     total_frames_per_pass = len(train_sequences) * frames_per_sequence
 
@@ -2832,10 +2864,12 @@ def data_generate_voltage(
     y_writer.finalize()
     logger.info(f"generated {n_frames_train} TRAIN frames (saved as .zarr)")
 
+    ledger.begin("derive_noisy_targets_train", draws=False)
     # --- Compute noisy derivatives for TRAIN split ---
     if spec.train_noise.gate_measurement_std > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="train")
 
+    ledger.begin("tile_train", draws=False)
     # --- Tile unique block ×factor across all dynamic train fields ---
     if repeat_factor > 1:
         _tile_train_zarrs(config, repeat_factor, save_calcium=spec.save_calcium)
@@ -2843,6 +2877,7 @@ def data_generate_voltage(
         # validates the on-disk zarr without flagging it as incomplete.
         n_frames_train = n_frames_train * repeat_factor
 
+    ledger.begin("reset_for_test", draws=True)
     # --- Generate TEST split ---
     # Default: test data is deterministic (sim.noisy_test_data=False) so that rollout
     # comparison against ground truth reflects the model's dynamics, not observation
@@ -2857,6 +2892,7 @@ def data_generate_voltage(
     x.calcium = _init_calcium
     x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
 
+    ledger.begin("integrate_test", draws=True)
     # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
     MAX_TEST_FRAMES = spec.max_test_frames
     _n_frames_test_cap = spec.n_frames_test_cap
@@ -2902,13 +2938,16 @@ def data_generate_voltage(
         # Marker for consumers that need to know the test split carries train-level noise
         open(graphs_data_path(spec.output.dataset, "noisy_test_data.ok"), "w").close()
 
+    ledger.begin("derive_noisy_targets_test", draws=False)
     # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
     if spec.noisy_test_data and spec.test_noise.gate_measurement_std > 0:
         _compute_noisy_derivatives(config, sim, n_neurons, split="test")
 
+    ledger.begin("restore_grad", draws=False)
     # restore gradient computation now (before any early-return paths)
     torch.set_grad_enabled(True)
 
+    ledger.begin("remove_edges", draws=False)
     # --- Edge removal: applied AFTER activity generation ---
     # Activity data (x_list, y_list) was generated with the full connectome above.
     # Now prune ode_params so the GNN only sees the incomplete adjacency matrix.
@@ -2965,6 +3004,7 @@ def data_generate_voltage(
     else:
         print(f"{_G}[GENERATE] no edge removal (ratio=0){_X}")
 
+    ledger.begin("save_ground_truth", draws=False)
     if save:
         ode_params.save(folder)
         print(f"{_G}[GENERATE] saved ode_params: edge_index={ode_params.edge_index.shape}  "
@@ -2972,6 +3012,7 @@ def data_generate_voltage(
         if ablation_mask is not None:
             torch.save(ablation_mask, graphs_data_path(spec.output.dataset, "ablation_mask.pt"))
 
+    ledger.begin("load_train_split", draws=False)
     # --- Always run diagnostics after data generation ---
     from connectome_gnn.zarr_io import load_raw_array, load_simulation_data
 
@@ -2979,6 +3020,7 @@ def data_generate_voltage(
     y_list = load_raw_array(graphs_data_path(spec.output.dataset, "y_list_train"))
     activity_full = x_ts.voltage.numpy()  # (n_frames, n_neurons) — needed for noise plotting
 
+    ledger.begin("check_bracket", draws=False)
     # ---- conductance bracket check -------------------------------------------
     # Every edge must keep the SIGN of its own driving force (E_ij - v_i) for the
     # whole run: excitatory edges need v_i < E_exc, inhibitory ones v_i > E_inh,
@@ -3045,6 +3087,7 @@ def data_generate_voltage(
         logger.info(_msg)
     # --------------------------------------------------------------------------
 
+    ledger.begin("compute_ranks", draws=True)
     # Compute ranks (used in kinographs and traces)
     if compute_ranks:
         logger.info("computing effective rank ...")
@@ -3133,6 +3176,7 @@ def data_generate_voltage(
             stim_labels=stim_labels,
         )
 
+    ledger.begin("log_trace_window", draws=False)
     # Skip warmup frames (100ms / dt) and show 400ms window for all plots
     if visualize:
         warmup_ms = 100.0
@@ -3149,6 +3193,7 @@ def data_generate_voltage(
             f"plotting traces (warmup_skip={warmup_frames} frames={warmup_ms}ms, window={window_frames} frames={window_ms}ms, {activity_plot.shape[0]} frames available)"
         )
 
+    ledger.begin("measurement_snr", draws=False)
     # HH-specific spiking plots (detect spikes from voltage threshold crossings)
     # Plot noisy activity traces using the same neurons + compute SNR
     snr_stats = None
@@ -3221,6 +3266,7 @@ def data_generate_voltage(
             logger.info(f"  derivative noise std (empirical mean): {snr_stats['derivative_noise_std_empirical']:.2f}")
             logger.info("--------------------------------------")
 
+    ledger.begin("write_generation_log", draws=False)
     # SVD analysis (4-panel plot) -- DISABLED 2026-09-07 at the user's request.
     # analyze_data_svd computed a full singular-value decomposition of the
     # (n_frames x n_neurons) activity and of the visual stimulus and wrote
@@ -3297,6 +3343,7 @@ def data_generate_voltage(
             print(f"\033[93mreversal report skipped: {type(_exc).__name__}: {_exc}\033[0m")
     logger.info(f"generation log saved to {gen_log_path}")
 
+    ledger.begin("render_figures", draws=False)
     if not visualize:
         return
 
@@ -3453,6 +3500,7 @@ def data_generate_voltage(
     except Exception as _e:
         logger.warning(f"per-type trace figures skipped: {type(_e).__name__}: {_e}")
 
+    ledger.begin("render_video", draws=False)
     if visualize & (run == run_vizualized):
         logger.info("generating lossless video ...")
 

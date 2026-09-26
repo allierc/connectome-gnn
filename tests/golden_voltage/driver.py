@@ -102,6 +102,12 @@ def _child_env(spec: RunSpec, cell: C.Cell, work: Path, flyvis_root: Path) -> di
         env["HYBRID_CONNECTOME_DIR"] = str(C.hybrid_dir())
     if spec.device.startswith("cuda"):
         env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    if cell.ledger:
+        # generators/voltage/rng.py: enforce every draws=False claim and write the
+        # per-stage RNG record next to the run (outside data/, so not in the manifest).
+        # BASE ignores both variables.
+        env["CGNN_RNG_LEDGER_CHECK"] = "1"
+        env["CGNN_RNG_LEDGER_REPORT"] = str(Path(spec.out).resolve() / "rng_ledger.json")
     env["PYTHONPATH"] = os.pathsep.join(pp)
     env.update(spec.extra_env)
     return env

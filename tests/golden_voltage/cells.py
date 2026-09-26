@@ -46,6 +46,7 @@ class Cell:
     dirty: bool = False                            # pre-populate from fixtures/dirty
     entry: str = "voltage"                         # "voltage" | "dispatch"
     requires: tuple = ()                           # subset of REQUIREMENTS
+    ledger: bool = True                            # RNG-ledger check mode (see driver._child_env)
     expect: object = "ok"                          # "ok" | (exception type name, message regex)
     covers: tuple = ()
     notes: str = ""
@@ -94,7 +95,8 @@ _TWIN_CROSS = "@fixture/net/twin_cross.pt"
 
 CELLS: list[Cell] = [
     # ------------------------------------------------------------------ fast
-    _c("F1_base", "fast", covers=("B12", "B26", "B38", "B43", "R28")),
+    _c("F1_base", "fast", covers=("B12", "B26", "B38", "B43", "R28"), ledger=False,
+       notes="the one cell that runs the RNG ledger as production does (no check, no report)"),
     _c("F2_visualize", "fast", args=dict(visualize=True),
        covers=("B47", "B53", "B55", "B56", "R26")),
     _c("F3_process_and_meas_noise", "fast", sim=dict(noise_model_level=0.05, measurement_noise_level=0.1),
