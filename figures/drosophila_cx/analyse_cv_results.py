@@ -172,7 +172,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--log_root",
-                   default="/groups/saalfeld/home/allierc/GraphData/log")
+                   default=f"{os.environ['GNN_OUTPUT_ROOT']}/log")
     p.add_argument("--n_folds", type=int, default=10)
     p.add_argument("--out_dir",
                    default=os.path.dirname(os.path.abspath(__file__)))

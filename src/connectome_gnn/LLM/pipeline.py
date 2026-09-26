@@ -144,7 +144,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
     # L4 nodes give ~15 GB host RAM per slot vs ~40 GB on A100/H100; flyvis
     # training peaks ~30 GB, so n_cpus<8 hits TERM_MEMLIMIT on L4. Bump to 8.
     if state.node_name == 'l4' and state.n_cpus < 8:
-        print(f"\033[93m  auto-bumping n_cpus {state.n_cpus} -> 8 for gpu_l4 (memory headroom)\033[0m")
+        print(f"\033[93m  auto-bumping n_cpus {state.n_cpus} -> 8 for l4 (memory headroom)\033[0m")
         state.n_cpus = 8
 
     # Detect resume point
@@ -181,7 +181,7 @@ def setup_exploration(args, root_dir: str, skip_confirm: bool = False) -> Explor
 
     mode = "cluster" if state.cluster_enabled else "local (sequential)"
     ic_str = f", interaction_code: {state.case_study}" if state.interaction_code else ""
-    print(f"\033[94mMode: {mode}, node: gpu_{state.node_name}, n_cpus: {state.n_cpus}, n_parallel: {state.n_parallel}, "
+    print(f"\033[94mMode: {mode}, node: {state.node_name}, n_cpus: {state.n_cpus}, n_parallel: {state.n_parallel}, "
           f"generate_data: {state.generate_data}{ic_str}\033[0m")
 
     return state
@@ -715,7 +715,7 @@ def generate_data_locally(state: ExplorationState, batch: BatchInfo):
 
 def run_cluster_training(state: ExplorationState, batch: BatchInfo):
     """PHASE 2-3: Submit cluster jobs, wait, auto-repair failed jobs."""
-    print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster (gpu_{state.node_name})\033[0m")
+    print(f"\n\033[93mPHASE 2: Submitting {batch.n_slots} flyvis training jobs to cluster ({state.node_name})\033[0m")
 
     # Guardrail: verify cluster repo is clean before submitting (warning only)
     if not check_cluster_repo():
@@ -1023,7 +1023,7 @@ def run_cluster_test_plot(state: ExplorationState, batch: BatchInfo):
     successful_slots = [s for s in range(batch.n_slots) if batch.job_results.get(s, False)]
     _node = state.test_plot_node_name or state.node_name
     print(f"\n\033[93mPHASE 3.2: Submitting {len(successful_slots)} test+plot jobs "
-          f"to cluster (gpu_{_node})\033[0m")
+          f"to cluster ({_node})\033[0m")
 
     job_ids = {}
     for slot_idx, iteration in enumerate(batch.iterations):

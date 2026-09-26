@@ -52,7 +52,7 @@ GCAMP7F = dict(tau_rise=0.150, tau_decay=1.200, length_seconds=7.2)
 # official zapbench rastermap permutation (same cache the whole-brain
 # kinograph uses) — lets the real panel order its rows exactly like
 # figures/zebrafish/zapbench_full_kinograph.py instead of by hemisphere/ring bin.
-_GD = "/groups/saalfeld/home/allierc/GraphData/graphs_data/zebrafish"
+_GD = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/zebrafish"
 SORT_NPY = os.path.join(_GD, "zapbench_rastermap_sorting.npy")
 SORT_URL = ("https://storage.googleapis.com/zapbench-release/volumes/20240930/"
             "traces_rastermap_sorted/sorting.json")
@@ -289,8 +289,7 @@ def model_panel(rows, log_dir, drive, device, model_circuit=None, warmup_s=10.0,
     from connectome_gnn.models.registry import create_model
     from connectome_gnn.generators.circuits import get_circuit
     from connectome_gnn.utils import migrate_state_dict, set_data_root
-    set_data_root(os.environ.get("GNN_OUTPUT_ROOT",
-                                 "/groups/saalfeld/home/allierc/GraphData"))
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
 
     cfg_path = config_path or os.path.join(log_dir, "config.yaml")
     cfg = NeuralGraphConfig.from_yaml(cfg_path)
@@ -534,7 +533,7 @@ def main():
                                         "zebrafish_connectome_HD_IPN12"))
     p.add_argument("--circuit", default="zebrafish_HD_IPN12_839_v1")
     p.add_argument("--log-dir",
-                   default="/groups/saalfeld/home/allierc/GraphData/log/"
+                   default=f"{os.environ['GNN_OUTPUT_ROOT']}/log/"
                            "zebrafish/zebrafish_hd_si_ipn12_v1")
     p.add_argument("--fishfuncem-data",
                    default=os.path.join(_REPO_ROOT, "papers", "fishFuncEM", "data"))

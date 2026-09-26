@@ -28,7 +28,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT = Path("/groups/saalfeld/home/allierc/GraphData")
+ROOT = Path(os.environ["GNN_OUTPUT_ROOT"])
 CX = Path("/workspace/connectome-gnn-cx")
 OUT_CSV = CX / "neurips_review" / "overnight_results.csv"
 OUT_MD = CX / "neurips_review" / "overnight_status.md"
@@ -36,7 +36,7 @@ LOG = CX / "neurips_review" / "_overnight.log"
 
 POLL_S = 300
 MAX_HOURS = 16
-CA_REMOTE = "/groups/saalfeld/home/allierc/Graph/connectome-gnn-ca"
+CA_REMOTE = f"{os.environ['CLUSTER_HOME']}/Graph/connectome-gnn-ca"
 
 # config name -> (biomodel dir, arm label, model)
 RUNS: dict[str, tuple[str, str, str]] = {
@@ -120,7 +120,7 @@ def ssh(cmd: str, timeout: int = 90) -> str | None:
     """Return stdout, or None on any failure. None means UNKNOWN, never done."""
     try:
         r = subprocess.run(
-            ["ssh", "$CLUSTER_SSH", cmd],
+            ["ssh", os.environ["CLUSTER_SSH"], cmd],
             capture_output=True, text=True, timeout=timeout,
         )
         return r.stdout if r.returncode == 0 else None
@@ -152,7 +152,7 @@ def submit_deferred(submitted: set[str]) -> None:
             continue
         cmd = (
             f"cd {CA_REMOTE} && "
-            f'bsub -n 4 -gpu "num=1" -q gpu_a100 -W 6000 '
+            f'bsub -n 4 -gpu "num=1" -q {os.environ["CLUSTER_QUEUE_PREFIX"]}a100 -W 6000 '
             f'"conda run -n connectome-gnn python GNN_Main.py -o train_test_plot '
             f'config/fly/{oracle}.yaml --output_root {ROOT} --force"'
         )

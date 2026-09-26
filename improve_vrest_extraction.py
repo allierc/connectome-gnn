@@ -18,7 +18,7 @@ Methods (applied at the final checkpoint of each run):
 Usage (neural-graph-linux conda env):
     conda run -n neural-graph-linux python improve_vrest_extraction.py
     conda run -n neural-graph-linux python improve_vrest_extraction.py \\
-        /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_blank50_unified_cv0{0,1,2,3,4} \\
+        ${GNN_OUTPUT_ROOT}/log/fly/flyvis_noise_free_blank50_unified_cv0{0,1,2,3,4} \\
         --summary-csv /tmp/vrest_extraction_5cv.csv
 """
 
@@ -46,12 +46,12 @@ from connectome_gnn.metrics import (
 from connectome_gnn.generators.ode_params import get_ode_params_class
 
 
-DEFAULT_LOG_DIR = '/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_blank50_unified_cv00'
+DEFAULT_LOG_DIR = f'{os.environ["GNN_OUTPUT_ROOT"]}/log/fly/flyvis_noise_free_blank50_unified_cv00'
 
 
 def _paths_for(log_dir):
     run_name = os.path.basename(log_dir.rstrip('/'))
-    config_yaml = f'/groups/saalfeld/home/allierc/GraphData/config/fly/{run_name}.yaml'
+    config_yaml = f'{os.environ["GNN_OUTPUT_ROOT"]}/config/fly/{run_name}.yaml'
     out_dir = os.path.join(log_dir, 'vrest_extraction_analysis')
     return config_yaml, out_dir
 

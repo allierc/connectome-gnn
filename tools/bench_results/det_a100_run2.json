@@ -1,6 +1,6 @@
 {
   "tag": "det_a100_run2",
-  "queue": "gpu_a100",
+  "queue": "${CLUSTER_QUEUE_PREFIX}a100",
   "spec": "flyvis_noise_005_bench_det_a100_run2",
   "branch": "perf/fused-message-passing",
   "commit": "3d6d788",

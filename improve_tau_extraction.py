@@ -3,7 +3,7 @@
 Evaluates several strategies for extracting per-neuron time constants
 from a trained flyvis-gnn model, and compares their R^2 against ground
 truth. Target run:
-    /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_blank50_unified_cv00
+    ${GNN_OUTPUT_ROOT}/log/fly/flyvis_noise_free_blank50_unified_cv00
 
 Methods (applied at the final checkpoint of that run):
     baseline_mu2sigma     : chord slope over [mu - 2 sigma, mu + 2 sigma]   (the current one)
@@ -42,11 +42,11 @@ from connectome_gnn.metrics import (
 from connectome_gnn.generators.ode_params import get_ode_params_class, FlyVisODEParams
 
 
-DEFAULT_LOG_DIR = '/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_blank50_unified_cv00'
+DEFAULT_LOG_DIR = f'{os.environ["GNN_OUTPUT_ROOT"]}/log/fly/flyvis_noise_free_blank50_unified_cv00'
 
 def _paths_for(log_dir):
     run_name = os.path.basename(log_dir.rstrip('/'))
-    config_yaml = f'/groups/saalfeld/home/allierc/GraphData/config/fly/{run_name}.yaml'
+    config_yaml = f'{os.environ["GNN_OUTPUT_ROOT"]}/config/fly/{run_name}.yaml'
     out_dir = os.path.join(log_dir, 'tau_extraction_analysis')
     return config_yaml, out_dir
 

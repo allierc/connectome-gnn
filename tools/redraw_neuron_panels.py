@@ -14,8 +14,8 @@ from connectome_gnn.models.training_utils import init_training_data
 from connectome_gnn.neuron_panels import analyse_neurons
 from connectome_gnn.utils import migrate_state_dict, set_data_root
 
-set_data_root("/groups/saalfeld/home/allierc/GraphData")
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+set_data_root(os.environ["GNN_OUTPUT_ROOT"])
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 for run in sys.argv[1:]:
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{run}.yaml")

@@ -1,7 +1,8 @@
+import os
 #!/usr/bin/env python3
 # Append Block 10 Batch 2 results to the flyvis 20% removal analysis file
 
-target_file = '/groups/saalfeld/home/allierc/GraphData/log/Claude_exploration/LLM_flyvis_noise_005_removed_pc_20/flyvis_noise_005_removed_pc_20_Claude_analysis.md'
+target_file = f'{os.environ["GNN_OUTPUT_ROOT"]}/log/Claude_exploration/LLM_flyvis_noise_005_removed_pc_20/flyvis_noise_005_removed_pc_20_Claude_analysis.md'
 
 lines = [
     "\n",

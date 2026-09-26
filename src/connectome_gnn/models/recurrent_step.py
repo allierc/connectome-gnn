@@ -101,51 +101,193 @@ def recurrent_loss(
     hn=None,
     n_steps=None,
     target_weight=None,
+    burn_in=None,
 ):
     """Dispatch to one of the three modes. See the module docstring.
 
     n_steps: the epoch's rollout horizon K. Given -> ROLLOUT; None -> mode 1 or 2.
+    burn_in: the epoch's burn-in (burn_in_at_epoch). None falls back to
+        training.rollout_burn_in, ignoring any warm start.
     hn: HiddenNeuronHandler, or None if the model has no hidden neurons.
 
     Returns (loss including regularisation, regularisation value for logging).
     """
     sim = config.simulation
     tc = config.training
-    time_step = tc.time_step
     n_neurons = sim.n_neurons
-    multi_start = tc.multi_start_recurrent
 
     if n_steps is not None:
         return _dense_rollout_loss(
             model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
             int(n_steps), sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-            hn=hn, target_weight=target_weight,
+            hn=hn, target_weight=target_weight, burn_in=burn_in,
         )
-    elif multi_start:
-        return _multi_start_loss(
-            model, x_ts, edges, ids, frame_indices, iter_idx,
-            time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-            hn=hn,
-        )
-    else:
-        return _standard_recurrent_loss(
-            model, x_ts, edges, ids, frame_indices, iter_idx,
-            time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-            hn=hn,
-        )
+    return _standard_recurrent_loss(
+        model, x_ts, edges, ids, frame_indices, iter_idx,
+        sim, tc, device, xnorm, regularizer, has_visual_field,
+        hn=hn,
+    )
 
 
 # ------------------------------------------------------------------ #
 #  ROLLOUT: unroll K steps, score every one                          #
 # ------------------------------------------------------------------ #
 
-def _rollout_step_weights(weighting, n_steps, gamma):
+def _rollout_step_weights(weighting, n_steps, gamma, loss_stride=0, burn_in=0):
     """Per-step weights: "uniform" | "discount" | "linear_decay" | "last".
 
     Unnormalised -- the caller divides by the weight actually applied, so any
     positive scaling is equivalent. All schemes return [1.0] at K=1, which is what
     keeps the K=1 objective identical to one-step training.
+
+    `loss_stride` m > 0 then ZEROES every step but 0, m, 2m, ..., which is
+    partial temporal sampling: the model still integrates each intermediate
+    frame, it is simply not scored there. The mask is applied AFTER the
+    weighting, so "one frame in five, discounted" is expressible and the two
+    knobs stay orthogonal.
+
+    STEP 0 IS SCORED AND THE INDEX IS NOT SHIFTED, and both halves of that
+    sentence were wrong until 2026-09-24. `_dense_rollout_loss` runs step s with
+    the state at frame k+s against target y_ts[k+s] -- step 0 being the
+    un-integrated observed frame k itself. The mask used to read
+    `(s + 1) % m == 0`, which selects s = m-1, 2m-1, ..., so with m = 5 the loss
+    landed on frames k+4, k+9, k+14, k+19 while a 1-in-5 recording anchored at k
+    observes k, k+5, k+10, k+15, k+20: NO OVERLAP. It scored exactly the frames
+    the knob exists to skip, and it dropped step 0, the one term whose state is
+    an observation with zero integration drift.
+
+    That cost experiment 5 all thirty of its runs. Its conductance arm collapsed
+    to R2_W -0.012 -- the strided fit gradient on g_phi's first layer fell to
+    0.69-6.1 against a constant group-lasso pull of 200, which annihilated the
+    v_j input column -- and its current arm was degraded to 0.753 against 0.956
+    for unstrided training on the same data, with R2_tau 0.655 against 0.979.
+
+    A HORIZON OF K THEREFORE SCORES floor((K-1)/m) + 1 STEPS, and reaching step
+    s = m needs K >= m + 1: "one observed interval" is horizon m+1, not m.
+
+    `burn_in` B > 0 then zeroes steps 0 .. B-1 as well. It is a MASK, like the
+    stride, and deliberately not a detach: the loop still integrates the
+    burn-in steps and autograd still runs back through them, so a scored step
+    at s >= B keeps its whole chain to the parameters. Under measurement noise
+    the early steps are where the loss is biased (see TrainingConfig.
+    rollout_burn_in), and detaching at the boundary measured worse than not
+    burning in at all.
+
+    Applied last, after the weighting and the stride, so the three compose: a
+    step is scored when its dense weight is non-zero, it sits on the stride's
+    grid, and s >= B.
     """
+    w = _rollout_step_weights_dense(weighting, n_steps, gamma)
+    if loss_stride and loss_stride > 0:
+        # s is 0-indexed and the state at step s is frame k+s, so the observed
+        # grid k, k+m, k+2m, ... is exactly s % m == 0.
+        w = [x if s % loss_stride == 0 else 0.0 for s, x in enumerate(w)]
+    if burn_in and burn_in > 0:
+        w = [x if s >= burn_in else 0.0 for s, x in enumerate(w)]
+    return w
+
+
+def burn_in_at_epoch(training, epoch):
+    """The rollout burn-in in force at `epoch`: 0 during the warm-up epochs
+    (epoch < rollout_burn_in_start_epoch), rollout_burn_in after.
+
+    One function, called by the trainer to set each epoch's mask and by
+    validate_rollout_masks to check the schedule, so the two cannot disagree
+    about which epochs are burned in.
+    """
+    burn = int(getattr(training, "rollout_burn_in", 0) or 0)
+    start = int(getattr(training, "rollout_burn_in_start_epoch", 0) or 0)
+    return burn if epoch >= start else 0
+
+
+def validate_rollout_masks(training):
+    """Refuse a rollout configuration whose step masks would silently misbehave.
+
+    Lives here, beside the weights it reasons about, rather than inline in
+    graph_trainer's training function where no test could reach it -- the
+    stride audit found both of its sibling guards untested. graph_trainer calls
+    this once, before the schedule is expanded. Raises ValueError; returns None.
+
+    Three refusals:
+
+    NO SCHEDULE. rollout_loss_stride and rollout_burn_in are read by
+    _dense_rollout_loss alone; without rollout_horizon_schedule the dispatcher
+    takes the legacy endpoint path, which never looks at them, so either knob
+    would be accepted and do nothing.
+
+    A STRIDE HORIZON THAT REACHES ONLY THE ANCHOR. With stride m the scored steps
+    are 0, m, 2m, ..., so a horizon K < m + 1 scores step 0 alone -- one-step
+    training wearing a rollout's clothes.
+
+    A HORIZON THAT SCORES NOTHING. A burn-in B zeroes steps 0 .. B-1, so a
+    horizon K <= B -- or one whose stride-grid steps all fall inside the burn-in
+    -- contributes a loss of exactly zero and trains on nothing while looking
+    busy. Decided by calling _rollout_step_weights itself, with this run's
+    weighting, stride and burn-in, so the check and the loss cannot drift apart.
+    """
+    horizons = [int(h) for h in (getattr(training, "rollout_horizon_schedule", []) or [])]
+    stride = int(getattr(training, "rollout_loss_stride", 0) or 0)
+    burn = int(getattr(training, "rollout_burn_in", 0) or 0)
+    start = int(getattr(training, "rollout_burn_in_start_epoch", 0) or 0)
+    n_epochs = int(getattr(training, "n_epochs", len(horizons)) or len(horizons))
+
+
+    for knob, value in (("rollout_loss_stride", stride), ("rollout_burn_in", burn)):
+        if value > 0 and not horizons:
+            raise ValueError(
+                f"{knob} is only read by the dense rollout, which needs "
+                f"rollout_horizon_schedule; without one it would be silently "
+                f"ignored. Set a schedule, or drop {knob}.")
+    if not horizons:
+        return
+
+    # A WARM START WITH NOTHING TO WARM UP FOR, OR THAT NEVER ENDS. Either would
+    # be accepted and silently change nothing.
+    if start > 0 and burn == 0:
+        raise ValueError(
+            f"rollout_burn_in_start_epoch {start} delays a burn-in that is not "
+            f"set (rollout_burn_in 0); it would do nothing. Set rollout_burn_in "
+            f"or drop the start epoch.")
+    if burn > 0 and start >= n_epochs:
+        raise ValueError(
+            f"rollout_burn_in_start_epoch {start} is not before n_epochs "
+            f"{n_epochs}, so the burn-in would never apply.")
+
+    if stride > 1:
+        short = sorted({h for h in horizons if h < stride + 1})
+        if short:
+            raise ValueError(
+                f"rollout_loss_stride: {stride} scores steps 0, {stride}, "
+                f"{2 * stride}, ..., and step s holds the state at frame k+s, so "
+                f"a horizon must reach {stride + 1} for the first observed frame "
+                f"after the anchor to be in the rollout at all; "
+                f"rollout_horizon_schedule contains {short}, whose epochs would "
+                f"score the anchor and nothing else. Use {stride + 1}, "
+                f"{2 * stride + 1}, ...")
+
+    if burn > 0:
+        weighting = getattr(training, "rollout_step_weighting", "uniform")
+        gamma = getattr(training, "rollout_discount", 0.9)
+        # The schedule as the trainer will run it: padded with its last value to
+        # n_epochs. Only the epochs where the burn-in is in force are checked;
+        # the warm-up epochs score step 0 and may use any horizon.
+        per_epoch = (horizons + [horizons[-1]] * max(0, n_epochs - len(horizons)))[:n_epochs]
+        empty = sorted({(e, h) for e, h in enumerate(per_epoch)
+                        if not any(w > 0.0 for w in _rollout_step_weights(
+                            weighting, h, gamma, loss_stride=stride,
+                            burn_in=burn_in_at_epoch(training, e)))})
+        if empty:
+            raise ValueError(
+                f"rollout_burn_in: {burn} leaves steps 0..{burn - 1} unscored "
+                f"from epoch {start}, and with rollout_step_weighting "
+                f"'{weighting}'"
+                + (f" and rollout_loss_stride {stride}" if stride > 1 else "")
+                + f" these (epoch, horizon) pairs score no step at all: "
+                f"{empty}. Every horizon from epoch {start} on must reach past "
+                f"the burn-in, e.g. {burn + 1}.")
+
+
+def _rollout_step_weights_dense(weighting, n_steps, gamma):
     if weighting == "uniform":
         return [1.0] * n_steps
     if weighting == "discount":
@@ -162,7 +304,7 @@ def _rollout_step_weights(weighting, n_steps, gamma):
 def _dense_rollout_loss(
     model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,
     n_steps, sim, tc, device, xnorm, ynorm, regularizer, has_visual_field,
-    hn=None, target_weight=None,
+    hn=None, target_weight=None, burn_in=None,
 ):
     """ROLLOUT: unroll K = n_steps from frame k, scoring every step.
 
@@ -253,7 +395,14 @@ def _dense_rollout_loss(
     gamma = getattr(tc, "rollout_discount", 0.9)
     bptt_window = int(getattr(tc, "rollout_bptt_window", 0) or 0)
     shooting_stride = int(getattr(tc, "rollout_shooting_stride", 0) or 0)
-    step_weights = _rollout_step_weights(weighting, n_steps, gamma)
+    step_weights = _rollout_step_weights(
+        weighting, n_steps, gamma,
+        loss_stride=int(getattr(tc, "rollout_loss_stride", 0) or 0),
+        # The trainer passes the epoch's burn-in (burn_in_at_epoch), which is 0
+        # during a warm start. None -- a direct caller with no epoch -- falls back
+        # to the configured value.
+        burn_in=(int(getattr(tc, "rollout_burn_in", 0) or 0)
+                 if burn_in is None else int(burn_in)))
 
     batched_state, batched_edges = _batch_frames(state_batch, edges)
     pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
@@ -374,7 +523,7 @@ def _dense_rollout_loss(
 
 def _standard_recurrent_loss(
     model, x_ts, edges, ids, frame_indices, iter_idx,
-    time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
+    sim, tc, device, xnorm, regularizer, has_visual_field,
     hn=None,
 ):
     batch_size = tc.batch_size
@@ -408,7 +557,7 @@ def _standard_recurrent_loss(
         if torch.isnan(x.voltage).any():
             continue
 
-        y = x_ts.voltage[k + (1 if time_step > 1 else time_step)].unsqueeze(-1)
+        y = x_ts.voltage[k + 1].unsqueeze(-1)
         if torch.isnan(y).any():
             continue
 
@@ -447,7 +596,8 @@ def _standard_recurrent_loss(
 
     pred_x = batched_state.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
-    for step in range(time_step - 1):
+    # No inner unroll: the horizon lives in rollout_horizon_schedule now.
+    for step in range(0):
         # Hidden neuron loss at this intermediate step (before overwriting with NGP)
         # Gradient path: loss → pred_x[hidden] → v_hidden(k) via -v/tau term → NGP(k)
         if use_hidden_loss:
@@ -480,99 +630,10 @@ def _standard_recurrent_loss(
         pred, _, _ = model(batched_state, batched_edges, data_id=data_id, return_all=True)
         pred_x = pred_x + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)
 
-    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / (sim.delta_t * time_step)).norm(2)
+    loss = loss + ((pred_x[ids_batch] - y_batch[ids_batch]) / sim.delta_t).norm(2)
     return loss, regul_value
 
 
 # ------------------------------------------------------------------ #
 #  MODE 2: time_step starts, all targeting frame T                    #
 # ------------------------------------------------------------------ #
-
-def _multi_start_loss(
-    model, x_ts, edges, ids, frame_indices, iter_idx,
-    time_step, sim, tc, device, xnorm, regularizer, has_visual_field,
-    hn=None,
-):
-    """Launch time_step rollouts of decreasing length, all targeting frame T.
-
-    Start frames: T - time_step, T - time_step + 1, ..., T - 1
-    Rollout lengths: time_step, time_step - 1, ..., 1
-    Target: observed v(T) for all.
-    """
-    n_neurons = sim.n_neurons
-
-    # Pick target frame T (one per iteration, use first frame index)
-    k_raw = int(frame_indices[iter_idx * time_step])  # batch_size == time_step
-    T = max(time_step, k_raw)  # ensure we have enough history
-    T = min(T, x_ts.n_frames - 1)  # stay in bounds
-
-    # Target voltage at T (same for all starts)
-    y_target = x_ts.voltage[T].unsqueeze(-1)
-    if torch.isnan(y_target).any():
-        return torch.zeros(1, device=device, requires_grad=True), 0.0
-
-    # Regularisation (compute once)
-    x0 = x_ts.frame(T - time_step)
-    if x0.noise is not None and sim.measurement_noise_level > 0:
-        x0.voltage = x0.voltage + x0.noise
-    regularizer.reset_iteration(device=device)
-    regul_loss = regularizer.compute(
-        model=model, x=x0, in_features=None,
-        ids=ids, ids_batch=None, edges=edges, device=device, xnorm=xnorm,
-        perm_indices=regularizer.sample_g_phi_perm(device),
-    )
-    regul_value = regul_loss.item()
-    loss = regul_loss.clone()
-
-    # Launch each start independently
-    for s in range(time_step):
-        start_k = T - time_step + s  # start frame
-        n_steps = time_step - s       # rollout length
-
-        x = x_ts.frame(start_k)
-        if x.noise is not None and sim.measurement_noise_level > 0:
-            x.voltage = x.voltage + x.noise
-        if hn is not None:
-            hn.inject_hidden(model, x, start_k, True)
-
-        if torch.isnan(x.voltage).any():
-            continue
-
-        if has_visual_field:
-            vi = model.forward_visual(x, start_k)
-            x.stimulus[:model.n_input_neurons] = vi.squeeze(-1)
-            x.stimulus[model.n_input_neurons:] = 0
-
-        data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
-
-        # Unroll n_steps forward
-        for step in range(n_steps):
-            batched_state, batched_edges = _batch_frames([x], edges)
-            pred, in_features, msg = model(batched_state, batched_edges, data_id=data_id, return_all=True)
-
-            if s == 0 and step == 0:
-                update_regul = regularizer.compute_update_regul(model, in_features, ids, device)
-                loss = loss + update_regul
-
-            x.voltage = (x.voltage.unsqueeze(-1) + sim.delta_t * pred + tc.noise_recurrent_level * torch.randn_like(pred)).squeeze(-1)
-            if hn is not None:
-                k_cur = start_k + step + 1
-                hn.inject_hidden(model, x, k_cur, True)
-
-            # Update stimulus for next step
-            k_next = start_k + step + 1
-            if k_next < x_ts.n_frames:
-                if has_visual_field:
-                    vi = model.forward_visual(x, k_next)
-                    x.stimulus[:model.n_input_neurons] = vi.squeeze(-1)
-                    x.stimulus[model.n_input_neurons:] = 0
-                else:
-                    pass  # stimulus held constant during unroll (subsampled x_ts; intermediate frames not available)
-
-        # Loss: predicted voltage vs target at T
-        pred_v = x.voltage.unsqueeze(-1)
-        loss = loss + ((pred_v[ids] - y_target[ids]) / (sim.delta_t * time_step)).norm(2)
-
-    # Average over the time_step starts
-    loss = loss / time_step
-    return loss, regul_value

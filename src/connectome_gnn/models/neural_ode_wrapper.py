@@ -165,8 +165,8 @@ def integrate_neural_ode(model, v0, x_template, edge_index, data_id, time_steps,
 
 
 def neural_ode_loss(model, dataset_batch, edge_index, x_ts, k_batch,
-                           time_step, batch_size, n_neurons, ids_batch,
-                           delta_t, device,
+                           batch_size, n_neurons, ids_batch,
+                           delta_t, device, time_step=1,
                            data_id=None, has_visual_field=False,
                            y_batch=None, noise_level=0.0, ode_method='dopri5',
                            rtol=1e-4, atol=1e-5, adjoint=True,

@@ -112,8 +112,7 @@ def _find_ephys_file():
     if env and os.path.isfile(env):
         return env
     search_dirs = [FISHDATA]
-    data_root = os.environ.get("GNN_OUTPUT_ROOT",
-                                "/groups/saalfeld/home/allierc/GraphData")
+    data_root = os.environ["GNN_OUTPUT_ROOT"]
     search_dirs.append(os.path.join(data_root, "graphs_data", "zebrafish"))
     for d in search_dirs:
         hits = sorted(glob.glob(os.path.join(d, "**", "*.10chFlt"),

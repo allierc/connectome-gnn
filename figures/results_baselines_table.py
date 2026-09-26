@@ -32,7 +32,7 @@ Assumptions
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Data root      : $GNN_OUTPUT_ROOT
 # Configs        : <DATA_ROOT>/config/fly/<config_name>.yaml
 #                  (e.g. flyvis_noise_005_mlp, flyvis_noise_05_eed,
 #                   flyvis_noise_005_stimulus_ctx<N>)
@@ -492,7 +492,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('data_root',
                         help='repo / data root containing log/ and graphs_data/ '
-                             '(e.g. /groups/saalfeld/home/kumarv4/repos/connectome-gnn)')
+                             f'(e.g. {os.environ["BASELINE_REPO_ROOT"]})')
     parser.add_argument('config_names', nargs='+',
                         help='one or more base configs (e.g. flyvis_noise_005_mlp '
                              'flyvis_noise_05_eed); one row per config appears in '

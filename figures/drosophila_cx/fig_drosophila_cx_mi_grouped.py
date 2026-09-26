@@ -195,7 +195,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--runs", nargs="+", default=list(DEFAULT_RUNS))
     p.add_argument("--data_root",
-                   default="/groups/saalfeld/home/allierc/GraphData")
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument("--n_trials", type=int, default=48)
     p.add_argument("--device", default="cpu")
     p.add_argument("--out", default=os.path.join(

@@ -18,7 +18,7 @@ Checks:
   5. voltage(ga03) differs from base
 
 Run:
-  GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+  GNN_OUTPUT_ROOT=${GNN_OUTPUT_ROOT} PYTHONPATH=src \
     /workspace/.conda_envs/neural-graph-linux/bin/python neurips_review/smoke_test.py
 """
 import copy
@@ -31,8 +31,8 @@ import tensorstore as ts
 import yaml
 
 REPO = "/workspace/connectome-gnn-cx"
-CONFIG_DIR = "/groups/saalfeld/home/allierc/GraphData/config/fly"
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+CONFIG_DIR = f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 PY = "/workspace/.conda_envs/neural-graph-linux/bin/python"
 UNIFIED_TMPL = os.path.join(CONFIG_DIR, "flyvis_noise_005_blank50_unified_cv00.yaml")
 

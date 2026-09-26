@@ -288,7 +288,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     if best_model and best_model not in ('', 'None'):
         checkpoint_path = f'{log_dir}/models/best_model_with_{tc.n_runs - 1}_graphs_{best_model}.pt'
     elif tc.pretrained_model:
-        checkpoint_path = tc.pretrained_model
+        checkpoint_path = os.path.expandvars(tc.pretrained_model)   # may be $GNN_OUTPUT_ROOT/...
     reset_epoch = (tc.pretrained_model != '' and not best_model)
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
 
@@ -387,7 +387,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     visible_ids = torch.arange(n_neurons, device=device)
     ids = visible_ids
     _frame_min_k = max(tc.time_window, spend_time_window)  # ensure window fits
-    _frame_max_k = sim.n_frames - 4 - tc.time_step
+    _frame_max_k = sim.n_frames - 4 - 1
     _frame_range = max(_frame_max_k - _frame_min_k, 1)
 
     loss_components = {'loss': []}

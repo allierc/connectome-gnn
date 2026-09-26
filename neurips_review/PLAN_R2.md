@@ -71,7 +71,7 @@ resolves, `W_corrected_R2` is emitted, and settles 152 vs 338.
 
 ```
 cd /workspace/connectome-gnn-cx
-GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT PYTHONPATH=src \
 /workspace/.conda_envs/neural-graph-linux/bin/python GNN_Main.py \
   -o generate_train_test \
   config/drosophila_cx/archive/drosophila_cx_gt_edges_noise_free.yaml

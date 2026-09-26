@@ -39,7 +39,7 @@ GT_DATASETS = [("flyvis_noise_005_blank50_cv00", "target current"),
 TWIN = "flyvis_current_noise_free_conductance_ion_sub_cv00"
 GRAPHS = os.environ.get(
     "GNN_GRAPHS_ROOT",
-    "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly")
+    f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly")
 
 
 def flow_weights(name):

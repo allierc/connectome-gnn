@@ -243,7 +243,7 @@ parameter_error.png) comes from the closed-form template readout in
 If neither matches, run the import by itself in a job and read the first error,
 not the last -- the `failed to precompile` lines are downstream of it:
 
-    bsub -n 2 -gpu "num=1" -q gpu_a100 -W 1:00 -o probe.out \\
+    bsub -n 2 -gpu "num=1" -q ${{CLUSTER_QUEUE_PREFIX}}a100 -W 1:00 -o probe.out \\
       "python -c 'import pysr; print(pysr.__version__)'"
 """
     with open(path, "w") as fh:

@@ -15,7 +15,7 @@ own activity range).
 
 Usage:
     /workspace/.conda_envs/neural-graph-linux/bin/python dev_g_phi_w_correction.py \
-        --log_dir /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_conductance_cv00
+        --log_dir ${GNN_OUTPUT_ROOT}/log/fly/flyvis_noise_005_conductance_cv00
 """
 import argparse
 import os
@@ -309,9 +309,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', type=str,
-                        default='/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_conductance_cv00')
+                        default=f'{os.environ["GNN_OUTPUT_ROOT"]}/log/fly/flyvis_noise_005_conductance_cv00')
     parser.add_argument('--config_name', type=str, default='flyvis_noise_005_conductance_cv00')
-    parser.add_argument('--data_root', type=str, default='/groups/saalfeld/home/allierc/GraphData')
+    parser.add_argument('--data_root', type=str, default=os.environ["GNN_OUTPUT_ROOT"])
     parser.add_argument('--source', type=str, default='autograd', choices=['autograd', 'observed'],
                         help='autograd = compute_g_phi_edge_grad (analytic); '
                              'observed = sample_g_phi_vi_vj_observed + finite differences')

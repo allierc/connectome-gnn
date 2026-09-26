@@ -11,10 +11,11 @@ A pure class rename with an alias must change NOTHING observable:
   4. the old name still resolves and IS the new class
 Prints a single hash line so before/after can be diffed.
 """
+import os
 import hashlib, io, json, sys, torch
 from connectome_gnn.generators import ode_params as OP
 
-DS = ('/groups/saalfeld/home/allierc/GraphData/graphs_data/fly/'
+DS = (f'{os.environ["GNN_OUTPUT_ROOT"]}/graphs_data/fly/'
       'flyvis_noise_free_blank50_cv00')
 out = {}
 

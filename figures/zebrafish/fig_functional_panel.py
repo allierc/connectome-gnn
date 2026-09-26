@@ -55,8 +55,7 @@ def _resolve_config(arg: str) -> str:
     if os.path.isabs(a):
         cands = [a]
     else:
-        root = os.environ.get("GNN_OUTPUT_ROOT",
-                              "/groups/saalfeld/home/allierc/GraphData")
+        root = os.environ["GNN_OUTPUT_ROOT"]
         cands = [os.path.join(root, "config", a), os.path.join(_REPO, "config", a),
                  os.path.join(_REPO, a), a]
         # Fall back to the species subdirs (config/zebrafish/, config/drosophila_cx/,
@@ -75,8 +74,7 @@ def _log_dir_for(cfg_path: str) -> str:
     stem = cfg_path[:-5] if cfg_path.endswith(".yaml") else cfg_path
     # Training writes under GNN_OUTPUT_ROOT/log/<species>/<name>, not the
     # repo-local log/. Take the part after .../config/ and join it there.
-    root = os.environ.get("GNN_OUTPUT_ROOT",
-                          "/groups/saalfeld/home/allierc/GraphData")
+    root = os.environ["GNN_OUTPUT_ROOT"]
     marker = os.sep + "config" + os.sep
     if marker in stem:
         rel = stem.split(marker, 1)[1]      # e.g. "zebrafish/<name>"
@@ -234,8 +232,7 @@ def main():
     from connectome_gnn.generators.zapbench_stimulus import heading_to_drive
     from connectome_gnn.plot_anatomy_voltage import run_task_rollout
     from connectome_gnn.utils import migrate_state_dict, set_data_root
-    set_data_root(os.environ.get("GNN_OUTPUT_ROOT",
-                                 "/groups/saalfeld/home/allierc/GraphData"))
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
 
     cfg_path = _resolve_config(args.config)
     log_dir = args.log_dir or _log_dir_for(cfg_path)

@@ -23,7 +23,7 @@ import os
 import numpy as np
 
 LOG_ROOT = os.environ.get("GNN_LOG_ROOT",
-                          "/groups/saalfeld/home/allierc/GraphData/log/fly")
+                          f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly")
 
 
 def load(run):

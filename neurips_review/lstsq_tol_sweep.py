@@ -15,6 +15,7 @@ evaluated from that decomposition, so the sweep costs no more than two solves.
     PYTHONPATH=src python neurips_review/lstsq_tol_sweep.py --sigma 0.05
 """
 
+import os
 import argparse
 import sys
 from pathlib import Path
@@ -27,7 +28,7 @@ from fig_lstsq_identifiability_noise import build_in_edges, load_data  # noqa: E
 
 from connectome_gnn.metrics import compute_r_squared_NSE  # noqa: E402
 
-ROOT = Path("/groups/saalfeld/home/allierc/GraphData/graphs_data/fly")
+ROOT = Path(f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly")
 RUNS = {"0": "flyvis_noise_free_blank50_cv04",
         "0.05": "flyvis_noise_005_blank50_cv04",
         "0.5": "flyvis_noise_05_blank50_cv04"}

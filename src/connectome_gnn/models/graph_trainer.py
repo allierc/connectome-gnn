@@ -304,24 +304,20 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
 
     _raw_horizon = list(getattr(training, "rollout_horizon_schedule", []) or [])
 
+    # The stride, the burn-in and the schedule they need are checked together,
+    # by the function that sits beside the weights they mask -- see
+    # recurrent_step.validate_rollout_masks for the three refusals and why.
+    from connectome_gnn.models.recurrent_step import validate_rollout_masks
+    validate_rollout_masks(training)
+
     if _raw_horizon:
         if not training.recurrent_training:
             raise ValueError(
                 "rollout_horizon_schedule requires recurrent_training: true"
             )
-        if training.time_step != 1:
-            # time_step > 1 decimates the dataset at load (init_training_data), so the
-            # intermediate frames this scheme supervises against would not exist.
-            raise ValueError(
-                f"rollout_horizon_schedule requires time_step: 1 (got {training.time_step}) — "
-                "time_step > 1 subsamples the dataset, removing the intermediate frames "
-                "that dense supervision needs."
-            )
-        if training.multi_start_recurrent:
-            raise ValueError(
-                "rollout_horizon_schedule is incompatible with multi_start_recurrent "
-                "(which assumes batch_size == time_step)"
-            )
+        # The time_step and multi_start_recurrent guards went with those knobs:
+        # the dataset is never decimated now, so the intermediate frames dense
+        # supervision needs always exist.
         if len(_raw_horizon) < training.n_epochs:
             _raw_horizon = _raw_horizon + [_raw_horizon[-1]] * (training.n_epochs - len(_raw_horizon))
         horizon_schedule = [max(1, int(s)) for s in _raw_horizon[: training.n_epochs]]
@@ -396,6 +392,16 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # -----------------------------------------------------------------
 
         rollout_horizon = horizon_schedule[epoch] if horizon_schedule is not None else None
+        # The burn-in in force this epoch: 0 during a warm start
+        # (rollout_burn_in_start_epoch), rollout_burn_in after.
+        from connectome_gnn.models.recurrent_step import burn_in_at_epoch
+        rollout_burn_in = burn_in_at_epoch(training, epoch)
+        if rollout_burn_in != burn_in_at_epoch(training, epoch - 1) or epoch == start_epoch:
+            if int(getattr(training, "rollout_burn_in", 0) or 0) > 0:
+                logger.info(f"epoch {epoch}: rollout burn-in {rollout_burn_in} "
+                            f"(steps 0..{rollout_burn_in - 1} unscored)"
+                            if rollout_burn_in else
+                            f"epoch {epoch}: warm start, every rollout step scored")
 
         # SUB-STEP TRAINING NEEDS A HORIZON OF AT LEAST 2. recurrent_loss scores
         # the derivative at each step and only INTEGRATES between them, so at
@@ -646,6 +652,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                     xnorm=xnorm,
                     ynorm=ynorm,
                     rollout_horizon=rollout_horizon,
+                    rollout_burn_in=rollout_burn_in,
                     target_weight=target_weight,
                 )
 

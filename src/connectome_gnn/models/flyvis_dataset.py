@@ -36,7 +36,6 @@ class GNNDataset(Dataset):
 
         tc = config.training
         sim = config.simulation
-        self.time_step = tc.time_step
         self.time_window = tc.time_window
         self.n_frames = sim.n_frames
         self.recurrent = tc.recurrent_training
@@ -45,10 +44,9 @@ class GNNDataset(Dataset):
         self.test_neural_field = 'test' in config.graph_model.field_type
         self.n_input_neurons = getattr(sim, 'n_input_neurons', 0)
 
-        # Valid frame range: leave room for time_step + 4 safety margin
-        # _min_k = time_window so we can look back; _max_k so k + time_step + 4 < n_frames
+        # Valid frame range: one target frame ahead plus a 4-frame safety margin.
         self._min_k = self.time_window
-        self._max_k = self.n_frames - 4 - self.time_step
+        self._max_k = self.n_frames - 4 - 1
 
     def __len__(self):
         """Number of valid frame indices."""
@@ -65,9 +63,6 @@ class GNNDataset(Dataset):
             y: target tensor, shape (N, 1)
             k: the frame index (passed through for downstream use)
         """
-        if self.recurrent or self.neural_ode:
-            k = k - k % self.time_step
-
         x = self.x_ts.frame(k)
 
         # Visual field injection
@@ -78,7 +73,7 @@ class GNNDataset(Dataset):
 
         # Target construction
         if self.recurrent or self.neural_ode:
-            y = self.x_ts.voltage[k + self.time_step].unsqueeze(-1)
+            y = self.x_ts.voltage[k + 1].unsqueeze(-1)
         elif self.test_neural_field:
             y = self.x_ts.stimulus[k, :self.n_input_neurons].unsqueeze(-1)
         else:

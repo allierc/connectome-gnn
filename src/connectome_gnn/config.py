@@ -1074,6 +1074,17 @@ class TrainingConfig(BaseModel):
         if isinstance(v, dict):
             for k in [k for k in v if isinstance(k, str) and k.startswith("cond_")]:
                 v.setdefault("conductance_" + k[len("cond_"):], v.pop(k))
+            # REJECTED, NOT IGNORED. This class is extra="allow", so a removed
+            # field is quietly kept as an unread attribute and 27 specs that set
+            # time_step to 2, 5, 8 or 10 would train with the stride silently
+            # gone.
+            _ts = v.get("time_step")
+            if _ts is not None and _ts != 1:
+                raise ValueError(
+                    f"training.time_step = {_ts} is no longer supported. Use "
+                    "rollout_horizon_schedule for the depth and "
+                    "rollout_loss_stride to score only the observed steps.")
+            v.pop("time_step", None)
         return v
     # must survive the YAML→pydantic round-trip so getattr(tc, coeff_name)
     # works from the staged production hook.
@@ -1783,6 +1794,28 @@ class TrainingConfig(BaseModel):
     # scaling every weight would grow by 1/(1 - p) and the gauge would absorb it.
     edge_dropout: float = 0.0
 
+    # WHAT dv/dt THE LOSS IS SCORED AGAINST. Two values, because the target has
+    # been wrong in exactly one way:
+    #
+    #   observed_fd  (default, nominal) the finite difference of the OBSERVED
+    #                voltage, (v[t+1] + eta[t+1] - v[t] - eta[t]) / dt =
+    #                f(v) + xi/dt + d(eta)/dt. The same signal the model is fed,
+    #                which is what a recording actually measures.
+    #
+    #   y_list       THE BUG. The generator's own stored derivative, f(v) alone.
+    #                xi is the process noise the integrator adds TO THE STATE,
+    #                so it is inside v[t+1] and inside any difference of it, but
+    #                it is not in f(v) -- the analytic right-hand side was
+    #                evaluated before it was added. Training against y_list
+    #                therefore asks the model to predict a trajectory the data
+    #                does not follow, and the gap is xi/dt, which GROWS with
+    #                noise_model_level and vanishes at zero.
+    #
+    # y_list should never produce a result. It is a config value so that a
+    # before/after pair is two arms of one sweep at ONE commit rather than two
+    # checkouts, which is what the published before/after was.
+    derivative_target: Literal["observed_fd", "y_list"] = "observed_fd"
+
     recurrent_training: bool = False
     recurrent_training_start_epoch: int = 0
     recurrent_loop: int = 0
@@ -1834,7 +1867,77 @@ class TrainingConfig(BaseModel):
     lr_scheduler_eta_min_ratio: float = 0.01  # min LR as fraction of base LR
     lr_scheduler_warmup_iters: int = 100  # linear warmup iterations
 
-    time_step: int = 1
+    # `time_step` WAS HERE AND IS GONE: triple-duty (BPTT depth, dataset
+    # decimation stride, frame-sampling target offset), so a result could not be
+    # attributed to any one of the three.
+
+    # WHICH STEPS OF THE ROLLOUT THE LOSS IS SCORED ON. 0 (default) scores every
+    # one; m > 0 scores only 0-indexed steps 0, m, 2m, ... of the unrolled
+    # horizon, and nothing else. Step s holds the state at frame k+s, so those
+    # are exactly the frames k, k+m, k+2m a 1-in-m recording observes.
+    #
+    # THIS IS WHAT "ONE FRAME IN FIVE IS OBSERVED" ACTUALLY MEANS. The old
+    # `time_step: 5` expressed it by DECIMATING THE DATASET, which also deepened
+    # the rollout and moved the target -- three effects from one number. Here the
+    # data is untouched and the model still integrates every intermediate frame;
+    # only the supervision is sparse, which is the honest statement of partial
+    # temporal sampling. With horizon 21 and a stride of 5, the loss lands on
+    # frames k, k+5, k+10, k+15 and k+20. (Until 2026-09-24 the mask was off by
+    # one and scored k+4, k+9, ... -- none of them observed.)
+    #
+    # A horizon of m or less scores only the anchor, so graph_trainer requires
+    # every scheduled horizon to reach m + 1.
+    rollout_loss_stride: int = 0
+
+    # HOW MANY LEADING ROLLOUT STEPS ARE LEFT UNSCORED. 0 (default) scores from
+    # step 0; B > 0 zeroes the loss weight of steps 0 .. B-1 and scores the rest.
+    # The model still integrates those steps and the gradient still flows back
+    # through them -- nothing is detached -- so a scored late step keeps its full
+    # chain to the parameters. Only the supervision moves.
+    #
+    # WHY: MEASUREMENT NOISE BIASES THE EARLY STEPS. At step 0 the input is
+    # v + eta and the observed-difference target contains -eta/dt, an
+    # errors-in-variables pair that dilutes every weight out of a noisy sender
+    # and drags slow cells' leak toward 1/dt; that eta then lingers in the state
+    # for steps 1-4 while those targets carry only fresh noise, so the loss
+    # rewards shrinking the messages. Measured on exp03 at meas 0.20: the trained
+    # GNN scores 5.9% BELOW the true generator on the dense loss, and all of that
+    # preference is in steps 0-8 -- from step 9 on, the truth wins. In a
+    # known-ODE test trained from the true parameters, leaving 8 steps unscored
+    # lifts R2_W 0.921 -> 0.988 and R2 on log tau 0.61 -> 0.91.
+    #
+    # DO NOT DETACH AT THE BOUNDARY. The same test with the state detached after
+    # the burn-in falls to 0.753: detaching makes the update a fixed-point
+    # iteration on states the parameters produced rather than the gradient of any
+    # objective. That is why this is a weight mask and not rollout_bptt_window.
+    #
+    # Composes with rollout_loss_stride and rollout_step_weighting: all three
+    # are applied to the same per-step weight vector. Every scheduled horizon
+    # must score at least one step, which graph_trainer checks.
+    rollout_burn_in: int = 0
+
+    # THE EPOCH FROM WHICH rollout_burn_in APPLIES -- the warm start. Epochs
+    # before it score every step, step 0 included; from this epoch on the
+    # burn-in masks steps 0 .. B-1. 0 (default) applies the burn-in from the
+    # first epoch.
+    #
+    # WHY: A BURN-IN CANNOT START FROM SCRATCH. Step 0 is the only term whose
+    # state is an observation with no integration drift, and it is what gets a
+    # randomly initialised model off the ground: exp03's dense run reached R2_W
+    # 0.725 by iteration 4,800. The first burn-in launch (2026-09-25) started
+    # cold at horizon 9 with only step 8 scored, and 8 of 10 current-form folds
+    # were still at W ~ 0 -- learned/true slope 0.002-0.006 -- after 20-29k
+    # iterations, the constant W L1 pull holding the weights down against a
+    # fit gradient that reaches them only through eight unscored integrations.
+    # The known-ODE test that motivated the burn-in started from the TRUE
+    # parameters and never faced that cold start. So: warm the model up on the
+    # dense objective for the first E epochs, then thin its supervision.
+    #
+    # Only epochs >= E must score a step past the burn-in; the warm-up epochs
+    # may use any horizon. graph_trainer checks both, and refuses an E that
+    # would leave the burn-in never applied.
+    rollout_burn_in_start_epoch: int = 0
+
     # Per-epoch rollout-horizon curriculum for recurrent GNN training: epoch e unrolls
     # rollout_horizon_schedule[e] steps and supervises EVERY intermediate step against the
     # observed voltage (dense supervision), on an UNSTRIDED dataset. Empty (default) keeps
@@ -1969,7 +2072,7 @@ class TrainingConfig(BaseModel):
     # between segments; the observations ARE the continuity constraint, since
     # every segment start is pinned to data.
     rollout_shooting_stride: int = 0
-    multi_start_recurrent: bool = False
+    # `multi_start_recurrent` went with `time_step`: the mode WAS the stride.
     consecutive_batch: bool = False
     coeff_hidden_voltage: float = 0.0  # loss weight on GNN-predicted hidden voltages in recurrent training (NB: the self-consistency variant in graph_trainer was removed because it was a zero-attractor; only the GT-supervised variant in recurrent_step.py still reads this knob)
     # Differential LR damping around the NGP injection switch. The schedule is

@@ -27,7 +27,7 @@ NO training, NO GPU. Everything is read from artifacts already on disk:
     graphs_data/fly/<dataset>/                              (GT params, activity)
 
 Run:
-    GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+    GNN_OUTPUT_ROOT=${GNN_OUTPUT_ROOT} PYTHONPATH=src \
       /workspace/.conda_envs/neural-graph-linux/bin/python \
       neurips_review/excluded_neurons.py
 """

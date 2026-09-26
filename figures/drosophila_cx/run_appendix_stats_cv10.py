@@ -48,7 +48,7 @@ from drosophila_nullspace import (  # noqa: E402
 
 
 NOISE_FREE_DIR = (
-    "/groups/saalfeld/home/allierc/GraphData/graphs_data/"
+    f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/"
     "drosophila_cx/drosophila_cx_pi_epg_voltage_noise_free"
 )
 

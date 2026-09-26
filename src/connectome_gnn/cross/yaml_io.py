@@ -23,12 +23,12 @@ from connectome_gnn.utils import get_repo_root
 # Map of datavis root path -> short dataset tag used in on-disk dataset dirs.
 # Add new roots here when you want to use them.
 ROOT_TAGS = {
-    "/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS":            "yt",
-    "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test": "davis2017_pt",
+    "$WEB_DATASETS_ROOT/YouTube-VOS":            "yt",
+    "$WEB_DATASETS_ROOT/DAVIS2017-partial-test": "davis2017_pt",
 }
 
 
-HOLDOUT_DS_ROOT = "/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"
+HOLDOUT_DS_ROOT = "$WEB_DATASETS_ROOT/DAVIS2017-partial-test"
 
 
 # (condition_basename_for_data, condition_basename_for_winner_hps)

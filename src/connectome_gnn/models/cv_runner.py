@@ -50,7 +50,7 @@ def _free_gpu():
 
 # Hold-out video dataset used for CV data generation (never seen during training).
 # Must contain JPEGImages/480p/<video>/*.jpg
-CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test"]
+CV_DATAVIS_ROOTS = ["$WEB_DATASETS_ROOT/DAVIS2017-partial-test"]
 CV_SKIP_SHORT_VIDEOS = False  # some hold-out datasets contain many short clips
 
 

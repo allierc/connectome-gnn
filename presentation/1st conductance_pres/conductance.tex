@@ -1,0 +1,793 @@
+%!TEX program = pdflatex
+% Compile in Kile with -shell-escape (minted) and biber; present with pdfpc.
+% Movies follow the deck convention: an MP4 and a same-basename PNG poster in
+% Movies/, embedded as a run: link annotation that pdfpc turns into the video.
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Janelia}
+\usepackage{people}
+
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[overlay,absolute]{textpos}
+\setlength{\TPHorizModule}{1cm}
+\setlength{\TPVertModule}{1cm}
+
+\usepackage{amsmath,amssymb}
+\usepackage{multimedia}
+\usepackage{tabularx,booktabs}
+\definecolor{goodgreen}{rgb}{0.0,0.45,0.0}
+\newcommand{\good}[1]{\textcolor{goodgreen}{#1}}
+\definecolor{badred}{rgb}{0.70,0.15,0.0}
+\newcommand{\bad}[1]{\textcolor{badred}{#1}}
+\usepackage{helvet}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+
+% ------------------------------------------------------------------
+% FITTING GRAPHICS. Every figure is bounded in BOTH directions with
+% keepaspectratio, so LaTeX shrinks whichever dimension binds: a portrait image
+% is limited by height, a landscape one by width, and neither can ever overflow
+% the frame. Sizing by width alone is what pushed the reversals panel over the
+% title band and the Wij panel off the slide.
+%
+%   \panelbox   the height a graphic may occupy. Default leaves room for a
+%               title line above and a caption below; \panelboxfull is for a
+%               graphic that has neither.
+\newlength{\panelbox}
+\setlength{\panelbox}{0.68\textheight}
+\newcommand{\panelboxfull}{\setlength{\panelbox}{0.74\textheight}}
+\newcommand{\fitgfx}[2][\linewidth]{%
+  \includegraphics[width=#1,height=\panelbox,keepaspectratio]{#2}}
+% A titled panel: title ABOVE the panel, which is the convention here.
+\newcommand{\panel}[3][\linewidth]{%
+  \centering{\scriptsize #2}\\[2pt]\fitgfx[#1]{#3}}
+% A movie: same fitting, over the poster PNG that pdfpc swaps for the video.
+\newcommand{\playmovie}[3][\linewidth]{%
+  \centering{\scriptsize #3}\\[2pt]%
+  \href{run:#2.mp4?autostart&loop&noprogress}{\fitgfx[#1]{#2.png}}}
+% ------------------------------------------------------------------
+
+\title{NeurIPS review follow-up work}
+\subtitle{A corrected derivative target, measurement noise, and a conductance flyvis model}
+\author{Cedric Allier}
+\institute{Saalfeld lab, Janelia}
+\date{\today}
+
+\begin{document}
+
+\frame{\titlepage}
+
+\begin{frame}{Pull requests since the NeurIPS submission}
+\srcpath{github.com/allierc/connectome-gnn}
+\vspace*{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llll}
+\toprule
+PR & merged & branch & \\
+\midrule
+\multicolumn{4}{l}{\itshape codebase refactor} \\
+\#51 & 2026-08-06 & \multicolumn{1}{l}{---}
+  & one function for $R^2_{\hat W}$, $R^2_{\hat\tau}$, $R^2_{\hat V^{\mathrm{rest}}}$;
+    full-sample $R^2_{\hat W}$ \\
+\#52 & 2026-08-24 & \texttt{refactor/graph-trainer-init} & trainer initialisation \\
+\#53 & 2026-08-26 & \texttt{refactor/split-train-step} & train step \\
+\#54 & 2026-09-04 & \texttt{refactor/flyvis-current-conductance}
+  & \texttt{flyvis\_A} $\rightarrow$ \texttt{flyvis\_current}, \texttt{cond} $\rightarrow$ \texttt{conductance} \\
+\#55 & 2026-09-04 & \texttt{refactor/ode-params-current} & \texttt{ode\_params} per model \\
+\#57 & 2026-09-09 & \texttt{refactor/circuit-param-extraction} & parameter extraction \\
+\midrule
+\multicolumn{4}{l}{\itshape current model} \\
+\#58 & 2026-09-09 & \texttt{fix/measurement-noise-target}
+  & the derivative target carries the measurement noise \\
+\#60 & 2026-09-16 & \texttt{repro/meas-noise-rollout} & recurrent training under measurement noise \\
+\midrule
+\multicolumn{4}{l}{\itshape conductance model} \\
+\#56 & 2026-09-09 & \texttt{feat/conductance-training} & conductance GNN \\
+\#61 & 2026-09-17 & \texttt{feat/flyvis-flow-conductance-E}
+  & conductance flyvis trained on optic flow \\
+\#62 & 2026-09-17 & \texttt{feat/w-squared-conductance} & $W^2$ parameterisation \\
+\midrule
+\multicolumn{4}{l}{\itshape open} \\
+\multicolumn{1}{l}{---} & \multicolumn{1}{l}{---} & \texttt{feat/substep-rollout}
+  & substeps, template readout, agentic loop \\
+\multicolumn{1}{l}{---} & \multicolumn{1}{l}{---} & \texttt{feat/calcium}
+  & \texttt{f874b52}, 2026-05-12, calcium observable \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+% ====================
+\section{Current model}
+% ====================
+\begin{frame}{Before and after the derivative-target fix \textnormal{\small(chain readout)}}
+\label{sl:beforeafter}
+\srcpath{connectome-gnn-cx/figures/flyvis/fd\_table1\_before\_after.tex}
+\vspace{0.2cm}
+\centering\tiny
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llcccccccc}
+\toprule
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-9}
+model & target & $\sigma$ & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%)
+  & cluster \\
+\midrule
+Known ODE & before & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & \good{$0.97{\pm}0.00\,(10.2)$} & \good{$0.92{\pm}0.00$} \\
+          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.99{\pm}0.00\,(4.7)$}  & \good{$0.93{\pm}0.00$} \\
+          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$1.00{\pm}0.00\,(0.0)$}  & \good{$0.93{\pm}0.00$} \\
+\cmidrule(lr){2-9}
+          & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$1.00{\pm}0.00\,(1.9)$} & $0.90{\pm}0.00\,(1.7)$ & \good{$0.92{\pm}0.00$} \\
+          &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.95{\pm}0.00$} & \good{$0.97{\pm}0.00\,(0.0)$} & \good{$0.92{\pm}0.00\,(8.8)$} & \good{$0.90{\pm}0.01$} \\
+          &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & $0.90{\pm}0.00\,(8.5)$ & $0.88{\pm}0.01$ \\
+\midrule
+GNN (ours) & before & $0$    & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.21$ & $0.89{\pm}0.04$ & \good{$0.94{\pm}0.03\,(3.1)$} & $0.76{\pm}0.09\,(13.7)$ & $0.86{\pm}0.02$ \\
+           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
+           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & \good{$0.98{\pm}0.03\,(0.0)$} & \good{$0.92{\pm}0.01$} \\
+\cmidrule(lr){2-9}
+           & after  & $0$    & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & $0.90{\pm}0.04$ & \good{$0.91{\pm}0.02\,(3.7)$} & $0.78{\pm}0.08\,(14.9)$ & $0.84{\pm}0.03$ \\
+           &        & $0.05$ & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.97{\pm}0.01$} & \good{$0.95{\pm}0.03\,(0.4)$} & $0.77{\pm}0.08\,(10.5)$ & $0.88{\pm}0.01$ \\
+           &        & $0.5$  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.98{\pm}0.00$} & \good{$1.00{\pm}0.00\,(0.0)$} & $0.90{\pm}0.02\,(1.8)$ & $0.87{\pm}0.01$ \\
+\midrule
+\multicolumn{2}{l}{GNN cond.\ on \emph{current}$^{*}$} & $0.05$
+  & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & \multicolumn{1}{c}{---} \\
+\bottomrule
+\end{tabular}\end{frame}
+
+\begin{frame}{Recovery errors, before the fix}
+\srcpath{data \texttt{flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_cv0*} \textbar{} training \texttt{*\_blank50\_unified\_cv0*}}
+\vspace*{0.5cm}
+\begin{center}
+\setlength{\panelbox}{0.60\textheight}
+\fitgfx{Fig/errors_before.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Recovery errors, after the fix}
+\srcpath{data \texttt{flyvis\_\{noise\_free,noise\_005,noise\_05\}\_blank50\_cv0*} \textbar{} training \texttt{*\_blank50\_unified\_fd\_cv0*}}
+\vspace*{0.5cm}
+\begin{center}
+\setlength{\panelbox}{0.60\textheight}
+\fitgfx{Fig/errors_after.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Measurement noise: recurrent training}
+\label{sl:measnoise}
+\srcpath{data \texttt{flyvis\_noise\_005\_\{010,020\}\_blank50\_cv00} \textbar{} training \texttt{flyvis\_noise\_005\_meas\_\{010,020\}\_gnn\_rc*\_cv00}}
+\vspace*{0.25cm}
+{\centering\scriptsize model noise $\sigma = 0.05$ throughout\\[3pt]}
+\begin{center}\setlength{\panelbox}{0.30\textheight}
+\fitgfx{Fig/meas_noise_panels.png}
+\end{center}
+\vspace{-0.15cm}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+condition & $\gamma$ & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
+\midrule
+\multicolumn{8}{l}{\itshape published, one-step training, 5-fold} \\
+no meas.\ noise & $0$   & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00\,(0.0)$} & \good{$0.93{\pm}0.01\,(3.3)$} & \good{$0.92{\pm}0.01$} \\
+low meas.\ noise & $0.1$ & \good{$0.99{\pm}0.00$} & $0.85{\pm}0.24$ & $0.63{\pm}0.02$ & \bad{$0.28{\pm}0.02\,(8.9)$} & $0.63{\pm}0.04\,(30.4)$ & $0.87{\pm}0.01$ \\
+mid meas.\ noise & $0.2$ & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$} & $0.38{\pm}0.01$ & \bad{$0.08{\pm}0.01\,(9.7)$} & $0.61{\pm}0.04\,(49.1)$ & $0.85{\pm}0.01$ \\
+\midrule
+\multicolumn{8}{l}{\itshape latest, recurrent training, fold 0} \\
+\texttt{rc40} & $0.1$ & \good{$0.99$} & \good{$0.99$} & $\mathbf{0.78}$ & $0.68\,(4.9)$ & $0.71\,(22.8)$ & $0.82$ \\
+\texttt{rc20} & $0.2$ & \good{$0.96$} & \good{$0.98$} & $\mathbf{0.61}$ & \bad{$0.22\,(9.7)$} & $0.64\,(34.6)$ & $0.81$ \\
+\bottomrule
+\end{tabular}\end{frame}
+
+\begin{frame}{Voltage and calcium}
+\srcpath{branch \textbf{feat/calcium} \textbar{} graphs\_data/fly/flyvis\_noise\_005\_kernel/\{kernel,calcium\_trace\}.png}
+\vspace*{0.4cm}
+{\centering\scriptsize
+$C = K * v$, \quad GCaMP6f: $\tau_{\mathrm{rise}} = 75$\,ms,
+$\tau_{\mathrm{decay}} = 400$\,ms\\[4pt]}
+\begin{columns}[c]
+\begin{column}{0.24\textwidth}
+\centering\setlength{\panelbox}{0.42\textheight}\fitgfx{Fig/gcamp_kernel.png}
+\end{column}
+\begin{column}{0.74\textwidth}
+\centering\setlength{\panelbox}{0.62\textheight}\fitgfx{Fig/calcium_trace.png}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Deconvolution, noise free}
+\srcpath{branch \textbf{neurips2026} \textbar{} connectome-gnn-cx/neurips\_review/calcium\_fig.png}
+\vspace*{0.5cm}
+{\centering\scriptsize
+$\gamma = 0$ ($\infty$\,dB), $\lambda = 10^{-6}$, model noise $\sigma = 0.05$:
+\quad $r(v) = 0.9998$, \quad $r(\dot v) = 0.9933$\\[5pt]}
+\begin{center}
+\setlength{\panelbox}{0.62\textheight}
+\fitgfx{Fig/deconv_inf.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Deconvolution at $40$\,dB}
+\srcpath{branch \textbf{neurips2026} \textbar{} connectome-gnn-cx/neurips\_review/calcium\_fig\_g010.png}
+\vspace*{0.5cm}
+{\centering\scriptsize
+$\gamma/\mathrm{SD} = 0.01$ ($40$\,dB), $\lambda = 10^{-3}$, model noise $\sigma = 0.05$:
+\quad $r(v) = 0.9797$, \quad $r(\dot v) = 0.4353$\\[5pt]}
+\begin{center}
+\setlength{\panelbox}{0.62\textheight}
+\fitgfx{Fig/deconv_40db.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Calcium observation model}
+\srcpath{branch \textbf{neurips2026} \textbar{} GraphData/config/fly/nr2\_ca\_snr\_g\{000,010,030,100\}\_*.yaml}
+\vspace*{0.3cm}
+{\centering\scriptsize
+$C = K * v + \gamma\,\eta$, \quad GCaMP6f, \quad model noise $\sigma = 0.05$
+\qquad
+$\hat v = \mathcal{F}^{-1}\!\left[\dfrac{\overline{\hat K}\,\hat C}
+ {|\hat K|^2 + \lambda\,|\hat D|^2}\right]$\\[4pt]}
+\centering\tiny
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lcccc}
+\toprule
+$\gamma/\mathrm{SD}$ & $0$ & $0.01$ & $0.03$ & $0.10$ \\
+SNR & $\infty$ & $40$\,dB & $30$\,dB & $20$\,dB \\
+$\lambda$ & $10^{-6}$ & $10^{-3}$ & $10^{-2}$ & $10^{-1}$ \\
+\midrule
+$r(v)$      & \good{$0.9998$} & \good{$0.9797$} & \good{$0.9695$} & \good{$0.9562$} \\
+$r(\dot v)$ & \good{$0.9933$} & $0.4353$ & \bad{$0.2803$} & \bad{$0.1719$} \\
+\bottomrule
+\end{tabular}\\[7pt]
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llccccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-8}
+model & SNR & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$ & cluster \\
+\midrule
+GNN & $\infty$   & \good{$0.974$} & \good{$0.992$} & \good{$0.969$} & \good{$0.96$} & $0.85$ & $0.87$ \\
+    & $40$\,dB   & $0.656$ & $0.667$ & \bad{$0.183$} & $0.37$ & $0.46$ & $0.76$ \\
+    & $30$\,dB   & $0.550$ & $0.403$ & \bad{$-1.270$} & $0.61$ & $0.66$ & $0.73$ \\
+    & $20$\,dB   & $0.414$ & \bad{$0.115$} & \bad{$-0.794$} & \multicolumn{1}{c}{---} & $0.54$ & $0.68$ \\
+\midrule
+Known-ODE & $\infty$ & \good{$0.972$} & \good{$0.991$} & \good{$0.915$} & \good{$0.95$} & $0.80$ & \good{$0.90$} \\
+    & $40$\,dB   & $0.643$ & $0.654$ & $0.383$ & \bad{$0.30$} & $0.64$ & $0.86$ \\
+    & $30$\,dB   & $0.536$ & $0.402$ & \bad{$0.181$} & \bad{$-0.08$} & $0.63$ & $0.82$ \\
+    & $20$\,dB   & $0.400$ & \bad{$0.015$} & \bad{$-0.060$} & \bad{$-8.67$} & $0.56$ & $0.74$ \\
+\bottomrule
+\end{tabular}\\[4pt]
+{\tiny $\lambda$ by $\max_\lambda r(\dot v)$, per noise level; both models fitted to the
+same deconvolved recording}
+\end{frame}
+
+% ====================
+\section{Conductance model}
+% ====================
+\begin{frame}{A conductance flyvis model}
+\srcpath{src/flyvis\_conductance\_optical\_flow/dynamics.py}
+\vfill
+{\small\textbf{Nominal current flyvis}}
+\[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j) + I_i(t) \]
+\vfill
+{\small\textbf{New conductance flyvis}, $W_{ij}\ge 0$}
+\[ \tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i) + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(E_i - v_i) + I_i(t) \]
+\vfill
+\end{frame}
+
+\begin{frame}{Training the conductance flyvis model}
+\srcpath{src/flyvis\_conductance\_optical\_flow/train.py \textbar{} flyvis/results/flow/2000/001/\_meta.yaml}
+\vspace{0.45cm}
+\scriptsize
+\setlength{\itemsep}{1pt}
+\begin{itemize}\itemsep1pt
+\item \textbf{Stimuli} --- Sintel, \texttt{original\_sampling}; box filter extent 15,
+      kernel 13; 19 frames, 3 vertical splits, crop 0.7; flip / rotate $p=0.5$,
+      contrast $\sigma\!=\!0.2$, brightness $\sigma\!=\!0.1$, white noise $0.08$
+\item \textbf{Rollout} --- 19 frames resampled to $\Delta t = 20$\,ms
+      $\Rightarrow$ \textbf{40 forward-Euler steps} per sample, back-propagated through all
+\item \textbf{$E_i = V^{\mathrm{rest}}_i + \mathrm{band}$}, excursion $1.0$, bands
+      $[1.5, 6.0]$ / $[-6.0, -0.5]$: 66 free variables, \textbf{130 reversals} ($V^{\mathrm{rest}}$ is per type)
+\item \textbf{Optimiser} --- Adam, $\mathrm{lr} = 5\times10^{-5}$, batch 4,
+      250{,}000 iterations, 65 checkpoints; H100, 5.5\,h
+\item \textbf{Loss} $\ell_2$ on decoded flow: $1214.7 \rightarrow 1175.3$,
+      \textbf{min 1147.1 at checkpoint 28}
+\item \textbf{EPE} $= \big\langle \lVert \hat{\mathbf{f}} - \mathbf{f} \rVert_2 \big\rangle$
+      over hexagonal pixels and frames: $5.785 \rightarrow 5.454$,
+      \textbf{min 5.390 at checkpoint 28}
+\end{itemize}
+\vspace{1pt}
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & $n$ & $\ell_2$ norm & EPE \\
+\midrule
+published flyvis, current & 50 & $1150.2 \pm 17.2$ & $5.410 \pm 0.103$ \\
+our current control       &  6 & $1150.3 \pm \phantom{0}7.2$ & $5.376 \pm 0.037$ \\
+\textbf{our conductance}  &  2 & $1153.0 \pm \phantom{0}8.3$ & $5.397 \pm 0.010$ \\
+\bottomrule
+\end{tabular}\\[1pt]
+{\tiny mean $\pm$ SD over ensemble members, each at its argmin-EPE checkpoint}
+\end{center}
+\end{frame}
+
+\begin{frame}{$W_{ij}$ distributions}
+\srcpath{graphs\_data/fly/flyvis\_\{noise\_005,flowcond\_noise\_005\}\_blank50\_cv00/ode\_params.pt}
+\begin{center}
+\fitgfx{Fig/Wij_distributions.png}\\[1pt]
+{\tiny 434{,}112 edges. Current: $-1.503$ to $+4.173$. Conductance: $0$ to $1.210$,
+the sign having moved into $(E_i - v_i)$.}
+\end{center}
+\end{frame}
+
+\begin{frame}{Reversal potentials by cell type}
+\srcpath{flyvis/results/flow/2000/001/analysis/reversals.png}
+{\centering\small
+$\tau_i \dot v_i = -(v_i - V^{\mathrm{rest}}_i)
+ + \sum_j W_{ij}\,\mathrm{relu}(v_j)\,(\mathbf{E_i} - v_i) + I_i(t)$\\[2pt]}
+\begin{columns}[T]
+\begin{column}{0.68\textwidth}
+\panel{checkpoint 28}{Fig/reversals.png}
+\end{column}
+\begin{column}{0.30\textwidth}
+\scriptsize
+\vspace{1.5cm}
+$E_{\mathrm{exc}}$ \quad 65 values\\
+\hspace*{1em}$3.554$ to $4.783$\\[4pt]
+$E_{\mathrm{inh}}$ \quad 65 values\\
+\hspace*{1em}$-3.654$ to $-2.253$\\[6pt]
+66 free variables\\
+130 distinct reversals
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Silent presynaptic neurons}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_cv01} vs \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00}, test split}
+\vspace*{0.2cm}
+{\centering\scriptsize
+$\mathrm{msg}_{ij} = W_{ij}\,\mathrm{relu}(v_j)\,[\,(E_i - v_i)\,]$:
+an edge carries signal only while $v_j > 0$\\[4pt]}
+\begin{center}
+\setlength{\panelbox}{0.40\textheight}
+\fitgfx{Fig/activity_silence.png}
+\end{center}
+\vspace{-0.1cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{lcc}
+\toprule
+$13{,}741$ neurons & current & conductance \\
+\midrule
+frames (test split) & $7{,}952$ & $7{,}208$ \\
+never $v > 0$ & $689$ \tiny($5.0\%$) & $878$ \tiny($6.4\%$) \\
+$v > 0$ on under $1\%$ of frames & $743$ \tiny($5.4\%$) & $1{,}083$ \tiny($7.9\%$) \\
+s.d.\ of $v$ below $10^{-3}$ & $35$ \tiny($0.3\%$) & $550$ \tiny($4.0\%$) \\
+median duty & $0.995$ & $0.937$ \\
+types quieter on conductance & \multicolumn{2}{c}{$29$ of $65$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Optic-flow inference --- current flyvis}
+\srcpath{flyvis/results/flow/1000/000/analysis/rollout.mp4}
+\panelboxfull
+\playmovie{Movies/flow_inference_current}{input \textbar{} target \textbar{} prediction
+  --- checkpoint 56, held-out Sintel; EPE 5.436}
+\end{frame}
+
+\begin{frame}{Optic-flow inference --- conductance flyvis}
+\srcpath{flyvis/results/flow/2000/001/analysis/rollout.mp4}
+\panelboxfull
+\playmovie{Movies/flow_inference}{input \textbar{} target \textbar{} prediction
+  --- checkpoint 28, held-out Sintel; EPE 5.390}
+\end{frame}
+
+\begin{frame}{Generation --- current flyvis}
+\srcpath{graphs\_data/fly/flyvis\_noise\_005\_blank50\_cv00/noise\_005\_blank50\_cv00.mp4}
+\panelboxfull
+\playmovie{Movies/generation_current}{current generator, forward Euler}
+\end{frame}
+
+\begin{frame}{Generation --- conductance flyvis}
+\srcpath{config/fly/flyvis\_flowcond\_noise\_005\_cv00.yaml}
+\begin{center}
+\panelboxfull
+\playmovie{Movies/generation_flowcond}{conductance generator, exponential Euler}
+\end{center}
+\end{frame}
+
+\begin{frame}{Activity -- conductance model}
+\srcpath{graphs\_data/fly/flyvis\_flowcond\_noise\_\{free,005\}\_blank50\_cv00/activity.png}
+\begin{columns}[T]
+\begin{column}{0.5\textwidth}
+\panel{noise free}{Fig/activity_noisefree.png}
+\end{column}
+\begin{column}{0.5\textwidth}
+\panel{$\sigma = 0.05$ process noise}{Fig/activity_noise005.png}
+\end{column}
+\end{columns}
+\end{frame}
+
+% ===================================================================
+\section{Conductance model on current data}
+% ===================================================================
+
+\begin{frame}{Conductance GNN on current data}
+\label{sl:lasso}
+\srcpath{data \texttt{flyvis\_noise\_005\_blank50\_cv0*} \textbar{} training \texttt{flyvis\_current\_noise\_005\_conductance\{,\_lasso\_*\}\_cv0*}}
+\vspace{0.1cm}
+{\centering\scriptsize
+$\mathcal{L}_{\mathrm{group}} \;=\; \lambda_1 \displaystyle\sum_{g\,\in\,\{v_j,\,a_j,\,v_i,\,a_i\}}
+ \bigl\lVert \mathbf{W}^{(0)}_{:,\,g} \bigr\rVert_2$
+\\[4pt]}
+\centering\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lccccccc}
+\toprule
+ & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-8}
+$\lambda_1$ & folds & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ (out.\%) & $R^2_{\hat\tau}$ (out.\%) & $R^2_{\hat V^{\mathrm{rest}}}$ (out.\%) & cluster \\
+\midrule
+$0$ (no lasso) & 5 & --- & \good{$1.00{\pm}0.00$}
+  & $0.80{\pm}0.15\,(6.4)$ & \good{$0.95{\pm}0.03\,(0.5)$} & $0.75{\pm}0.11\,(15.1)$ & $0.86{\pm}0.03$ \\
+\midrule
+$0.25$ & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.97$} & $0.86$ & \good{$0.90$} \\
+$0.5$  & 1 & \good{$1.00$} & \good{$1.00$} & $0.90$ & \good{$0.98$} & \good{$0.90$} & $0.89$ \\
+$1$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & $0.90$ & $0.87$ \\
+$2.5$  & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.90$} & \good{$0.96$} & $0.84$ & $0.90$ \\
+$5$    & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.92$} & \good{$0.98$} & \good{$0.92$} & $0.89$ \\
+$10$   & 1 & \good{$1.00$} & \good{$1.00$} & \good{$0.97$} & \good{$0.99$} & \good{$0.90$} & \good{$0.91$} \\
+$\mathbf{25}$ & 1 & \good{$\mathbf{1.00}$} & \good{$\mathbf{1.00}$}
+  & \good{$\mathbf{0.98}$} & \good{$\mathbf{0.99}$} & \good{$\mathbf{0.91}$} & $\mathbf{0.88}$ \\
+\bottomrule
+\end{tabular}\end{frame}
+
+\begin{frame}{Training on conductance data}
+\srcpath{data \texttt{flyvis\_flowcond\_\{noise\_free,noise\_005\}\_blank50\_cv0*} \textbar{} training \texttt{*\_conductance\_knownode\_cv0*}, \texttt{*\_gnn\_llm\_cv00}}
+\vspace*{0.35cm}
+\centering\tiny
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{llccccccccc}
+\toprule
+ & & & \multicolumn{2}{c}{prediction} & \multicolumn{5}{c}{parameter recovery} & \\
+\cmidrule(lr){4-5}\cmidrule(lr){6-10}
+model & data & $\sigma$ & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
+  & $R^2_{\mathrm{msg}_i}$ & $k_i$ & cluster \\
+\midrule
+Known-ODE & task-trained & $0$
+  & \good{$1.00{\pm}0.00$} & \good{$0.96{\pm}0.00$}
+  & \bad{$-0.22{\pm}0.01$} & $0.76{\pm}0.01$ & $0.88{\pm}0.00$ & $0.80{\pm}0.02$ & \multicolumn{1}{c}{---} & $0.47{\pm}0.02$ \\
+\midrule
+Known-ODE & teacher--student & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.88{\pm}0.01$} & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$} & \multicolumn{1}{c}{---} & $0.62{\pm}0.02$ \\
+Known-ODE & task-trained & $0.05$
+  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $\mathbf{0.43{\pm}0.01}$ & $0.88{\pm}0.00$ & $0.86{\pm}0.00$ & $0.85{\pm}0.01$ & \multicolumn{1}{c}{---} & $0.74{\pm}0.01$ \\
+GNN & task-trained & $0.05$
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $\mathbf{0.32{\pm}0.15}$ & $0.82{\pm}0.08$ & $0.61{\pm}0.06$ & $0.87{\pm}0.08$ & \bad{$-0.18{\pm}0.50$} & $0.65{\pm}0.07$ \\
+\midrule
+\multicolumn{3}{l}{GNN, 21 training seeds, one dataset}
+  & \multicolumn{1}{c}{---} & \good{$0.99 - 1.00$}
+  & $\mathbf{0.34 - 0.58}$ & $0.55 - 0.96$ & $0.53 - 0.72$ & \multicolumn{1}{c}{---}
+  & \bad{$-0.64 - +0.35$} & \multicolumn{1}{c}{---} \\
+\bottomrule
+\end{tabular}\\[5pt]
+{\tiny 5 folds except $\sigma = 0$ (3 of 5 landed); GNN row is 8 training seeds,
+final. Folds share the training seed and differ only in the data seed.
+$k_i = \tau_i\,\partial f_\theta/\partial\mathrm{msg}_i$, median over neurons, the
+model's own $\tau$; $k_i = 1$ is the fixed gauge. Over the $3$ of $8$ arms whose
+checkpoints survive. Known-ODE has no $f_\theta$, so no gauge.}
+\end{frame}
+
+\begin{frame}{The two conductance-specific terms}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+\centering\scriptsize
+\begin{tabular}{@{}l@{}}
+\toprule
+$\mu_{\mathrm{sil}}$ \quad silent anchor \quad \texttt{coeff\_g\_phi\_silent} \\
+\midrule
+$\mathcal{L}_{\mathrm{sil}} = \mu_{\mathrm{sil}}
+ \bigl\lVert\, g_\phi(\tilde v_j, \mathbf{a}_j, v_i, \mathbf{a}_i) \,\bigr\rVert_2 ,
+ \qquad \tilde v_j \sim \mathcal{U}[-2, 0]$ \\[6pt]
+$\mathrm{relu}(v_j) = 0 \ \Rightarrow\ \mathrm{msg}_{ij} = 0
+ \quad\text{for every } E_i, v_i$ \\
+\midrule
+$\mu_{\mathrm{gain}}$ \quad message gain \quad \texttt{coeff\_f\_theta\_msg\_gain} \\
+\midrule
+$\mathcal{L}_{\mathrm{gain}} = \mu_{\mathrm{gain}}
+ \left\lVert \dfrac{\partial f_\theta/\partial \mathrm{msg}_i
+   \;+\; \partial f_\theta/\partial v_i}
+  {\bigl\langle (\partial f_\theta/\partial v_i)^2 \bigr\rangle^{1/2}}
+ \right\rVert_2$ \\[8pt]
+$\tau_i \dot v_i = V^{\mathrm{rest}}_i - v_i + \mathrm{msg}_i + I_i
+ \ \Rightarrow\
+ \dfrac{\partial f_\theta}{\partial \mathrm{msg}_i} = \dfrac{1}{\tau_i},\quad
+ \dfrac{\partial f_\theta}{\partial v_i} = -\dfrac{1}{\tau_i}$ \\[4pt]
+$\Rightarrow\ \partial f_\theta/\partial \mathrm{msg}_i
+ + \partial f_\theta/\partial v_i = 0 \quad \forall\, \tau_i$ \\[6pt]
+$\mathrm{msg}_\theta = \mathrm{msg}/c,\ \
+ \partial f_\theta/\partial \mathrm{msg} = c/\tau_i
+ \ \Rightarrow\ \dot v_i \text{ unchanged}$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Chain readout \textnormal{\small(NeurIPS version)}}
+\srcpath{src/connectome\_gnn/metrics.py \textbar{} \texttt{extract\_recovered\_params}}
+\vspace*{0.4cm}
+\centering\scriptsize
+\begin{tabular}{@{}l@{}}
+\toprule
+$W$ reaches $\dot v$ through two learned functions \\
+\midrule
+$\mathrm{msg}_i = \sum_j \hat W_{ij}\, g_\phi(v_j, \mathbf{a}_j)$,
+ \qquad $\dot v_i = f_\theta(v_i, \mathbf{a}_i, \mathrm{msg}_i, I_i)$ \\
+\midrule
+divide out both gains \\
+\midrule
+$W^{\mathrm{corrected}}_{ij}
+ = -\,\hat W_{ij}\;
+ \dfrac{\partial f_\theta/\partial \mathrm{msg}_i}
+       {\partial f_\theta/\partial v_i}\;
+ \dfrac{\partial g_\phi}{\partial v_j}$ \\[8pt]
+$\partial f_\theta/\partial v_i \approx -1/\tau_i$ \quad(the leak)\quad
+ $\Rightarrow$ \quad $\tau_i$ cancels in the ratio \\
+\midrule
+$\tau$ and $V^{\mathrm{rest}}$ from $f_\theta$'s local linearisation \\
+\midrule
+$f_\theta(v_i, \cdot) \approx s_i\,(v_i - V^{\mathrm{rest}}_i),
+ \qquad \tau_i = -1/s_i$ \\
+\midrule
+three gradients, one per synapse, no fit \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Template readout}
+\srcpath{docs/template\_readout.pdf}
+\vspace*{0.4cm}
+\centering\scriptsize
+\begin{tabular}{@{}l@{}}
+\toprule
+affine message ansatz \\
+\midrule
+$\widehat{\mathrm{msg}}_{ij}(t) = \dfrac{1}{k_i}\,\mathrm{msg}_{ij}(t) + C_{ij}$
+ \qquad $k_i$ per postsynaptic neuron \\
+\midrule
+per-edge template fit, $u_t = \mathrm{relu}(v_j(t))$ \\
+\midrule
+$\mathrm{msg}_{ij} = W_{ij}\,u_t\,(E_i - v_i) + C_{ij}
+ = \underbrace{\tfrac{W_{ij}E_i}{k_i}}_{b_1} u_t
+ \;\underbrace{-\tfrac{W_{ij}}{k_i}}_{b_2} (u_t v_i)
+ \;+\; \underbrace{C_{ij}}_{b_3}$ \\[6pt]
+$\Rightarrow\quad W^{\mathrm{fit}}_{ij} = -b_2, \qquad E_i = -b_1/b_2, \qquad C_{ij} = b_3$ \\
+\midrule
+per-neuron update fit on $[\,1,\ v_i,\ \mathrm{msg}_i,\ I_i\,]$ \\
+\midrule
+$\dot v_i = \alpha_0 + \alpha_1 v_i + \alpha_2 \widehat{\mathrm{msg}}_i + \alpha_3 I_i$
+ \qquad
+$\tau_i = -1/\alpha_1, \quad k_i = \tau_i\alpha_2 = -\alpha_2/\alpha_1$ \\[6pt]
+$V^{\mathrm{rest}}_i = \tau_i(\alpha_0 + \alpha_2\beta_i), \qquad
+ W^{\mathrm{corrected}}_{ij} = k_i\,W^{\mathrm{fit}}_{ij}$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Readout comparison}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_unified\_fd\_cv0\{1..4\}} \textbar{} \texttt{flyvis\_flowcond\_noise\_005\_gnn\_nosq\_cv00}}
+\vspace*{0.35cm}
+\centering\tiny
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccccccccc}
+\toprule
+ & \multicolumn{4}{c}{prediction} & \multicolumn{5}{c}{parameter recovery} \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-10}
+readout & \shortstack{fit roll $r$\\cond.\ form} & \shortstack{fit roll $r$\\curr.\ form}
+  & one-step $r$ & rollout $r$
+  & $R^2_{\hat W}$ & $R^2_{\hat\tau}$ & $R^2_{\hat V^{\mathrm{rest}}}$
+  & $R^2_{\mathrm{msg}_i}$ & cluster \\
+\midrule
+\multicolumn{10}{l}{\itshape current GNN, current data, four checkpoints} \\
+chain (NeurIPS) & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.968{\pm}0.007$} & \good{$0.941{\pm}0.038$} & $0.733{\pm}0.049$
+  & \multicolumn{1}{c}{---} & $0.883{\pm}0.010$ \\
+template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.932{\pm}0.035$} & \good{$0.953{\pm}0.027$} & $0.847{\pm}0.037$
+  & \good{$0.978{\pm}0.005$} & $0.883{\pm}0.018$ \\
+\midrule
+\multicolumn{10}{l}{\itshape conductance GNN, task-trained conductance data,
+one checkpoint ($200{,}000$)} \\
+template, conductance form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$0.993$} & \good{$0.995$}
+  & $0.375$ & \good{$0.871$} & $0.607$ & $0.509$ & $0.688$ \\
+template, current form & \multicolumn{1}{c}{---} & \multicolumn{1}{c}{---}
+  & \good{$0.993$} & \good{$0.995$}
+  & \bad{$-2.289$} & \good{$0.871$} & $0.638$ & \bad{$0.235$} & $0.688$ \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Silent presynaptic neurons}
+\srcpath{\texttt{flyvis\_noise\_005\_blank50\_cv01} vs \texttt{flyvis\_flowcond\_noise\_005\_blank50\_cv00}, test split}
+\vspace*{0.2cm}
+{\centering\scriptsize
+$\mathrm{msg}_{ij} = W_{ij}\,\mathrm{relu}(v_j)\,[\,(E_i - v_i)\,]$:
+an edge carries signal only while $v_j > 0$\\[4pt]}
+\begin{center}
+\setlength{\panelbox}{0.40\textheight}
+\fitgfx{Fig/activity_silence.png}
+\end{center}
+\vspace{-0.1cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{lcc}
+\toprule
+$13{,}741$ neurons & current & conductance \\
+\midrule
+frames (test split) & $7{,}952$ & $7{,}208$ \\
+never $v > 0$ & $689$ \tiny($5.0\%$) & $878$ \tiny($6.4\%$) \\
+$v > 0$ on under $1\%$ of frames & $743$ \tiny($5.4\%$) & $1{,}083$ \tiny($7.9\%$) \\
+s.d.\ of $v$ below $10^{-3}$ & $35$ \tiny($0.3\%$) & $550$ \tiny($4.0\%$) \\
+median duty & $0.995$ & $0.937$ \\
+types quieter on conductance & \multicolumn{2}{c}{$29$ of $65$} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2895, Am}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_baseline.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 10516, Tm5c}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_Tm5c.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2611, L5}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_L5.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Baseline neuron panel --- neuron 2502, L4}
+\srcpath{log/fly/\_preserved/nosq\_cv00\_20260918\_1130, checkpoint $300{,}000$}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_L4.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2895, Am}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_Am.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 10516, Tm5c}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_Tm5c.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2611, L5}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_L5.png}
+\end{center}
+\end{frame}
+
+\begin{frame}{Current model neuron panel --- neuron 2502, L4}
+\srcpath{log/fly/flyvis\_noise\_005\_blank50\_unified\_fd\_cv01, data \texttt{flyvis\_noise\_005\_blank50\_cv01}}
+\panelboxfull
+\begin{center}
+\fitgfx{Fig/neuron_panel_cur_L4.png}
+\end{center}
+\end{frame}
+
+% ====================
+\section{Appendix}
+% ====================
+
+\begin{frame}{Appendix}
+\end{frame}
+
+\begin{frame}{Where everything lives}
+\vspace*{0.4cm}
+\centering\scriptsize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lll}
+\toprule
+ & branch & where \\
+\midrule
+derivative-target fix & \texttt{fix/measurement-noise-target}
+  & \texttt{816ca34d}, merged 2026-09-09 \\
+before/after tables & \texttt{neurips2026}
+  & \texttt{figures/flyvis/fd\_table1\_before\_after.tex} \\
+calcium deconvolution & \texttt{neurips2026}
+  & \texttt{neurips\_review/\{calcium\_note,reply\_all\}} \\
+calcium observable & \texttt{feat/calcium}
+  & \texttt{f874b52}, unmerged \\
+conductance flyvis model & \texttt{feat/flyvis-flow-conductance-E}
+  & \texttt{src/flyvis\_conductance\_optical\_flow/} \\
+substeps, template readout & \texttt{feat/substep-rollout}
+  & \texttt{docs/template\_readout.tex} \\
+agentic loop & \texttt{feat/substep-rollout}
+  & \texttt{LLM/instruction\_flyvis\_flowcond\_*.md} \\
+\midrule
+flyvis models & & \texttt{flyvis/results/flow/\{1000,2000\}/*} \\
+datasets & & \texttt{graphs\_data/fly/flyvis\_flowcond\_*} \\
+runs & & \texttt{log/fly/}, archived in \texttt{archive\_\{2..7\}/} \\
+\bottomrule
+\end{tabular}
+\end{frame}
+
+\begin{frame}{Regularisation: current vs conductance}
+\srcpath{src/connectome\_gnn/models/regularizer.py}
+\vspace*{0.45cm}
+{\centering\tiny
+$\mathcal{L} = \lVert \dot v - f_\theta \rVert^2
+ + \underbrace{\gamma_0\lVert \hat W\rVert_1 + \gamma_1\lVert \hat W\rVert_2}_{\hat W}
+ + \underbrace{\lambda_0\lVert\theta\rVert_1 + \lambda_2\lVert\theta\rVert_2}_{f_\theta}
+ + \underbrace{\mu_1\lVert\mathrm{relu}(-\partial g_\phi/\partial v_j)\rVert
+   + \mu_2\lVert g_\phi(v_\star)-v_\star\rVert
+   + \lambda_{\mathrm{grp}}\textstyle\sum_{g}\lVert \mathbf{W}^{(0)}_{:,g}\rVert_2
+   + \mu_{\mathrm{sil}}}_{g_\phi}
+ + \underbrace{\mu_{\mathrm{gain}}}_{\text{gauge}}$\\[6pt]}
+\centering\scriptsize
+\setlength{\tabcolsep}{7pt}
+\begin{tabular}{llccl}
+\toprule
+ & config name & current & conductance & swept over \\
+\midrule
+$\gamma_0$ & \texttt{coeff\_W\_L1} & $7.5{\cdot}10^{-5}$ & $7.5{\cdot}10^{-5}$ & $0 \rightarrow 7.5{\cdot}10^{-4}$ \\
+$\gamma_1$ & \texttt{coeff\_W\_L2} & $7.5{\cdot}10^{-7}$ & $7.5{\cdot}10^{-7}$ & $0 \rightarrow 7.5{\cdot}10^{-6}$ \\
+\midrule
+$\mu_1$ & \texttt{coeff\_g\_phi\_diff}           & $375$  & $\mathbf{0}$ & \textbf{??} \\
+$\mu_2$ & \texttt{coeff\_g\_phi\_norm}           & $0.45$ & $\mathbf{0}$ & \textbf{??} \\
+$\lambda_{\mathrm{grp}}$ & \texttt{coeff\_g\_phi\_input\_group\_L1} & $\mathbf{25}$ & $0$
+  & $0.25 \rightarrow 25$ \\
+$\mu_{\mathrm{sil}}$ & \texttt{coeff\_g\_phi\_silent}  & $0$ & $\mathbf{25}$
+  & $5 \rightarrow 200$ \\
+$\mu_{\mathrm{gain}}$ & \texttt{coeff\_f\_theta\_msg\_gain} & $0$ & $\mathbf{10^{-5}}$
+  & $10^{-6} \rightarrow 10^{-3}$ \\
+\midrule
+$\lambda_0$ & \texttt{coeff\_f\_theta\_weight\_L1} & $0.025$ & $0.025$ & \textbf{??} \\
+$\lambda_2$ & \texttt{coeff\_f\_theta\_weight\_L2} & $5{\cdot}10^{-4}$ & $5{\cdot}10^{-4}$ & \textbf{??} \\
+\bottomrule
+\end{tabular}\\[5pt]
+{\tiny bs $4$, $\mathrm{lr}_W\,9{\cdot}10^{-4}$, lr $1.8{\cdot}10^{-3}$,
+$\mathrm{lr}_{\mathrm{emb}}\,2.3{\cdot}10^{-3}$ on both. Sweeps: $\lambda_{\mathrm{grp}}$
+by hand, $\mu_{\mathrm{sil}}$ and $\mu_{\mathrm{gain}}$ by the agentic loop
+(blocks 2 and 3, 24 and 22 seeds) --- neither beat baseline by one CV.
+\textbf{??}: never swept on this data.}
+\end{frame}
+
+
+\end{document}

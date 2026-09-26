@@ -6,7 +6,7 @@ import subprocess
 import time
 
 # ---------------------------------------------------------------------------
-# Cluster constants (loaded from data_paths.json)
+# Cluster settings: LOCAL, never committed (environment + gitignored data_paths.json)
 # ---------------------------------------------------------------------------
 
 def _load_cluster_config() -> dict:
@@ -22,10 +22,23 @@ def _load_cluster_config() -> dict:
     return {}
 
 _cluster_cfg = _load_cluster_config()
-CLUSTER_USER     = _cluster_cfg.get('cluster_user', 'allierc')
-CLUSTER_LOGIN    = _cluster_cfg.get('cluster_login', '$CLUSTER_SSH')
-CLUSTER_ROOT_DIR = _cluster_cfg.get('cluster_root_dir', '/groups/saalfeld/home/allierc/GraphCluster/connectome-gnn')
-CLUSTER_SSH      = f"{CLUSTER_USER}@{CLUSTER_LOGIN}"
+# The ssh target (user@login-node) is the CLUSTER_SSH environment variable; a queue name is
+# CLUSTER_QUEUE_PREFIX + the node name ('l4', 'a100', 'h100'); the cluster checkout is
+# cluster_root_dir in data_paths.json. No fallbacks: the repo is public, so a default here would
+# publish the very values these settings keep local. A missing one fails at submission, not import.
+CLUSTER_SSH          = os.environ.get('CLUSTER_SSH', '')
+CLUSTER_QUEUE_PREFIX = os.environ.get('CLUSTER_QUEUE_PREFIX', '')
+CLUSTER_ROOT_DIR     = _cluster_cfg.get('cluster_root_dir', '')
+
+
+def _require_cluster_settings():
+    missing = [name for name, value in (('CLUSTER_SSH', CLUSTER_SSH),
+                                        ('CLUSTER_QUEUE_PREFIX', CLUSTER_QUEUE_PREFIX),
+                                        ('cluster_root_dir (data_paths.json)', CLUSTER_ROOT_DIR))
+               if not value]
+    if missing:
+        raise RuntimeError("cluster submission needs " + ", ".join(missing) +
+                           " -- local settings, deliberately not committed")
 
 
 # ---------------------------------------------------------------------------
@@ -71,14 +84,15 @@ def _bsub_over_ssh(cluster_cmd, conda_env, node_name, n_cpus, device,
     on PATH exactly as it is for a hand-typed
     `bsub "conda run -n connectome-gnn python GNN_Main.py ..."`.
     """
+    _require_cluster_settings()
     n_cpus_eff = _resolve_n_cpus(node_name, n_cpus_default=n_cpus)
     if device == 'cpu':
         bsub_resources = f"bsub -n {n_cpus_eff} -W {hard_runtime_limit_min}"
         queue_label = "cpu"
     else:
         bsub_resources = (f"bsub -n {n_cpus_eff} -gpu 'num=1' "
-                          f"-q gpu_{node_name} -W {hard_runtime_limit_min}")
-        queue_label = f"gpu_{node_name}"
+                          f"-q {CLUSTER_QUEUE_PREFIX}{node_name} -W {hard_runtime_limit_min}")
+        queue_label = f"{CLUSTER_QUEUE_PREFIX}{node_name}"
 
     payload = f"conda run -n {conda_env} {cluster_cmd}"
     remote = (
@@ -91,7 +105,7 @@ def _bsub_over_ssh(cluster_cmd, conda_env, node_name, n_cpus, device,
     # verbatim, so there is exactly one level of quoting to get right.
     #
     # BatchMode=yes so a missing SSH agent FAILS instead of blocking on
-    # `$CLUSTER_SSH's password:`. This loop runs unattended for days and
+    # `<user>@<login-node>'s password:`. This loop runs unattended for days and
     # submits eight jobs per batch; a password prompt there does not fail, it
     # HANGS, and it hangs after the batch's configs have already been written,
     # so the run neither progresses nor reports. Observed once, from a terminal
@@ -109,9 +123,19 @@ def _bsub_over_ssh(cluster_cmd, conda_env, node_name, n_cpus, device,
 
 
 def _resolve_n_cpus(node_name, n_cpus_default=2):
-    """Return the bsub -n count for a given GPU node. Override per-node via
-    _CPUS_PER_NODE; otherwise use the caller's default."""
-    return _CPUS_PER_NODE.get(node_name, n_cpus_default)
+    """Return the bsub -n count for a given GPU node: the larger of the
+    per-node floor and what the caller asked for.
+
+    THE MAX, NOT THE MAP. `_CPUS_PER_NODE` used to WIN outright, so a caller
+    asking for more was silently cut back to 8 -- and on LSF a slot is 20 GB of
+    host RAM, so that is a memory request being silently cut back to 160 GB.
+    Experiment 4's five-fold inflated connectome peaks at about 200 GB and had
+    already been killed once for TERM_MEMLIMIT at exactly that ceiling; sending
+    it to `${CLUSTER_QUEUE_PREFIX}h100` or `${CLUSTER_QUEUE_PREFIX}a100` would have reproduced the kill while looking
+    like a bigger machine. The map stays as the FLOOR it was written to be --
+    the default of 2 starves the input pipeline -- and an explicit ask wins.
+    """
+    return max(_CPUS_PER_NODE.get(node_name, 0), n_cpus_default)
 
 
 def check_cluster_repo():
@@ -120,6 +144,7 @@ def check_cluster_repo():
     Runs `git diff HEAD` on the cluster via SSH, excluding config/ (which is
     expected to be modified by the LLM).  Returns True if clean, False if dirty.
     """
+    _require_cluster_settings()
     ssh_cmd = (
         f"ssh {CLUSTER_SSH} "
         f"\"bash -l -c 'cd {CLUSTER_ROOT_DIR} && git diff HEAD --stat -- . \\\":!config/\\\"'\""

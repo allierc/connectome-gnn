@@ -40,15 +40,15 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Data root      : $GNN_OUTPUT_ROOT
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00_noisy.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_INR_davis_cv00_nf.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_train/
 #                  <DATA_ROOT>/graphs_data/fly/<dataset>/{edge_index.pt, ode_params.pt}
 # Test data      : <DATA_ROOT>/graphs_data/fly/<dataset>/x_list_test/
-# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
-#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/
+# Stimulus root  : $WEB_DATASETS_ROOT/DAVIS2017-partial-test/
+#                  $DATAVIS_ROOT/
 # Trained models : <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/models/best_model_with_0_graphs_0.pt
 # Eval logs      : <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/results_{test,rollout}.log
 #                  <DATA_ROOT>/log/fly/flyvis_noise_005_INR_davis_cv00/results/rollout_bundle.npz
@@ -106,9 +106,9 @@ from connectome_gnn.zarr_io import load_simulation_data  # noqa: E402
 # ── config ──────────────────────────────────────────────────────────────────
 # Blank50 cv00 — joint GNN+INR trained with 50% blank-prefix stimuli
 # (see run_GNN_INR_blank50.py). The non-blank50 cv00 fold is left intact at
-# /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_INR_davis_cv00/.
+# $GNN_OUTPUT_ROOT/log/fly/flyvis_noise_005_INR_davis_cv00/.
 CONFIG_NAME = 'flyvis_noise_005_INR_davis_blank50_cv00'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 REPO_ROOT_FOR_RUN = REPO_ROOT          # alias for clarity in subprocess calls
 BASE_DIR = os.path.join(DATA_ROOT, 'log', 'fly', CONFIG_NAME)
 BUNDLE_PATH = os.path.join(BASE_DIR, 'results', 'rollout_bundle.npz')
@@ -142,8 +142,8 @@ NF_BUNDLE_PATH = os.environ.get(
 
 # DAVIS stimulus root — same fallback list as fig_rollout_3col_noise_comparison.
 _DAVIS_CANDIDATES = [
-    '/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/',
-    '/groups/saalfeld/home/allierc/signaling/DATAVIS/',
+    f'{os.environ["WEB_DATASETS_ROOT"]}/DAVIS2017-partial-test/',
+    f'{os.environ["DATAVIS_ROOT"]}/',
     os.environ.get('DATAVIS_ROOT', ''),
 ]
 DAVIS_ROOT = next(

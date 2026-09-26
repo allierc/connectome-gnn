@@ -14,7 +14,7 @@ import json
 import os
 import re
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 N_NEURONS = 13741
 

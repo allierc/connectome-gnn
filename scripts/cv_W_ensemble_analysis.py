@@ -63,7 +63,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "src"))
 
 LOG_ROOT = os.environ.get("GNN_OUTPUT_ROOT", os.path.join(REPO_ROOT, ".."))
 # fallback to canonical HPC path if workspace local path is not available
-_hpc_root = "/groups/saalfeld/home/allierc/GraphData"
+_hpc_root = os.environ["GNN_OUTPUT_ROOT"]
 if not os.path.isdir(os.path.join(LOG_ROOT, "log")):
     LOG_ROOT = _hpc_root
 

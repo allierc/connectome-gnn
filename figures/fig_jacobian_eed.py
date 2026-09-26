@@ -15,13 +15,14 @@ Output: figures/fig_jacobian_eed.{pdf,png}
 # -----------------------------------------------------------------------------
 # Inputs / paths
 # -----------------------------------------------------------------------------
-# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn
+# Data root      : $BASELINE_REPO_ROOT
 # Config / log   : <DATA_ROOT>/log/fly/flyvis_noise_free_eed_blank50_cv00
 # GT ODE params  : <DATA_ROOT>/graphs_data/fly/<dataset>/ode_params.pt
 # Cache (npz)    : <REPO>/figures/_baseline_cache/jacobian_eed_*.npz
 # Output         : <REPO>/figures/fig_jacobian_eed.{pdf,png}
 # -----------------------------------------------------------------------------
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -48,7 +49,7 @@ from connectome_gnn.utils import (
 # -----------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------
-DATA_ROOT       = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+DATA_ROOT       = os.environ["BASELINE_REPO_ROOT"]
 CONFIG_EED      = 'flyvis_noise_free_eed_blank50_cv00'
 
 T_EVAL          = 40       # frame at which Jacobians are evaluated

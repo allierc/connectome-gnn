@@ -44,7 +44,7 @@ def _resolve_baseline_config_path(name: str) -> str:
     except Exception:
         pass
     # Common explicit fallback for this user's environment.
-    candidates.append(f"/groups/saalfeld/home/allierc/GraphData/config/fly/{name}.yaml")
+    candidates.append(f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly/{name}.yaml")
     for c in candidates:
         if os.path.isfile(c):
             return c

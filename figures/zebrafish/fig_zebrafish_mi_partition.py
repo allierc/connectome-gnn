@@ -389,7 +389,7 @@ def main():
     p.add_argument("--runs", nargs="+", default=list(DEFAULT_RUNS),
                    help="four trained run directory basenames (one per column)")
     p.add_argument("--data_root",
-                   default="/groups/saalfeld/home/allierc/GraphData")
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument("--n_trials", type=int, default=64,
                    help="how many test trials to concatenate for the MI estimate")
     p.add_argument("--device", default="cpu")

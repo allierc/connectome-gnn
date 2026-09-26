@@ -13,7 +13,7 @@ import numpy as np
 from connectome_gnn.zarr_io import load_simulation_data
 
 ROOT = os.path.join(
-    os.environ.get("GNN_OUTPUT_ROOT", "/groups/saalfeld/home/allierc/GraphData"),
+    os.environ["GNN_OUTPUT_ROOT"],
     "graphs_data",
     "drosophila_cx",
 )

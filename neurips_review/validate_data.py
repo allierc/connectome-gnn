@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Pre-training data-integrity checks: confirm each generated dataset carries the
 intended misspecification (before we trust ~8h of cluster training)."""
+import os
 import numpy as np
 import tensorstore as ts
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly"
+ROOT = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly"
 DT = 0.02
 
 

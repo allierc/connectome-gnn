@@ -465,7 +465,7 @@ def main():
                    help="which MI-partition helpers / log subdir to use")
     p.add_argument("--run", default="drosophila_cx_rotation_distance")
     p.add_argument("--data_root",
-                   default="/groups/saalfeld/home/allierc/GraphData")
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument("--n_trials", type=int, default=16)
     p.add_argument("--device", default="cpu")
     # biophysical / hardware constants (cited defaults, all overridable)

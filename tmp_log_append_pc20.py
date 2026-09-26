@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Append Block 3 Batch 3 entries (Iters 25-28) and Block 3 summary to analysis log."""
 
+import os
 content = """
 <!-- ============================================================ -->
 <!-- BLOCK 3: g_phi Parameters BATCH 3 (Iters 25-28)             -->
@@ -104,7 +105,7 @@ Winner config saved: iter_024_slot_03 (g_phi_diff=300, g_phi_norm=0.45, conn_R2=
 Moving to Block 4 (f_theta regularization, Iters 29-40).
 """
 
-log_path = '/groups/saalfeld/home/allierc/GraphData/log/Claude_exploration/LLM_flyvis_noise_005_removed_pc_20/flyvis_noise_005_removed_pc_20_Claude_analysis.md'
+log_path = f'{os.environ["GNN_OUTPUT_ROOT"]}/log/Claude_exploration/LLM_flyvis_noise_005_removed_pc_20/flyvis_noise_005_removed_pc_20_Claude_analysis.md'
 with open(log_path, 'a') as f:
     f.write(content)
 print('Analysis log appended successfully.')

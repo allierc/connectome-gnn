@@ -21,7 +21,7 @@ Row 2 of tab:cv_inr (YouTube-VOS) aggregates the *_yt_cv{0..N}    folds.
 Usage:
     python scripts/run_inr_cv.py \\
         --config flyvis_noise_005_INR \\
-        --output_root /groups/saalfeld/home/allierc/GraphData \\
+        --output_root ${GNN_OUTPUT_ROOT} \\
         --n_seeds 5 \\
         [--conditions davis yt]
 """
@@ -60,7 +60,7 @@ try:
     from connectome_gnn.models.cv_runner import CV_DATAVIS_ROOTS
 except ImportError:
     # Older connectome_gnn (e.g. cluster GraphDebug) lacks this constant.
-    CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"]
+    CV_DATAVIS_ROOTS = ["$WEB_DATASETS_ROOT/YouTube-VOS"]
 from GNN_PlotFigure import data_plot  # noqa: E402
 
 
@@ -150,7 +150,7 @@ def main():
     p.add_argument('--config', default='flyvis_noise_005_INR',
                    help='Base config (no .yaml, no pre-folder)')
     p.add_argument('--output_root',
-                   default='/groups/saalfeld/home/allierc/GraphData')
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument('--n_seeds', type=int, default=5)
     p.add_argument('--conditions', nargs='+',
                    default=['davis', 'yt'], choices=['davis', 'yt'],

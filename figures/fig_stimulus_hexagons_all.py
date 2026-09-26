@@ -29,7 +29,7 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Data root      : $GNN_OUTPUT_ROOT
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_all.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_all/x_list_train/
 #                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_all/{edge_index.pt, ode_params.pt}
@@ -87,7 +87,7 @@ PANEL_LBL = 8     # a) / b) panel labels
 
 # ── data config ──────────────────────────────────────────────────────────────
 CONFIG_NAME = 'flyvis_noise_free_all'
-DATA_ROOT   = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT   = os.environ["GNN_OUTPUT_ROOT"]
 
 SERIES_START   = 120
 SERIES_STEP    = 1            # step of 1 frame between stimulus snapshots

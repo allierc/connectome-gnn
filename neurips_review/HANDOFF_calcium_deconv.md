@@ -1,6 +1,6 @@
 # Handoff — Q2 calcium / deconvolution. Paused 2026-07-27.
 
-Local GPUs are free. 8 cluster jobs are RUNNING on gpu_a100 and need no babysitting.
+Local GPUs are free. 8 cluster jobs are RUNNING on ${CLUSTER_QUEUE_PREFIX}a100 and need no babysitting.
 
 ## Resume in one command
 
@@ -8,13 +8,13 @@ Local GPUs are free. 8 cluster jobs are RUNNING on gpu_a100 and need no babysitt
     ssh $CLUSTER_SSH "bjobs"
 
 Collect R2_W per run from
-`/groups/saalfeld/home/allierc/GraphData/log/fly/nr2_ca_snr_*/results/metrics.txt`,
+`$GNN_OUTPUT_ROOT/log/fly/nr2_ca_snr_*/results/metrics.txt`,
 then fill the Q2 table in `reply_all.tex` (the section already says the fits are
 running).
 
 ## Jobs in flight — the SNR grid (Vzfg Q2)
 
-8 jobs, ids 153175950-57, queue gpu_a100. Process noise fixed at sigma = 0.05
+8 jobs, ids 153175950-57, queue ${CLUSTER_QUEUE_PREFIX}a100. Process noise fixed at sigma = 0.05
 (it is baked into the trajectory by the generator, so it is not a post-hoc axis;
 a sigma sweep needs a new generation pass, which we dropped).
 

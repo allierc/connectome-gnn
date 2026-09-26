@@ -43,7 +43,7 @@ from connectome_gnn.utils import graphs_data_path, migrate_state_dict, set_data_
 from connectome_gnn.zarr_io import load_simulation_data
 from dev_g_phi_all_grad_by_fold import compute_all_grads
 
-_OUTPUT_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+_OUTPUT_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 _FIGURES_DIR = os.path.join(_REPO_ROOT, 'figures')
 
 SERIES = [

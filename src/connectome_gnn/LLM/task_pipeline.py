@@ -560,7 +560,7 @@ def run_task_cluster_training(state: ExplorationState, batch: BatchInfo):
     — the trainer's own snapshots and metrics.log are the authoritative output.
     """
     print(f"\n{_ANSI_YELLOW}PHASE 2: Submitting {batch.n_slots} task-trainer "
-          f"jobs to cluster (gpu_{state.node_name}){_ANSI_RESET}")
+          f"jobs to cluster ({state.node_name}){_ANSI_RESET}")
 
     if not check_cluster_repo():
         print(f"{_ANSI_YELLOW}WARNING: cluster repo has uncommitted changes — "

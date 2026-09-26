@@ -21,7 +21,7 @@ import os
 
 import yaml
 
-CONFIG_DIR = "/groups/saalfeld/home/allierc/GraphData/config/fly"
+CONFIG_DIR = f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly"
 HERE = os.path.dirname(os.path.abspath(__file__))
 MANIFEST = os.path.join(HERE, "manifest_joint.json")
 

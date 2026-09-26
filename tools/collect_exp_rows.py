@@ -23,7 +23,7 @@ import re
 import sys
 
 LOG_ROOT = os.environ.get("GNN_LOG_ROOT",
-                          "/groups/saalfeld/home/allierc/GraphData/log/fly")
+                          f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly")
 
 # The two template-fit medians were renamed on 2026-09-15; runs plotted before
 # that still write the old keys, so both are accepted and the new name is what

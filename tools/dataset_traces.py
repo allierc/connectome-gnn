@@ -62,7 +62,7 @@ def draw(root: str, dataset: str, delta_t: float = 0.02) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("datasets", nargs="+")
-    p.add_argument("--root", default="/groups/saalfeld/home/allierc/GraphData/graphs_data/fly")
+    p.add_argument("--root", default=f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly")
     p.add_argument("--delta-t", type=float, default=0.02)
     a = p.parse_args()
     for ds in a.datasets:

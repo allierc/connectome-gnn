@@ -20,8 +20,8 @@ from connectome_gnn.models.registry import create_model
 from connectome_gnn.utils import graphs_data_path, migrate_state_dict, set_data_root
 from connectome_gnn.zarr_io import load_simulation_data
 
-set_data_root("/groups/saalfeld/home/allierc/GraphData")
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+set_data_root(os.environ["GNN_OUTPUT_ROOT"])
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 import json
 
@@ -38,7 +38,7 @@ for run in sys.argv[1:]:
     # the repo made the whole campaign unmeasurable here -- which is exactly the
     # set k is wanted for.
     _cands = [f"config/fly/{run}.yaml",
-              f"/groups/saalfeld/home/allierc/GraphData/config/fly/{run}.yaml",
+              f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly/{run}.yaml",
               f"{LOG}/{run}/config.yaml"]
     _spec = next((c for c in _cands if os.path.exists(c)), None)
     if _spec is None:

@@ -31,7 +31,7 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Data root      : $GNN_OUTPUT_ROOT
 # Configs        : <REPO>/config/fly/flyvis_noise_005.yaml
 #                  <REPO>/config/fly/flyvis_noise_005_blank50.yaml
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_005/x_list_train/
@@ -90,7 +90,7 @@ except Exception:
 # ---------------------------------------------------------------------------
 # Data roots
 # ---------------------------------------------------------------------------
-DATA_ROOT_REMOTE = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT_REMOTE = os.environ["GNN_OUTPUT_ROOT"]
 
 # ---------------------------------------------------------------------------
 # Scatter panel configs: (config_name, output_root, title)

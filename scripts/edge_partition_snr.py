@@ -85,7 +85,7 @@ def main():
 
     # 1. Dataset ---------------------------------------------------------------
     CANDIDATES = [
-        '/groups/saalfeld/home/allierc/GraphData/graphs_data/fly/flyvis_noise_005',
+        f'{os.environ["GNN_OUTPUT_ROOT"]}/graphs_data/fly/flyvis_noise_005',
         '/workspace/flyvis-gnn/graphs_data/fly/flyvis_noise_005',
     ]
     dataset_path = args.dataset_path

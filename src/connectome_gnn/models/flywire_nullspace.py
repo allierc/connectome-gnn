@@ -80,7 +80,7 @@ OUTPUT_DIR = os.path.join(REPO_ROOT, "figures")
 # No noise-free flywire counterpart exists, so we use the cv00 ode_params.pt
 # for both GT W and stimulus/voltage. The W stored here is the noise-free
 # ground truth (noise is applied to trajectories, not to the weights).
-DATA_DIR = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly/full_eye_flywireRF_noise_005_blank50_cv00"
+DATA_DIR = f"{os.environ.get('GNN_OUTPUT_ROOT', '')}/graphs_data/fly/full_eye_flywireRF_noise_005_blank50_cv00"
 ODE_PARAMS_PATH = os.path.join(DATA_DIR, "ode_params.pt")
 
 # Type-name source of truth: connectome_gnn.metrics.INDEX_TO_NAME (same 65-name

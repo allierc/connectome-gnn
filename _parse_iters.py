@@ -1,6 +1,6 @@
 import csv, statistics, os
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+ROOT = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 SLOT_PREFIX = "flyvis_noise_005_hidden_010_blank50_consensus_ngp_Claude"
 NITER = 107000  # configured Niter for consensus_ngp_light
 

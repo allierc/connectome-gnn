@@ -18,6 +18,7 @@ Group definitions follow figures/fig_stimulus_ctx_pearson.py
 Output: figures/fig_svd_variance_explained.{pdf,png}
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -36,7 +37,7 @@ from connectome_gnn.models.training_utils import load_flyvis_data
 from connectome_gnn.utils import set_data_root
 
 
-DATA_ROOT  = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+DATA_ROOT  = os.environ["BASELINE_REPO_ROOT"]
 CONFIG_EED = 'flyvis_noise_free_eed_blank50_cv00'
 K_MAX      = 1024
 

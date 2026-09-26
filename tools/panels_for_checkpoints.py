@@ -48,7 +48,7 @@ from connectome_gnn.plot import (  # noqa: E402
 )
 from connectome_gnn.utils import migrate_state_dict, set_data_root, to_numpy  # noqa: E402
 
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 
 
 def main(argv=None) -> int:
@@ -59,7 +59,7 @@ def main(argv=None) -> int:
                     help="one checkpoint iteration; default is all of them")
     a = ap.parse_args(argv)
 
-    set_data_root("/groups/saalfeld/home/allierc/GraphData")
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     log_dir = os.path.join(LOG, a.run)
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{a.run}.yaml")

@@ -6,7 +6,7 @@ Called by run_cross_noise_batch.sh after each test run:
     python scripts/append_test_to_results_cv.py \\
         --model_config flyvis_noise_005_null_edges_pc_400 \\
         --test_config  flyvis_noise_005_null_edges_pc_400_cross_noise_free \\
-        --output_root  /groups/saalfeld/home/allierc/GraphData
+        --output_root  ${GNN_OUTPUT_ROOT}
 """
 import argparse
 import datetime

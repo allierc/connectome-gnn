@@ -26,14 +26,14 @@ Output
 # ─────────────────────────────────────────────────────────────────────────────
 # Inputs / paths
 # ─────────────────────────────────────────────────────────────────────────────
-# Data root      : /groups/saalfeld/home/allierc/GraphData
+# Data root      : $GNN_OUTPUT_ROOT
 # Configs        : <DATA_ROOT>/config/fly/flyvis_noise_free_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_005_blank50_unified_cv00.yaml
 #                  <DATA_ROOT>/config/fly/flyvis_noise_05_blank50_unified_cv00.yaml
 #                  (noisy-test twins generated on the fly:
 #                   <DATA_ROOT>/config/fly/flyvis_noise_{free,005,05}_blank50_cv00_test.yaml)
-# Stimulus root  : /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/
-#                  /groups/saalfeld/home/allierc/signaling/DATAVIS/  (fallback)
+# Stimulus root  : $WEB_DATASETS_ROOT/DAVIS2017-partial-test/
+#                  $DATAVIS_ROOT/  (fallback)
 # Training data  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/x_list_train/
 #                  <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00/{edge_index.pt, ode_params.pt}
 # Test data      : <DATA_ROOT>/graphs_data/fly/flyvis_noise_{free,005,05}_blank50_cv00_test/x_list_test/
@@ -79,7 +79,7 @@ except Exception:
 
 # ── paths ────────────────────────────────────────────────────────────────────
 REPO_ROOT = '/workspace/connectome-gnn'
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 CFG_DIR   = f'{DATA_ROOT}/config/fly'
 
 # DAVIS stimulus root — the original DAVIS2017-partial-test path referenced by
@@ -87,8 +87,8 @@ CFG_DIR   = f'{DATA_ROOT}/config/fly'
 # actually contains JPEGImages/480p. The noisy-test dataset we generate for the
 # 005 / 05 columns will use whichever DAVIS root is reachable.
 _DAVIS_CANDIDATES = [
-    '/groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test/',
-    '/groups/saalfeld/home/allierc/signaling/DATAVIS/',
+    f'{os.environ["WEB_DATASETS_ROOT"]}/DAVIS2017-partial-test/',
+    f'{os.environ["DATAVIS_ROOT"]}/',
     os.environ.get('DATAVIS_ROOT', ''),
 ]
 DAVIS_ROOT = next(
