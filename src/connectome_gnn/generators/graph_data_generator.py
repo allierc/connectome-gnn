@@ -2384,7 +2384,8 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         x=x,
         edge_index=edge_index,
         initial_state=initial_state,
-        sim=sim,
+        spec=spec,
+        store=store,
         x_writer=x_writer,
         y_writer=y_writer,
         target_frames=target_frames,
@@ -2401,7 +2402,6 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         id_fig_start=0,
         it_start=spec.start_frame,
         fig_style=fig_style,
-        config=config,
         davis_dataset=davis_dataset,
         X1=X1,
         u_coords=u_coords,
@@ -2452,7 +2452,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     _run_ode_generation(
         stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
-        edge_index=edge_index, initial_state=initial_state, sim=sim,
+        edge_index=edge_index, initial_state=initial_state, spec=spec, store=store,
         x_writer=x_writer, y_writer=y_writer,
         target_frames=test_target_frames, num_passes=1,
         n_neurons=n_neurons, device=device, to_numpy_fn=to_numpy,
@@ -2460,7 +2460,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         measurement_noise_level=test_noise_meas,
         visualize=False, run=run, run_vizualized=run_vizualized,
         step=step, id_fig_start=id_fig, it_start=0,
-        fig_style=fig_style, config=config, davis_dataset=davis_dataset,
+        fig_style=fig_style, davis_dataset=davis_dataset,
         X1=X1, u_coords=u_coords, v_coords=v_coords,
     )
 
