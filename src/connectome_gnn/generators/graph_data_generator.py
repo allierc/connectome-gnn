@@ -22,6 +22,7 @@ from connectome_gnn.generators.voltage.network import build_network
 from connectome_gnn.generators.voltage.postprocess import _compute_noisy_derivatives, _tile_train_zarrs
 from connectome_gnn.generators.voltage.rng import RngLedger
 from connectome_gnn.generators.voltage.spec import GenerationSpec
+from connectome_gnn.generators.voltage.stimulus import build_sources
 from connectome_gnn.generators.voltage.store import DatasetStore
 from connectome_gnn.log import get_logger
 from connectome_gnn.neuron_state import NeuronState
@@ -73,7 +74,7 @@ from connectome_gnn.generators.utils import (  # noqa: F401
     mseq_bits,
 )
 from connectome_gnn.generators.utils import rmtree_robust as _rmtree
-from connectome_gnn.utils import get_datavis_root_dir, git_sha, graphs_data_path, to_numpy
+from connectome_gnn.utils import git_sha, graphs_data_path, to_numpy
 
 logger = get_logger(__name__)
 
@@ -2295,8 +2296,6 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     network = build_network(spec)
     net = network.net
     boxfilter_arg = network.boxfilter
-    from flyvis.datasets.sintel import AugmentedSintel
-
     from connectome_gnn.generators.flyvis_ode import (
         FlyVisODE,
         get_photoreceptor_positions_from_net,
@@ -2305,80 +2304,8 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
 
     ledger.begin("load_stimuli", draws=True)
-    # Initialize datasets
-    print(f"[DBG] visual_input_type={spec.stimulus.visual_input_type!r}  datavis_roots={list(spec.stimulus.datavis_roots)}", flush=True)
-    if "DAVIS" in spec.stimulus.visual_input_type or "mixed" in spec.stimulus.visual_input_type:
-        # determine dataset roots: use config list if provided, otherwise fall back to default
-        if spec.stimulus.datavis_roots:
-            # Roots may name a local variable; expand at use without modifying the config.
-            datavis_root_list = [os.path.join(os.path.expandvars(r), "JPEGImages/480p")
-                                 for r in spec.stimulus.datavis_roots]
-        else:
-            datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
-
-        print(f"[DBG] datavis_root_list={datavis_root_list}", flush=True)
-        for root in datavis_root_list:
-            print(f"[DBG] checking root exists: {root}", flush=True)
-            assert os.path.exists(root), f"video data not found at {root}"
-            print(f"[DBG]   OK exists", flush=True)
-
-        video_config = {
-            "n_frames": 50,
-            "max_frames": spec.stimulus.truncate_max_frames,  # None = no per-clip truncation
-            # Hex rotate/flip rely on a regular hex-disk lattice; the FlyWire
-            # column lattice is irregular, so disable them when rendering on it.
-            # (augment=False already neutralises them at runtime, but this also
-            # keeps the construction path safe for any future augment toggle.)
-            # HexFlip/HexRotate operate on the standard hex lattice the
-            # frames are rendered on (BoxEye extent above). For FlyWire
-            # mode we render at a standard disk and project later, so
-            # the same 8x augmentation factor applies to both modes.
-            "flip_axes": [0, 1],
-            "n_rotations": [0, 90, 180, 270],
-            "temporal_split": False,
-            "dt": spec.delta_t,
-            "boxfilter": boxfilter_arg,
-            "vertical_splits": 1,
-            "center_crop_fraction": 0.6,
-            "augment": False,
-            "unittest": False,
-            "skip_short_videos": spec.stimulus.skip_short_videos,
-            "shuffle_sequences": True,
-            "shuffle_seed": spec.seed,
-        }
-        print(f"[DBG] video_config built (skip_short={spec.stimulus.skip_short_videos} max_frames={spec.stimulus.truncate_max_frames} seed={spec.seed})", flush=True)
-
-        # create dataset(s)
-        if len(datavis_root_list) == 1:
-            print(f"[DBG] creating AugmentedVideoDataset(root_dir={datavis_root_list[0]}) ...", flush=True)
-            davis_dataset = AugmentedVideoDataset(root_dir=datavis_root_list[0], **video_config)
-            print(f"[DBG] AugmentedVideoDataset ready: {len(davis_dataset)} sequences", flush=True)
-        else:
-            print(f"[DBG] creating {len(datavis_root_list)} AugmentedVideoDatasets (combined) ...", flush=True)
-            datasets = [AugmentedVideoDataset(root_dir=root, **video_config) for root in datavis_root_list]
-            davis_dataset = CombinedVideoDataset(datasets)
-            logger.info(f"combined {len(datasets)} video datasets: {len(davis_dataset)} total sequences")
-    else:
-        davis_dataset = None
-
-    if "DAVIS" in spec.stimulus.visual_input_type:
-        stimulus_dataset = davis_dataset
-        print(f"[DBG] using DAVIS-branch dataset: {len(stimulus_dataset)} sequences", flush=True)
-    else:
-        sintel_config = {
-            "n_frames": 19,
-            "flip_axes": [0, 1],
-            "n_rotations": [0, 1, 2, 3, 4, 5],
-            "temporal_split": True,
-            "dt": spec.delta_t,
-            "interpolate": True,
-            "boxfilter": boxfilter_arg,
-            "vertical_splits": 3,
-            "center_crop_fraction": 0.7,
-        }
-        print(f"[DBG] creating AugmentedSintel(...) ...", flush=True)
-        stimulus_dataset = AugmentedSintel(**sintel_config)
-        print(f"[DBG] AugmentedSintel ready: {len(stimulus_dataset)} sequences", flush=True)
+    stimuli = build_sources(spec, boxfilter_arg)
+    davis_dataset = stimuli.davis_dataset
 
     ledger.begin("extract_ode_params", draws=False)
     # Extract ground-truth parameters. WHICH synapse model generates the data is
@@ -2549,7 +2476,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     n_neurons = len(initial_state)
 
     ledger.begin("init_state", draws=True)
-    sequences = stimulus_dataset[0]["lum"]
+    sequences = stimuli.item(0)["lum"]
     frame = sequences[0][None, None]
     net.stimulus.add_input(frame)
 
@@ -2573,7 +2500,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     # --- Subdirectory-level train/test split ---
     # arg_df is aligned with cached_sequences (shuffle applied to both in _build).
     # Split by original_index so all augmentations of the same base video stay together.
-    df = stimulus_dataset.arg_df
+    df = stimuli.arg_df
     original_indices = df["original_index"].values
     unique_videos = np.unique(original_indices)
     np.random.shuffle(unique_videos)
@@ -2601,8 +2528,8 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     ledger.begin("materialize_sequences", draws=False)
     # Build sequences lists for ODE generation
-    train_sequences = [stimulus_dataset[i] for i in train_indices]
-    test_sequences = [stimulus_dataset[i] for i in test_indices]
+    train_sequences = stimuli.items(train_indices)
+    test_sequences = stimuli.items(test_indices)
 
     # Optionally limit number of sequences for faster debugging
     if spec.stimulus.max_train_sequences > 0:
@@ -2618,7 +2545,7 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     # Plot preview for train and test splits
     frames_per_sequence = 35
-    n_hexals = stimulus_dataset[0]["lum"].shape[-1]
+    n_hexals = stimuli.item(0)["lum"].shape[-1]
     ledger.begin("plot_previews", draws=False)
     hex_x = x_coords[:n_hexals]
     hex_y = y_coords[:n_hexals]
