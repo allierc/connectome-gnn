@@ -28,7 +28,7 @@ import re
 
 import numpy as np
 
-LOG_ROOT = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+LOG_ROOT = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 # The clamp graph_tester applies, and how close to it counts as sitting on it.
 V_CLAMP = 100.0
 RAIL = 0.95 * V_CLAMP

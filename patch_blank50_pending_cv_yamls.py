@@ -47,7 +47,7 @@ emit_yt_yamls(
     suffix='blank50_unified',
     hp_yaml_basename=None,
     n_folds=5,
-    output_root='/groups/saalfeld/home/allierc/GraphData',
+    output_root=os.environ["GNN_OUTPUT_ROOT"],
     sim_overrides=BLANK50_SIM_OVERRIDES,
     dataset_tag='blank50',
     condition_filter=CONDITION_FILTER,

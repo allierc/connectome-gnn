@@ -6,7 +6,7 @@ Only the `_gen_` configs carry the misspecification knobs; they run through the
 the cluster can train on it afterwards. Test 2 needs no generation (reuses the
 existing flyvis_noise_005_blank50_cv00 data).
 
-  GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+  GNN_OUTPUT_ROOT=${GNN_OUTPUT_ROOT} PYTHONPATH=src \
     /workspace/.conda_envs/neural-graph-linux/bin/python neurips_review/generate_local.py
 """
 import json
@@ -15,7 +15,7 @@ import subprocess
 import time
 
 REPO = "/workspace/connectome-gnn-cx"
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 CONFIG_DIR = os.path.join(ROOT, "config", "fly")
 PY = "/workspace/.conda_envs/neural-graph-linux/bin/python"
 HERE = os.path.dirname(os.path.abspath(__file__))

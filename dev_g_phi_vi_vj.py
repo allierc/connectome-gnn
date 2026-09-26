@@ -12,7 +12,7 @@ colors separate into distinct bands.
 
 Usage:
     /workspace/.conda_envs/neural-graph-linux/bin/python dev_g_phi_vi_vj.py \
-        --log_dir /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_conductance_cv00
+        --log_dir ${GNN_OUTPUT_ROOT}/log/fly/flyvis_noise_005_conductance_cv00
 """
 import argparse
 import os
@@ -142,9 +142,9 @@ def plot_vi_vj_3d(res, config, out_path, window_size=520):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', type=str,
-                        default='/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_conductance_cv00')
+                        default=f'{os.environ["GNN_OUTPUT_ROOT"]}/log/fly/flyvis_noise_005_conductance_cv00')
     parser.add_argument('--config_name', type=str, default='flyvis_noise_005_conductance_cv00')
-    parser.add_argument('--data_root', type=str, default='/groups/saalfeld/home/allierc/GraphData')
+    parser.add_argument('--data_root', type=str, default=os.environ["GNN_OUTPUT_ROOT"])
     parser.add_argument('--n_edges', type=int, default=16)
     parser.add_argument('--n_frames', type=int, default=2000)
     parser.add_argument('--seed', type=int, default=0)

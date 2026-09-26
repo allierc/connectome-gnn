@@ -241,7 +241,7 @@ def _rrr_fit(X, Y, rank, lam):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data_root",
-                    default="/groups/saalfeld/home/allierc/GraphData")
+                    default=os.environ["GNN_OUTPUT_ROOT"])
     ap.add_argument("--n_trials", type=int, default=16)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--lam", type=float, default=5.0)

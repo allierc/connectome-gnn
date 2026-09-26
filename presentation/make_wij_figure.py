@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-G = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly"
+G = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly"
 FAM = (("current",     "flyvis_noise_005_blank50_cv00",          "tab:blue"),
        ("conductance", "flyvis_flowcond_noise_005_blank50_cv00", "tab:red"))
 LAB = "abcd"

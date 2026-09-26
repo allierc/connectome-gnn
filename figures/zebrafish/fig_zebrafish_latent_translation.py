@@ -97,7 +97,7 @@ def _load_run(run, device):
     except Exception as e:
         print(f"  [skip] no config for {run} ({type(e).__name__})")
         return None, None
-    data_root = "/groups/saalfeld/home/allierc/GraphData"
+    data_root = os.environ["GNN_OUTPUT_ROOT"]
     run_dir = os.path.join(data_root, "log", "zebrafish", run)
     ckpts = sorted(glob.glob(os.path.join(run_dir, "models",
                                           "best_model_with_*.pt")))

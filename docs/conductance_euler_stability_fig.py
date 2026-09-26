@@ -40,7 +40,7 @@ def stability_factors():
     worst case.
     """
     root = os.environ.get(
-        "FLYVIS_ROOT_DIR", "/groups/saalfeld/home/allierc/GraphData/flyvis"
+        "FLYVIS_ROOT_DIR", f"{os.environ['GNN_OUTPUT_ROOT']}/flyvis"
     )
     path = os.path.join(root, "results", RUN, "chkpts", CHKPT)
     if not os.path.exists(path):

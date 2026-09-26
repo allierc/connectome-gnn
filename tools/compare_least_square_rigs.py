@@ -59,7 +59,7 @@ from connectome_gnn.neuron_panels import analyse_neurons  # noqa: E402
 from connectome_gnn.recovery_figures import _plot_recovered_scatter  # noqa: E402
 from connectome_gnn.utils import migrate_state_dict, set_data_root, to_numpy  # noqa: E402
 
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 RIGS = ("frames", "grid_minmax", "grid_zeromax")
 
 
@@ -201,7 +201,7 @@ def main(argv=None) -> int:
                     help="directory of checkpoints; default <run>/models")
     a = ap.parse_args(argv)
 
-    set_data_root("/groups/saalfeld/home/allierc/GraphData")
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     log_dir = os.path.join(LOG, a.run)
     cfg = NeuralGraphConfig.from_yaml(f"config/fly/{a.run}.yaml")

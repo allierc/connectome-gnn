@@ -2,7 +2,7 @@
 """End-to-end autonomous finisher (run in background).
 
 1. Wait until the 7 dt/adapt datasets are generated locally.
-2. Submit the 14 dt/adapt train+test+plot jobs to gpu_a100 (Test 2 mono jobs are
+2. Submit the 14 dt/adapt train+test+plot jobs to ${CLUSTER_QUEUE_PREFIX}a100 (Test 2 mono jobs are
    submitted separately and merged in via submitted_jobs.json).
 3. Poll _complete markers for all 17 runs until done (or timeout).
 4. Collect metrics into results_table.csv.

@@ -54,7 +54,7 @@ Total: **17 cluster train+test+plot jobs** + **7 local dataset generations**
 
 ```bash
 cd /workspace/connectome-gnn-cx
-ENV="GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src"
+ENV="GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT PYTHONPATH=src"
 PY=/workspace/.conda_envs/neural-graph-linux/bin/python
 
 # 1. emit all 24 YAMLs into GraphData/config/fly + manifest.json
@@ -66,7 +66,7 @@ env $ENV $PY neurips_review/smoke_test.py
 # 3. generate the 7 datasets locally on the 2 RTX A6000 GPUs
 env $ENV $PY neurips_review/generate_local.py
 
-# 4. submit the 17 train+test+plot jobs to gpu_a100, poll, collect
+# 4. submit the 17 train+test+plot jobs to ${CLUSTER_QUEUE_PREFIX}a100, poll, collect
 $PY neurips_review/launch_cluster.py            # --dry-run to preview bsub cmds
 
 # 5. (re)collect metrics anytime

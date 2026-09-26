@@ -2432,7 +2432,10 @@ def data_generate_voltage(
     if "DAVIS" in sim.visual_input_type or "mixed" in sim.visual_input_type:
         # determine dataset roots: use config list if provided, otherwise fall back to default
         if sim.datavis_roots:
-            datavis_root_list = [os.path.join(r, "JPEGImages/480p") for r in sim.datavis_roots]
+            # roots may name a local variable ($WEB_DATASETS_ROOT/...): cluster paths stay out of
+            # committed YAML, so expand here, at use, and never write the expansion back
+            datavis_root_list = [os.path.join(os.path.expandvars(r), "JPEGImages/480p")
+                                 for r in sim.datavis_roots]
         else:
             datavis_root_list = [os.path.join(get_datavis_root_dir(), "JPEGImages/480p")]
 

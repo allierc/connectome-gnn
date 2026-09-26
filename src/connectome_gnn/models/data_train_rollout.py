@@ -208,7 +208,7 @@ def data_train_rollout(config, erase, best_model, device, log_file=None):
 
     checkpoint_path = None
     if tc.pretrained_model != '':
-        checkpoint_path = tc.pretrained_model
+        checkpoint_path = os.path.expandvars(tc.pretrained_model)   # may be $GNN_OUTPUT_ROOT/...
     model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path)
     assert hasattr(model, 'predict_dvdt'), (
         f"{type(model).__name__} must implement predict_dvdt(v, stim) → dvdt "

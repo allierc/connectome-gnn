@@ -22,8 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "src"))
 from connectome_gnn.utils import graphs_data_path, set_data_root  # noqa: E402
 
-set_data_root("/groups/saalfeld/home/allierc/GraphData")
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+set_data_root(os.environ["GNN_OUTPUT_ROOT"])
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 LEVELS = (("noise_free", r"$\sigma = 0$",    "tab:blue"),
           ("noise_005",  r"$\sigma = 0.05$", "tab:green"),
           ("noise_05",   r"$\sigma = 0.5$",  "tab:red"))

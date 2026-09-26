@@ -1618,7 +1618,7 @@ def init_training_model(
     elif training.pretrained_model != '':
 
         checkpoint_path = (
-            training.pretrained_model
+            os.path.expandvars(training.pretrained_model)   # may be $GNN_OUTPUT_ROOT/...
         )
 
     reset_epoch = (

@@ -89,7 +89,7 @@ def emit_row(label, noise_sig, noise_gam, edges_str, stats):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--output_root',
-                   default='/groups/saalfeld/home/allierc/GraphData')
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument('--pre_folder', default='fly')
     args = p.parse_args()
 

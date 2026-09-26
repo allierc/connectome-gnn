@@ -43,12 +43,12 @@ interpretation, decision)**. Newest at the bottom. Engineering steps are logged 
 Config: `config/drosophila_cx/drosophila_cx_obs_branch0_v1.yaml`
 (`simulation.task_model_config_path` → the teacher RNN `drosophila_cx_pi_epg_no_tv_cv0`;
 `graph_model.signal_model_name: drosophila_cx_voltage` → NeuralGNN; `lock_edge_signs_from_connectome: true`).
-`GNN_OUTPUT_ROOT`/`--output_root` = `/groups/saalfeld/home/allierc/GraphData` (where `graphs_data/`, `log/`, `config/` live).
+`GNN_OUTPUT_ROOT`/`--output_root` = `$GNN_OUTPUT_ROOT` (where `graphs_data/`, `log/`, `config/` live).
 
 **1) Generate the voltage dataset by rolling the teacher RNN**
 ```bash
-cd /workspace/connectome-gnn-cx          # cluster path: /groups/saalfeld/home/allierc/Graph/connectome-gnn-cx
-GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+cd /workspace/connectome-gnn-cx          # cluster path: $CLUSTER_HOME/Graph/connectome-gnn-cx
+GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT PYTHONPATH=src \
   python GNN_Main.py -o generate drosophila_cx/drosophila_cx_obs_branch0_v1 --force
 # writes graphs_data/drosophila_cx/drosophila_cx_obs_branch0_v1/{x_list_train,x_list_test,y_list_*.zarr,ode_params.pt}
 ```
@@ -56,16 +56,16 @@ GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
 **2) Train the GNN on the voltage data (voltage-only recovery)**
 ```bash
 # local (devcontainer GPU)
-GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT PYTHONPATH=src \
   python GNN_Main.py -o train drosophila_cx/drosophila_cx_obs_branch0_v1 --force
 
 # cluster a100 (single run) — runs from the synced /Graph checkout
 ssh $CLUSTER_SSH "bash -l -c '\
-  cd /groups/saalfeld/home/allierc/Graph/connectome-gnn-cx && \
-  bsub -n 4 -gpu \"num=1\" -q gpu_a100 -W 360 -o OUT -e ERR \
+  cd $CLUSTER_HOME/Graph/connectome-gnn-cx && \
+  bsub -n 4 -gpu \"num=1\" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 360 -o OUT -e ERR \
   bash -l -c \"conda run -n connectome-gnn python GNN_Main.py -o train \
     config/drosophila_cx/drosophila_cx_obs_branch0_v1.yaml \
-    --output_root /groups/saalfeld/home/allierc/GraphData --force\"'"
+    --output_root $GNN_OUTPUT_ROOT --force\"'"
 ```
 (One-shot variants: `-o generate_train` or `-o generate_train_test_plot`.)
 Recovery reads: `log/drosophila_cx/drosophila_cx_obs_branch0_v1/tmp_training/metrics.log` (col 2 = `connectivity_r2`)
@@ -110,7 +110,7 @@ and `tmp_training/matrix/comparison_*.png` (true W vs learned effective W*).
 - **Cluster gotcha.** First a100 submit (job 150080892) failed: it launched from `GraphCluster/connectome-gnn`,
   which is on `main` (56fbcb5) and lacks the new field → `extra_forbidden`. The **synced** checkout the
   devcontainer bind-mounts is `Graph/connectome-gnn-cx`; submitting `GNN_Main.py` from there (job 150080893,
-  gpu_a100) picks up my code with no git push/pull. Launch via `ssh $CLUSTER_SSH … bsub -q gpu_a100 …`.
+  ${CLUSTER_QUEUE_PREFIX}a100) picks up my code with no git push/pull. Launch via `ssh $CLUSTER_SSH … bsub -q ${CLUSTER_QUEUE_PREFIX}a100 …`.
   LSF buffers `.out`/`.err` to completion → monitor the live `tmp_training/` instead.
 - **Exp0 first result (job 150080893, epoch 1, iter 4000/80000).**
   - **Sign-lock CONFIRMED.** `tmp_training/matrix/comparison`: `true W` vs `learned effective W*` — all points

@@ -37,7 +37,7 @@ simulation:
   blank_prefix_fraction: 0.5
   connectivity_file: to be specified
   datavis_roots:
-  - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
+  - $WEB_DATASETS_ROOT/DAVIS2017-partial-test
   delta_t: 0.02
   measurement_noise_level: 0.1
   n_edges: 434112
@@ -98,7 +98,7 @@ training:
   torch_compile: true
   use_gt_edges: true
   w_init_mode: randn_scaled
-  pretrained_model: /groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_005_meas_010_gnn_rc10_cv00/models/best_model_with_0_graphs_9.pt
+  pretrained_model: $GNN_OUTPUT_ROOT/log/fly/flyvis_noise_005_meas_010_gnn_rc10_cv00/models/best_model_with_0_graphs_9.pt
   checkpoint_saves_per_epoch: 3
 analysis:
   neurons:

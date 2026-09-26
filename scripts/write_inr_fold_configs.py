@@ -35,7 +35,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
 
 
-CV_DATAVIS_ROOTS = ["/groups/saalfeld/home/kumarv4/web_datasets/YouTube-VOS"]
+CV_DATAVIS_ROOTS = ["$WEB_DATASETS_ROOT/YouTube-VOS"]
 
 
 def emit_fold_yaml(base_yaml_path, out_yaml_path, base_name, condition, fold_i,

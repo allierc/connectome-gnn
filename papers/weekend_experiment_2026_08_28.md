@@ -1,6 +1,6 @@
 # Weekend experiment — 44 jobs, launched 2026-08-28
 
-All on `gpu_l4`, ~33 h each, one batch. 44 jobs, **41 distinct configurations**
+All on `${CLUSTER_QUEUE_PREFIX}l4`, ~33 h each, one batch. 44 jobs, **41 distinct configurations**
 (`noiseprobe_nolasso_cv00` and `noiseseed_on_s1041` are the same config — kept as a replicate).
 
 > **Results: [`benchmark_results.md`](benchmark_results.md).**
@@ -209,7 +209,7 @@ These are implemented in `tools/analyze_weekend_experiment.py`, which prints one
 task and is safe to run mid-training (every partial run is marked):
 
 ```bash
-PYTHONPATH=src GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData \
+PYTHONPATH=src GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT \
     python tools/analyze_weekend_experiment.py            # all tasks
     python tools/analyze_weekend_experiment.py --task 5   # just the headline
     python tools/analyze_weekend_experiment.py --csv out.csv

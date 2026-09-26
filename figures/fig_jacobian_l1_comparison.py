@@ -14,7 +14,7 @@ Output: figures/fig_jacobian_l1_comparison.{pdf,png}
 # -----------------------------------------------------------------------------
 # Inputs / paths
 # -----------------------------------------------------------------------------
-# Data root      : /groups/saalfeld/home/kumarv4/repos/connectome-gnn
+# Data root      : $BASELINE_REPO_ROOT
 # Configs / log  : <DATA_ROOT>/log/fly/{flyvis_noise_free_mlp_blank50_l1_0,
 #                                       flyvis_noise_free_mlp_blank50_l1_1em6}
 # GT ODE params  : <DATA_ROOT>/graphs_data/fly/flyvis_noise_free_blank50/ode_params.pt
@@ -49,7 +49,7 @@ from connectome_gnn.utils import (
 # -----------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------
-DATA_ROOT       = '/groups/saalfeld/home/kumarv4/repos/connectome-gnn'
+DATA_ROOT       = os.environ["BASELINE_REPO_ROOT"]
 CONFIG_NO_REG   = 'flyvis_noise_free_mlp_blank50_l1_0'
 CONFIG_L1       = 'flyvis_noise_free_mlp_blank50_l1_1em6'
 LAMBDA_L1_LABEL = r'10^{-6}'

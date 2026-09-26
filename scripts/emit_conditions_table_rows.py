@@ -22,7 +22,7 @@ Output:
 
 Usage:
     python scripts/emit_conditions_table_rows.py \\
-        --output_root /groups/saalfeld/home/allierc/GraphData
+        --output_root ${GNN_OUTPUT_ROOT}
 """
 
 import argparse
@@ -161,7 +161,7 @@ def emit_row(label, config, noise_sig, noise_gam, edges_str, stats, pred):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--output_root',
-                   default='/groups/saalfeld/home/allierc/GraphData')
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument('--pre_folder', default='fly')
     p.add_argument('--n_seeds', type=int, default=5)
     args = p.parse_args()

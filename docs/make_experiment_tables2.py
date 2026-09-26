@@ -37,7 +37,7 @@ import torch  # noqa: E402  -- only for reading loss_components.pt
 
 from connectome_gnn.metrics import recovery_log_columns  # noqa: E402
 
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATE = "2026-09-17"
 

@@ -1,1 +1,1 @@
-Job <153174692> is submitted to queue <gpu_a100>.
+Job <153174692> is submitted to queue <${CLUSTER_QUEUE_PREFIX}a100>.

@@ -17,7 +17,7 @@ just the CLI / data-loading shim that:
 
 Usage:
     python figures/zebrafish/fig_evolution.py \\
-        --run_dir /groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0 \\
+        --run_dir ${GNN_OUTPUT_ROOT}/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0 \\
         --out_dir figures/zebrafish/
 """
 
@@ -53,8 +53,8 @@ from connectome_gnn.plot_cx import (  # noqa: E402
 
 
 DEFAULT_RUN_DIRS = [
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0",
-    "/groups/saalfeld/home/allierc/GraphData/log/zebrafish/zebrafish_hd_si_gnn_ipn12_v1_cv0",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/zebrafish/zebrafish_hd_si_ipn12_v1_cv0",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/zebrafish/zebrafish_hd_si_gnn_ipn12_v1_cv0",
 ]
 
 

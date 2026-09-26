@@ -58,7 +58,7 @@ def compute_both_grads(model, config, edges, x_ts, n_frames=32, seed=0):
 
 
 def main():
-    set_data_root('/groups/saalfeld/home/allierc/GraphData')
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     R2 = {'00': 0.5580, '01': 0.9340, '02': 0.7855, '03': 0.8058, '04': 0.9290}
@@ -67,7 +67,7 @@ def main():
     rows = []
     for cv in ['00', '01', '02', '03', '04']:
         cfg = f'flyvis_noise_005_conductance_cv{cv}'
-        log_dir = f'/groups/saalfeld/home/allierc/GraphData/log/fly/{cfg}'
+        log_dir = f'{os.environ["GNN_OUTPUT_ROOT"]}/log/fly/{cfg}'
         config, model, edges, x_ts = load_run(log_dir, cfg, device)
 
         grad_vi, grad_vj = compute_both_grads(model, config, edges, x_ts, n_frames=32, seed=0)

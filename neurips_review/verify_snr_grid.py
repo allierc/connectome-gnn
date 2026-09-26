@@ -15,7 +15,7 @@ Exit code 0 = all good, 1 = at least one dataset is not trustworthy.
 import os, sys
 import numpy as np, zarr
 
-BASE = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly"
+BASE = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly"
 TRUTH = "nr2_ca_blank50_kernel"
 TAGS = ["g000", "g010", "g030", "g100"]
 TOL = 0.01          # r must match the build-time record this closely

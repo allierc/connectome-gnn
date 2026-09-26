@@ -40,7 +40,7 @@ p.add_argument("--min-deg", type=int, default=8)
 p.add_argument("--max-deg", type=int, default=14)
 p.add_argument("--checkpoint", default=None, help="default: the highest iteration")
 p.add_argument("--config", default=None, help="default: <log-dir>/config.yaml")
-p.add_argument("--data-root", default="/groups/saalfeld/home/allierc/GraphData")
+p.add_argument("--data-root", default=os.environ["GNN_OUTPUT_ROOT"])
 p.add_argument("--seed", type=int, default=0)
 args = p.parse_args()
 

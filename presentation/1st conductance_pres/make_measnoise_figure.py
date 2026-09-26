@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from connectome_gnn.utils import graphs_data_path, set_data_root, to_numpy  # noqa: E402
 from connectome_gnn.zarr_io import load_simulation_data  # noqa: E402
 
-set_data_root("/groups/saalfeld/home/allierc/GraphData")
+set_data_root(os.environ["GNN_OUTPUT_ROOT"])
 SETS = (("no meas. noise", "flyvis_noise_005_blank50_cv00", 0.0),
         (r"$\gamma = 0.1$", "flyvis_noise_005_010_blank50_cv00", 0.1),
         (r"$\gamma = 0.2$", "flyvis_noise_005_020_blank50_cv00", 0.2))

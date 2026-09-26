@@ -1,11 +1,11 @@
 # Benchmark results — connectome recovery under model mis-specification
 
-44 runs, all complete, 1.6 M iterations each, `gpu_l4`, 2026-08-28 → 29.
+44 runs, all complete, 1.6 M iterations each, `${CLUSTER_QUEUE_PREFIX}l4`, 2026-08-28 → 29.
 Design and per-job specs: [`weekend_experiment_2026_08_28.md`](weekend_experiment_2026_08_28.md).
 Reproduce every number here with:
 
 ```bash
-PYTHONPATH=src GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData \
+PYTHONPATH=src GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT \
     python tools/analyze_weekend_experiment.py
 ```
 

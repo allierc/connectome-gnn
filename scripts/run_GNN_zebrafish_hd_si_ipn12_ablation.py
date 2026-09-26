@@ -69,7 +69,7 @@ def _output_root(explicit: str | None) -> str:
         return os.path.abspath(env)
     raise SystemExit(
         "no output root: pass --output_root or set GNN_OUTPUT_ROOT "
-        "(e.g. /groups/saalfeld/home/allierc/GraphData)"
+        f"(e.g. {os.environ['GNN_OUTPUT_ROOT']})"
     )
 
 
@@ -385,7 +385,7 @@ def main():
         hard_runtime_limit_min=args.hard_runtime_min,
         erase=args.erase,
     )
-    print(f"[submitted] {len(job_ids)} jobs to gpu_{args.cluster}")
+    print(f"[submitted] {len(job_ids)} jobs to {args.cluster}")
 
     if args.wait:
         wait_for_cluster_jobs_with_metrics(

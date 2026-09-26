@@ -26,7 +26,7 @@ _REPO = os.path.abspath(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 sys.path.insert(0, os.path.join(_REPO, "papers", "fishFuncEM"))
 
-_GD = "/groups/saalfeld/home/allierc/GraphData/graphs_data/zebrafish"
+_GD = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/zebrafish"
 DFF_NPY = os.path.join(_GD, "zapbench_dff_full.npy")
 SORT_NPY = os.path.join(_GD, "zapbench_rastermap_sorting.npy")
 SORT_URL = ("https://storage.googleapis.com/zapbench-release/volumes/20240930/"

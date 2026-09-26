@@ -774,7 +774,7 @@ def _main():
     p.add_argument("--datapath", default="papers/Code_NN/Code_NN/Data/Figure5/exported-traced-adjacencies-v1.2",
                    help="hemibrain CSV directory")
     p.add_argument("--output",
-                   default="/groups/saalfeld/home/allierc/GraphData/log/janelia_cx/seed0_curriculum_er6/janelia_cx.pt")
+                   default=f"{os.environ['GNN_OUTPUT_ROOT']}/log/janelia_cx/seed0_curriculum_er6/janelia_cx.pt")
     p.add_argument("--n_trials", type=int, default=100_000)
     p.add_argument("--batch_size", type=int, default=64)
     def _parse_n_steps(s: str):

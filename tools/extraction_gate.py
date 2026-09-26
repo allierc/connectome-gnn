@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 from connectome_gnn.LLM.cluster import _bsub_over_ssh  # noqa: E402
 
-DATA_ROOT = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'extraction_gate')
 
 # (config name, what estimator path it exercises). One row per path, plus a

@@ -66,7 +66,7 @@ from connectome_gnn.models.flyvis_nullspace import build_degenerate_groups  # no
 from generate_opto_configs import TARGET_ALIASES  # noqa: E402
 
 
-DATA_ROOT = "/groups/saalfeld/home/allierc/GraphData"
+DATA_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 LOG_ROOT = f"{DATA_ROOT}/log/fly"
 
 OPTO_PREFIX = "flyvis_noise_free_blank50_opto_"

@@ -125,7 +125,7 @@ def run_all_conditions(hp_source, suffix, hp_yaml=None,
               f'conditions_per_wave=1 (per-base LSF queue control)')
         for base in _active_bases:
             effective_node = node_name_per_condition.get(base, node_name)
-            print(f'  -> condition {base!r}: node=gpu_{effective_node}')
+            print(f'  -> condition {base!r}: node={effective_node}')
             run_condition_wave(
                 base_names=[base], suffix=suffix, n_folds=n_folds,
                 device=device, output_root=output_root,

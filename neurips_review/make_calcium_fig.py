@@ -23,8 +23,8 @@ import torch
 sys.path.insert(0, '/workspace/connectome-gnn-ca/src')
 from connectome_gnn.generators.gcamp_kernel import select_reference_neurons
 
-BASE = "/groups/saalfeld/home/allierc/GraphData/graphs_data/fly"
-LOG = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+BASE = f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data/fly"
+LOG = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 ap = argparse.ArgumentParser()
 ap.add_argument('--tag', default='g000', help='SNR grid tag: g000 g010 g030 g100')
 ARGS = ap.parse_args()

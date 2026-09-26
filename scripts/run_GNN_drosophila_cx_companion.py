@@ -238,9 +238,8 @@ def _k(n) -> str:
 # Logs are written by the job to the shared /groups filesystem, which the
 # devcontainer also mounts, so monitoring reads them directly.
 def _cluster_cfg() -> dict:
-    """Load cluster_user/login/root_dir/data_dir from data_paths.json (same
-    source connectome_gnn.LLM.cluster reads), so the ssh target + cluster
-    checkout path aren't hardcoded."""
+    """Load cluster_root_dir/cluster_data_dir from data_paths.json , so the
+    cluster checkout path isn't hardcoded."""
     import json
     for c in (os.path.join(REPO, "data_paths.json"),
               os.path.join(os.getcwd(), "data_paths.json")):
@@ -250,11 +249,12 @@ def _cluster_cfg() -> dict:
 
 
 _CFG = _cluster_cfg()
-SSH_TARGET = f"{_CFG.get('cluster_user', 'allierc')}@{_CFG.get('cluster_login', '$CLUSTER_SSH')}"
-CLUSTER_REPO = _CFG.get("cluster_root_dir",
-                        "/groups/saalfeld/home/allierc/Graph/connectome-gnn-cx")
-CLUSTER_DATA = _CFG.get("cluster_data_dir",
-                        "/groups/saalfeld/home/allierc/GraphData")
+# ssh target and queue prefix are local environment settings, never committed (see
+# connectome_gnn.LLM.cluster); the checkout and data paths come from data_paths.json.
+SSH_TARGET = os.environ.get("CLUSTER_SSH", "")
+QUEUE_PREFIX = os.environ.get("CLUSTER_QUEUE_PREFIX", "")
+CLUSTER_REPO = _CFG.get("cluster_root_dir", "")
+CLUSTER_DATA = _CFG.get("cluster_data_dir", os.environ.get("GNN_OUTPUT_ROOT", ""))
 
 
 def _lsf(command: str, *, ssh: str | None) -> subprocess.CompletedProcess:
@@ -274,7 +274,7 @@ def _q(s: str) -> str:
 
 def _job_group_name(ssh: str | None) -> str:
     """LSF job-group path for the concurrency cap, namespaced by cluster user."""
-    user = _CFG.get("cluster_user", "allierc")
+    user = SSH_TARGET.split("@")[0]
     return f"/{user}/{GROUP}_companion"
 
 
@@ -320,7 +320,7 @@ def _submit(cfg: str, *, cluster: str, n_cpus: int, w_min: int, log_dir: str,
     job = (f"cd {repo} && conda run --no-capture-output -n {conda_env} "
            f"python GNN_Main.py -o {op} {cfg}{resume_flag}")
     grp = f"-g {job_group} " if job_group else ""
-    cmd = (f"cd {repo} && bsub -n {n_cpus} -gpu num=1 -q gpu_{cluster} "
+    cmd = (f"cd {repo} && bsub -n {n_cpus} -gpu num=1 -q {QUEUE_PREFIX}{cluster} "
            f"-W {w_min} {grp}-oo {log} -J {cfg} bash -lc {shlex.quote(job)}")
     out = _lsf(cmd, ssh=ssh)
     m = re.search(r"Job <(\d+)>", out.stdout)
@@ -608,7 +608,7 @@ def main() -> int:
         job_group = _setup_job_group(args.max_concurrent, ssh=ssh)
 
     where = "locally" if ssh is None else f"via ssh {ssh}"
-    print(f"submitting {len(plan)} job(s) to gpu_{args.cluster} {where} "
+    print(f"submitting {len(plan)} job(s) to {args.cluster} {where} "
           f"(cd {args.cluster_repo}; -W {args.hard_runtime_min} min):")
     jobs = {}  # cfg -> (jid, log)
     for cfg, op, res in plan:

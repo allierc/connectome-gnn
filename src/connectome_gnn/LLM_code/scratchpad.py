@@ -169,7 +169,7 @@ def load_full_voltage(
         candidates = [
             "/workspace/connectome-gnn/graphs_data",
             "/workspace/flyvis-gnn/graphs_data",
-            "/groups/saalfeld/home/allierc/GraphData/graphs_data",
+            f"{os.environ['GNN_OUTPUT_ROOT']}/graphs_data",
         ]
         for c in candidates:
             if os.path.isdir(os.path.join(c, dataset, "x_list_train")):

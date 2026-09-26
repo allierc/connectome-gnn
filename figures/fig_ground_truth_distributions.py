@@ -36,7 +36,7 @@ import torch
 
 
 # ── inputs ──────────────────────────────────────────────────────────────────
-DATA_ROOT  = '/groups/saalfeld/home/allierc/GraphData'
+DATA_ROOT  = os.environ["GNN_OUTPUT_ROOT"]
 DATASET    = 'flyvis_noise_005_010_blank50_cv00'
 ODE_PARAMS = f'{DATA_ROOT}/graphs_data/fly/{DATASET}/ode_params.pt'
 

@@ -46,7 +46,7 @@ def main():
     p.add_argument("--runs", nargs="+", required=True,
                    help="trained-run directory basenames under log/zebrafish/")
     p.add_argument("--data_root",
-                   default="/groups/saalfeld/home/allierc/GraphData")
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument("--device", default="cuda")
     p.add_argument("--thr_deg", type=float, default=15.0)
     p.add_argument("--rel_d", type=float, default=0.20)

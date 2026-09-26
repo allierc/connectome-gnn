@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src
 # activate.d exports it, but only for that env; a job launched from a different
 # conda environment inherits nothing, which is exactly how this was first hit.
 # Set here, loudly, and still overridable from the environment.
-FLYVIS_ROOT_DEFAULT = "/groups/saalfeld/home/allierc/GraphData/flyvis"
+FLYVIS_ROOT_DEFAULT = f"{os.environ['GNN_OUTPUT_ROOT']}/flyvis"
 if not os.environ.get("FLYVIS_ROOT_DIR"):
     os.environ["FLYVIS_ROOT_DIR"] = FLYVIS_ROOT_DEFAULT
     print(f"FLYVIS_ROOT_DIR unset; using {FLYVIS_ROOT_DEFAULT}")

@@ -309,7 +309,7 @@ Design (no retraining; vary `I_i(t)` only, roll out fixed checkpoints):
 
 **Blocker:** reviewer asks "all models" = incl. recurrent MLP + EED. Those
 checkpoints **do not exist on this filesystem** — `fig_jacobian_l1_comparison.py`
-reads `/groups/saalfeld/home/kumarv4/repos/connectome-gnn` (inaccessible),
+reads `$BASELINE_REPO_ROOT` (inaccessible),
 `figures/_baseline_cache/` is empty, and the only MLP config held
 (`flyvis_noise_005_mlp.yaml`) points at the non-blank50 dataset. Runnable for
 GNN + oracle only until checkpoints are obtained or MLP/EED retrained.

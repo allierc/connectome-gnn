@@ -5,7 +5,7 @@ Runs unattended: polls the local generation until both datasets are complete,
 submits the 4 cluster jobs (2 GNN + 2 Known-ODE) and waits for them, then runs
 collect_metrics.py so results_table.csv picks up the `joint` rows.
 
-  GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+  GNN_OUTPUT_ROOT=${GNN_OUTPUT_ROOT} PYTHONPATH=src \
     python neurips_review/finish_joint.py
 """
 import json
@@ -14,7 +14,7 @@ import subprocess
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 PY = "/workspace/.conda_envs/neural-graph-linux/bin/python"
 MAX_GEN_HOURS = 8.0
 

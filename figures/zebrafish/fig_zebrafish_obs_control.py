@@ -79,10 +79,9 @@ def main():
     from connectome_gnn.generators.zapbench_stimulus import heading_to_drive
     from connectome_gnn.plot_anatomy_voltage import run_task_rollout
     from connectome_gnn.utils import migrate_state_dict, set_data_root
-    set_data_root(os.environ.get("GNN_OUTPUT_ROOT",
-                                 "/groups/saalfeld/home/allierc/GraphData"))
+    set_data_root(os.environ["GNN_OUTPUT_ROOT"])
 
-    root = os.environ.get("GNN_OUTPUT_ROOT", "/groups/saalfeld/home/allierc/GraphData")
+    root = os.environ["GNN_OUTPUT_ROOT"]
     cfg_path = os.path.join(root, "config", args.config + ".yaml")
     if not os.path.isfile(cfg_path):
         cfg_path = os.path.join(_REPO, "config", args.config + ".yaml")

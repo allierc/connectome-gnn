@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Submit the Vzfg Q2 SNR grid to LSF (gpu_a100) and print the launch table.
+"""Submit the Vzfg Q2 SNR grid to LSF (${CLUSTER_QUEUE_PREFIX}a100) and print the launch table.
 
 Grid: 4 measurement-noise levels x 2 arms (GNN, Known-ODE) = 8 jobs.
 Process noise is fixed at sigma = 0.05 -- it is baked into the trajectory by the
@@ -11,13 +11,13 @@ generator, so it is not a post-hoc axis; changing it needs a new generation pass
 """
 import argparse, os, subprocess, sys
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 CONFIG_DIR = os.path.join(ROOT, "config", "fly")
 DATA_DIR = os.path.join(ROOT, "graphs_data", "fly")
-CLUSTER_SSH = "$CLUSTER_SSH"
-CLUSTER_ROOT = "/groups/saalfeld/home/allierc/Graph/connectome-gnn-cx"
+CLUSTER_SSH = os.environ["CLUSTER_SSH"]
+CLUSTER_ROOT = f"{os.environ['CLUSTER_HOME']}/Graph/connectome-gnn-cx"
 CONDA_ENV = "connectome-gnn"
-QUEUE = "gpu_a100"
+QUEUE = f"{os.environ['CLUSTER_QUEUE_PREFIX']}a100"
 NCPU = 4
 WALL_MIN = 6000
 JOB_LOG_DIR = os.path.join(ROOT, "log", "neurips_review_jobs")

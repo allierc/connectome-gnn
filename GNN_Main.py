@@ -87,9 +87,10 @@ if __name__ == "__main__":
                              "Sets plotting.anatomy_voltage_kinograph and implies "
                              "--anatomy_voltage.")
     parser.add_argument("--queue", type=str, default=None,
-                        choices=["gpu_l4", "gpu_a100", "gpu_h100"],
-                        help="LSF GPU queue for -o train_cv (one bsub job per fold). "
-                             "No default — must be supplied explicitly.")
+                        choices=["l4", "a100", "h100"],
+                        help="GPU node type for -o train_cv (one bsub job per fold); the LSF queue "
+                             "is $CLUSTER_QUEUE_PREFIX + this name, the prefix being a local "
+                             "setting that is not committed. No default — must be supplied explicitly.")
     parser.add_argument("--wall", type=str, default="24:00",
                         help="LSF wall-clock limit for -o train_cv, e.g. '24:00' (default) or minutes as an int string.")
     parser.add_argument("--ncpu", type=int, default=8,
@@ -173,7 +174,11 @@ if __name__ == "__main__":
         ... to already exist (this does not synthesize them).
         """
         if not args.queue:
-            parser.error(f"--queue is required for -o {inner_task}_cv (gpu_l4 / gpu_a100 / gpu_h100)")
+            parser.error(f"--queue is required for -o {inner_task}_cv (l4 / a100 / h100)")
+        queue_prefix = os.environ.get("CLUSTER_QUEUE_PREFIX")
+        if not queue_prefix:
+            parser.error("set CLUSTER_QUEUE_PREFIX (queue name = prefix + --queue); it is a local "
+                         "setting, deliberately not in the repo")
 
         import subprocess
 
@@ -195,7 +200,7 @@ if __name__ == "__main__":
                 inner_cmd += f" --output_root {args.output_root}"
 
             bsub_cmd = (
-                f'bsub -n {args.ncpu} -gpu "num=1" -q {args.queue} -W {args.wall} '
+                f'bsub -n {args.ncpu} -gpu "num=1" -q {queue_prefix}{args.queue} -W {args.wall} '
                 f'-o "{fold_log_dir}/bsub_%J.out" -e "{fold_log_dir}/bsub_%J.err" '
                 f'"{inner_cmd}"'
             )
@@ -494,16 +499,16 @@ if __name__ == "__main__":
 
 
 
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
+# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
 # Wij=-0.021(0.45%) Vr=0.469(98%) τ=-9.189(93%) msg=-12563.45]
 # Wij=0.913(0.06%) Vr=0.714(20%) τ=0.912(2%) msg=0.96]
 # 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
 # conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 
 # conn=0.950 Vr=0.591(18%) τ=0.902(2%)]
 # 
-# python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue gpu_l4
-# python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue gpu_l4
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
+# python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue l4
+# python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue l4
+# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
 #
-# bsub -n 2 -gpu "num=1" -q gpu_a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_flowcond_noise_005_gnn_wsq_cv00"
+# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_flowcond_noise_005_gnn_wsq_cv00"
 # iteration 1: Wij=-0.318(0.10%) Vr=-0.447(86%) τ=-4.698(87%) E=0.602(42%) msg=-12384.353(36%)

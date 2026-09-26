@@ -23,10 +23,10 @@ arms:
     queue: gpu_rtx6000
 - id: a100
   label: A100
-  queue: gpu_a100
+  queue: ${CLUSTER_QUEUE_PREFIX}a100
   spec_pattern: bench_a100_{precision}
   differs_by:
-    queue: gpu_a100
+    queue: ${CLUSTER_QUEUE_PREFIX}a100
 job_ids:
   bench_rtx6000_fp32: '154398322'
   bench_rtx6000_bf16: '154398323'
@@ -91,8 +91,8 @@ which is what makes the precision comparison a comparison.
 |---|---|---|---|
 | rtx6000 | `gpu_rtx6000` | fp32 | `bench_rtx6000_fp32` |
 | rtx6000 | `gpu_rtx6000` | bf16 | `bench_rtx6000_bf16` |
-| a100 | `gpu_a100` | fp32 | `bench_a100_fp32` |
-| a100 | `gpu_a100` | bf16 | `bench_a100_bf16` |
+| a100 | `${CLUSTER_QUEUE_PREFIX}a100` | fp32 | `bench_a100_fp32` |
+| a100 | `${CLUSTER_QUEUE_PREFIX}a100` | bf16 | `bench_a100_bf16` |
 
 ## Results
 
@@ -136,7 +136,7 @@ matches the old figures; they are not re-derivable and are withdrawn.
 
 **RTX 6000, bf16** — 48.6 it/s, 9.1 h for a 1.6 M-iteration run, against the
 A100 fp32's 31.6 it/s and 14.1 h. Recovery is identical either way (above), so
-the choice is free. The queue agrees: `gpu_a100` had 2,506 jobs pending against
+the choice is free. The queue agrees: `${CLUSTER_QUEUE_PREFIX}a100` had 2,506 jobs pending against
 `gpu_rtx6000`'s 344 when this was measured, and the two A100 arms' own analysis
 had to be moved off it to land at all.
 

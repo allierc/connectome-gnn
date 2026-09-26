@@ -71,7 +71,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 ))))
 OUTPUT_DIR = os.path.join(REPO_ROOT, "figures", "drosophila_cx")
 
-DATA_DIR = ("/groups/saalfeld/home/allierc/GraphData/graphs_data/"
+DATA_DIR = (f"{os.environ.get('GNN_OUTPUT_ROOT', '')}/graphs_data/"
             "drosophila_cx/drosophila_cx_pi_epg_voltage_noise_free")
 ODE_PARAMS_PATH = os.path.join(DATA_DIR, "ode_params.pt")
 
@@ -201,7 +201,7 @@ def load_voltage_stim_types():
 
 
 def load_trained_decoder(
-    ckpt_path="/groups/saalfeld/home/allierc/GraphData/log/"
+    ckpt_path=f"{os.environ.get('GNN_OUTPUT_ROOT', '')}/log/"
               "drosophila_cx/drosophila_cx_pi_epg/models/"
               "best_model_with_0_graphs_9.pt",
 ):
@@ -214,7 +214,7 @@ def load_trained_decoder(
 
 
 def load_W_con(
-    ckpt_path="/groups/saalfeld/home/allierc/GraphData/log/"
+    ckpt_path=f"{os.environ.get('GNN_OUTPUT_ROOT', '')}/log/"
               "drosophila_cx/drosophila_cx_pi_epg/models/"
               "best_model_with_0_graphs_9.pt",
 ):

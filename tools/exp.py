@@ -38,11 +38,11 @@ EXP_DIR = os.path.join(ROOT, "experiments")
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
 PAPER = "arxiv-2026"
-LOG_ROOT = "/groups/saalfeld/home/allierc/GraphData/log/fly"
+LOG_ROOT = f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"
 # Where a spec has to sit for the CLUSTER to read it. /groups is mounted both in
 # the devcontainer and on the login node, so staging is a local copy here and no
 # process of ours ever runs on a login node.
-STAGE_DIR = "/groups/saalfeld/home/allierc/GraphData/config/fly"
+STAGE_DIR = f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly"
 
 # SLIDE 22's COLUMN SET, plus the two the offset question needs: C_i, the
 # neuron's own incoming message offset in volts, and V_rest scored without it.

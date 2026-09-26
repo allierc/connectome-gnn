@@ -8,7 +8,7 @@ filesystem. This note is what's needed to fill it.
 ## What we need from you
 
 The two MLP baseline runs from the submitted experiments, currently under
-`/groups/saalfeld/home/kumarv4/repos/connectome-gnn/log/fly/`:
+`$BASELINE_REPO_ROOT/log/fly/`:
 
 | run | used for |
 |---|---|
@@ -31,7 +31,7 @@ tree is required, and no retraining is involved.
 
 ```bash
 cd /workspace/connectome-gnn-cx
-GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData PYTHONPATH=src \
+GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT PYTHONPATH=src \
 python figures/flyvis/fig_jacobian_gnn_knownode.py \
     --n-frames 200 \
     --mlp-config flyvis_noise_free_mlp_blank50_l1_0 \

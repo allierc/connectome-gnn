@@ -363,7 +363,7 @@ def _iteration_now(entries):
     best = 0
     for r_ in entries:
         p_ = os.path.join(os.environ.get(
-            "GNN_LOG_ROOT", "/groups/saalfeld/home/allierc/GraphData/log/fly"),
+            "GNN_LOG_ROOT", f"{os.environ['GNN_OUTPUT_ROOT']}/log/fly"),
             r_["config"], "tmp_training", "rollout.log")
         if not os.path.exists(p_):
             continue

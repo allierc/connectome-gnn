@@ -144,7 +144,7 @@ had no `died` state and read their one snapshot as "running".
 about 3%. **That is host RAM, not GPU memory**: a card running out would raise a
 CUDA out-of-memory error from Python, not have LSF take the job. LSF allocates
 **20 GB of host RAM per slot**, so the slot count is how a job asks for memory
-and `bsub -n 8` caps it at 160 GB whatever the GPU is. Moving to `gpu_a100`
+and `bsub -n 8` caps it at 160 GB whatever the GPU is. Moving to `${CLUSTER_QUEUE_PREFIX}a100`
 would not have changed anything; an A100 job at 8 slots would have died the same
 way.
 
@@ -154,7 +154,7 @@ five-fold, 434,112 → 2.17 M edges, and the per-edge tensors scale with it.
 Relaunched 2026-09-23 with `n_cpus: 12` (240 GB) as `154400100`–`154400109`, all
 ten `RUN` on `gpu_rtx6000` within a minute. Measured live: **144–201 GB, peak
 84% of the limit**, and the peak is the data-loading transient — one fold had
-already fallen to 7.5 GB ten minutes in. `gpu_a100` had 2,392 jobs pending
+already fallen to 7.5 GB ten minutes in. `${CLUSTER_QUEUE_PREFIX}a100` had 2,392 jobs pending
 against `gpu_rtx6000`'s zero at the time, so the RTX 6000 was also the faster
 place to be.
 
@@ -175,7 +175,7 @@ at fp32; exp00 is what licenses that.
 One A100 argument does survive and is not settled here: the **analysis** pass
 runs the template readout over all 2.17 M edges on the GPU, and that is VRAM
 rather than host RAM. If `-o test_plot` hits a CUDA out-of-memory error, the
-answer is `queue: gpu_a100` on the arm, not more slots.
+answer is `queue: ${CLUSTER_QUEUE_PREFIX}a100` on the arm, not more slots.
 
 <!-- STATUS:BEGIN -->
 

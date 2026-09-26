@@ -19,7 +19,7 @@ Output:
 Usage:
     python scripts/emit_inr_table_rows.py \\
         --config flyvis_noise_005_INR \\
-        --output_root /groups/saalfeld/home/allierc/GraphData \\
+        --output_root ${GNN_OUTPUT_ROOT} \\
         [--n_seeds 5]
 """
 
@@ -204,7 +204,7 @@ def main():
     p.add_argument('--config', default='flyvis_noise_005_INR',
                    help='CV config basename (no .yaml, no pre-folder)')
     p.add_argument('--output_root',
-                   default='/groups/saalfeld/home/allierc/GraphData')
+                   default=os.environ["GNN_OUTPUT_ROOT"])
     p.add_argument('--pre_folder', default='fly',
                    help='Pre-folder under log/ (default: fly)')
     p.add_argument('--n_seeds', type=int, default=5)

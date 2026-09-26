@@ -17,12 +17,12 @@ import re
 import subprocess
 import time
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 CONFIG_DIR = os.path.join(ROOT, "config", "fly")
-CLUSTER_SSH = "$CLUSTER_SSH"
-CLUSTER_ROOT = "/groups/saalfeld/home/allierc/Graph/connectome-gnn-cx"
+CLUSTER_SSH = os.environ["CLUSTER_SSH"]
+CLUSTER_ROOT = f"{os.environ['CLUSTER_HOME']}/Graph/connectome-gnn-cx"
 CONDA_ENV = "connectome-gnn"           # cluster training env (matches LLM pipeline default)
-QUEUE = "gpu_a100"
+QUEUE = f"{os.environ['CLUSTER_QUEUE_PREFIX']}a100"
 NCPU = 4
 WALL_MIN = 6000
 JOB_LOG_DIR = os.path.join(ROOT, "log", "neurips_review_jobs")

@@ -20,7 +20,7 @@ What this file still does:
 
 Usage:
     python figures/drosophila_cx/fig_evolution.py \
-        --run_dir /groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi \
+        --run_dir ${GNN_OUTPUT_ROOT}/log/drosophila_cx/drosophila_cx_pi \
         --out_dir figures/drosophila_cx/
 """
 
@@ -54,10 +54,10 @@ from connectome_gnn.plot_cx import (  # noqa: E402
 
 
 DEFAULT_RUN_DIRS = [
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_frozen_Wrec",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_fc",
-    "/groups/saalfeld/home/allierc/GraphData/log/drosophila_cx/drosophila_cx_pi_gnn",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/drosophila_cx/drosophila_cx_pi",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/drosophila_cx/drosophila_cx_pi_frozen_Wrec",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/drosophila_cx/drosophila_cx_pi_fc",
+    f"{os.environ['GNN_OUTPUT_ROOT']}/log/drosophila_cx/drosophila_cx_pi_gnn",
 ]
 
 

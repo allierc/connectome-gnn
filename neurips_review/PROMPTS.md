@@ -152,7 +152,7 @@ Cost: 3 GNN slots + 3 Known-ODE, ~1 batch.
 ```
 
 note existing data is in /workspace/connectome-gnn-cx/graphs_data/fly
-config used previoulsy are in /groups/saalfeld/home/allierc/GraphData/config/fly
+config used previoulsy are in $GNN_OUTPUT_ROOT/config/fly
 
 the main script used to train is /workspace/connectome-gnn-cx/GNN_Main.py
 but we will need to launch on the clusters on a100 nodes in parallel

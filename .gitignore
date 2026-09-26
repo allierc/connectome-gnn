@@ -188,3 +188,9 @@ log_bsub/
 
 # Session-start notes for experiments/ -- local, not part of the record
 experiments/INSTRUCTION.md
+
+# Cluster job logs (bsub -o/-e output): they name compute nodes, the submitting user and
+# cluster paths, and this repo is public -- never commit them.
+calib/
+bsub_*.out
+bsub_*.err

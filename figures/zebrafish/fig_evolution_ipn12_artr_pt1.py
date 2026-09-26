@@ -20,7 +20,7 @@ writes one ``fig_evolution_<run-name>.png`` per model.
 Usage:
     python figures/zebrafish/fig_evolution_ipn12_artr_pt1.py
     python figures/zebrafish/fig_evolution_ipn12_artr_pt1.py \\
-        --data_root /groups/saalfeld/home/allierc/GraphData \\
+        --data_root ${GNN_OUTPUT_ROOT} \\
         --out_dir figures/zebrafish/
     python figures/zebrafish/fig_evolution_ipn12_artr_pt1.py \\
         --only selfmotion_rotation position_2d
@@ -72,7 +72,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--data_root",
-        default="/groups/saalfeld/home/allierc/GraphData",
+        default=os.environ["GNN_OUTPUT_ROOT"],
         help="GraphData root; run dirs are <data_root>/log/zebrafish/<run>/.")
     p.add_argument("--out_dir", default=HERE)
     p.add_argument("--snapshot_n_steps", type=int, default=1000)

@@ -14,7 +14,7 @@ each, logs at `/tmp/cx_<config>.log`. ETA ~14:30–15:30.
 | `nr2_cx_ring_s005_known_ode` | 1076846 | 1.000 |
 | `nr2_cx_ring_s05_known_ode` | 1079612 | 1.000 |
 
-**Cluster, gpu_a100 (Vzfg Q2, calcium observation model).**
+**Cluster, ${CLUSTER_QUEUE_PREFIX}a100 (Vzfg Q2, calcium observation model).**
 
 | job | config | stage |
 |---|---|---|

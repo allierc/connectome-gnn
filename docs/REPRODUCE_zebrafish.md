@@ -27,7 +27,7 @@ artefacts that ship with the document.
 | Active conda env (CLI prompt: `(neural-graph-linux)`) | `/workspace/.conda_envs/neural-graph-linux` |
 | Activate from a fresh shell | `source /opt/conda/etc/profile.d/conda.sh && conda activate /workspace/.conda_envs/neural-graph-linux` |
 | Repo root for every command below | `cd /workspace/connectome-gnn-cx` |
-| GraphData root (logs + trained models + task data) | `GNN_OUTPUT_ROOT=/groups/saalfeld/home/allierc/GraphData` (already set in `devcontainer.json`) |
+| GraphData root (logs + trained models + task data) | `GNN_OUTPUT_ROOT=$GNN_OUTPUT_ROOT` (already set in `devcontainer.json`) |
 
 > NB: the trained checkpoints and the generated task data live OUTSIDE the
 > git repo, under `${GNN_OUTPUT_ROOT}`. Branch state alone is not enough

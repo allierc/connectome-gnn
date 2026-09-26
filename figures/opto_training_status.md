@@ -1,6 +1,6 @@
 # Opto training status — 2026-05-11 (post test+plot wave)
 
-Source: scan of `/groups/saalfeld/home/allierc/GraphData/log/fly/flyvis_noise_free_blank50_opto_*/`
+Source: scan of `$GNN_OUTPUT_ROOT/log/fly/flyvis_noise_free_blank50_opto_*/`
 Target: **1.6M iterations** (`tmp_training/total_iter.txt` = 1600000)
 Sentinels: `_complete` = training done, `results_rollout.log` + `results/metrics.txt` = tested + plotted.
 
@@ -46,7 +46,7 @@ This is the post-wave state after the 46-job test+plot wave dispatched on 2026-0
 | time | event | outcome |
 |---|---|---|
 | 2026-05-10 ~21:08 | bsub 21 training jobs (Lawf2 × 15 + L4_dc_05 × 5 + retina_dc_05_cv04) | queued |
-| 2026-05-11 00:08 | jobs start running on gpu_l4 | ~80k iter/h |
+| 2026-05-11 00:08 | jobs start running on ${CLUSTER_QUEUE_PREFIX}l4 | ~80k iter/h |
 | 2026-05-11 ~05:00 | user `bkill` all 21 | stopped at iter ≈480k |
 | 2026-05-11 ~08:30 | `python run_GNN_optogenetics.py --replot` (mistake) | submitted 11 collateral re-plot jobs before Ctrl-C |
 | 2026-05-11 ~08:45 | `bkill 0` | 11 collateral jobs killed |

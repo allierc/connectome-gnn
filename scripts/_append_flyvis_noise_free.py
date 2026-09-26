@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """One-shot append script for flyvis_noise_free analysis log."""
 
+import os
 content = """\
 
 ---
@@ -117,7 +118,7 @@ Expected: No catastrophic seeds; continued convergence in the 0.93\u20130.97 ran
 ---
 """
 
-filepath = "/groups/saalfeld/home/allierc/GraphData/log/Claude_exploration/LLM_flyvis_noise_free/flyvis_noise_free_Claude_analysis.md"
+filepath = f"{os.environ['GNN_OUTPUT_ROOT']}/log/Claude_exploration/LLM_flyvis_noise_free/flyvis_noise_free_Claude_analysis.md"
 with open(filepath, 'a', encoding='utf-8') as f:
     f.write(content)
 print(f"Successfully appended {len(content)} characters to {filepath}")

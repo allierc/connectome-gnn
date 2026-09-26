@@ -2,11 +2,11 @@
 # Overnight: does coeff_f_theta_msg_gain help, and at what coefficient?
 #
 # NOT LAUNCHED BY ANYTHING. Run it by hand from the cluster checkout
-# (/groups/saalfeld/home/allierc/Graph/connectome-gnn) once the arms below are
+# (${CLUSTER_HOME}/Graph/connectome-gnn) once the arms below are
 # agreed. Every block can be commented out on its own.
 #
 #   ssh $CLUSTER_SSH
-#   cd /groups/saalfeld/home/allierc/Graph/connectome-gnn && git pull
+#   cd ${CLUSTER_HOME}/Graph/connectome-gnn && git pull
 #   bash tools/run_overnight_gain_sweep.sh            # submits
 #   bash tools/run_overnight_gain_sweep.sh --dry-run  # prints, submits nothing
 #
@@ -47,7 +47,7 @@
 # EVERY ARM HAS coeff_W_L1 0 AND coeff_W_L2 0. Nothing shrinks W, so whatever
 # discipline the weights keep comes from the silent anchor and the gain term
 # rather than from shrinkage, and the two control arms say what that base does on
-# its own. The five current-family arms are on gpu_l4 and are not in this file.
+# its own. The five current-family arms are on ${CLUSTER_QUEUE_PREFIX}l4 and are not in this file.
 #
 # COST: 12 arms x 24 h on a100. The rc5 pair costs about 3x the network
 # evaluations of the others, since the rollout horizon multiplies the cost per
@@ -58,11 +58,11 @@ set -u
 DRY=0
 [ "${1:-}" = "--dry-run" ] && DRY=1
 
-QUEUE=gpu_a100
+QUEUE=${CLUSTER_QUEUE_PREFIX}a100
 WALL=24:00
 NCPU=2
 ENV=connectome-gnn
-OUT=/groups/saalfeld/home/allierc/Graph/.scratch/night
+OUT=${CLUSTER_HOME}/Graph/.scratch/night
 
 # conda run, ALWAYS. An interactive bsub -Is inherits the login shell's
 # environment and bare `python` is the right one there; a batch job does not, and

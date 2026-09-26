@@ -25,7 +25,7 @@ from connectome_gnn.generators.gcamp_kernel import build_kernel_from_config
 from connectome_gnn.models.calcium_deconvolution import wiener_deconvolve
 from connectome_gnn.utils import graphs_data_path, set_data_root
 
-ROOT = "/groups/saalfeld/home/allierc/GraphData"
+ROOT = os.environ["GNN_OUTPUT_ROOT"]
 SRC_CFG = os.environ.get('GRID_SRC_CFG',
     "/workspace/connectome-gnn-ca/config/fly/nr2_ca_calcium_unified.yaml")
 BASE_CFG = {

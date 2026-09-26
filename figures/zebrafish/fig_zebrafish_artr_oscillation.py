@@ -58,7 +58,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, os.path.join(REPO, "src"))
 
-DEFAULT_DATA_ROOT = "/groups/saalfeld/home/allierc/GraphData"
+DEFAULT_DATA_ROOT = os.environ["GNN_OUTPUT_ROOT"]
 L_COLOR, R_COLOR = "#c0392b", "#2c6fbb"   # red = ARTR_L, blue = ARTR_R (L/R convention)
 _CONNECTOME_DIR = os.path.join(HERE, "zebrafish_connectome_HD_IPN12")
 _ARTR_CELL_TYPES = {"RIPN01", "RIPN02", "RIPN03_a", "RIPN03_b"}
