@@ -56,6 +56,16 @@ def _select(args) -> list:
     return keep
 
 
+def _head_root(args, work: Path, label: str) -> Path:
+    """The HEAD implementation: this checkout, or (--snapshot) an APFS clone of its
+    src/, GNN_PlotFigure.py and assets/ taken now, so the checkout can be edited
+    while the cells run."""
+    if not args.snapshot:
+        return REPO_ROOT
+    from golden_voltage import mutants
+    return mutants.make_scratch(REPO_ROOT, work / "snapshots" / label)
+
+
 def cmd_run(args) -> int:
     work = FX.work_root()
     base = D.ensure_base_worktree(work)
@@ -64,7 +74,8 @@ def cmd_run(args) -> int:
     D.prepare(cells, work, base)
     print(f"fixtures ready ({time.time() - t0:.0f}s)")
     label = args.label or time.strftime("%Y%m%d-%H%M%S")
-    impls = {"base": [base], "head": [REPO_ROOT], "both": [base, REPO_ROOT]}[args.impl]
+    head = _head_root(args, work, label)
+    impls = {"base": [base], "head": [head], "both": [base, head]}[args.impl]
     specs = []
     for c in cells:
         for impl in impls:
@@ -171,6 +182,8 @@ def main(argv=None) -> int:
     p = sub.add_parser("run")
     common(p)
     p.add_argument("--impl", default="both", choices=["base", "head", "both"])
+    p.add_argument("--snapshot", action="store_true",
+                   help="run HEAD from a clone of the checkout taken at start (edit freely meanwhile)")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("ledger", help="summarise the HEAD runs' RNG ledgers of a label")
     p.add_argument("label")
