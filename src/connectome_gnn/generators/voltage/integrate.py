@@ -1,11 +1,15 @@
-"""The frame loop of voltage generation: one call integrates one split.
+"""Integration of one split: its frame target, its writers, and the frame loop.
 
 What ``x.stimulus`` holds at each frame is decided by the split's stimulus
 programs (programs.py); everything else -- drift, measurement noise, the
-write, the step, process noise -- is the per-frame step below, unchanged.
-``graph_data_generator._run_ode_generation`` stays importable.
+write, the step, process noise -- is the per-frame step of ``run_frames``.
+
+The state ``x`` is a LINEAR resource carried from the train split into the
+test split: ``reset_for_test`` resets its voltage in place and redraws its
+calcium, and everything else (stimulus, noise) carries over.
 """
 
+from dataclasses import dataclass
 from typing import NamedTuple
 
 import numpy as np
@@ -34,7 +38,99 @@ class FrameRecord(NamedTuple):
     drift: torch.Tensor              # f(v[t]) from pde(): neither xi nor eta                 -> y_list_<split>.zarr
 
 
-def _run_ode_generation(
+@dataclass(frozen=True)
+class SplitRun:
+    """What integrating one split left behind (the data itself is on disk)."""
+
+    split: str
+    n_frames: int      # frames written by the frame loop (before train tiling)
+    it: int            # frame counter after the last frame (train starts at start_frame, test at 0)
+    id_fig: int        # number of the next per-frame figure
+
+
+def split_target(spec, split: str, n_sequences: int) -> tuple:
+    """(target frames, passes over the sequences) of a split, with legacy's log line.
+
+    train: ``n_frames`` (or ``n_frames // repeat_factor`` when the train block is
+    tiled afterwards), in as many passes as 35 frames per sequence need;
+    ``n_frames == 0`` means one pass and no frame cap. test: one pass, capped
+    at ``n_frames_test`` if set, else MAX_TEST_FRAMES.
+    """
+    from connectome_gnn.generators.voltage.stimulus import FRAMES_PER_SEQUENCE
+
+    if split == "test":
+        # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
+        test_target_frames = (spec.n_frames_test_cap if spec.n_frames_test_cap > 0 else spec.max_test_frames)
+        logger.info(f"generating TEST data (capped at {test_target_frames} frames from {n_sequences} sequences)...")
+        return test_target_frames, 1
+    total_frames_per_pass = n_sequences * FRAMES_PER_SEQUENCE
+    repeat_factor = spec.stimulus.repeat_factor
+    if spec.n_frames == 0:
+        num_passes_needed = 1
+        target_frames = float("inf")
+        logger.info(f"n_frames=0 mode: single pass through {n_sequences} train sequences")
+    else:
+        # When tiling a short unique block, only generate n_frames // factor
+        # frames; the helper below replicates them across the full n_frames.
+        target_frames = spec.n_frames // repeat_factor if repeat_factor > 1 else spec.n_frames
+        num_passes_needed = (target_frames // total_frames_per_pass) + 1
+
+    if repeat_factor > 1:
+        logger.info(f"generating TRAIN data ({target_frames} unique frames, will tile ×{repeat_factor} → "
+                    f"{target_frames * repeat_factor} total)...")
+    else:
+        logger.info(f"generating TRAIN data ({target_frames} frames from {n_sequences} sequences)...")
+    return target_frames, num_passes_needed
+
+
+def integrate_split(spec, split: str, *, sequences, net, pde, x, edge_index, initial_state, n_neurons,
+                    davis_dataset, geometry, store, fig_style, id_fig_start: int, run: int = 0) -> SplitRun:
+    """Integrate one split into x_list_<split>/ and y_list_<split>.zarr.
+
+    The train split draws per-frame figures when visualize is set and starts
+    its frame counter at start_frame; the test split never draws and starts
+    at 0 (so ``it == 0`` conditions fire again on its first frame).
+    """
+    noise = spec.noise_for(split)
+    target_frames, num_passes = split_target(spec, split, len(sequences))
+    writer = store.split_writer(split, n_neurons, spec.save_calcium, to_numpy)
+    train = split == "train"
+    it, id_fig = run_frames(
+        stimulus_sequences=sequences, net=net, pde=pde, x=x, edge_index=edge_index, initial_state=initial_state,
+        spec=spec, store=store, writer=writer, target_frames=target_frames, num_passes=num_passes,
+        n_neurons=n_neurons, device=spec.device, noise=noise,
+        visualize=spec.output.visualize if train else False, run=run, run_vizualized=spec.output.run_vizualized,
+        id_fig_start=id_fig_start, it_start=spec.start_frame if train else 0,
+        fig_style=fig_style, davis_dataset=davis_dataset, geometry=geometry,
+    )
+    n_frames = writer.finalize()
+    if train:
+        logger.info(f"generated {n_frames} TRAIN frames (saved as .zarr)")
+    else:
+        _noise_tag = (
+            f"noisy (noise_model={noise.process_std:g}, meas={noise.measurement_std:g})"
+            if spec.noisy_test_data else "without noise"
+        )
+        logger.info(f"generated {n_frames} TEST frames {_noise_tag} (saved as .zarr)")
+        if spec.noisy_test_data:
+            # Marker for consumers that need to know the test split carries train-level noise
+            open(store.path("noisy_test_data.ok"), "w").close()
+    return SplitRun(split=split, n_frames=n_frames, it=it, id_fig=id_fig)
+
+
+def reset_for_test(x, initial_state, n_neurons: int, device) -> None:
+    """Reset x between the splits: voltage IN PLACE to the steady state, fresh calcium (torch.rand), no fluorescence.
+
+    x.stimulus and x.noise carry over from the last train frame.
+    """
+    # Reset neural state to avoid train→test leakage
+    x.voltage[:] = initial_state
+    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
+    x.calcium = _init_calcium
+    x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+
+
+def run_frames(
     stimulus_sequences,
     net,
     pde,
@@ -48,25 +144,23 @@ def _run_ode_generation(
     num_passes,
     n_neurons,
     device,
-    noise_model_level: float,
-    measurement_noise_level: float,
+    noise,
     visualize=False,
     run=0,
     run_vizualized=0,
-    step=5,
     id_fig_start=0,
     it_start=0,
     fig_style=None,
     davis_dataset=None,
-    X1=None,
-    u_coords=None,
-    v_coords=None,
+    geometry=None,
 ):
-    """Run ODE simulation over stimulus sequences, writing frames to zarr.
+    """The frame loop: pass over the sequences until ``target_frames``, writing every frame.
 
-    This is the inner loop extracted so it can be called for both train and test.
     Returns (it, id_fig) — the final frame counter and figure counter.
     """
+    noise_model_level = noise.process_std
+    measurement_noise_level = noise.measurement_std
+    X1, u_coords, v_coords = geometry.X1, geometry.u_coords, geometry.v_coords
     st = spec.stimulus
     n_input_neurons = spec.network.n_input_neurons
     it = it_start
@@ -88,7 +182,7 @@ def _run_ode_generation(
     # AR(1) measurement-noise state: persists across all frames/sequences within
     # this generator call. Recursion eta(t+1) = rho*eta(t) + sqrt(1-rho**2)*gamma*xi(t)
     # preserves marginal Var(eta) = gamma**2. rho = 0 -> standard i.i.d. (current default).
-    ar1_rho = spec.train_noise.ar1_rho
+    ar1_rho = noise.ar1_rho
     ar1_inject_std = (1.0 - ar1_rho ** 2) ** 0.5 * measurement_noise_level
     if measurement_noise_level > 0 and ar1_rho > 0:
         # Initialise in stationary distribution: Var(eta_0) = gamma**2

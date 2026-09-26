@@ -22,13 +22,12 @@ from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablati
 from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
 from connectome_gnn.generators.voltage.figures import plot_previews
 from connectome_gnn.generators.voltage.initial import init_geometry, init_state, steady_state
-from connectome_gnn.generators.voltage.integrate import _run_ode_generation
+from connectome_gnn.generators.voltage.integrate import integrate_split, reset_for_test
 from connectome_gnn.generators.voltage.network import build_network
-from connectome_gnn.generators.voltage.postprocess import _compute_noisy_derivatives, _tile_train_zarrs
+from connectome_gnn.generators.voltage.postprocess import noisy_derivatives, tile_train
 from connectome_gnn.generators.voltage.rng import RngLedger
 from connectome_gnn.generators.voltage.spec import GenerationSpec
 from connectome_gnn.generators.voltage.stimulus import (
-    FRAMES_PER_SEQUENCE,
     build_sources,
     materialize_sequences,
     split_videos,
@@ -2237,8 +2236,6 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         config, visualize=visualize, run_vizualized=run_vizualized, style=style, erase=erase, step=step,
         device=device, save=save, compute_ranks=compute_ranks,
     )
-    # Still handed to the helpers that have not been moved onto the spec yet.
-    sim = config.simulation
     store = DatasetStore(spec.output.dataset)
 
     ledger.begin("prepare_output", draws=False)
@@ -2333,7 +2330,6 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
 
     ledger.begin("init_geometry", draws=False)
     geometry = init_geometry(net, device)
-    X1, u_coords, v_coords = geometry.X1, geometry.u_coords, geometry.v_coords
     node_types_int = geometry.node_types_int
 
     ledger.begin("steady_state", draws=False)
@@ -2350,131 +2346,41 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     ledger.begin("materialize_sequences", draws=False)
     sequences = materialize_sequences(spec, stimuli, split)
     train_sequences, test_sequences = sequences.train, sequences.test
-    frames_per_sequence = FRAMES_PER_SEQUENCE
 
     ledger.begin("plot_previews", draws=False)
     plot_previews(sequences, split, geometry, folder, fig_style)
 
     ledger.begin("integrate_train", draws=True)
-    # --- Generate TRAIN split ---
-    total_frames_per_pass = len(train_sequences) * frames_per_sequence
-
-    repeat_factor = spec.stimulus.repeat_factor
-    if n_frames == 0:
-        num_passes_needed = 1
-        target_frames = float("inf")
-        logger.info(f"n_frames=0 mode: single pass through {len(train_sequences)} train sequences")
-    else:
-        # When tiling a short unique block, only generate n_frames // factor
-        # frames; the helper below replicates them across the full n_frames.
-        target_frames = n_frames // repeat_factor if repeat_factor > 1 else n_frames
-        num_passes_needed = (target_frames // total_frames_per_pass) + 1
-
-    if repeat_factor > 1:
-        logger.info(f"generating TRAIN data ({target_frames} unique frames, will tile ×{repeat_factor} → {target_frames * repeat_factor} total)...")
-    else:
-        logger.info(f"generating TRAIN data ({target_frames} frames from {len(train_sequences)} sequences)...")
-
-    writer = store.split_writer("train", n_neurons, spec.save_calcium, to_numpy)
-
-    it, id_fig = _run_ode_generation(
-        stimulus_sequences=train_sequences,
-        net=net,
-        pde=pde,
-        x=x,
-        edge_index=edge_index,
-        initial_state=initial_state,
-        spec=spec,
-        store=store,
-        writer=writer,
-        target_frames=target_frames,
-        num_passes=num_passes_needed,
-        n_neurons=n_neurons,
-        device=device,
-        noise_model_level=spec.train_noise.process_std,
-        measurement_noise_level=spec.train_noise.measurement_std,
-        visualize=visualize,
-        run=run,
-        run_vizualized=run_vizualized,
-        step=step,
-        id_fig_start=0,
-        it_start=spec.start_frame,
-        fig_style=fig_style,
-        davis_dataset=davis_dataset,
-        X1=X1,
-        u_coords=u_coords,
-        v_coords=v_coords,
-    )
-
-    n_frames_train = writer.finalize()
-    logger.info(f"generated {n_frames_train} TRAIN frames (saved as .zarr)")
+    split_args = dict(net=net, pde=pde, x=x, edge_index=edge_index, initial_state=initial_state, n_neurons=n_neurons,
+                      davis_dataset=davis_dataset, geometry=geometry, store=store, fig_style=fig_style, run=run)
+    train_run = integrate_split(spec, "train", sequences=train_sequences, id_fig_start=0, **split_args)
+    n_frames_train = train_run.n_frames
 
     ledger.begin("derive_noisy_targets_train", draws=False)
     # --- Compute noisy derivatives for TRAIN split ---
     if spec.train_noise.gate_measurement_std > 0:
-        _compute_noisy_derivatives(config, sim, n_neurons, split="train")
+        noisy_derivatives(spec, store, n_neurons, split="train")
 
     ledger.begin("tile_train", draws=False)
     # --- Tile unique block ×factor across all dynamic train fields ---
+    repeat_factor = spec.stimulus.repeat_factor
     if repeat_factor > 1:
-        _tile_train_zarrs(config, repeat_factor, save_calcium=spec.save_calcium)
+        tile_train(store, repeat_factor, save_calcium=spec.save_calcium)
         # Reflect the post-tile length in the generation log so _have_data
         # validates the on-disk zarr without flagging it as incomplete.
         n_frames_train = n_frames_train * repeat_factor
 
     ledger.begin("reset_for_test", draws=True)
-    # --- Generate TEST split ---
-    # Default: test data is deterministic (sim.noisy_test_data=False) so that rollout
-    # comparison against ground truth reflects the model's dynamics, not observation
-    # noise. Set sim.noisy_test_data=True to keep train-level noise on the test split
-    # (e.g. for figures that show the noisy stimulus-response trace the model saw).
-    test_noise_model = spec.test_noise.process_std
-    test_noise_meas = spec.test_noise.measurement_std
-
-    # Reset neural state to avoid train→test leakage
-    x.voltage[:] = initial_state
-    _init_calcium = torch.rand(n_neurons, dtype=torch.float32, device=device)
-    x.calcium = _init_calcium
-    x.fluorescence = torch.zeros(n_neurons, dtype=torch.float32, device=device)
+    reset_for_test(x, initial_state, n_neurons, device)
 
     ledger.begin("integrate_test", draws=True)
-    # Test: single pass through test sequences, capped at MAX_TEST_FRAMES (or sim.n_frames_test if set)
-    MAX_TEST_FRAMES = spec.max_test_frames
-    _n_frames_test_cap = spec.n_frames_test_cap
-    test_target_frames = (_n_frames_test_cap if _n_frames_test_cap > 0 else MAX_TEST_FRAMES)
-    test_target = len(test_sequences) * frames_per_sequence
-    logger.info(f"generating TEST data (capped at {test_target_frames} frames from {len(test_sequences)} sequences)...")
-
-    writer = store.split_writer("test", n_neurons, spec.save_calcium, to_numpy)
-
-    _run_ode_generation(
-        stimulus_sequences=test_sequences, net=net, pde=pde, x=x,
-        edge_index=edge_index, initial_state=initial_state, spec=spec, store=store,
-        writer=writer,
-        target_frames=test_target_frames, num_passes=1,
-        n_neurons=n_neurons, device=device,
-        noise_model_level=test_noise_model,
-        measurement_noise_level=test_noise_meas,
-        visualize=False, run=run, run_vizualized=run_vizualized,
-        step=step, id_fig_start=id_fig, it_start=0,
-        fig_style=fig_style, davis_dataset=davis_dataset,
-        X1=X1, u_coords=u_coords, v_coords=v_coords,
-    )
-
-    n_frames_test = writer.finalize()
-    _noise_tag = (
-        f"noisy (noise_model={test_noise_model:g}, meas={test_noise_meas:g})"
-        if spec.noisy_test_data else "without noise"
-    )
-    logger.info(f"generated {n_frames_test} TEST frames {_noise_tag} (saved as .zarr)")
-    if spec.noisy_test_data:
-        # Marker for consumers that need to know the test split carries train-level noise
-        open(store.path("noisy_test_data.ok"), "w").close()
+    test_run = integrate_split(spec, "test", sequences=test_sequences, id_fig_start=train_run.id_fig, **split_args)
+    n_frames_test = test_run.n_frames
 
     ledger.begin("derive_noisy_targets_test", draws=False)
     # --- Compute noisy derivatives for TEST split (mirrors TRAIN) ---
     if spec.noisy_test_data and spec.test_noise.gate_measurement_std > 0:
-        _compute_noisy_derivatives(config, sim, n_neurons, split="test")
+        noisy_derivatives(spec, store, n_neurons, split="test")
 
     ledger.begin("restore_grad", draws=False)
     # restore gradient computation now (before any early-return paths)
