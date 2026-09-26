@@ -18,6 +18,7 @@ except ImportError:
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
 from connectome_gnn.generators.voltage.integrate import _run_ode_generation
+from connectome_gnn.generators.voltage.network import build_network
 from connectome_gnn.generators.voltage.postprocess import _compute_noisy_derivatives, _tile_train_zarrs
 from connectome_gnn.generators.voltage.rng import RngLedger
 from connectome_gnn.generators.voltage.spec import GenerationSpec
@@ -2291,138 +2292,17 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     folder = store.folder
 
     ledger.begin("build_network", draws=True)
-    # extent=15 → 721 retinotopic columns (5768 photoreceptors); extent=8 → 217 columns (1736 photoreceptors)
-    extent = spec.network.extent
-
-    # flyvis.__init__ sets root logger to INFO via basicConfig — restore to WARNING
-    import logging
-
-    from flyvis import Network, NetworkView
+    network = build_network(spec)
+    net = network.net
+    boxfilter_arg = network.boxfilter
     from flyvis.datasets.sintel import AugmentedSintel
-    from flyvis.utils.config_utils import CONFIG_PATH, get_default_config
 
     from connectome_gnn.generators.flyvis_ode import (
         FlyVisODE,
         get_photoreceptor_positions_from_net,
         group_by_direction_and_function,
     )
-    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams, get_ode_params_class
-    from connectome_gnn.utils import setup_flyvis_model_path
-
-
-    logging.getLogger().setLevel(logging.WARNING)
-    setup_flyvis_model_path()
-
-    # Initialize the flyvis network first (fast) so we can print actual network stats before
-    # the slow stimulus rendering begins.
-    import logging as _logging
-    _logging.getLogger("flyvis.utils.logging_utils").setLevel(_logging.ERROR)
-
-    if is_flyvis_hybrid_model(spec.network.signal_model_name):
-        # --- Flywirevis hybrid: load pre-computed connectome tables ---
-        from connectome_gnn.generators.hybrid_connectome import load_hybrid_network
-
-        signal_name = spec.network.signal_model_name
-        edge_uncertainty = spec.network.edge_uncertainty
-        flyvis_model_id = f"flow/{spec.network.ensemble_id}/{spec.network.model_id}"
-        logger.info(f"loading hybrid network ({signal_name}, extent={extent}, u={edge_uncertainty})...")
-        net, _orig_net = load_hybrid_network(
-            signal_name=signal_name,
-            extent=extent,
-            edge_uncertainty=edge_uncertainty,
-            model=flyvis_model_id,
-        )
-        logger.info(
-            f"hybrid network: {net.connectome.nodes.type[:].shape[0]} nodes, "
-            f"{net.connectome.edges.source_index[:].shape[0]} edges"
-        )
-    else:
-        assert "flywire" not in spec.network.signal_model_name, "Should have taken the if-branch"
-        # --- Standard flyvis network ---
-        config_net = get_default_config(overrides=[], path=f"{CONFIG_PATH}/network/network.yaml")
-        config_net.connectome.extent = extent
-        # ONE INDEX FOR EITHER FAMILY. The published models carry exactly one
-        # checkpoint and it is the trained one, which is why this used to be a
-        # hard-coded 0; a TASK-TRAINED run of ours has 65 and 0 is the untrained
-        # network, so generating from it would silently produce data from a model
-        # that never learned anything.
-        _chkpt = spec.network.conductance_checkpoint_index
-        if spec.network.ground_truth_model == "flyvis_conductance":
-            # THE SAME TRANSPLANT, WITH THE CONDUCTANCE DYNAMICS. flyvis shares
-            # every parameter by cell type and filter tap, so a state dict trained
-            # at extent 15 loads into an extent-8 network unchanged -- that is what
-            # the current-based path already relies on. All this branch adds is the
-            # dynamics class and the two reversal parameters, so the shapes match
-            # what the flow run saved.
-            #
-            # Importing the package is what REGISTERS them: flyvis resolves both by
-            # class name against the live subclass tree and, finding neither, would
-            # warn and fall back to a base class whose methods are `pass`.
-            import flyvis_conductance_optical_flow  # noqa: F401
-            from datamate import Namespace
-            from flyvis_conductance_optical_flow.config import CONDUCTANCE_DYNAMICS
-
-            config_net.dynamics.type = CONDUCTANCE_DYNAMICS
-            for name, dim in (("E_exc_raw", "global"), ("E_inh_raw", "per_type")):
-                config_net.node_config[name] = Namespace(
-                    type="ReversalPotential", groupby=["type"], initial_dist="Value",
-                    value=0.0, reversal_dim=dim, requires_grad=True)
-            # NOT checkpoint 0: that is the untrained network. See
-            # SimulationConfig.conductance_checkpoint_index.
-        net = Network(**config_net)
-        nnv = NetworkView(f"flow/{spec.network.ensemble_id}/{spec.network.model_id}")
-        trained_net = nnv.init_network(checkpoint=_chkpt)
-        net.load_state_dict(trained_net.state_dict())
-        if spec.network.ground_truth_model == "flyvis_conductance":
-            got = type(net.dynamics).__name__
-            if got != CONDUCTANCE_DYNAMICS:
-                raise RuntimeError(
-                    f"network.dynamics is {got}, not {CONDUCTANCE_DYNAMICS}; flyvis "
-                    "fell back to a base class whose methods are `pass`.")
-            print(f"\033[96m  conductance generator: flow/{spec.network.ensemble_id}/"
-                  f"{spec.network.model_id} checkpoint {_chkpt}, {got}\033[0m", flush=True)
-    torch.set_grad_enabled(False)
-
-    _node_types_str = [t.decode('utf-8') if isinstance(t, bytes) else str(t) for t in net.connectome.nodes["type"][:]]
-    _photoreceptor_types = {'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8'}
-    n_input_neurons_net = int(np.sum([t in _photoreceptor_types for t in _node_types_str]))
-    print(f"  n_neurons:       {net.n_nodes}", flush=True)
-    print(f"  n_input_neurons: {n_input_neurons_net}", flush=True)
-    print(f"  n_edges:         {net.n_edges}", flush=True)
-
-    # Stimulus filter: regular flyvis hex disk (default) or, for FlyWire
-    # hybrids, a *standard* hex disk large enough to contain every
-    # FlyWire input column, plus an index that projects the rendered
-    # standard-hex frame to the FlyWire column subset.  Rendering at the
-    # standard hex disk lets us apply flyvis's HexFlip/HexRotate
-    # augmentations unchanged (they require a regular lattice); the
-    # projection then maps each augmented frame onto the actual FlyWire
-    # input columns at ``Stimulus.add_input`` time.
-    if spec.stimulus.flywire_stimulus:
-        from connectome_gnn.generators.flywire_eye import (
-            standard_boxeye_and_flywire_index,
-        )
-        _be, _flywire_proj_idx, _be_extent = standard_boxeye_and_flywire_index(
-            net, kernel_size=13,
-        )
-        boxfilter_arg = dict(extent=_be_extent, kernel_size=13)
-        print(
-            f"[stimulus] flywire_stimulus=True: rendering at standard "
-            f"BoxEye(extent={_be_extent}) with {_be.hexals} hexals; "
-            f"projecting to {_flywire_proj_idx.numel()} FlyWire columns",
-            flush=True,
-        )
-        # Monkey-patch ``net.stimulus.add_input`` to project standard-hex
-        # frames down to FlyWire columns. This way every existing call
-        # site (including those inside top-level helpers like
-        # ``_run_ode_generation``) works unchanged.
-        _orig_add_input = net.stimulus.add_input
-        def _patched_add_input(frame, *args, **kwargs):
-            idx = _flywire_proj_idx.to(frame.device)
-            return _orig_add_input(frame.index_select(-1, idx), *args, **kwargs)
-        net.stimulus.add_input = _patched_add_input
-    else:
-        boxfilter_arg = dict(extent=extent, kernel_size=13)
+    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
 
     ledger.begin("load_stimuli", draws=True)
     # Initialize datasets
