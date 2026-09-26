@@ -57,9 +57,11 @@ def _select(args) -> list:
 
 
 def _head_root(args, work: Path, label: str) -> Path:
-    """The HEAD implementation: this checkout, or (--snapshot) an APFS clone of its
-    src/, GNN_PlotFigure.py and assets/ taken now, so the checkout can be edited
-    while the cells run."""
+    """The HEAD implementation: --head-root, else this checkout, or (--snapshot) an
+    APFS clone of its src/, GNN_PlotFigure.py and assets/ taken now, so the
+    checkout can be edited while the cells run."""
+    if args.head_root:
+        return Path(args.head_root).resolve()
     if not args.snapshot:
         return REPO_ROOT
     from golden_voltage import mutants
@@ -184,6 +186,8 @@ def main(argv=None) -> int:
     p.add_argument("--impl", default="both", choices=["base", "head", "both"])
     p.add_argument("--snapshot", action="store_true",
                    help="run HEAD from a clone of the checkout taken at start (edit freely meanwhile)")
+    p.add_argument("--head-root", default="",
+                   help="run HEAD from this tree (src/, GNN_PlotFigure.py, assets/) instead of the checkout")
     p.set_defaults(fn=cmd_run)
     p = sub.add_parser("ledger", help="summarise the HEAD runs' RNG ledgers of a label")
     p.add_argument("label")
