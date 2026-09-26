@@ -17,6 +17,7 @@ except ImportError:
     load_zebrafish_data = None
 from connectome_gnn.figure_style import dark_style, default_style
 from connectome_gnn.generators.optogenetics import build_input_perturbation
+from connectome_gnn.generators.voltage.dynamics import build_ode, extract_ode_params
 from connectome_gnn.generators.voltage.edges import ablation_mask as edge_ablation_mask
 from connectome_gnn.generators.voltage.edges import add_null_edges, remove_edges
 from connectome_gnn.generators.voltage.integrate import _run_ode_generation
@@ -2299,50 +2300,16 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
     net = network.net
     boxfilter_arg = network.boxfilter
     from connectome_gnn.generators.flyvis_ode import (
-        FlyVisODE,
         get_photoreceptor_positions_from_net,
         group_by_direction_and_function,
     )
-    from connectome_gnn.generators.ode_params import FlyVisCurrentODEParams
 
     ledger.begin("load_stimuli", draws=True)
     stimuli = build_sources(spec, boxfilter_arg)
     davis_dataset = stimuli.davis_dataset
 
     ledger.begin("extract_ode_params", draws=False)
-    # Extract ground-truth parameters. WHICH synapse model generates the data is
-    # sim.ground_truth_model, NOT the model that will be trained on it -- see
-    # SimulationConfig.ground_truth_model for why those are separate axes.
-    print(f"[DBG] extracting ODE params ({spec.network.ground_truth_model}) ...", flush=True)
-    if spec.network.ground_truth_model == "conductance":
-        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
-
-        # The connectome supplies the graph; the trained student supplies the
-        # parameters. edge_index is a property of the connectome, not of the
-        # fit, so it comes from the flyvis network either way.
-        _edges = FlyVisCurrentODEParams.from_flyvis_network(net, device=device).edge_index
-        ode_params = FlyVisConductanceODEParams.from_twin_checkpoint(
-            spec.network.conductance_checkpoint, _edges, device=device)
-        logger.info(
-            f"conductance ground truth from {spec.network.conductance_checkpoint}: "
-            f"E_inh={float(ode_params.E_inh[0]):+.3f} E_exc={float(ode_params.E_exc[0]):+.3f}, "
-            f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
-    elif spec.network.ground_truth_model == "flyvis_conductance":
-        # The parameters are already in the network -- `write_derived_params` has
-        # materialised both reversals per neuron -- so unlike the twin path there is
-        # no checkpoint to read and no square root to undo.
-        from connectome_gnn.generators.ode_params import FlyVisConductanceODEParams
-
-        ode_params = FlyVisConductanceODEParams.from_flyvis_network(net, device=device)
-        logger.info(
-            f"conductance ground truth from flow/{spec.network.ensemble_id}/{spec.network.model_id}: "
-            f"E_exc {float(ode_params.E_exc.min()):+.3f}..{float(ode_params.E_exc.max()):+.3f}, "
-            f"E_inh {float(ode_params.E_inh.min()):+.3f}..{float(ode_params.E_inh.max()):+.3f}, "
-            f"{int(ode_params.edge_is_inh.sum())}/{ode_params.edge_is_inh.numel()} inhibitory edges")
-    else:
-        ode_params = FlyVisCurrentODEParams.from_flyvis_network(net, device=device)
-    edge_index = ode_params.edge_index.to(device)
-    print(f"[DBG] ODE params ready (edges={edge_index.shape[1]})", flush=True)
+    ode_params, edge_index = extract_ode_params(spec, net, device)
 
     ledger.begin("add_null_edges", draws=True)
     if spec.edges.n_extra_null_edges > 0:
@@ -2359,27 +2326,9 @@ def _data_generate_voltage(config, *, visualize, run_vizualized, style, erase, s
         logger.info(f"ablated {n_ablate}/{n_edges} edges ({spec.edges.ablation_ratio * 100:.0f}%)")
 
     ledger.begin("build_ode", draws="multiple_ReLU" in spec.network.signal_model_name)
-    pde = FlyVisODE(
-        ode_params=ode_params,
-        g_phi=torch.nn.functional.relu,
-        params=spec.network.ode_params_list(),
-        model_type=spec.network.signal_model_name,
-        n_neuron_types=spec.network.n_neuron_types,
-        device=device,
-    )
-
+    pde = build_ode(spec, ode_params, edge_index, device)
     _G = '\033[92m'  # green
-    _R = '\033[91m'  # red
     _X = '\033[0m'   # reset
-
-    # Activity will be generated with the FULL connectivity below.
-    # Edge removal (if any) is applied AFTER generation so that x_list/y_list
-    # reflect the full-network dynamics. Only ode_params (the connectivity seen
-    # by the GNN) is pruned, giving the GNN an incomplete adjacency matrix to
-    # work with while the ground-truth activity it must predict is from the
-    # full connectome. This tests whether the GNN can recover parameters
-    # despite missing edges.
-    print(f"{_G}[GENERATE] full connectivity: edge_index={edge_index.shape}  W={ode_params.W.shape}{_X}")
 
     ledger.begin("init_geometry", draws=False)
     # Per-neuron hexagonal Cartesian positions for the *full* network — every
