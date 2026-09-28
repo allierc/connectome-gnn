@@ -194,3 +194,9 @@ experiments/INSTRUCTION.md
 calib/
 bsub_*.out
 bsub_*.err
+
+# Kept on disk, not in the repository (2026-09-28)
+/docs/
+/neurips_review/
+/papers/
+/presentation/
