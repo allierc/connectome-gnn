@@ -140,24 +140,31 @@ $A^{\!\top}\!A$ is $3\times3$ whatever $n$ is.
 $n_{\min} = 8$ usable rows per edge. A row constrains $\Wij$ and $\Eij$ only where
 the presynaptic cell is active; at $u_t = 0$ it is $[0,\,0,\,1]$ and fixes the
 offset alone. The activity floor is the median of the positive $\act(\vj)$, pooled
-over a $64$-frame probe, and $u_t$ must exceed it.
+over every (edge, frame) pair of the sample, and $u_t$ must exceed it. An edge
+with fewer than eight usable rows, or a singular $A^{\!\top}\!A$, is not fitted.
 
-\paragraph{Choosing the frames.} A quarter of this connectome's edges have a
-presynaptic cell active in about $2\%$ of the frames, which yields some five rows
-in a $256$-frame draw. A uniform draw four times larger moves that share by about
-four points, and the sampler exhausts memory near $n = 4096$. Two passes instead:
+\paragraph{Choosing the frames.} The readout draws $n = 1{,}024$ frames uniformly
+at random, once, and fits every edge on them, in one pass. $A^{\!\top}\!A$ and
+$A^{\!\top}y$ are sums over frames, so they are accumulated a block of edges at a
+time and nothing of size edges $\times$ frames is ever held, whatever the graph.
 
-\begin{enumerate}[nosep,leftmargin=1.6em]
-\item A uniform draw of $n = 256$, then, for each presynaptic cell seen active
-      fewer than eight times, extra frames drawn from that cell's own active
-      frames, capped at $2048$.
-\item $768$ further frames, streamed in chunks of $256$, their contributions
-      added to the ten sums only for edges still under $n_{\min}$. $A^{\!\top}\!A$
-      and $A^{\!\top}y$ are sums over frames, so this adds to sums already formed
-      and leaves every other edge untouched.
-\end{enumerate}
+The frames an edge can use are the ones where its presynaptic cell is above the
+floor, so coverage is set by the stimulus rather than by the readout. On the
+flyvis data about a quarter of the $434{,}112$ edges have a presynaptic cell that
+is almost never above it: $76$--$77\%$ of edges are fitted at noise levels
+$0$ and $0.05$, and $96\%$ at $0.5$, where the process noise drives most cells
+over the floor. Doubling the draw to $2{,}048$ frames adds one to two points of
+coverage and nothing to $R^2_{W}$.
 
-Together they fit $99.6\%$ of the $434{,}112$ edges.
+Two refinements were tried and are no longer the default, because they did not
+pay: frames added from the active windows of rarely-active presynaptic cells,
+and a second pass of $768$ frames summed into the edges still short of eight
+rows. On fifteen trained models (three noise levels, five folds) they score
+$R^2_{W}$ within $0.005$ of the single random draw, at the same coverage. The
+second pass also had a defect until 2026-09-28: it listed the edges in a
+different random order from the first pass and added its sums by position, so
+each short edge was fitted partly on another edge's frames. That is what made
+the coverage read $99.6\%$; it cost $R^2_{W}$ between $0.006$ and $0.041$.
 
 \paragraph{Why $\Eij$ is the fragile one.} $\Wij$ is a coefficient; $\Eij$ is a
 ratio of two, so its relative error is
@@ -177,10 +184,10 @@ t = \frac{|b_2|}{\mathrm{se}(b_2)},
 \label{eq:gate}
 \end{equation}
 %
-Everything below it is recorded as unidentified rather than dropped silently. On
-the conductance run used throughout: $432{,}517$ of the $434{,}112$ edges are
-fitted ($99.6\%$), and of those, $405{,}503$ clear the gate and report a reversal
-($93.4\%$ of all edges).
+Everything below it is recorded as unidentified rather than dropped silently.
+(The counts this note quoted here, $99.6\%$ of edges fitted and $93.4\%$
+clearing the gate, were measured with the defective second pass described above
+and are withdrawn; they have not been re-measured on that run.)
 
 \subsection{Per neuron: the update fit, and the gauge it leaves free}
 \label{sec:update}
