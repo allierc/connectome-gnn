@@ -2596,14 +2596,32 @@ class RecoveryConfig(BaseModel):
     #   better rows.
     #
     #   template_second_pass_frames streams that many extra frames and adds their
-    #   rows ONLY to the edges still short, leaving the rest untouched. It takes
-    #   the unfitted share from 25.9% to 0.37%, covering 432,517 of 434,112
-    #   edges, and moves Wij_R2 by 0.002.
+    #   rows ONLY to the edges still short, leaving the rest untouched. It
+    #   rescues 2.9% of the 434,112 edges (unfitted 26.7% -> 23.7%) on
+    #   flyvis_noise_005_blank50_condl25_cv00.
     #
-    # Both cost seconds in a pass measured in tens of minutes. "uniform" and 0
-    # restore the older behaviour for a run that needs to match an archived one.
-    template_frame_choice: str = "active"
-    template_second_pass_frames: int = 768
+    #   IT WAS MEASURED AT 25.9% -> 0.37% WHEN IT HAD A BUG, and that number is
+    #   withdrawn: each chunk re-permuted the edges, so a short edge was summed
+    #   with a DIFFERENT edge's frames -- mostly a busy one, which is why nearly
+    #   every short edge crossed the eight-row minimum. Fixed 2026-09-28. On
+    #   that run the fix moves Wij_R2 0.971 -> 0.981 and the fitted share
+    #   99.3% -> 76.3%: the quarter of edges it had "rescued" were being fitted
+    #   on another edge's data.
+    #
+    # THE DEFAULT IS NOW ONE UNIFORM RANDOM DRAW OF 1,024 FRAMES, ONE PASS
+    # (2026-09-28, experiment 8). On experiment 2's 15 conductance lasso-25
+    # models, three noise levels, it scores R2_W within 0.005 of "active" plus
+    # the fixed second pass, at the same coverage (76-77% of edges at
+    # noise_free and noise_005, 96% at noise_05), with no frame chooser and no
+    # second-pass bookkeeping. "active" and a second pass stay available; runs
+    # analysed before this date used active + 768 (with the bug above) and a
+    # 256-frame base, so set all three to match one of them.
+    template_frame_choice: str = "uniform"
+    template_second_pass_frames: int = 0
+    # Frames in the first draw (the whole sample when uniform, the base the
+    # active choice starts from otherwise). None keeps the readout's own
+    # default, 1,024.
+    template_n_frames: Optional[int] = None
     report_scaled: bool = True
 
 

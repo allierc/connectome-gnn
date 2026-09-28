@@ -24,7 +24,7 @@ from connectome_gnn.models.graph_trainer import (
 from connectome_gnn.models.utils import load_run_config
 from connectome_gnn.utils import (
     set_device, add_pre_folder, log_path, config_path, validate_pre_folder,
-    set_data_root, git_sha, git_dirty_files,
+    set_data_root, git_sha, git_dirty_files, sort_key,
 )
 
 
@@ -37,6 +37,33 @@ from GNN_PlotFigure import data_plot
 
 import warnings
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
+
+def _record_gpu_peak(run_log_dir, phase):
+    """Append this phase's peak GPU memory to <run>/gpu_memory.log.
+
+    WHY: LSF reports a job's host memory (`Max Memory` in cluster.out) but
+    nothing about the card, so "does this model fit on an 80 GB A100" had no
+    measured answer -- only a job that crashed or did not. One line per phase:
+    the device, its total memory, and torch's peak allocated and reserved since
+    the last reset, which is then reset so the next phase is measured alone.
+    Best effort: a recording failure never costs the run.
+    """
+    try:
+        import torch as _t
+        if not _t.cuda.is_available():
+            return
+        dev = _t.cuda.current_device()
+        props = _t.cuda.get_device_properties(dev)
+        gib = 1024 ** 3
+        line = (f"phase={phase} device={props.name} total_gb={props.total_memory / gib:.1f} "
+                f"peak_allocated_gb={_t.cuda.max_memory_allocated(dev) / gib:.2f} "
+                f"peak_reserved_gb={_t.cuda.max_memory_reserved(dev) / gib:.2f}\n")
+        with open(os.path.join(run_log_dir, "gpu_memory.log"), "a") as f:
+            f.write(line)
+        _t.cuda.reset_peak_memory_stats(dev)
+    except Exception as _e:
+        print(f"[warn] gpu peak record failed: {_e}")
+
 if __name__ == "__main__":
     warnings.filterwarnings("ignore", category=FutureWarning)
     parser = argparse.ArgumentParser(description="connectome_gnn")
@@ -308,6 +335,7 @@ if __name__ == "__main__":
                 device=device,
                 resume=args.resume,
             )
+            _record_gpu_peak(run_log_dir, "train")
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
@@ -390,6 +418,7 @@ if __name__ == "__main__":
                     if args.anatomy_voltage_types else None
                 ),
             )
+            _record_gpu_peak(run_log_dir, "test")
             with open(_marker, 'w') as f:
                 f.write(f"commit={sha}\nargv={sys.argv}\n")
 
@@ -404,6 +433,7 @@ if __name__ == "__main__":
             folder_name = log_path(pre_folder, 'tmp_results') + '/'
             os.makedirs(folder_name, exist_ok=True)
             data_plot(config=config, epoch_list=['best'], style='color', extended='plots', device=device, apply_weight_correction=True, skip_svd=True)
+            _record_gpu_peak(run_log_dir, "plot")
 
             # Per-neuron readout: trajectory, update, message, every synapse, and
             # the closed forms beside them. Driven by config.analysis.neurons, so
@@ -423,8 +453,13 @@ if __name__ == "__main__":
                     _m = _cm(config.graph_model.signal_model_name,
                              aggr_type=config.graph_model.aggr_type, config=config,
                              device=device).to(device)
+                    # NUMERIC ORDER, as data_plot's own pick: sorted as text,
+                    # "..._0_533333.pt" follows "..._0_1599999.pt" and the panels
+                    # were drawn from a checkpoint a third of the way through
+                    # training while metrics.txt read the last one.
                     _ck = sorted(_glob.glob(os.path.join(
-                        run_log_dir, "models", "best_model_with_*_graphs_*.pt")))
+                        run_log_dir, "models", "best_model_with_*_graphs_*.pt")),
+                        key=sort_key)
                     if not _ck:
                         # No checkpoint means the run never reached an epoch end.
                         # Analysing the freshly built model would describe random

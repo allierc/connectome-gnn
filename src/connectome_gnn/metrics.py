@@ -767,6 +767,64 @@ def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity,
 # the result does not depend on it.
 G_PHI_EVAL_CHUNK = 1_000_000
 
+# (edge, frame) pairs per block when the template readout streams its per-edge
+# sums: 2**26 is ~0.27 GB per float32 (edges x frames) array on the GPU and
+# ~0.54 GB per float64 one on the host, about 2 GB and 7 GB for a block. Purely
+# a memory knob -- every sum is per edge, so the blocks do not interact.
+TEMPLATE_BLOCK_PAIRS = 1 << 26
+
+
+def _pooled_quantile(values, weights, q, positive=False, percentile=False):
+    """np.quantile(x, q) -- or np.percentile(x, q) -- of the array x holding each
+    values[f, n] weights[n] times, without building x.
+
+    Exact, including numpy's rounding: the two order statistics the linear
+    method interpolates between are read off the cumulative weights, q is given
+    the dtype numpy would give it (a Python float takes a float array's dtype;
+    a percentile is divided by 100 in that dtype), the virtual index is computed
+    in that dtype, and the interpolation itself is handed back to np.quantile on
+    the two values. `positive` keeps only values > 0 first, as `u[u > 0]` does.
+    None when nothing is left; nan when a kept value is nan, as numpy returns.
+
+    Args:
+        values: (n_frames, n_cells) float array.
+        weights: (n_cells,) non-negative integer counts.
+        q: a fraction, or with `percentile` a percentage.
+    """
+    v = np.asarray(values)
+    if percentile:
+        q = np.asanyarray(np.true_divide(q, v.dtype.type(100)))
+    elif isinstance(q, (int, float)) and v.dtype.kind == "f":
+        q = np.asanyarray(q, dtype=v.dtype)
+    else:
+        q = np.asanyarray(q)
+    w = np.broadcast_to(np.asarray(weights, dtype=np.int64), v.shape).ravel()
+    v = v.ravel()
+    keep = w > 0
+    if positive:
+        keep &= v > 0
+    v, w = v[keep], w[keep]
+    n = int(w.sum())
+    if n == 0:
+        return None
+    if np.isnan(v).any():
+        return float("nan")
+    order = np.argsort(v, kind="stable")
+    sv, cw = v[order], np.cumsum(w[order])
+    virt = (n - 1) * q
+    if virt >= n - 1:
+        lo = hi = n - 1
+    elif virt < 0:
+        lo = hi = 0
+    else:
+        lo = int(np.floor(virt))
+        hi = lo + 1
+    pair = np.array([sv[np.searchsorted(cw, lo, side="right")],
+                     sv[np.searchsorted(cw, hi, side="right")]], dtype=sv.dtype)
+    # A 0-d array, not a Python float, so np.quantile keeps its dtype.
+    gamma = np.asanyarray(virt - np.floor(virt), dtype=virt.dtype)
+    return float(np.quantile(pair, gamma))
+
 
 def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames=2000,
                                 seed=0, frame_idx=None):
@@ -804,33 +862,73 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
                 pairs, same time indices for both (co-occurring).
             g_phi: (n_edges, n_frames) numpy array — g_phi at those pairs.
     """
-    signal_model_name = config.graph_model.signal_model_name
-    g_phi_positive = config.graph_model.g_phi_positive
     device = model.a.device
-    emb_dim = model.a.shape[1]
-
-    rng = np.random.default_rng(seed)
-    n_edges_total = edges.shape[1]
-    sel = rng.choice(n_edges_total, size=min(n_edges, n_edges_total), replace=False)
+    sel, frame_idx = _observed_plan(int(edges.shape[1]), n_edges, int(x_ts.n_frames),
+                                    n_frames, seed, frame_idx)
     src = edges[0, sel].to(device)   # j — presynaptic
     dst = edges[1, sel].to(device)   # i — postsynaptic
-    n_e = len(sel)
+    vi, vj, g_phi_vals = _g_phi_on_edges(model, config, src, dst,
+                                         _frame_voltages(x_ts, frame_idx, device))
 
+    return {
+        'edge_ij': np.stack([to_numpy(dst), to_numpy(src)], axis=1),
+        # WHICH EDGES THESE ARE, as indices into the caller's edge array. Even
+        # when every edge is asked for, rng.choice returns them permuted, so a
+        # caller pairing a result against ode_params.W per edge needs this to
+        # undo the permutation; without it the only way back is matching (i, j)
+        # pairs, which duplicate edges make ambiguous.
+        'edge_idx': np.asarray(sel).astype(np.int64),
+        'vi': to_numpy(vi),
+        'vj': to_numpy(vj),
+        'g_phi': to_numpy(g_phi_vals),
+    }
+
+
+def _observed_plan(n_edges_total, n_edges, n_total_frames, n_frames, seed,
+                   frame_idx=None):
+    """The edges and frames `sample_g_phi_vi_vj_observed` samples, and nothing else.
+
+    ONE RNG STREAM, drawn in this order: the edge sample first, then the frames
+    (unless the caller chose them). The template readout streams its sums over
+    blocks of edges instead of calling the sampler, and it must see exactly the
+    edges and frames the sampler would have, so both draw through here.
+    """
+    rng = np.random.default_rng(seed)
+    sel = rng.choice(n_edges_total, size=min(n_edges, n_edges_total), replace=False)
     # FRAMES CHOSEN BY THE CALLER, when it has a reason to. A uniform sample
     # spends its rows where the network is already easy to measure: the frames
     # that matter for a rarely-active presynaptic cell are exactly the ones a
     # uniform draw almost never contains. `choose_active_frames` picks them.
     if frame_idx is None:
-        n_frames = min(n_frames, x_ts.n_frames)
-        frame_idx = torch.from_numpy(
-            rng.choice(x_ts.n_frames, size=n_frames, replace=False)).to(device).long()
-    else:
-        frame_idx = torch.as_tensor(np.asarray(frame_idx), device=device).long()
-        n_frames = int(frame_idx.numel())
+        frame_idx = rng.choice(n_total_frames, size=min(n_frames, n_total_frames),
+                               replace=False)
+    return sel, np.asarray(frame_idx).astype(np.int64)
 
-    voltage = x_ts.voltage.to(device)                    # (T, N)
-    vi = voltage[frame_idx][:, dst].T.contiguous()        # (n_e, n_frames)
-    vj = voltage[frame_idx][:, src].T.contiguous()        # (n_e, n_frames)
+
+def _frame_voltages(x_ts, frame_idx, device):
+    """(n_frames, N) voltages at `frame_idx`, on `device`.
+
+    Indexed where the trajectory lives and only then moved: moving the whole
+    (T, N) recording first is 12.8 GB on the 50,412-neuron FlyWire eye at
+    64,000 frames, for the 1,024 frames the readout reads.
+    """
+    vol = x_ts.voltage
+    fi = torch.as_tensor(np.asarray(frame_idx), device=vol.device).long()
+    return vol[fi].to(device)
+
+
+def _g_phi_on_edges(model, config, src, dst, volt_f):
+    """g_phi at the observed (v_i, v_j) of the edges src -> dst, over the frames of volt_f.
+
+    Returns (vi, vj, g_phi), each an (n_e, n_frames) tensor; g_phi squared if
+    `g_phi_positive`, as it enters the message.
+    """
+    signal_model_name = config.graph_model.signal_model_name
+    g_phi_positive = config.graph_model.g_phi_positive
+    emb_dim = model.a.shape[1]
+    n_e, n_frames = int(src.numel()), int(volt_f.shape[0])
+    vi = volt_f[:, dst].T.contiguous()                   # (n_e, n_frames)
+    vj = volt_f[:, src].T.contiguous()                   # (n_e, n_frames)
 
     ai_flat = model.a[dst].unsqueeze(1).expand(-1, n_frames, -1).reshape(-1, emb_dim)
     aj_flat = model.a[src].unsqueeze(1).expand(-1, n_frames, -1).reshape(-1, emb_dim)
@@ -862,20 +960,7 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
             outs.append(_o)
         out = torch.cat(outs, dim=0)
 
-    g_phi_vals = out.reshape(n_e, n_frames)
-
-    return {
-        'edge_ij': np.stack([to_numpy(dst), to_numpy(src)], axis=1),
-        # WHICH EDGES THESE ARE, as indices into the caller's edge array. Even
-        # when every edge is asked for, rng.choice returns them permuted, so a
-        # caller pairing a result against ode_params.W per edge needs this to
-        # undo the permutation; without it the only way back is matching (i, j)
-        # pairs, which duplicate edges make ambiguous.
-        'edge_idx': np.asarray(sel).astype(np.int64),
-        'vi': to_numpy(vi),
-        'vj': to_numpy(vj),
-        'g_phi': to_numpy(g_phi_vals),
-    }
+    return vi, vj, out.reshape(n_e, n_frames)
 
 
 def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
@@ -3318,10 +3403,10 @@ def choose_active_frames(x_ts, src_ids, floor, base=256, per_neuron=8,
 
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
-                            device=None, n_neurons=None, n_frames=256, seed=0,
+                            device=None, n_neurons=None, n_frames=1024, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
-                            second_pass_frames=768, second_pass_chunk=256,
-                            frame_choice="active",
+                            second_pass_frames=0, second_pass_chunk=256,
+                            frame_choice="uniform",
                             gauge_frames=8, w_from="pooled_E",
                             t_slope=3.0, update_frames=64,
                             base: RecoveredParams = None) -> RecoveredParams:
@@ -3333,12 +3418,14 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     one vocabulary and the two `results/metrics*.txt` files diff line by line.
 
     Args:
-        n_frames: real frames sampled per edge for the fit. 256 rather than the
-            64 the correction chain samples, because the v_j floor throws away
-            every frame where the presynaptic cell is quiet: at 64 frames the
-            median edge kept 17 of them and 43% of edges fell below `min_points`
-            and went unmeasured, which is a silent selection of the busiest
-            synapses, not a cheaper measurement.
+        n_frames: real frames sampled per edge for the fit, one uniform random
+            draw. 1,024 since 2026-09-28 (experiment 8): on experiment 2's
+            conductance lasso-25 models it scores R2_W within 0.005 of the
+            active choice plus a second pass, at the same coverage, and 2,048
+            adds 1-2 points of coverage and nothing to R2_W. The v_j floor
+            throws away every frame where the presynaptic cell is quiet, so an
+            edge whose sender is almost never above it stays unmeasured at any
+            of these sizes (about a quarter of flyvis edges at noise_free).
         vj_quantile: floor on the presynaptic drive, as a quantile of the
             POSITIVE activations. Frames below it carry almost no drive, so they
             say little about W or E while still weighting the least squares.
@@ -3399,44 +3486,26 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     _rc = getattr(config, "recovery", None)
     frame_choice = getattr(_rc, "template_frame_choice", frame_choice) or frame_choice
     second_pass_frames = getattr(_rc, "template_second_pass_frames", second_pass_frames)
-    _frames = None
-    if frame_choice == "active":
-        _probe = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
-                                             n_edges=int(edges.shape[1]),
-                                             n_frames=min(64, int(x_ts.n_frames)),
-                                             seed=seed)
-        _u0 = np.asarray(ode_params.gt_g_phi_func(_probe['vj'].astype(np.float64)),
-                         dtype=np.float64)
-        _pos = _u0[_u0 > 0]
-        _floor = float(np.quantile(_pos, vj_quantile)) if _pos.size else 0.0
-        # A trajectory that cannot answer "what was the voltage at frame k"
-        # falls back to the uniform draw rather than taking the run down: the
-        # frame choice is an optimisation, not a requirement.
-        try:
-            _frames = choose_active_frames(
-                x_ts, to_numpy(edges).reshape(2, -1)[0], _floor,
-                base=n_frames, per_neuron=max(min_points, 8),
-                max_frames=max(4 * n_frames, n_frames), seed=seed)
-        except Exception:
-            _frames = None
+    # The config's frame count wins over the caller's only when it is set, so a
+    # tool that passes n_frames explicitly keeps it under a default config.
+    _nf = getattr(_rc, "template_n_frames", None)
+    n_frames = int(_nf) if _nf else n_frames
+    # STREAMED OVER EDGES, never held whole. Everything the fit needs is a
+    # per-edge sum over frames (`_sums` below), so a block of edges at a time
+    # gives the same sums. The sampler, called for every edge at once, held
+    # (edges x frames) arrays instead -- seven on the GPU, about ten float64 on
+    # the host -- and ran every 80-95 GB card out of memory at the first
+    # training checkpoint on the 1.3-9.6 M-edge FlyWire graphs (experiment 6,
+    # 2026-09-28). `_observed_plan` draws the edges and frames the sampler
+    # would have, so the stream reads the same pairs.
+    E_all = int(edges.shape[1])
+    n_total = int(x_ts.n_frames)
+    _ends = to_numpy(edges).reshape(2, -1).astype(np.int64)
+    src_all, dst_all = _ends[0], _ends[1]
+    W_all = to_numpy(get_model_W(core)).ravel().astype(np.float64)
 
-    res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
-                                      n_edges=int(edges.shape[1]), n_frames=n_frames,
-                                      seed=seed, frame_idx=_frames)
-    eid = res['edge_idx']
-    vi, vj = res['vi'].astype(np.float64), res['vj'].astype(np.float64)
-    n_e = vi.shape[0]
-    i_ids = res['edge_ij'][:, 0].astype(np.int64)
-    W_gnn = to_numpy(get_model_W(core)).ravel().astype(np.float64)[eid]
-    msg = W_gnn[:, None] * res['g_phi'].astype(np.float64)
-
-    # THE GENERATOR'S OWN ACTIVATION, which is what "relu given" means: the shape
-    # is not fitted, it is read from ode_params, so any error left over is the
-    # model's and not the readout's choice of nonlinearity.
-    u = np.asarray(ode_params.gt_g_phi_func(vj), dtype=np.float64).reshape(vj.shape)
-    pos = u[u > 0]
-    floor = float(np.quantile(pos, vj_quantile)) if pos.size else 0.0
-    keep = u > max(floor, 1e-6)
+    def _gt(v_):
+        return np.asarray(ode_params.gt_g_phi_func(v_), dtype=np.float64).reshape(v_.shape)
 
     # THE THIRD COLUMN IS A CONSTANT, and it is a measurement rather than a
     # nuisance. The generator's per-edge message is W * act(v_j) * (E - v_i),
@@ -3467,11 +3536,76 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                     S1y=(a1 * y_).sum(1), S2y=(a2 * y_).sum(1),
                     S3y=(a3 * y_).sum(1), Syy=(y_ * y_).sum(1))
 
-    acc = _sums(u, vi, msg, floor)
+    _SUM_KEYS = ("n", "S11", "S12", "S22", "S13", "S23", "S1y", "S2y", "S3y", "Syy")
+
+    def _block_sums(order, volt_f, floor_):
+        """`_sums` for the edges `order` (positions in the caller's edge array),
+        in that order, one block of edges at a time."""
+        step = max(1, TEMPLATE_BLOCK_PAIRS // max(int(volt_f.shape[0]), 1))
+        parts = []
+        for lo in range(0, len(order), step):
+            idx = order[lo:lo + step]
+            vi_t, vj_t, g_t = _g_phi_on_edges(
+                core, config, torch.as_tensor(src_all[idx], device=device),
+                torch.as_tensor(dst_all[idx], device=device), volt_f)
+            vj_b = to_numpy(vj_t).astype(np.float64)
+            parts.append(_sums(_gt(vj_b), to_numpy(vi_t).astype(np.float64),
+                               W_all[idx][:, None] * to_numpy(g_t).astype(np.float64),
+                               floor_))
+            del vi_t, vj_t, g_t
+        if not parts:
+            return {k_: np.zeros(0) for k_ in _SUM_KEYS}
+        return {k_: np.concatenate([p_[k_] for p_ in parts]) for k_ in _SUM_KEYS}
+
+    # THE TWO GLOBAL QUANTITIES, exact, without the (edges x frames) array. On
+    # an edge act(v_j) is its SENDER's activation, so over every edge and frame
+    # each (frame, neuron) activation appears once per out-edge of that neuron:
+    # the floor's quantile is the out-degree-weighted quantile of the
+    # (frames x neurons) activations, and |v_i|'s 99th percentile the
+    # in-degree-weighted one. Every edge is sampled (a permutation), so the
+    # weights are the degrees over the whole graph.
+    _n_cells = int(x_ts.voltage.shape[1])
+    out_deg = np.bincount(src_all, minlength=_n_cells)
+    in_deg = np.bincount(dst_all, minlength=_n_cells)
+
+    _frames = None
+    if frame_choice == "active":
+        _, _pf = _observed_plan(E_all, E_all, n_total, min(64, n_total), seed)
+        _u0 = _gt(to_numpy(_frame_voltages(x_ts, _pf, device)).astype(np.float64))
+        _floor = _pooled_quantile(_u0, out_deg, vj_quantile, positive=True)
+        _floor = 0.0 if _floor is None else _floor
+        # A trajectory that cannot answer "what was the voltage at frame k"
+        # falls back to the uniform draw rather than taking the run down: the
+        # frame choice is an optimisation, not a requirement.
+        try:
+            _frames = choose_active_frames(
+                x_ts, src_all, _floor,
+                base=n_frames, per_neuron=max(min_points, 8),
+                max_frames=max(4 * n_frames, n_frames), seed=seed)
+        except Exception:
+            _frames = None
+
+    sel, _fidx = _observed_plan(E_all, E_all, n_total, n_frames, seed, _frames)
+    eid = np.asarray(sel).astype(np.int64)
+    n_e = int(eid.size)
+    i_ids = dst_all[eid]
+    _vf = _frame_voltages(x_ts, _fidx, device)                  # (F, N)
+    _vf_np = to_numpy(_vf)
+
+    # THE GENERATOR'S OWN ACTIVATION, which is what "relu given" means: the shape
+    # is not fitted, it is read from ode_params, so any error left over is the
+    # model's and not the readout's choice of nonlinearity.
+    floor = _pooled_quantile(_gt(_vf_np.astype(np.float64)), out_deg, vj_quantile,
+                             positive=True)
+    floor = 0.0 if floor is None else floor
+    _vi_scale = _pooled_quantile(np.abs(_vf_np), in_deg, 99, percentile=True)
+    _vi_scale = float("nan") if _vi_scale is None else _vi_scale
+
+    acc = _block_sums(eid, _vf, floor)
     n_first_short = int((acc["n"] < min_points).sum())
 
     # A SECOND PASS FOR THE EDGES THAT ARE SHORT, and for those only. The first
-    # sample leaves ~26% of edges with fewer than `min_points` usable rows --
+    # sample leaves ~27% of edges with fewer than `min_points` usable rows --
     # their presynaptic cell is rarely above the floor -- and raising n_frames
     # for everyone re-fits every edge to admit them, which moves numbers that
     # were already fine and costs memory quadratically (the sampler materialises
@@ -3480,21 +3614,26 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # edges rescued this way are counted so the coverage gain is visible rather
     # than assumed. Off by default: at four times the frames E_ij R2 fell from
     # -0.013 to -0.828, because the edges admitted are the marginal ones.
+    #
+    # THE ADDED SUMS ARE THE SAME EDGE'S. Each chunk used to call the sampler,
+    # which re-permutes the edges from its own seed, and its sums were added
+    # position by position onto the first pass's: a short edge received the
+    # frames of whichever edge the new permutation put in its slot (4.6e-6 of
+    # slots coincide over 434,112 edges). The chunk's frames are still drawn
+    # from the same stream, so the frames are the ones it always read; only the
+    # edges they are summed for changed. With the right edges the pass rescues
+    # 2.9% of edges, not the 26% it appeared to (config.py, recovery).
     _short = acc["n"] < min_points
     n_rescued = 0
     if second_pass_frames and _short.any():
+        _at = np.where(_short)[0]
         _done = 0
         while _done < int(second_pass_frames):
             _chunk = min(int(second_pass_chunk), int(second_pass_frames) - _done)
-            _res = sample_g_phi_vi_vj_observed(core, config, edges, x_ts,
-                                               n_edges=int(edges.shape[1]),
-                                               n_frames=_chunk, seed=seed + 1 + _done)
-            _u = np.asarray(ode_params.gt_g_phi_func(_res['vj'].astype(np.float64)),
-                            dtype=np.float64).reshape(_res['vj'].shape)
-            _msg = W_gnn[:, None] * _res['g_phi'].astype(np.float64)
-            _add = _sums(_u, _res['vi'].astype(np.float64), _msg, floor)
+            _, _f2 = _observed_plan(E_all, E_all, n_total, _chunk, seed + 1 + _done)
+            _add = _block_sums(eid[_at], _frame_voltages(x_ts, _f2, device), floor)
             for k_ in acc:
-                acc[k_] = np.where(_short, acc[k_] + _add[k_], acc[k_])
+                acc[k_][_at] = acc[k_][_at] + _add[k_]
             _done += _chunk
         n_rescued = int((_short & (acc["n"] >= min_points)).sum())
 
@@ -3855,7 +3994,6 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
 
     _E_CAP = 1e6
     _Ec = np.abs(E_cond_form[~np.isnan(E_cond_form)])
-    _vi_scale = float(np.percentile(np.abs(vi), 99)) if vi.size else float("nan")
     _E_med = float(np.median(np.minimum(_Ec, _E_CAP * max(_vi_scale, 1e-12)))) \
         if _Ec.size else float("nan")
     rec.diagnostics["conductance_form_E_absmedian"] = _E_med
@@ -3864,7 +4002,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         float(_E_med / _vi_scale)
         if np.isfinite(_E_med) and np.isfinite(_vi_scale) and _vi_scale > 0
         else float("nan"))
-    rec.diagnostics["tmpl_frames_used"] = int(vi.shape[1])
+    rec.diagnostics["tmpl_frames_used"] = int(len(_fidx))
     rec.diagnostics["tmpl_frame_choice"] = frame_choice
     rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
         100.0 * n_first_short / max(n_e, 1))

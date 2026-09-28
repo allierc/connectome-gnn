@@ -68,6 +68,19 @@ COLUMNS = [
     ("k_i",                              "k_i",          False),
     ("clustering_accuracy",              "cluster",      True),
 ]
+def _columns(fm):
+    """COLUMNS, plus the experiment's own `report.metric_columns`.
+
+    `report.metric_columns: {<metrics.txt key>: <header>}` appends columns read
+    straight from results/metrics.txt, landed table only. An experiment about
+    the readout itself needs numbers no other table carries -- the share of
+    edges fitted, E_ij's R2 -- and adding them to every experiment's table would
+    widen twenty slides to serve one.
+    """
+    extra = fm.get("report", {}).get("metric_columns") or {}
+    return COLUMNS + [(k, h, False) for k, h in extra.items()]
+
+
 _LIVE_FILE = {"rollout_r": "rollout", "Wij_R2": "Wij", "tau_R2": "tau",
               "V_rest_R2": "V_rest", "V_rest_R2_uncorrected": "V_rest",
               "msg_i_R2": "msg_i", "clustering_accuracy": "cluster"}
@@ -386,6 +399,7 @@ def launch(number, dry_run=False, only_arm=None, where=None):
     # arms share the experiment's queue and this falls through.
     queue_of = {r: (arm.get("queue") or fm["queue"]).replace("gpu_", "")
                 for arm, _pt, r in runs(fm)}
+    arm_pt = {r: (arm, pt) for arm, pt, r in runs(fm)}
     ids = {}
     for n in names:
         node = queue_of[n]
@@ -398,6 +412,28 @@ def launch(number, dry_run=False, only_arm=None, where=None):
         if os.path.isdir(log_dir):
             shutil.rmtree(log_dir)
         os.makedirs(log_dir, exist_ok=True)
+        # A READOUT-ONLY ARM re-scores a model another run trained:
+        # `model_from: <spec pattern>` links that run's checkpoints into this
+        # run's own models/ and `task: plot` does the rest. The checkpoint
+        # FILES are linked, never the directory -- `-o plot` writes
+        # template_fit.pt into models/, and a linked directory would overwrite
+        # the source run's.
+        _arm, _pt = arm_pt[n]
+        if _arm.get("model_from"):
+            _src = _arm["model_from"].format(**_pt)
+            _cks = sorted(glob.glob(os.path.join(
+                LOG_ROOT, _src, "models", "best_model_with_*_graphs_*.pt")))
+            if not _cks:
+                print(f"  FAILED {n}: no checkpoint in {_src}/models")
+                continue
+            os.makedirs(os.path.join(log_dir, "models"))
+            for _c in _cks:
+                os.symlink(_c, os.path.join(log_dir, "models", os.path.basename(_c)))
+        # `code_dir: <path relative to the repo>` runs another checkout's
+        # GNN_Main.py, which puts ITS OWN src/ first on sys.path -- how an arm
+        # scores with the code as it stood at another commit.
+        _main = os.path.join(_arm["code_dir"], "GNN_Main.py") if _arm.get("code_dir") \
+            else "GNN_Main.py"
         jid, queue, res = _bsub_over_ssh(
             # THE STAGED ABSOLUTE PATH, not the bare stem. add_pre_folder
             # classifies a bare name by looking for a domain keyword in it, so
@@ -405,7 +441,7 @@ def launch(number, dry_run=False, only_arm=None, where=None):
             # seconds with "does not exist or is not recognized". An absolute
             # path skips that: load_run_config takes the domain from the parent
             # directory, which staging guarantees is `fly`.
-            cluster_cmd=(f"python GNN_Main.py -o {fm['task']} "
+            cluster_cmd=(f"python {_main} -o {fm['task']} "
                          f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
             # LSF MEMORY IS PER SLOT, 20 GB of it, so the slot count is how an
             # experiment asks for RAM. 8 slots = 160 GB is enough for the
@@ -436,7 +472,8 @@ def launch(number, dry_run=False, only_arm=None, where=None):
     return 0 if len(ids) == len(names) else 1
 
 
-def analyse(number, dry_run=False, only_arm=None, preliminary=False):
+def analyse(number, dry_run=False, only_arm=None, preliminary=False,
+            redo=None, queue=None, n_cpus=None, limit=None):
     """bsub `-o test_plot` for every run whose training has finished.
 
     The held-out numbers the landed table reads come from results/metrics.txt,
@@ -453,10 +490,27 @@ def analyse(number, dry_run=False, only_arm=None, preliminary=False):
     """
     path = exp_path(number)
     fm, _ = load(path)
-    todo = [r for _a, _pt, r in runs(fm)
-            if (only_arm is None or _a["id"] == only_arm)
-            and metrics_of(r) is None
-            and (trained(r) or (preliminary and status_of(r) == "running"))]
+    # `redo=<tag>` RE-ANALYSES LANDED RUNS, once each. The run's current
+    # results/metrics.txt is kept as superseded/<tag>/metrics.txt before the job
+    # is submitted, and a run that already has that copy is skipped -- so a
+    # batch driver can call this repeatedly, and a run reached through two
+    # experiments (exp02 reads exp01's folds) is submitted once.
+    def _kept(r):
+        return os.path.join(LOG_ROOT, r, "superseded", redo, "metrics.txt")
+    seen = set()
+    todo = []
+    for _a, _pt, r in runs(fm):
+        if r in seen or (only_arm is not None and _a["id"] != only_arm):
+            continue
+        seen.add(r)
+        if redo:
+            if metrics_of(r) is not None and not os.path.isfile(_kept(r)):
+                todo.append(r)
+        elif metrics_of(r) is None and (
+                trained(r) or (preliminary and status_of(r) == "running")):
+            todo.append(r)
+    if limit is not None:
+        todo = todo[:int(limit)]
     if not todo:
         print(f"experiment {number}: nothing to analyse")
         return 0
@@ -466,16 +520,19 @@ def analyse(number, dry_run=False, only_arm=None, preliminary=False):
             print(f"  would submit: -o test_plot {n}")
         return 0
     from connectome_gnn.LLM.cluster import _bsub_over_ssh
-    queue_of = {r: (arm.get("queue") or fm["queue"]).replace("gpu_", "")
+    queue_of = {r: (queue or arm.get("queue") or fm["queue"]).replace("gpu_", "")
                 for arm, _pt, r in runs(fm)}
     ids = {}
     for n in todo:
         d = os.path.join(LOG_ROOT, n)
-        jid, queue, res = _bsub_over_ssh(
+        if redo:
+            os.makedirs(os.path.dirname(_kept(n)), exist_ok=True)
+            shutil.copy2(os.path.join(d, "results", "metrics.txt"), _kept(n))
+        jid, queue_used, res = _bsub_over_ssh(
             cluster_cmd=(f"python GNN_Main.py -o test_plot "
                          f"{os.path.join(STAGE_DIR, n + '.yaml')}"),
             conda_env="connectome-gnn", node_name=queue_of[n],
-            n_cpus=int(fm.get("n_cpus", 8)),
+            n_cpus=int(n_cpus or fm.get("n_cpus", 8)),
             device="gpu", hard_runtime_limit_min=240,
             stdout_path=os.path.join(d, "analyse.out"),
             stderr_path=os.path.join(d, "analyse.err"),
@@ -556,6 +613,7 @@ def _summary_rows(fm, rs, source, nd=3):
     running one; thirty individual rows is not a comparison, and the comparison
     this file exists for is between arms at one noise level.
     """
+    cols = _columns(fm)
     groups = []
     for arm, pt, _run in rs:
         g = (arm["id"], _cell(pt))
@@ -563,7 +621,7 @@ def _summary_rows(fm, rs, source, nd=3):
             groups.append(g)
     out = []
     for arm_id, cell in groups:
-        acc = {k: [] for k, _, _ in COLUMNS}
+        acc = {k: [] for k, _, _ in cols}
         out_acc = {}
         its, n_here = [], 0
         # EVERY FOLD READ AT THE SAME SNAPSHOT, so the mean describes one
@@ -581,7 +639,7 @@ def _summary_rows(fm, rs, source, nd=3):
                 if not m:
                     continue
                 n_here += 1
-                for k, _, _ in COLUMNS:
+                for k, _, _ in cols:
                     # k_i FROM THE RUN'S OWN READOUT. metrics.txt carries
                     # tmpl_k_median, the median over neurons of the gauge
                     # k_i = tau_i * T_i * G_i the template readout divides W by.
@@ -603,13 +661,13 @@ def _summary_rows(fm, rs, source, nd=3):
                     continue
                 its.append(it)
                 n_here += 1
-                for k, _, live in COLUMNS:
+                for k, _, live in cols:
                     if live:
                         acc[k].append(d.get(k))
         if not n_here:
             continue
         cells = []
-        for k, _h, live in COLUMNS:
+        for k, _h, live in cols:
             if source != "landed" and not live:
                 cells.append("")
                 continue
@@ -639,7 +697,7 @@ def status_block(fm):
     for _arm, _pt, run in rs:
         counts[status_of(run)] += 1
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
-    heads = [h for _, h, _ in COLUMNS]
+    heads = [h for _, h, _ in _columns(fm)]
     sep = "|" + "---|" * (2 + len(axes_no_fold) + len(heads))
 
     L = [_BEGIN, "", "## Status", "",
@@ -664,6 +722,14 @@ def status_block(fm):
             L.append("| " + " | ".join([arm_id] + [v for _, v in cell] + [n] + cells) + " |")
         L.append("")
 
+    if fm.get("report", {}).get("memory"):
+        axes_nf = [k for k in fm["axes"] if k != "fold"]
+        L += ["### Memory --- GPU peak reserved per phase, host peak from LSF", "",
+              "| " + " | ".join(["arm"] + axes_nf + _MEM_HEADS) + " |",
+              "|" + "---|" * (1 + len(axes_nf) + len(_MEM_HEADS))]
+        for arm, pt, cells in _memory_rows(fm):
+            L.append("| " + " | ".join([arm["id"]] + [str(pt[k]) for k in axes_nf] + cells) + " |")
+        L.append("")
     L += ["### Per run", "", "| run | status | iter | commit | LSF |",
           "|---|---|---|---|---|"]
     for _arm, _pt, run in rs:
@@ -823,6 +889,104 @@ def _form_heads(rs):
     return short[own], short[alt]
 
 
+_GPU_RE = re.compile(r"phase=(\w+) device=(.+?) total_gb=([\d.]+) "
+                     r"peak_allocated_gb=([\d.]+) peak_reserved_gb=([\d.]+)")
+_HOSTMEM_RE = re.compile(r"^\s*Max Memory :\s+([\d.]+) MB", re.M)
+_OOM_RE = re.compile(r"CUDA out of memory|OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED")
+
+
+def memory_of(run):
+    """What a run needed: per-phase GPU peaks, host peak, and how it ended.
+
+    GPU from <run>/gpu_memory.log, which GNN_Main writes after train, test and
+    plot (torch's peak RESERVED memory, the allocator's actual hold, which is
+    what an out-of-memory is measured against). Host from LSF's `Max Memory` in
+    cluster.out (training) and analyse.out (analysis), the larger of the two.
+    Outcome distinguishes the two ways a job runs out: a CUDA out-of-memory in
+    the error log, and LSF's TERM_MEMLIMIT for host RAM -- exp04 died of the
+    second while looking like it might be the first.
+    """
+    d = os.path.join(LOG_ROOT, run)
+    out = {"device": None, "total_gb": None, "gpu": {}, "host_gb": None, "outcome": None}
+    p = os.path.join(d, "gpu_memory.log")
+    if os.path.isfile(p):
+        for m in _GPU_RE.finditer(open(p).read()):
+            out["device"], out["total_gb"] = m.group(2), float(m.group(3))
+            out["gpu"][m.group(1)] = float(m.group(5))
+    host = []
+    for f in ("cluster.out", "analyse.out"):
+        q = os.path.join(d, f)
+        if os.path.isfile(q):
+            host += [float(x) / 1024 for x in _HOSTMEM_RE.findall(open(q, errors="replace").read())]
+    out["host_gb"] = max(host) if host else None
+    oom = False
+    for f in ("cluster.err", "analyse.err"):
+        q = os.path.join(d, f)
+        if not os.path.isfile(q):
+            continue
+        txt = open(q, errors="replace").read()
+        if not _OOM_RE.search(txt):
+            continue
+        oom = True
+        # A crashed phase never writes gpu_memory.log, so read what the card
+        # held from torch's own out-of-memory message: its total capacity, and
+        # what this process had in use when the allocation failed.
+        cap = re.search(r"total capacity of ([\d.]+) GiB", txt)
+        use = re.search(r"this process has ([\d.]+) GiB memory in use", txt)
+        phase = "test" if f == "analyse.err" else "train"
+        if cap:
+            out["total_gb"] = float(cap.group(1))
+        if use:
+            out["gpu"].setdefault(phase, float(use.group(1)))
+    st = status_of(run)
+    if oom:
+        out["outcome"] = "GPU OOM"
+    elif st == "died":
+        out["outcome"] = died(run)
+    elif st == "landed":
+        out["outcome"] = "ok"
+    else:
+        out["outcome"] = st
+    return out
+
+
+def _memory_rows(fm):
+    rows = []
+    for arm, pt, run in runs(fm):
+        m = memory_of(run)
+        g = m["gpu"]
+        f = lambda x: f"{x:.1f}" if x is not None else ""
+        # Training rate, for the next experiment's wall time: LSF's Run time for
+        # the train job over the last iteration its Wij.log reached.
+        w, it = wall_seconds(run), live_of(run)[0]
+        # A run that died at iteration 1 has no rate, and 1 / wall prints 0.0.
+        rate = f"{it / w:.1f}" if w and it and it > 1 else ""
+        rows.append((arm, pt, [
+            (m["device"] or "").replace("NVIDIA ", ""),
+            f(m["total_gb"]), f(g.get("train")), f(g.get("test")), f(g.get("plot")),
+            f(m["host_gb"]), rate, m["outcome"] or ""]))
+    return rows
+
+
+_MEM_HEADS = ["GPU", "card GB", "train GB", "test GB", "plot GB", "host GB", "it/s", "outcome"]
+
+
+def _memory_table(fm):
+    """exp06's table: one row per run, what it needed and how it ended."""
+    axes_no_fold = [k for k in fm["axes"] if k != "fold"]
+    spec = "l" + " l" * len(axes_no_fold) + " l r r r r r r l"
+    L = [rf"\begin{{tabular}}{{{spec}}}", r"\toprule",
+         " & ".join(["arm"] + [_tex(k) for k in axes_no_fold]
+                    + [r"\multicolumn{1}{c}{" + _tex(h) + "}" for h in _MEM_HEADS]) + r" \\",
+         r"\midrule"]
+    for arm, pt, cells in _memory_rows(fm):
+        L.append(" & ".join([_tex(_arm_label(fm, arm["id"]))]
+                            + [_tex(_axis_label(fm, k, pt[k])) for k in axes_no_fold]
+                            + [_tex(c) for c in cells]) + r" \\")
+    L += [r"\bottomrule", r"\end{tabular}"]
+    return "\n".join(L)
+
+
 def _arm_columns(fm):
     """Extra leading columns read off each arm's `differs_by`.
 
@@ -878,12 +1042,13 @@ def _table(fm, source="landed"):
     split at a stated iteration, from tmp_training/). They do not share a
     column's meaning and the slide labels which one it is showing.
     """
+    cols = _columns(fm)
     rs = runs(fm)
-    heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in COLUMNS]
+    heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in cols]
     fh = _form_heads(rs)
     if fh:
         for h, name in zip(("fit roll own form", "fit roll other form"), fh):
-            heads[[c[1] for c in COLUMNS].index(h)] = \
+            heads[[c[1] for c in cols].index(h)] = \
                 r"\shortstack{fit roll $r$\\" + name + "}"
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
     extra = _arm_columns(fm)
@@ -1004,12 +1169,13 @@ def _slides(fm):
                 if _summary_rows(fm, rs, "running", nd=2) else "")
     _timing = (_timing_table(fm)
                if fm.get("report", {}).get("timing") else "")
+    _memory = _memory_table(fm) if fm.get("report", {}).get("memory") else ""
     L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\setlength{\tabcolsep}{2pt}",
          r"\sbox{\tblA}{\tiny " + _table(fm) + "}",
          r"\sbox{\tblB}{\tiny " + _running + "}",
-         r"\sbox{\tblC}{\tiny " + _timing + "}",
+         r"\sbox{\tblC}{\tiny " + (_memory or _timing) + "}",
          r"\settablescale",
          r"\vspace*{0.3cm}", r"\centering\tiny",
          # ONLY THE SECOND TABLE IS NAMED. The first is the default reading of
@@ -1040,7 +1206,28 @@ def _slides(fm):
               r"Not held-out and not comparable to the table above; the "
               r"quantities not written per checkpoint are blank rather than "
               r"borrowed from it.\par}"]
-    if _timing:
+    # THE MEMORY TABLE GETS ITS OWN SLIDE. It has a row per run, not per arm,
+    # so under the landed and running tables it ran off the bottom
+    # (experiment 6, 2026-09-28); shrinking all three to fit made them unreadable.
+    if _memory:
+        L += [r"\end{frame}",
+              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}: memory}}}}",
+              rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
+              r"\setlength{\tabcolsep}{2pt}",
+              # A frame is a group, so the boxes filled on the first slide are
+              # gone here: box the memory table again and take its own scale.
+              r"\sbox{\tblA}{}", r"\sbox{\tblB}{}",
+              r"\sbox{\tblC}{\tiny " + _memory + "}",
+              r"\settablescale",
+              r"\vspace*{0.3cm}", r"\centering\tiny",
+              r"{\scriptsize\bfseries what each run needed, and how it ended\par}\vspace*{2pt}",
+              r"\placetable{\tblC}", r"\\[4pt]",
+              r"{\tiny\raggedright GPU: torch peak reserved per phase, from "
+              r"\texttt{gpu\_memory.log}; on a GPU OOM, what the process held when the "
+              r"allocation failed, from torch's own message. Host: LSF \texttt{Max Memory} over the "
+              r"training and analysis jobs. Outcome separates a CUDA out-of-memory "
+              r"from LSF's host-RAM \texttt{TERM\_MEMLIMIT}.\par}"]
+    elif _timing:
         L += [r"\\[10pt]", r"\centering\tiny",
               r"\placetable{\tblC}", r"\\[4pt]",
               r"{\tiny\raggedright LSF \texttt{Run time} from each run's "
@@ -1157,6 +1344,12 @@ def main(argv=None) -> int:
     ap.add_argument("--arm", default=None, help="submit only this arm")
     ap.add_argument("--preliminary", action="store_true",
                     help="analyse still-training runs too, off their latest checkpoint")
+    ap.add_argument("--redo", default=None, metavar="TAG",
+                    help="analyse: re-run landed runs once, keeping the old "
+                         "metrics.txt as superseded/TAG/metrics.txt")
+    ap.add_argument("--queue", default=None, help="analyse: override the queue, e.g. gpu_l4")
+    ap.add_argument("--n-cpus", type=int, default=None, help="analyse: override the slot count")
+    ap.add_argument("--limit", type=int, default=None, help="analyse: submit at most this many")
     ap.add_argument("--where", action="append", default=[], metavar="AXIS=V1,V2",
                     help="submit only these values of an axis, e.g. "
                          "--where noise=noise_005,noise_05")
@@ -1173,7 +1366,9 @@ def main(argv=None) -> int:
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]
         return max(analyse(n, dry_run=a.dry_run, only_arm=a.arm,
-                           preliminary=a.preliminary) for n in ns)
+                           preliminary=a.preliminary, redo=a.redo,
+                           queue=a.queue, n_cpus=a.n_cpus, limit=a.limit)
+                   for n in ns)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]
