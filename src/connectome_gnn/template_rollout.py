@@ -480,8 +480,15 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template",
         data_test_gnn(cfg, best_model=_ckpt, device=device,
                       test_config=nf, test_mode=test_mode)
 
+        # THE SAME NAMING RULE AS THE TESTER, which adds `_on_<dataset>` only when
+        # the test dataset differs from the training one (graph_tester.py,
+        # `if test_ds != config.dataset`). A noise-free run IS its own noise-free
+        # twin, so its log is results_rollout_<mode>.log; looking only for the
+        # suffixed name left every noise-free row's fit-roll r blank, although
+        # the rollout had run and written its log.
         _short = nf.dataset.split("/")[-1].replace("flyvis_", "")
-        log = os.path.join(log_dir, f"results_rollout_on_{_short}_{test_mode}.log")
+        _suffix = "" if nf.dataset == config.dataset else f"_on_{_short}"
+        log = os.path.join(log_dir, f"results_rollout{_suffix}_{test_mode}.log")
         got = _parse_rollout_log(log)
         out = {}
         if "W_unfitted_set_to_zero" in written:

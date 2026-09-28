@@ -582,7 +582,15 @@ def _summary_rows(fm, rs, source, nd=3):
                     continue
                 n_here += 1
                 for k, _, _ in COLUMNS:
-                    acc[k].append(gauge_k(run) if k == "k_i" else m.get(k))
+                    # k_i FROM THE RUN'S OWN READOUT. metrics.txt carries
+                    # tmpl_k_median, the median over neurons of the gauge
+                    # k_i = tau_i * T_i * G_i the template readout divides W by.
+                    # The docs/gauge_k.json cache (autograd tau*df/dmsg,
+                    # tools/measure_gauge_k.py) was never filled for these
+                    # campaigns, so reading only it left the column blank on
+                    # every row; it stays as the fallback for older runs.
+                    acc[k].append((m.get("tmpl_k_median") or gauge_k(run))
+                                  if k == "k_i" else m.get(k))
                 for k, pk in _OUTLIER_OF.items():
                     keys = [pk] if isinstance(pk, str) else pk
                     val = next((m[q] for q in keys if q in m), None)
@@ -645,15 +653,15 @@ def status_block(fm):
             ("landed", "Landed --- held-out, `results/metrics.txt`", "n"),
             ("running", "Running --- train split, `tmp_training/`, "
                         "blank where not written per checkpoint", "iter")):
+        # Axis columns only for the axes there are: an experiment whose only
+        # axis is `fold` (exp04) used to get an empty, unnamed column here.
         L += [f"### {title}", "",
-              "| arm | " + " | ".join(axes_no_fold) + f" | {last} | "
-              + " | ".join(heads) + " |", sep]
+              "| " + " | ".join(["arm"] + axes_no_fold + [last] + heads) + " |", sep]
         rows = _summary_rows(fm, rs, src)
         if not rows:
             L.append("| — |" + " |" * (len(axes_no_fold) + 1 + len(heads)))
         for arm_id, cell, n, cells in rows:
-            L.append(f"| {arm_id} | " + " | ".join(v for _, v in cell)
-                     + f" | {n} | " + " | ".join(cells) + " |")
+            L.append("| " + " | ".join([arm_id] + [v for _, v in cell] + [n] + cells) + " |")
         L.append("")
 
     L += ["### Per run", "", "| run | status | iter | commit | LSF |",

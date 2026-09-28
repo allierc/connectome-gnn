@@ -40,8 +40,11 @@ def shares(run_dir):
     """{metric key: percentage of neurons at the rail} for the run's rollouts."""
     out = {}
     for tag, key in KEY.items():
-        hits = glob.glob(os.path.join(
-            run_dir, f"results_rollout_on_*_{tag}_rmse.npy"))
+        # Both names the tester writes: `_on_<dataset>` when the rollout ran on a
+        # noise-free twin, no suffix when the run IS its own twin (noise_free).
+        # Globbing only the first skipped every noise-free run.
+        hits = (glob.glob(os.path.join(run_dir, f"results_rollout_on_*_{tag}_rmse.npy"))
+                + glob.glob(os.path.join(run_dir, f"results_rollout_{tag}_rmse.npy")))
         # `template` would otherwise match `template_alt`'s file too.
         if tag == "template":
             hits = [h for h in hits if "_template_alt_" not in h]

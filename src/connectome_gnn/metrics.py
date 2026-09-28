@@ -3985,7 +3985,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # message's own offset; adding the neuron's incoming total back is the test
     # of whether that is the whole story (it moved V_rest_R2 from -0.224 to
     # +0.911 when measured against the true message).
-    if "V_rest" in rec.pairs:
+    # `is not None`, NOT `in`: _pair returns None when nothing finite survives
+    # -- its documented "no measurement" -- and stores it under the key. At one
+    # training checkpoint of flyvis_noise_005_s5h21_cur_cv00 every V_rest came
+    # out non-finite, the key-presence test passed, the unpack raised, and the
+    # ReadoutError killed the run at iteration 284,613 of ~333k, 29 h in.
+    if rec.pairs.get("V_rest") is not None:
         _vt, _vl = rec.pairs["V_rest"]
         if _vl.size == n_neurons:
             rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
