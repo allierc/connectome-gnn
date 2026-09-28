@@ -541,6 +541,7 @@ def analyse(number, dry_run=False, only_arm=None, preliminary=False,
             print(f"  FAILED {n}: {res.stderr.strip()[:160]}")
         else:
             ids[n] = jid
+            print(f"  {jid}  {queue_used}  {n}")
     print(f"{len(ids)}/{len(todo)} submitted")
     if ids:
         fm["analyse_job_ids"] = {**(fm.get("analyse_job_ids") or {}), **ids}
