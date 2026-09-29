@@ -14,10 +14,18 @@ before. `VoltageGeneration` is mutable: each stage performs its work and returns
 failure policy, and completion requirements. It deliberately does not impose a
 total order where stages are independent.
 
-Against current `origin/main`, the final branch changes 41 files
-(+7,893/-2,257): 19 generator/tracker files (+4,350/-2,255), 18 test files
-(+3,086), one 221-line harness CLI, and three CI/build/PR-support files
-(+236/-2).
+The legacy implementation is removed rather than retained beside the new
+package. `graph_data_generator.py` now contains only the 68-line voltage wrapper;
+the former `_run_ode_generation`, `_tile_train_zarrs`, and
+`_compute_noisy_derivatives` helpers are gone. The file remains large because it
+also owns separate task, spiking, task-model-rollout, and connectome-constrained
+generators. Its remaining imports from `generators/voltage` are the wrapper's
+pipeline dependency and intentional compatibility re-exports.
+
+Against current `origin/main`, the final branch changes 46 files
+(+8,037/-2,258): 19 generator/tracker files (+4,350/-2,255), 19 test files
+(+3,161), one 221-line harness CLI, and seven CI/editor/documentation files
+(+305/-3).
 
 ## Stage tracking
 
@@ -178,6 +186,20 @@ code in the pinned pre-refactor implementation.
   intended location.
 - The branch is rebased onto current `origin/main`; after the rebase, Ruff, all
     six focused tests, and the 10-case byte-identity suite pass.
+
+## Contributor notes
+
+- VS Code recommends the Ruff extension and formats modified Python lines on
+    save. The historical tree is not globally Ruff-formatted, so avoid unrelated
+    whole-file formatting churn.
+- Treat `tests/golden_voltage/BASE_SHA` as a fixed behavioral reference. Do not
+    advance it merely to make a mismatch pass; first determine and document why
+    behavior changed.
+- Run the ten-cell fast golden tier while editing this pipeline and the full
+    74-cell tier before merge. The `golden-voltage` GitHub workflow is currently
+    manual rather than a pull-request gate.
+- The ten documented quirks below are intentional compatibility behavior in
+    this PR. Their fixes remain separate follow-up work.
 
 ## Review focus
 

@@ -34,6 +34,27 @@ git lfs pull
 
 Simulation data must be generated first (Notebook 00.py) before training or testing.
 
+## Development
+
+The repository recommends the VS Code Ruff extension and configures Ruff as the
+Python formatter on save. Formatting is limited to modified lines because the
+historical tree has not been normalized with `ruff format`; do not create
+repository-wide formatting-only changes in feature PRs. Ruff reads its lint and
+format settings from `pyproject.toml`.
+
+Before submitting Python changes, run Ruff lint on the files you changed:
+
+```bash
+ruff check <changed-python-files>
+```
+
+For new or already Ruff-formatted files, also run `ruff format --check` on those
+files. Do not reformat an entire legacy file solely to make that check pass.
+
+Changes to the flyvis voltage generator also require the behavior-preserving
+[golden harness](tests/golden_voltage/README.md). Run its fast tier while
+developing and its full tier before merge.
+
 ## Usage
 
 ```bash
