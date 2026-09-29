@@ -273,9 +273,11 @@ def main_head(args, work: Path) -> int:
         t0 = time.time()
         results = D.run_many(specs, work, jobs=args.jobs)
         print(f"ran {len(specs)} cells under coverage in {time.time() - t0:.0f}s")
-        for r in results:
-            if r.manifest is None:
-                print(f"  RUNNER FAILED {r.spec.cell}: {r.error[-500:]}")
+        bad = [r for r in results if r.manifest is None]
+        for r in bad:
+            print(f"  RUNNER FAILED {r.spec.cell}: {r.error[-500:]}")
+        if bad:
+            return 1
         subprocess.run([py, "-m", "coverage", "combine", f"--data-file={data_file}"], cwd=out, check=True,
                        capture_output=True)
     targets = head_targets(head)
@@ -321,6 +323,8 @@ def main(args) -> int:
         bad = [r for r in results if r.manifest is None]
         for r in bad:
             print(f"  RUNNER FAILED {r.spec.cell}: {r.error[-500:]}")
+        if bad:
+            return 1
         subprocess.run([py, "-m", "coverage", "combine", f"--data-file={data_file}"], cwd=out, check=True,
                        capture_output=True)
     cov_json = out / "coverage.json"

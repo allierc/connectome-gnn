@@ -6,6 +6,7 @@ import os
 
 from connectome_gnn.generators.utils import generate_compressed_video_mp4
 from connectome_gnn.log import get_logger
+from connectome_gnn.metrics import INDEX_TO_NAME
 from connectome_gnn.plot import plot_kinograph, plot_sequence_preview
 from connectome_gnn.utils import to_numpy
 
@@ -17,75 +18,6 @@ logger = get_logger(__name__)
 # n_frames default), so a dataset's activity.png and that run's
 # tmp_training/traces/rollout_*.png can be laid side by side.
 ACTIVITY_TRACE_FRAMES = 1000
-
-# Neuron type index to name mapping (CamelCase for legacy plot_neuron_activity_analysis)
-INDEX_TO_NAME = {
-    0: "Am",
-    1: "C2",
-    2: "C3",
-    3: "CT1(Lo1)",
-    4: "CT1(M10)",
-    5: "L1",
-    6: "L2",
-    7: "L3",
-    8: "L4",
-    9: "L5",
-    10: "Lawf1",
-    11: "Lawf2",
-    12: "Mi1",
-    13: "Mi10",
-    14: "Mi11",
-    15: "Mi12",
-    16: "Mi13",
-    17: "Mi14",
-    18: "Mi15",
-    19: "Mi2",
-    20: "Mi3",
-    21: "Mi4",
-    22: "Mi9",
-    23: "R1",
-    24: "R2",
-    25: "R3",
-    26: "R4",
-    27: "R5",
-    28: "R6",
-    29: "R7",
-    30: "R8",
-    31: "T1",
-    32: "T2",
-    33: "T2a",
-    34: "T3",
-    35: "T4a",
-    36: "T4b",
-    37: "T4c",
-    38: "T4d",
-    39: "T5a",
-    40: "T5b",
-    41: "T5c",
-    42: "T5d",
-    43: "Tm1",
-    44: "Tm16",
-    45: "Tm2",
-    46: "Tm20",
-    47: "Tm28",
-    48: "Tm3",
-    49: "Tm30",
-    50: "Tm4",
-    51: "Tm5Y",
-    52: "Tm5a",
-    53: "Tm5b",
-    54: "Tm5c",
-    55: "Tm9",
-    56: "TmY10",
-    57: "TmY13",
-    58: "TmY14",
-    59: "TmY15",
-    60: "TmY18",
-    61: "TmY3",
-    62: "TmY4",
-    63: "TmY5a",
-    64: "TmY9",
-}
 
 # The ten types activity_selected.png shows, by type index.
 CURATED_TYPES = [55, 15, 43, 39, 35, 31, 23, 19, 12, 5]

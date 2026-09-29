@@ -93,7 +93,9 @@ VOLTAGE_STAGE_RULES: Mapping[str, StageRule] = {
     "split_videos": StageRule(after=frozenset(["load_stimuli"])),
     "materialize_sequences": StageRule(after=frozenset(["split_videos"])),
     "plot_previews": StageRule(after=frozenset(["make_folders", "init_geometry", "materialize_sequences"])),
-    "integrate_train": StageRule(after=frozenset(["build_ode", "init_state", "materialize_sequences"])),
+    "integrate_train": StageRule(
+        after=frozenset(["make_folders", "build_ode", "init_state", "materialize_sequences"])
+    ),
     "derive_noisy_targets_train": StageRule(after=frozenset(["integrate_train"])),
     "tile_train": StageRule(after=frozenset(["derive_noisy_targets_train"])),
     "reset_for_test": StageRule(after=frozenset(["tile_train"])),

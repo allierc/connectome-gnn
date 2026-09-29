@@ -59,8 +59,8 @@ def _png_decoded(p: Path) -> str | None:
         with Image.open(p) as im:
             arr = np.asarray(im.convert("RGBA"))
         return hashlib.sha256(repr(arr.shape).encode() + arr.tobytes()).hexdigest()
-    except Exception as e:   # a stale fixture PNG is not a real PNG
-        return f"undecodable:{type(e).__name__}"
+    except Exception:   # a stale fixture PNG is not a real PNG
+        return None
 
 
 def _mp4_decoded(p: Path) -> str | None:
@@ -74,8 +74,8 @@ def _mp4_decoded(p: Path) -> str | None:
                 "time_base", "profile", "level")
         streams = [{k: s.get(k) for k in keep} for s in json.loads(probe)["streams"]]
         return hashlib.sha256((frames + json.dumps(streams, sort_keys=True)).encode()).hexdigest()
-    except Exception as e:
-        return f"undecodable:{type(e).__name__}"
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------

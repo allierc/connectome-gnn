@@ -72,4 +72,7 @@ Do not update `BASE_SHA` merely to make a changed result pass. A mismatch means 
 
 Add or update cells when a changed code path is not exercised by the existing matrix. Keep fixtures immutable within a base/head pair: both implementations must observe the same files, paths, and cache state.
 
-The GitHub workflow is currently manual (`workflow_dispatch`). Local golden results remain required before merging generator changes until the automatic pull-request trigger is enabled.
+The GitHub workflow runs the fast tier automatically when a pull request changes
+the generator, tracker, harness, or directly coupled files. Manual
+`workflow_dispatch` remains available for either tier. Run the full tier locally
+before merging substantial generator changes.

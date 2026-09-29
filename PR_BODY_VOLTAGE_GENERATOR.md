@@ -26,10 +26,10 @@ Outside localized import cleanup, unchanged functions in
 `graph_data_generator.py` retain their upstream formatting, keeping the review
 focused on the extracted voltage implementation.
 
-Against current `origin/main`, the final branch changes 45 files
-(+7,446/-1,785): 19 generator/tracker files (+3,776/-1,782), 19 test files
-(+3,161), one 221-line harness CLI, and six CI/editor/documentation files
-(+288/-3).
+Against current `origin/main`, the final branch changes 49 files
+(+7,522/-1,785): 19 generator/tracker files (+3,710/-1,782), 23 test files
+(+3,302), one 221-line harness CLI, and six CI/editor/documentation files
+(+289/-3).
 
 ## Stage tracking
 
@@ -185,11 +185,11 @@ code in the pinned pre-refactor implementation.
 - Full current HEAD coverage across 74 cells: 1,467/1,467 lines and 234/234
   branches outside 17 justified markers; no unexplained gaps, stale markers, or
   unused IDs.
-- Focused `StageTracker` and mutable-pipeline tests: 6/6 pass.
+- Focused tracker, pipeline, and golden-harness regression tests: 13/13 pass.
 - Mutation harness source checks: all 11 mutations still target exactly one
   intended location.
 - The branch is rebased onto current `origin/main`; after the rebase, Ruff, all
-    six focused tests, and the 10-case byte-identity suite pass.
+    13 focused tests, and the 10-case byte-identity suite pass.
 
 ## Contributor notes
 
@@ -200,8 +200,8 @@ code in the pinned pre-refactor implementation.
     advance it merely to make a mismatch pass; first determine and document why
     behavior changed.
 - Run the ten-cell fast golden tier while editing this pipeline and the full
-    74-cell tier before merge. The `golden-voltage` GitHub workflow is currently
-    manual rather than a pull-request gate.
+    74-cell tier before merge. A path-filtered `golden-voltage` pull-request
+    workflow now runs the fast tier automatically.
 - The ten documented quirks below are intentional compatibility behavior in
     this PR. Their fixes remain separate follow-up work.
 

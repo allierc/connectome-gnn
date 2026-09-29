@@ -266,6 +266,14 @@ def _cats(diffs: list[str]) -> list[str]:
     return sorted({d.strip()[1] for d in diffs if d.strip().startswith("[")})
 
 
+def _require_manifests(results, *, context: str) -> None:
+    failures = [r for r in results if r.manifest is None]
+    if not failures:
+        return
+    details = "\n".join(f"  {r.spec.cell}: {r.error[-400:]}" for r in failures)
+    raise RuntimeError(f"{context} runner failures:\n{details}")
+
+
 def main(args) -> int:
     work = FX.work_root()
     base = D.ensure_base_worktree(work)
@@ -280,7 +288,9 @@ def main(args) -> int:
     root = work / "mutants" / label
     base_runs = {}
     specs = [D.RunSpec(impl_root=base, cell=c.name, out=root / "_base" / c.name) for c in cells_all]
-    for r in D.run_many(specs, work, jobs=args.jobs, progress=None):
+    base_results = D.run_many(specs, work, jobs=args.jobs, progress=None)
+    _require_manifests(base_results, context="base")
+    for r in base_results:
         base_runs[r.spec.cell] = r
     report = []
     for name in names:
@@ -291,12 +301,10 @@ def main(args) -> int:
         specs = [D.RunSpec(impl_root=impl, cell=c.name, out=root / name / c.name) for c in cells_m]
         t0 = time.time()
         results = D.run_many(specs, work, jobs=args.jobs, progress=None)
+        _require_manifests(results, context=f"mutant {name}")
         per_cell = {}
         for r in results:
             b = base_runs[r.spec.cell]
-            if r.manifest is None:
-                per_cell[r.spec.cell] = {"runner_error": r.error[-400:]}
-                continue
             diffs = M.compare(b.manifest, r.manifest, run_a=b.spec.out, run_b=r.spec.out, explain=False)
             if diffs:
                 per_cell[r.spec.cell] = {"categories": _cats(diffs), "first": diffs[:3]}
