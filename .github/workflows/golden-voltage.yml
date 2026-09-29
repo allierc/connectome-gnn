@@ -44,7 +44,10 @@ jobs:
           python-version: "3.12"
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: echo "CGNN_GOLDEN_WORK=$RUNNER_TEMP/golden" >> "$GITHUB_ENV"
-      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install matching PyTorch CPU wheels
+        run: >-
+          pip install torch==2.7.1+cpu torchvision==0.22.1+cpu
+          --index-url https://download.pytorch.org/whl/cpu
       # flyvis pinned to the commit the local golden runs used
       - run: pip install "git+https://github.com/lappalainenj/flyvis@7c29aed"
       - run: pip install -e '.[test]'

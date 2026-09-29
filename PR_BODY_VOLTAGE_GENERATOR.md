@@ -27,9 +27,9 @@ Outside localized import cleanup, unchanged functions in
 focused on the extracted voltage implementation.
 
 Against current `origin/main`, the final branch changes 51 files
-(+7,570/-1,799): 19 generator/tracker files (+3,720/-1,791), 24 test files
+(+7,577/-1,800): 19 generator/tracker files (+3,720/-1,791), 24 test files
 (+3,307/-4), one 221-line harness CLI, and seven CI/editor/documentation files
-(+322/-4).
+(+329/-5).
 
 ## Stage tracking
 
