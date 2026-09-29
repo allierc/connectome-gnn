@@ -22,10 +22,14 @@ also owns separate task, spiking, task-model-rollout, and connectome-constrained
 generators. Its remaining imports from `generators/voltage` are the wrapper's
 pipeline dependency and intentional compatibility re-exports.
 
-Against current `origin/main`, the final branch changes 46 files
-(+8,037/-2,258): 19 generator/tracker files (+4,350/-2,255), 19 test files
-(+3,161), one 221-line harness CLI, and seven CI/editor/documentation files
-(+305/-3).
+Outside localized import cleanup, unchanged functions in
+`graph_data_generator.py` retain their upstream formatting, keeping the review
+focused on the extracted voltage implementation.
+
+Against current `origin/main`, the final branch changes 45 files
+(+7,446/-1,785): 19 generator/tracker files (+3,776/-1,782), 19 test files
+(+3,161), one 221-line harness CLI, and six CI/editor/documentation files
+(+288/-3).
 
 ## Stage tracking
 
