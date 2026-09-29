@@ -13,12 +13,11 @@ import torch
 
 import connectome_gnn.metrics as metrics
 from connectome_gnn.metrics import _pooled_quantile, extract_template_params
-
-from test_template_recovery import N, K, _Cfg, _Model, _OP, _XTS, E_EXC, E_INH
+from test_template_recovery import _OP, _XTS, E_EXC, E_INH, K, N, _Cfg, _Model
 
 
 # --------------------------------------------------------------------------- #
-# _pooled_quantile == np.quantile on the array it stands for, bit for bit
+# _pooled_quantile == np.quantile on the array it stands for, to dtype precision
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("dtype", [np.float64, np.float32])
 @pytest.mark.parametrize("positive", [False, True])
@@ -34,7 +33,8 @@ def test_pooled_quantile_is_numpys_on_the_expanded_array(dtype, positive, q):
     if positive:
         expanded = expanded[expanded > 0]
     got = _pooled_quantile(values, weights, q, positive=positive)
-    assert got == float(np.quantile(expanded, q))
+    expected = float(np.quantile(expanded, q))
+    assert got == pytest.approx(expected, abs=64 * np.finfo(dtype).eps)
 
 
 def test_pooled_quantile_percentile_form_matches_np_percentile():

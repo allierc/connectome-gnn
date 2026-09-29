@@ -1,7 +1,6 @@
 import math
 import os
 import subprocess
-from dataclasses import dataclass
 from time import sleep
 
 import numpy as np
@@ -878,7 +877,9 @@ def _resolve_opto_data_root(opto_cfg) -> None:
     data_paths.json fallback roots and switch to the first one that has it.
     """
     from connectome_gnn.utils import (
-        get_data_root, load_data_fallback_roots, set_data_root,
+        get_data_root,
+        load_data_fallback_roots,
+        set_data_root,
     )
 
     src = opto_cfg.source_dataset

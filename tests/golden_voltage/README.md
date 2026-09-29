@@ -56,7 +56,8 @@ See `DETERMINISM.md` for the controlled environment, comparator policy, measured
 
 ## Structure
 
-- `BASE_SHA` pins the pre-refactor implementation.
+- `BASE_SHA` pins the pre-refactor implementation. The remote tag
+	`golden-voltage-base-20260925` makes that commit available to CI.
 - `cells.py` declares the fast and full scenario matrix.
 - `fixtures.py` builds deterministic DAVIS, FlyVis, conductance, and dirty-output fixtures.
 - `cell_runner.py` executes one implementation and records its outputs and process state.

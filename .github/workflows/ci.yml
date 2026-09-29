@@ -5,13 +5,32 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GNN_OUTPUT_ROOT: ${{ runner.temp }}/cgnn-output
+      PYTHONPATH: src:tests
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: pip install -e '.[test]' ruff
-      - run: ruff check src/ tests/
+      - run: mkdir -p "$GNN_OUTPUT_ROOT"
+      # origin/main currently has legacy Ruff debt. Enforce Ruff strictly on
+      # every Python file introduced or modified by this push / pull request.
+      - name: Ruff check changed Python files
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            BASE_SHA=$(git merge-base HEAD origin/main)
+          fi
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA"...HEAD -- '*.py')
+          if (( ${#files[@]} )); then
+            printf 'Ruff checking %s changed Python files\n' "${#files[@]}"
+            ruff check "${files[@]}"
+          fi
       - run: pytest -m tier1
       - run: pytest

@@ -26,10 +26,10 @@ Outside localized import cleanup, unchanged functions in
 `graph_data_generator.py` retain their upstream formatting, keeping the review
 focused on the extracted voltage implementation.
 
-Against current `origin/main`, the final branch changes 49 files
-(+7,522/-1,785): 19 generator/tracker files (+3,710/-1,782), 23 test files
-(+3,302), one 221-line harness CLI, and six CI/editor/documentation files
-(+289/-3).
+Against current `origin/main`, the final branch changes 51 files
+(+7,562/-1,799): 19 generator/tracker files (+3,720/-1,791), 24 test files
+(+3,307/-4), one 221-line harness CLI, and seven CI/editor/documentation files
+(+314/-4).
 
 ## Stage tracking
 
@@ -186,6 +186,7 @@ code in the pinned pre-refactor implementation.
   branches outside 17 justified markers; no unexplained gaps, stale markers, or
   unused IDs.
 - Focused tracker, pipeline, and golden-harness regression tests: 13/13 pass.
+- Standard CI suites: tier1 67/67 and full non-golden pytest 420/420 pass.
 - Mutation harness source checks: all 11 mutations still target exactly one
   intended location.
 - The branch is rebased onto current `origin/main`; after the rebase, Ruff, all
@@ -196,6 +197,8 @@ code in the pinned pre-refactor implementation.
 - VS Code recommends the Ruff extension and formats modified Python lines on
     save. The historical tree is not globally Ruff-formatted, so avoid unrelated
     whole-file formatting churn.
+- CI enforces Ruff on every Python file added or modified by a push or pull
+    request. Existing `origin/main` lint debt is outside that incremental gate.
 - Treat `tests/golden_voltage/BASE_SHA` as a fixed behavioral reference. Do not
     advance it merely to make a mismatch pass; first determine and document why
     behavior changed.

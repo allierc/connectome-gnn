@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import math
 import warnings
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -33,8 +32,6 @@ from connectome_gnn.config import (
     OptoWaveformKind,
 )
 from connectome_gnn.metrics import (
-    NAME_TO_INDEX,
-    IDENTIFIABLE_TYPES,
     NO_OUTGOING_TYPES,
     fingerprint_dataset,
     load_nullspace_ranking,
@@ -473,10 +470,11 @@ def add_optogenetics_stimulus(config) -> None:
     """
     import logging
     import os
+
     import zarr
-    from connectome_gnn.neuron_state import NeuronTimeSeries, NeuronState
-    from connectome_gnn.utils import graphs_data_path
-    from connectome_gnn.utils import to_numpy
+
+    from connectome_gnn.neuron_state import NeuronState, NeuronTimeSeries
+    from connectome_gnn.utils import graphs_data_path, to_numpy
     from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
     log = logging.getLogger(__name__)
@@ -821,11 +819,13 @@ def compare_traces(
     Returns metrics dict {mean_abs_dv_per_type, opto_on_frames, fig_path}.
     """
     import os
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    from connectome_gnn.metrics import INDEX_TO_NAME
     from connectome_gnn.neuron_state import NeuronTimeSeries
-    from connectome_gnn.metrics import INDEX_TO_NAME, NAME_TO_INDEX
     from connectome_gnn.utils import graphs_data_path
 
     def _resolve(name):

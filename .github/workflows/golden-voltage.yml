@@ -36,7 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # the base worktree is checked out from BASE_SHA
+          fetch-depth: 1
+      - name: Fetch pinned golden base
+        run: git fetch --depth=1 origin tag golden-voltage-base-20260925
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
