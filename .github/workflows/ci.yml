@@ -15,6 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install "git+https://github.com/lappalainenj/flyvis@7c29aed"
       - run: pip install -e '.[test]' ruff
       - name: Configure test output root
         run: |

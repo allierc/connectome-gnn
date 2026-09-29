@@ -30,7 +30,12 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "coverage[toml]>=7.4"]
+test = [
+    "pytest>=7.0",
+    "coverage[toml]>=7.4",
+    "opencv-python-headless>=4.10",
+    "torchdiffeq>=0.2.5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
