@@ -345,7 +345,7 @@ def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None,
         return None
     if rec is None or not any(q in rec.pairs for q in ("W", "tau", "V_rest")):
         return None
-    if alt:
+    if _takes_alt_arrays(rec, name, alt):
         _w = rec.diagnostics.get("_W_alt_full")
         if _w is None:
             return None
@@ -373,6 +373,32 @@ def write_checkpoint(rec, config, log_dir, device, logger=None, edges=None,
     if logger:
         logger.info(f"template checkpoint -> {path} ({written})")
     return path, name, written
+
+
+def _family_of(known_ode):
+    return "conductance" if "conductance" in (known_ode or "") else "current"
+
+
+def _takes_alt_arrays(rec, known_ode, alt):
+    """Whether the generator `known_ode` is fed the readout's ALT arrays.
+
+    THE GENERATOR AND THE CONSTANTS MUST BE OF ONE FAMILY. The generator is
+    picked by the MODEL's family (`known_ode_name`), while the readout sorts its
+    two fits by the DATA's: on current data the main arrays hold the current
+    fit (W*u + C, no reversal) and the alt arrays the conductance fit, whatever
+    the model is. Picking the arrays by slot therefore crossed them whenever
+    the model's family is not the data's -- a conductance GNN on flyvis: its
+    "own form" rolled the current fit out in the conductance generator (168,496
+    negative weights zeroed, no reversal, every synapse excitatory: r 0.25 with
+    65% of neuron-frames on the clamp) and its "other form" the conductance
+    slope b2 in the current generator (r 0.48). `alt_form_family`, which the
+    readout records, says which family the alt arrays are; a readout without it
+    keeps the old slot rule.
+    """
+    fam = rec.diagnostics.get("alt_form_family")
+    if fam not in ("current", "conductance"):
+        return alt
+    return fam == _family_of(known_ode)
 
 
 class _AltRec:
@@ -491,6 +517,10 @@ def run(rec, config, log_dir, device, logger=None, test_mode="template",
         log = os.path.join(log_dir, f"results_rollout{_suffix}_{test_mode}.log")
         got = _parse_rollout_log(log)
         out = {}
+        # WHICH FIT WAS ROLLED OUT, beside the generator it ran in, so a table
+        # can name the column by family and refuse a pair written before the
+        # two were matched (see _takes_alt_arrays).
+        out[f"{prefix}_fit_family"] = _family_of(name)
         if "W_unfitted_set_to_zero" in written:
             out[f"{prefix}_W_unfitted"] = int(written["W_unfitted_set_to_zero"])
         if "roundtrip_max_rel_dev" in written:

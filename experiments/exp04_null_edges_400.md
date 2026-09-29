@@ -65,21 +65,21 @@ report:
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
 analyse_job_ids:
-  flyvis_noise_005_null400_cur_cv00: '154431190'
-  flyvis_noise_005_null400_cur_cv01: '154431191'
-  flyvis_noise_005_null400_cur_cv02: '154431192'
-  flyvis_noise_005_null400_cur_cv03: '154431193'
-  flyvis_noise_005_null400_cur_cv04: '154431194'
-  flyvis_noise_005_null400_condl10_cv00: '154431195'
-  flyvis_noise_005_null400_condl10_cv01: '154431196'
-  flyvis_noise_005_null400_condl10_cv02: '154431197'
-  flyvis_noise_005_null400_condl25_cv00: '154431198'
-  flyvis_noise_005_null400_condl25_cv01: '154431199'
-  flyvis_noise_005_null400_condl25_cv02: '154431200'
-  flyvis_noise_005_null400_condl25_cv03: '154431201'
-  flyvis_noise_005_null400_condl25_cv04: '154431202'
-  flyvis_noise_005_null400_condl10_cv03: '154451107'
-  flyvis_noise_005_null400_condl10_cv04: '154451108'
+  flyvis_noise_005_null400_cur_cv00: '154463013'
+  flyvis_noise_005_null400_cur_cv01: '154463014'
+  flyvis_noise_005_null400_cur_cv02: '154463015'
+  flyvis_noise_005_null400_cur_cv03: '154463016'
+  flyvis_noise_005_null400_cur_cv04: '154463017'
+  flyvis_noise_005_null400_condl10_cv00: '154465690'
+  flyvis_noise_005_null400_condl10_cv01: '154465691'
+  flyvis_noise_005_null400_condl10_cv02: '154465692'
+  flyvis_noise_005_null400_condl25_cv00: '154465695'
+  flyvis_noise_005_null400_condl25_cv01: '154465696'
+  flyvis_noise_005_null400_condl25_cv02: '154465697'
+  flyvis_noise_005_null400_condl25_cv03: '154465698'
+  flyvis_noise_005_null400_condl25_cv04: '154465699'
+  flyvis_noise_005_null400_condl10_cv03: '154465693'
+  flyvis_noise_005_null400_condl10_cv04: '154465694'
 ---
 # Experiment 4 — null_edges_400
 
@@ -177,6 +177,23 @@ runs the template readout over all 2.17 M edges on the GPU, and that is VRAM
 rather than host RAM. If `-o test_plot` hits a CUDA out-of-memory error, the
 answer is `queue: ${CLUSTER_QUEUE_PREFIX}a100` on the arm, not more slots.
 
+<!-- READOUT_FIX:BEGIN -->
+
+## Re-analysed on the fixed readout (2026-09-28)
+
+Every landed run was re-analysed after the second-pass fix and the switch to one uniform draw of 1,024 frames (commit 9ef188e6, experiment 8); the earlier `metrics.txt` is kept as `superseded/pre_readout_fix/`. Fold means, old -> new, from `tools/readout_fix_compare.py`. The status table below is the new readout.
+
+| arm | lasso | n | R2_W | R2_Vrest | fit roll r current form | fit roll r conductance form | cluster | edges fitted % |
+|---|---|---|---|---|---|---|---|---|
+| current | --- | 5 | 0.889 -> 0.981 | 0.537 -> 0.540 |  |  | 0.821 -> 0.821 | 99.3 -> 76.9 |
+| conductance | 10 | 5 | 0.922 -> 0.951 | 0.519 -> 0.500 |  |  | 0.840 -> 0.840 | 99.3 -> 76.9 |
+| conductance | 25 | 5 | 0.945 -> 0.962 | 0.420 -> 0.427 |  |  | 0.831 -> 0.831 | 99.3 -> 76.9 |
+
+<!-- READOUT_FIX:END -->
+
+**What changes: the ranking reverses.** Before, the conductance form under a lasso led the current form on the null-edge graph (0.945 and 0.922 against 0.889). On the fixed readout the current form leads (0.981, against 0.962 for lasso 25 and 0.951 for lasso 10). The earlier result was mostly the readout.
+
+
 <!-- STATUS:BEGIN -->
 
 ## Status
@@ -185,15 +202,15 @@ answer is `queue: ${CLUSTER_QUEUE_PREFIX}a100` on the arm, not more slots.
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | 5 | 0.997 ± 0.000 | 0.996 ± 0.000 |  |  | 0.889 ± 0.013 (0.0) | 0.963 ± 0.023 (0.3) | 0.537 ± 0.068 (18.8) | 0.242 ± 0.064 | 0.943 ± 0.009 (0.0) | 0.062 ± 0.007 | 0.152 ± 0.005 | 0.821 ± 0.007 |
-| conductance | 5 | 0.996 ± 0.001 | 0.995 ± 0.000 |  |  | 0.922 ± 0.036 (0.0) | 0.963 ± 0.005 (1.3) | 0.519 ± 0.169 (20.8) | 0.305 ± 0.131 | 0.911 ± 0.082 (2.4) | 0.068 ± 0.051 | 0.128 ± 0.063 | 0.840 ± 0.007 |
-| cond_l25 | 5 | 0.996 ± 0.000 | 0.797 ± 0.395 |  |  | 0.945 ± 0.019 (0.0) | 0.965 ± 0.010 (0.9) | 0.420 ± 0.062 (16.2) | 0.337 ± 0.075 | 0.949 ± 0.009 (0.2) | 0.021 ± 0.010 | 0.124 ± 0.082 | 0.831 ± 0.026 |
+| current | 5 | 0.997 ± 0.000 | 0.996 ± 0.000 |  |  | 0.981 ± 0.004 (0.0) | 0.963 ± 0.023 (0.3) | 0.540 ± 0.092 (16.1) | 0.242 ± 0.064 | 0.943 ± 0.009 (0.0) | 0.051 ± 0.009 | 0.152 ± 0.005 | 0.821 ± 0.007 |
+| conductance | 5 | 0.996 ± 0.001 | 0.995 ± 0.000 |  |  | 0.951 ± 0.054 (0.0) | 0.963 ± 0.005 (1.3) | 0.500 ± 0.169 (19.3) | 0.305 ± 0.131 | 0.911 ± 0.082 (2.4) | 0.058 ± 0.050 | 0.128 ± 0.063 | 0.840 ± 0.007 |
+| cond_l25 | 5 | 0.996 ± 0.000 | 0.797 ± 0.396 |  |  | 0.962 ± 0.036 (0.0) | 0.965 ± 0.010 (0.9) | 0.427 ± 0.060 (16.4) | 0.337 ± 0.075 | 0.949 ± 0.009 (0.2) | 0.017 ± 0.008 | 0.124 ± 0.082 | 0.831 ± 0.026 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | — | | | | | | | | | | | | | |
 

@@ -2818,8 +2818,23 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # R² over edges that don't touch any hidden neuron; same as r_squared when
     # no hidden_ids.
     if _visible_mask is not None:
-        _gt_w_vis = _gt_w_full[_visible_mask]
-        _corr_w_vis = _corr_w_full[_visible_mask]
+        # THE MASK IS OVER EVERY EDGE AND THE READOUT'S W PAIR IS NOT. rec.get("W")
+        # keeps only the edges the template fit could fit (76% of flyvis's since
+        # the one-draw readout, 99% before it), so indexing it with a 434,112-long
+        # mask raised on the first checkpoint of every hidden-neuron run. The
+        # full-length learned W (nan where unfitted) lines up with the mask.
+        _learned_all = (rec.diagnostics.get("_W_learned_full")
+                        if rec is not None else None)
+        if _learned_all is not None and np.size(_learned_all) == _visible_mask.size:
+            _learned_all = np.asarray(_learned_all, dtype=np.float64).ravel()
+            _gt_all = (np.asarray(ode_params.effective_true_weights(
+                           to_numpy(gt_weights), to_numpy(edges), n_neurons)).ravel()
+                       if ode_params is not None else to_numpy(gt_weights).ravel())
+            _keep = _visible_mask & np.isfinite(_learned_all)
+            _gt_w_vis, _corr_w_vis = _gt_all[_keep], _learned_all[_keep]
+        else:
+            _gt_w_vis = _gt_w_full[_visible_mask]
+            _corr_w_vis = _corr_w_full[_visible_mask]
         _fig, _ax_tmp = plt.subplots(figsize=(4, 4))
         r_squared_visible, _ = plot_weight_scatter(
             _ax_tmp,

@@ -58,3 +58,30 @@ def test_the_other_family_is_the_other_known_ode():
         class graph_model:
             signal_model_name = "flyvis_current"
     assert other_known_ode_name(_Cur()) == "flyvis_conductance_known_ode"
+
+
+def _rec_with(alt_family):
+    rec = _Rec()
+    rec.diagnostics["alt_form_family"] = alt_family
+    return rec
+
+
+def test_each_generator_gets_its_own_familys_constants():
+    """A conductance GNN on current data: the readout's main arrays are the
+    CURRENT fit and its alt arrays the conductance fit, so the conductance
+    generator ("own form") must take the alt arrays and the current generator
+    ("other form") the main ones -- not the other way round, as it did."""
+    from connectome_gnn.template_rollout import _takes_alt_arrays
+    cond, cur = "flyvis_conductance_known_ode", "flyvis_known_ode"
+    on_current_data = _rec_with("conductance")
+    assert _takes_alt_arrays(on_current_data, cond, alt=False)
+    assert not _takes_alt_arrays(on_current_data, cur, alt=True)
+    # The families agree (conductance model on conductance data, current model
+    # on current data): the slot rule and the family rule coincide.
+    on_cond_data = _rec_with("current")
+    assert not _takes_alt_arrays(on_cond_data, cond, alt=False)
+    assert _takes_alt_arrays(on_cond_data, cur, alt=True)
+    assert not _takes_alt_arrays(_rec_with("conductance"), cur, alt=False)
+    # A readout that never recorded the family keeps the slot rule.
+    assert _takes_alt_arrays(_Rec(), cond, alt=True)
+    assert not _takes_alt_arrays(_Rec(), cond, alt=False)

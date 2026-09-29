@@ -33,10 +33,10 @@ job_ids:
   bench_a100_fp32: '154398324'
   bench_a100_bf16: '154398325'
 analyse_job_ids:
-  bench_rtx6000_fp32: '154399699'
-  bench_rtx6000_bf16: '154399700'
-  bench_a100_fp32: '154399701'
-  bench_a100_bf16: '154399702'
+  bench_rtx6000_fp32: '154463663'
+  bench_rtx6000_bf16: '154463664'
+  bench_a100_fp32: '154463665'
+  bench_a100_bf16: '154463666'
 report:
   timing: true
   timing_iters: 1600000
@@ -164,6 +164,24 @@ experiment 1.
 about 6 h for a full 1.6 M-iteration run.** Use the ranking above to choose a
 queue and that figure to plan a wall.
 
+<!-- READOUT_FIX:BEGIN -->
+
+## Re-analysed on the fixed readout (2026-09-28)
+
+Every landed run was re-analysed after the second-pass fix and the switch to one uniform draw of 1,024 frames (commit 9ef188e6, experiment 8); the earlier `metrics.txt` is kept as `superseded/pre_readout_fix/`. Fold means, old -> new, from `tools/readout_fix_compare.py`. The status table below is the new readout.
+
+| arm | precision | n | R2_W | R2_Vrest | fit roll r current form | fit roll r conductance form | cluster | edges fitted % |
+|---|---|---|---|---|---|---|---|---|
+| rtx6000 | fp32 | 1 | 0.948 -> 0.986 | 0.806 -> 0.822 | 0.990 -> 0.978 | 0.599 -> 0.612 | 0.898 -> 0.898 | 99.3 -> 76.4 |
+| rtx6000 | bf16 | 1 | 0.944 -> 0.980 | 0.763 -> 0.799 | 0.991 -> 0.977 | 0.551 -> 0.627 | 0.914 -> 0.914 | 99.3 -> 76.4 |
+| a100 | fp32 | 1 | 0.946 -> 0.980 | 0.763 -> 0.797 | 0.990 -> 0.979 | 0.591 -> 0.666 | 0.888 -> 0.888 | 99.3 -> 76.4 |
+| a100 | bf16 | 1 | 0.939 -> 0.982 | 0.836 -> 0.833 | 0.990 -> 0.977 | 0.647 -> 0.655 | 0.909 -> 0.909 | 99.3 -> 76.4 |
+
+<!-- READOUT_FIX:END -->
+
+**What changes:** nothing in the conclusion. `R2_W` is 0.980-0.986 on all four arms, so bf16 still costs nothing on recovery, on either card.
+
+
 <!-- STATUS:BEGIN -->
 
 ## Status
@@ -172,16 +190,16 @@ queue and that figure to plan a wall.
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | precision | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | precision | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| rtx6000 | fp32 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.990 ± 0.000 (0.0) | 0.599 ± 0.000 (4.4) | 0.948 ± 0.000 (0.0) | 0.967 ± 0.000 (0.5) | 0.806 ± 0.000 (6.5) | 0.768 ± 0.000 | 0.978 ± 0.000 (0.0) | 0.041 ± 0.000 | 0.527 ± 0.000 | 0.898 ± 0.000 |
-| rtx6000 | bf16 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.991 ± 0.000 (0.0) | 0.551 ± 0.000 (11.9) | 0.944 ± 0.000 (0.1) | 0.965 ± 0.000 (0.1) | 0.763 ± 0.000 (7.8) | 0.745 ± 0.000 | 0.973 ± 0.000 (0.0) | 0.038 ± 0.000 | 0.527 ± 0.000 | 0.914 ± 0.000 |
-| a100 | fp32 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.990 ± 0.000 (0.0) | 0.591 ± 0.000 (7.3) | 0.946 ± 0.000 (0.0) | 0.987 ± 0.000 (0.0) | 0.763 ± 0.000 (6.2) | 0.784 ± 0.000 | 0.980 ± 0.000 (0.0) | 0.040 ± 0.000 | 0.527 ± 0.000 | 0.888 ± 0.000 |
-| a100 | bf16 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.990 ± 0.000 (0.0) | 0.647 ± 0.000 (5.8) | 0.939 ± 0.000 (0.0) | 0.934 ± 0.000 (0.8) | 0.836 ± 0.000 (3.7) | 0.732 ± 0.000 | 0.980 ± 0.000 (0.0) | 0.047 ± 0.000 | 0.516 ± 0.000 | 0.909 ± 0.000 |
+| rtx6000 | fp32 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.978 ± 0.000 (0.0) | 0.612 ± 0.000 (2.3) | 0.986 ± 0.000 (0.0) | 0.967 ± 0.000 (0.5) | 0.822 ± 0.000 (5.6) | 0.768 ± 0.000 | 0.978 ± 0.000 (0.0) | 0.024 ± 0.000 | 0.527 ± 0.000 | 0.898 ± 0.000 |
+| rtx6000 | bf16 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.977 ± 0.000 (0.0) | 0.627 ± 0.000 (7.6) | 0.980 ± 0.000 (0.0) | 0.965 ± 0.000 (0.1) | 0.799 ± 0.000 (5.8) | 0.745 ± 0.000 | 0.973 ± 0.000 (0.0) | 0.025 ± 0.000 | 0.527 ± 0.000 | 0.914 ± 0.000 |
+| a100 | fp32 | 1 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.000 (0.0) | 0.666 ± 0.000 (3.9) | 0.980 ± 0.000 (0.0) | 0.987 ± 0.000 (0.0) | 0.797 ± 0.000 (4.4) | 0.784 ± 0.000 | 0.980 ± 0.000 (0.0) | 0.036 ± 0.000 | 0.527 ± 0.000 | 0.888 ± 0.000 |
+| a100 | bf16 | 1 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.977 ± 0.000 (0.0) | 0.655 ± 0.000 (5.4) | 0.982 ± 0.000 (0.0) | 0.934 ± 0.000 (0.8) | 0.833 ± 0.000 (5.9) | 0.732 ± 0.000 | 0.980 ± 0.000 (0.0) | 0.044 ± 0.000 | 0.516 ± 0.000 | 0.909 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | precision | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | precision | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | — | | | | | | | | | | | | | | |
 

@@ -521,7 +521,8 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
         # destabilize training at that transition.
         # -----------------------------------------------------------------
 
-        hidden_injection_schedule = init_hidden_injection_schedule(training, Niter)
+        hidden_injection_schedule = init_hidden_injection_schedule(
+            training, Niter, first_epoch=(epoch == 0))
 
         if hidden_injection_schedule.warmup_iter > 0:
             print(

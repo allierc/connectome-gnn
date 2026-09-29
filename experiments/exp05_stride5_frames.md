@@ -90,35 +90,35 @@ report:
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
 analyse_job_ids:
-  flyvis_noise_005_s5h06_cur_cv00: '154453735'
-  flyvis_noise_005_s5h06_cur_cv01: '154453736'
-  flyvis_noise_005_s5h06_cur_cv02: '154453737'
-  flyvis_noise_005_s5h06_cur_cv03: '154453738'
-  flyvis_noise_005_s5h06_cur_cv04: '154453739'
-  flyvis_noise_005_s5h21_cur_cv01: '154453740'
-  flyvis_noise_005_s5h21_cur_cv02: '154453741'
-  flyvis_noise_005_s5h21_cur_cv03: '154453742'
-  flyvis_noise_005_s5h21_cur_cv04: '154453743'
-  flyvis_noise_005_s5h06_condl100_cv00: '154453744'
-  flyvis_noise_005_s5h06_condl100_cv01: '154453745'
-  flyvis_noise_005_s5h06_condl100_cv02: '154453746'
-  flyvis_noise_005_s5h06_condl100_cv03: '154453747'
-  flyvis_noise_005_s5h06_condl100_cv04: '154453749'
-  flyvis_noise_005_s5h21_condl100_cv00: '154453750'
-  flyvis_noise_005_s5h21_condl100_cv01: '154453751'
-  flyvis_noise_005_s5h21_condl100_cv02: '154453752'
-  flyvis_noise_005_s5h21_condl100_cv03: '154453753'
-  flyvis_noise_005_s5h21_condl100_cv04: '154453754'
-  flyvis_noise_005_s5h06_condl25_cv00: '154453755'
-  flyvis_noise_005_s5h06_condl25_cv01: '154453756'
-  flyvis_noise_005_s5h06_condl25_cv02: '154453757'
-  flyvis_noise_005_s5h06_condl25_cv03: '154453758'
-  flyvis_noise_005_s5h06_condl25_cv04: '154453759'
-  flyvis_noise_005_s5h21_condl25_cv00: '154453760'
-  flyvis_noise_005_s5h21_condl25_cv01: '154453761'
-  flyvis_noise_005_s5h21_condl25_cv02: '154453762'
-  flyvis_noise_005_s5h21_condl25_cv03: '154453763'
-  flyvis_noise_005_s5h21_condl25_cv04: '154453764'
+  flyvis_noise_005_s5h06_cur_cv00: '154463483'
+  flyvis_noise_005_s5h06_cur_cv01: '154463484'
+  flyvis_noise_005_s5h06_cur_cv02: '154463485'
+  flyvis_noise_005_s5h06_cur_cv03: '154463486'
+  flyvis_noise_005_s5h06_cur_cv04: '154463487'
+  flyvis_noise_005_s5h21_cur_cv01: '154463488'
+  flyvis_noise_005_s5h21_cur_cv02: '154463489'
+  flyvis_noise_005_s5h21_cur_cv03: '154463490'
+  flyvis_noise_005_s5h21_cur_cv04: '154463491'
+  flyvis_noise_005_s5h06_condl100_cv00: '154465792'
+  flyvis_noise_005_s5h06_condl100_cv01: '154465793'
+  flyvis_noise_005_s5h06_condl100_cv02: '154465794'
+  flyvis_noise_005_s5h06_condl100_cv03: '154465795'
+  flyvis_noise_005_s5h06_condl100_cv04: '154465796'
+  flyvis_noise_005_s5h21_condl100_cv00: '154465822'
+  flyvis_noise_005_s5h21_condl100_cv01: '154465823'
+  flyvis_noise_005_s5h21_condl100_cv02: '154465824'
+  flyvis_noise_005_s5h21_condl100_cv03: '154465825'
+  flyvis_noise_005_s5h21_condl100_cv04: '154465826'
+  flyvis_noise_005_s5h06_condl25_cv00: '154465827'
+  flyvis_noise_005_s5h06_condl25_cv01: '154465828'
+  flyvis_noise_005_s5h06_condl25_cv02: '154465829'
+  flyvis_noise_005_s5h06_condl25_cv03: '154465830'
+  flyvis_noise_005_s5h06_condl25_cv04: '154465831'
+  flyvis_noise_005_s5h21_condl25_cv00: '154465832'
+  flyvis_noise_005_s5h21_condl25_cv01: '154465833'
+  flyvis_noise_005_s5h21_condl25_cv02: '154465834'
+  flyvis_noise_005_s5h21_condl25_cv03: '154465835'
+  flyvis_noise_005_s5h21_condl25_cv04: '154465837'
   flyvis_noise_005_s5h21_cur_cv00: '154459603'
 ---
 # Experiment 5 — stride5_frames
@@ -352,6 +352,26 @@ an inference from one measurement, not a controlled comparison.
    this path is caught by the suite rather than by a 30-job experiment.
 4. Only then re-run exp05.
 
+<!-- READOUT_FIX:BEGIN -->
+
+## Re-analysed on the fixed readout (2026-09-28)
+
+Every landed run was re-analysed after the second-pass fix and the switch to one uniform draw of 1,024 frames (commit 9ef188e6, experiment 8); the earlier `metrics.txt` is kept as `superseded/pre_readout_fix/`. Fold means, old -> new, from `tools/readout_fix_compare.py`. The status table below is the new readout.
+
+| arm | lasso | horizon | n | R2_W | R2_Vrest | fit roll r current form | fit roll r conductance form | cluster | edges fitted % |
+|---|---|---|---|---|---|---|---|---|---|
+| current | --- | 6 | 5 | 0.943 -> 0.983 | 0.861 -> 0.881 | 0.994 -> 0.978 | 0.577 -> 0.582 | 0.878 -> 0.874 | 99.3 -> 76.9 |
+| current | --- | 21 | 4 | 0.926 -> 0.971 | 0.830 -> 0.852 | 0.994 -> 0.977 | 0.603 -> 0.579 | 0.864 -> 0.870 | 99.3 -> 77.1 |
+| conductance | 100 | 6 | 5 | 0.368 -> 0.384 | 0.657 -> 0.705 |  |  | 0.690 -> 0.690 | 99.3 -> 76.9 |
+| conductance | 100 | 21 | 5 | 0.177 -> 0.194 | 0.615 -> 0.758 |  |  | 0.494 -> 0.488 | 99.3 -> 76.9 |
+| conductance | 25 | 6 | 5 | 0.961 -> 0.978 | 0.854 -> 0.853 |  |  | 0.870 -> 0.871 | 99.3 -> 76.9 |
+| conductance | 25 | 21 | 5 | 0.940 -> 0.974 | 0.835 -> 0.827 |  |  | 0.872 -> 0.867 | 99.3 -> 76.9 |
+
+<!-- READOUT_FIX:END -->
+
+**What changes:** the conductance lasso-25 lead over the current form is gone. Before it was ahead at both horizons (0.961 / 0.943 at h06, 0.940 / 0.926 at h21); now the current form is ahead at h06 (0.983 / 0.978) and the two tie at h21 (0.971 / 0.974).
+
+
 <!-- STATUS:BEGIN -->
 
 ## Status
@@ -360,18 +380,18 @@ an inference from one measurement, not a controlled comparison.
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | horizon | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | horizon | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| current | h06 | 5 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.994 ± 0.002 (0.0) | 0.577 ± 0.065 (4.7) | 0.943 ± 0.018 (0.0) | 0.941 ± 0.028 (0.4) | 0.861 ± 0.040 (4.6) | 0.829 ± 0.065 | 0.977 ± 0.016 (0.0) | 0.027 ± 0.020 | 0.416 ± 0.011 | 0.878 ± 0.020 |
-| current | h21 | 4 | 0.998 ± 0.000 | 0.998 ± 0.001 | 0.994 ± 0.002 (0.0) | 0.603 ± 0.046 (7.5) | 0.926 ± 0.014 (0.0) | 0.916 ± 0.014 (1.6) | 0.830 ± 0.031 (8.6) | 0.779 ± 0.058 | 0.968 ± 0.014 (0.1) | 0.027 ± 0.015 | 0.524 ± 0.009 | 0.864 ± 0.021 |
-| conductance | h06 | 5 | 0.758 ± 0.196 | 0.690 ± 0.252 | 0.348 ± 0.185 (34.5) | 0.487 ± 0.018 (3.3) | 0.368 ± 0.466 (0.3) | 0.588 ± 0.304 (13.8) | 0.657 ± 0.131 (46.1) | 0.706 ± 0.080 | 0.385 ± 0.488 (38.7) | 49.810 ± 43.042 | 0.182 ± 0.223 | 0.690 ± 0.144 |
-| conductance | h21 | 5 | 0.678 ± 0.161 | 0.598 ± 0.200 | 0.430 ± 0.159 (20.6) | 0.510 ± 0.001 (5.1) | 0.177 ± 0.379 (0.4) | 0.577 ± 0.234 (15.7) | 0.615 ± 0.092 (59.6) | 0.743 ± 0.040 | 0.071 ± 0.460 (62.4) | 158.376 ± 98.876 | 0.156 ± 0.238 | 0.494 ± 0.189 |
-| cond_l25 | h06 | 5 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.118 ± 0.002 (77.9) | 0.492 ± 0.006 (0.0) | 0.961 ± 0.005 (0.0) | 0.953 ± 0.010 (0.5) | 0.854 ± 0.010 (6.6) | 0.854 ± 0.010 | 0.979 ± 0.005 (0.0) | 0.007 ± 0.001 | 0.451 ± 0.011 | 0.870 ± 0.013 |
-| cond_l25 | h21 | 5 | 0.997 ± 0.000 | 0.997 ± 0.000 | 0.117 ± 0.002 (77.8) | 0.481 ± 0.015 (0.0) | 0.940 ± 0.004 (0.0) | 0.933 ± 0.017 (0.2) | 0.835 ± 0.020 (8.4) | 0.824 ± 0.041 | 0.974 ± 0.006 (0.0) | 0.010 ± 0.004 | 0.577 ± 0.013 | 0.872 ± 0.015 |
+| current | h06 | 5 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.978 ± 0.001 (0.0) | 0.582 ± 0.054 (4.1) | 0.983 ± 0.006 (0.0) | 0.941 ± 0.028 (0.4) | 0.881 ± 0.029 (3.6) | 0.829 ± 0.065 | 0.977 ± 0.016 (0.0) | 0.023 ± 0.018 | 0.416 ± 0.011 | 0.874 ± 0.020 |
+| current | h21 | 4 | 0.998 ± 0.000 | 0.998 ± 0.001 | 0.977 ± 0.001 (0.0) | 0.579 ± 0.054 (6.1) | 0.971 ± 0.011 (0.0) | 0.916 ± 0.014 (1.6) | 0.852 ± 0.014 (7.2) | 0.779 ± 0.058 | 0.968 ± 0.014 (0.1) | 0.023 ± 0.011 | 0.524 ± 0.009 | 0.870 ± 0.016 |
+| conductance | h06 | 5 | 0.758 ± 0.196 | 0.690 ± 0.252 | 0.690 ± 0.233 (24.2) | 0.582 ± 0.101 (25.0) | 0.384 ± 0.471 (0.2) | 0.588 ± 0.304 (13.8) | 0.705 ± 0.093 (53.6) | 0.715 ± 0.075 | 0.358 ± 0.510 (41.4) | 62.411 ± 54.010 | 0.182 ± 0.223 | 0.690 ± 0.144 |
+| conductance | h21 | 5 | 0.678 ± 0.161 | 0.598 ± 0.200 | 0.598 ± 0.186 (32.9) | 0.522 ± 0.035 (33.1) | 0.194 ± 0.388 (0.3) | 0.577 ± 0.235 (15.7) | 0.758 ± 0.034 (72.2) | 0.741 ± 0.036 | 0.054 ± 0.471 (62.8) | 109.809 ± 66.020 | 0.143 ± 0.235 | 0.488 ± 0.192 |
+| cond_l25 | h06 | 5 | 0.998 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.599 ± 0.125 (3.7) | 0.978 ± 0.012 (0.0) | 0.953 ± 0.010 (0.5) | 0.853 ± 0.010 (6.6) | 0.854 ± 0.010 | 0.979 ± 0.005 (0.0) | 0.005 ± 0.001 | 0.451 ± 0.011 | 0.871 ± 0.012 |
+| cond_l25 | h21 | 5 | 0.997 ± 0.000 | 0.997 ± 0.000 | 0.977 ± 0.002 (0.0) | 0.699 ± 0.024 (1.7) | 0.974 ± 0.005 (0.0) | 0.933 ± 0.017 (0.2) | 0.827 ± 0.037 (8.6) | 0.824 ± 0.041 | 0.974 ± 0.006 (0.0) | 0.008 ± 0.003 | 0.577 ± 0.013 | 0.867 ± 0.015 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | horizon | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | horizon | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | — | | | | | | | | | | | | | | |
 

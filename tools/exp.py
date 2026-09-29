@@ -51,14 +51,16 @@ STAGE_DIR = f"{os.environ['GNN_OUTPUT_ROOT']}/config/fly"
 COLUMNS = [
     ("one_step_r",                       "one-step r",   False),
     ("rollout_r",                        "rollout r",    True),
-    # THESE TWO ARE RELATIVE TO THE MODEL, NOT TO A FIXED FAMILY. The tester
-    # writes `template_rollout_r` for the template of the model's OWN message
-    # family and `template_alt_rollout_r` for the other one, and which family is
-    # which is in the run's `alt_form_family`. Hard-coding "cond"/"curr" here
-    # labelled every current-model table backwards; `_form_heads` resolves it
-    # from the runs instead.
-    ("template_rollout_r",               "fit roll own form",   False),
-    ("template_alt_rollout_r",           "fit roll other form", False),
+    # NAMED BY THE TEMPLATE'S FAMILY, the same on every row. The model's
+    # message is fitted with the current form (W*u + C) and with the conductance
+    # form (W*u*(E - v_i) + C), each fit is rolled out in its own family's
+    # generator, and the rollout is scored against the noise-free trajectory of
+    # the model that generated the training data. "Own/other form" meant
+    # current for a current model and conductance for a conductance model, so
+    # one column changed meaning from row to row. `_fit_roll_by_family` derives
+    # these two from the tester's template_rollout_* / template_alt_rollout_*.
+    ("fitroll_current_r",                "fit roll r current form",     False),
+    ("fitroll_conductance_r",            "fit roll r conductance form", False),
     ("Wij_R2",                           "R2_W",         True),
     ("tau_R2",                           "R2_tau",       True),
     ("V_rest_R2",                        "R2_Vrest",     True),
@@ -173,7 +175,42 @@ def metrics_of(run):
     # Only the rollout lines means the plot pass never reached the readout: no
     # recovered parameters, which for every column but one is the same state as
     # no file at all.
-    return out if "Wij_R2" in out else None
+    return _fit_roll_by_family(out) if "Wij_R2" in out else None
+
+
+def _fit_roll_by_family(m):
+    """Add fitroll_<family>_{r, pct_clamped, pct_neurons_railed} to a metrics dict.
+
+    The tester writes its two template rollouts by SLOT -- template_rollout_*
+    in the model's family's generator, template_alt_rollout_* in the other --
+    and names each generator in `<slot>_model`. Until 2026-09-29 the constants
+    were also taken by slot, which crossed them whenever the model's family was
+    not the data's (a conductance GNN on flyvis rolled the CURRENT fit out in
+    the CONDUCTANCE generator). A rollout written since says which fit it
+    carried (`<slot>_fit_family`); for one written before, the slot rule is
+    reconstructed from `alt_form_family` (the family of the readout's alt fit;
+    the main fit is the data's). A crossed pair is left out, not relabelled:
+    its r is a number about neither form.
+    """
+    def fam(name):
+        return "conductance" if "conductance" in (name or "") else "current"
+    alt_fit = m.get("alt_form_family")
+    for slot, is_alt in (("template_rollout", False), ("template_alt_rollout", True)):
+        gen = m.get(f"{slot}_model")
+        if not gen:
+            continue
+        fit = m.get(f"{slot}_fit_family")
+        if fit is None:
+            if alt_fit not in ("current", "conductance"):
+                continue
+            fit = alt_fit if is_alt else ("current" if alt_fit == "conductance"
+                                          else "conductance")
+        if fit != fam(gen):
+            continue
+        for suf in ("r", "pct_clamped", "pct_neurons_railed"):
+            if f"{slot}_{suf}" in m:
+                m[f"fitroll_{fam(gen)}_{suf}"] = m[f"{slot}_{suf}"]
+    return m
 
 
 def _last_row(run, stem):
@@ -599,10 +636,10 @@ def _mean_sd(vals, nd=3):
 # on that rail, backfilled by tools/backfill_clamp_share.py from the saved
 # per-neuron arrays. Different denominators, same question: is this r a
 # measurement or a rail.
-_OUTLIER_OF = {"template_rollout_r": ["template_rollout_pct_clamped",
-                                      "template_rollout_pct_neurons_railed"],
-               "template_alt_rollout_r": ["template_alt_rollout_pct_clamped",
-                                          "template_alt_rollout_pct_neurons_railed"],
+_OUTLIER_OF = {"fitroll_current_r": ["fitroll_current_pct_clamped",
+                                     "fitroll_current_pct_neurons_railed"],
+               "fitroll_conductance_r": ["fitroll_conductance_pct_clamped",
+                                         "fitroll_conductance_pct_neurons_railed"],
                "Wij_R2": "Wij_pct_outliers", "tau_R2": "tau_pct_outliers",
                "V_rest_R2": "V_rest_pct_outliers", "msg_i_R2": "msg_i_pct_outliers"}
 
@@ -797,8 +834,8 @@ def _tex(s):
 # table and the markdown cannot drift apart.
 _PRETTY = {
     "one-step r": r"one-step $r$", "rollout r": r"rollout $r$",
-    "fit roll own form": r"\shortstack{fit roll $r$\\own form}",
-    "fit roll other form": r"\shortstack{fit roll $r$\\other form}",
+    "fit roll r current form": r"\shortstack{fit roll $r$\\current form}",
+    "fit roll r conductance form": r"\shortstack{fit roll $r$\\cond.\ form}",
     "R2_W": r"$R^2_{\hat W}$", "R2_tau": r"$R^2_{\hat\tau}$",
     "R2_Vrest": r"$R^2_{V^{\mathrm{rest}}}$",
     "R2_Vrest noC": r"$R^2_{V^{\mathrm{rest}}}$ \tiny no $C_i$",
@@ -854,40 +891,6 @@ def _cellf(txt):
     except (ValueError, IndexError):
         return out
     return r"\good{" + out + "}" if v > _GREEN else out
-
-
-def _form_heads(rs):
-    """Name the two `fit roll` columns after the families they actually are.
-
-    FROM THE ROLLOUT'S OWN RECORD, NOT FROM `alt_form_family`. The two are about
-    different things and only agree by accident. `alt_form_family` is the family
-    of the ALTERNATIVE FIT ON THE MESSAGE, and `metrics.py` decides it from
-    `_is_conductance_data(ode_params)` -- the family of the GENERATOR. The
-    rollout's own/other, in contrast, follows the MODEL: on current data a
-    conductance model reports `alt_form_family: conductance` while its
-    `template_rollout_model` is `flyvis_conductance_known_ode`, so reading the
-    header off `alt_form_family` labels that table backwards.
-
-    `template_rollout_model` and `template_alt_rollout_model` name the known-ODE
-    each column was actually rolled out with, per run, which is the thing the
-    header claims. Returns None when the landed runs disagree -- experiment 2
-    mixes current and conductance models in one table, and there "own form" and
-    "other form" are the only true names.
-    """
-    def fam(name):
-        return "conductance" if "conductance" in (name or "") else "current"
-
-    pairs = {(fam(m["template_rollout_model"]), fam(m["template_alt_rollout_model"]))
-             for _a, _p, r in rs
-             if (m := metrics_of(r)) and "template_rollout_model" in m
-             and "template_alt_rollout_model" in m}
-    if len(pairs) != 1:
-        return None
-    own, alt = pairs.pop()
-    if own == alt:                      # cannot happen, but do not claim it did
-        return None
-    short = {"current": r"curr.\ form", "conductance": r"cond.\ form"}
-    return short[own], short[alt]
 
 
 _GPU_RE = re.compile(r"phase=(\w+) device=(.+?) total_gb=([\d.]+) "
@@ -1046,11 +1049,6 @@ def _table(fm, source="landed"):
     cols = _columns(fm)
     rs = runs(fm)
     heads = [_PRETTY.get(h, _tex(h)) for _, h, _ in cols]
-    fh = _form_heads(rs)
-    if fh:
-        for h, name in zip(("fit roll own form", "fit roll other form"), fh):
-            heads[[c[1] for c in cols].index(h)] = \
-                r"\shortstack{fit roll $r$\\" + name + "}"
     axes_no_fold = [k for k in fm["axes"] if k != "fold"]
     extra = _arm_columns(fm)
     # NUMBERS RIGHT, NAMES CENTRED. The values line up on their decimal point,

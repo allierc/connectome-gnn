@@ -514,11 +514,17 @@ def init_training_runtime(
     )
 
 
-def init_hidden_injection_schedule(training, Niter):
+def init_hidden_injection_schedule(training, Niter, first_epoch=True):
     """
     Build the NGP injection + GNN LR-damping schedule.
 
     This preserves the existing warmup/ramp semantics.
+
+    THE WARM-UP HAPPENS ONCE PER RUN. The trainer rebuilds this schedule at
+    every epoch, and `N` counts iterations within the epoch, so with
+    n_epochs > 1 (recurrent training runs 20, one per horizon) the hidden
+    traces were switched back to zeros at the start of EVERY epoch, and the LR
+    damping repeated with them. After the first epoch the traces stay injected.
     """
 
     warmup_fraction = float(
@@ -537,7 +543,9 @@ def init_hidden_injection_schedule(training, Niter):
         )
     )
 
-    if warmup_fraction > 0.0:
+    if not first_epoch:
+        warmup_iter = 0
+    elif warmup_fraction > 0.0:
         warmup_iter = int(
             Niter * warmup_fraction
         )

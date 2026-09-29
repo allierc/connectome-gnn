@@ -1,27 +1,24 @@
-"""No column header in the experiment report names a message family by hand.
+"""The two fit-roll columns carry each number under the family it belongs to.
 
-THE DEFECT THIS EXISTS TO CATCH. `tools/exp.py` says in its own docstring that
-nothing in the report is typed -- every value comes from the run. The two
-`fit roll r` columns broke that rule: they were labelled "cond. form" and
-"curr. form" in `COLUMNS`, which is correct for a conductance model and exactly
-backwards for a current one, because the tester writes `template_rollout_r` for
-whichever family the MODEL belongs to and `template_alt_rollout_r` for the
-other. Every exp01 table therefore read the two numbers the wrong way round --
-1.00 against the conductance form and 0.62 against the current one -- and the
-table looked like a result ("the conductance readout fits a current model
-better") rather than like a swapped label.
+HISTORY. The columns were once typed "cond. form" / "curr. form" while the
+tester wrote them by the MODEL's family, so every current-model table read the
+two numbers backwards (exp01: 1.00 under conductance, 0.62 under current). They
+were then renamed "own form" / "other form", which is true per row but means
+current on a current model's row and conductance on a conductance model's --
+ambiguous in any table that mixes the two (exp02). And underneath, the tester
+itself crossed the constants whenever the model's family was not the data's: a
+conductance GNN on flyvis rolled the CURRENT fit out in the CONDUCTANCE
+generator (fixed in template_rollout._takes_alt_arrays, 2026-09-29).
 
-The run already knew: `alt_form_family` is in every `results/metrics.txt`.
-
-So the rule these tests enforce is narrow and checkable: a header that depends
-on the run must be DERIVED from the run, and `_form_heads` is where that
-derivation lives. A future column with the same property fails here the moment
-someone types a family name into `COLUMNS` or `_PRETTY` instead.
+THE RULE NOW. The headers name the template family, the same on every row, and
+`_fit_roll_by_family` decides per run which of the tester's two rollouts goes
+under which: by the generator each ran in (`<slot>_model`) and the fit it
+carried (`<slot>_fit_family`, or for a run analysed before the fix the slot rule
+rebuilt from `alt_form_family`). A rollout whose generator and fit disagree is
+left out rather than shown under either name.
 """
 import importlib.util
 import os
-
-import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "exp_tool", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -29,89 +26,54 @@ _SPEC = importlib.util.spec_from_file_location(
 exp = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(exp)
 
-
-# The words that name a message family. A header carrying one of these is
-# asserting something about the model, and only the run may assert it.
-_FAMILY_WORDS = ("cond", "curr", "conductance", "current")
+CUR, COND = "flyvis_known_ode", "flyvis_conductance_known_ode"
 
 
-_KNOWN_ODE = {"current": "flyvis_known_ode",
-              "conductance": "flyvis_conductance_known_ode"}
+def _m(own_gen, alt_gen, alt_form_family, fit_families=None):
+    m = {"alt_form_family": alt_form_family,
+         "template_rollout_model": own_gen, "template_rollout_r": "0.11",
+         "template_rollout_pct_clamped": "70.0",
+         "template_alt_rollout_model": alt_gen, "template_alt_rollout_r": "0.22",
+         "template_alt_rollout_pct_clamped": "0.0"}
+    if fit_families:
+        m["template_rollout_fit_family"], m["template_alt_rollout_fit_family"] = fit_families
+    return exp._fit_roll_by_family(m)
 
 
-@pytest.fixture
-def patched(monkeypatch):
-    """Fake `runs(fm)` rows carrying the known-ODE each column rolled out with.
-
-    `own` is the family of the model, which is what the rollout's own column is;
-    the other column is the remaining family. `None` stands for a run that has
-    not landed and so names neither.
-    """
-    def use(*owns):
-        by_run = {}
-        for i, own in enumerate(owns):
-            if own is None:
-                by_run[f"run{i}"] = {}
-                continue
-            alt = "current" if own == "conductance" else "conductance"
-            by_run[f"run{i}"] = {"template_rollout_model": _KNOWN_ODE[own],
-                                 "template_alt_rollout_model": _KNOWN_ODE[alt]}
-        monkeypatch.setattr(exp, "metrics_of", lambda r: by_run.get(r) or None)
-        return [({"id": "a"}, {}, f"run{i}") for i in range(len(owns))]
-    return use
+def test_a_current_model_on_current_data_reads_its_own_rollout_as_current():
+    """The exp01 defect: the model's own rollout is the CURRENT form here."""
+    m = _m(CUR, COND, "conductance")
+    assert m["fitroll_current_r"] == "0.11"
+    assert m["fitroll_conductance_r"] == "0.22"
+    assert m["fitroll_current_pct_clamped"] == "70.0"
 
 
-def test_columns_do_not_name_a_family():
-    """The static header set stays family-neutral."""
-    for _key, head, _live in exp.COLUMNS:
-        for word in _FAMILY_WORDS:
-            assert word not in head.lower(), (
-                f"header {head!r} names a message family; it must be derived "
-                f"from the run's alt_form_family, not typed in COLUMNS")
+def test_a_crossed_rollout_written_before_the_fix_is_left_out():
+    """A conductance model on current data, analysed before the pairing fix:
+    each generator carried the other family's constants, so neither r is a
+    number about the form its column would name."""
+    m = _m(COND, CUR, "conductance")
+    assert "fitroll_current_r" not in m and "fitroll_conductance_r" not in m
 
 
-def test_pretty_does_not_name_a_family():
-    for head, tex in exp._PRETTY.items():
-        for word in _FAMILY_WORDS:
-            assert word not in tex.lower(), (
-                f"_PRETTY[{head!r}] names a message family")
+def test_the_same_model_after_the_fix_fills_both():
+    m = _m(COND, CUR, "conductance", fit_families=("conductance", "current"))
+    assert m["fitroll_conductance_r"] == "0.11"
+    assert m["fitroll_current_r"] == "0.22"
 
 
-def test_a_current_model_reads_own_as_current(patched):
-    own, alt = exp._form_heads(patched(*["current"] * 5))
-    assert "curr" in own and "cond" in alt
+def test_a_conductance_model_on_conductance_data_was_never_crossed():
+    m = _m(COND, CUR, "current")
+    assert m["fitroll_conductance_r"] == "0.11"
+    assert m["fitroll_current_r"] == "0.22"
 
 
-def test_a_conductance_model_reads_own_as_conductance(patched):
-    own, alt = exp._form_heads(patched(*["conductance"] * 5))
-    assert "cond" in own and "curr" in alt
+def test_a_run_without_a_template_rollout_gets_neither():
+    m = exp._fit_roll_by_family({"Wij_R2": "0.9"})
+    assert "fitroll_current_r" not in m and "fitroll_conductance_r" not in m
 
 
-def test_mixed_models_refuse_to_name_either(patched):
-    """Experiment 2's shape: current and conductance models in one table.
-
-    There is no single family for the column, so the honest header is the
-    relative one; naming a family here is the original defect in a new place.
-    """
-    assert exp._form_heads(patched("conductance", "current")) is None
-
-
-def test_nothing_landed_refuses_too(patched):
-    assert exp._form_heads(patched(None, None)) is None
-
-
-def test_alt_form_family_is_not_what_decides_it(patched, monkeypatch):
-    """The field that looks right and is not.
-
-    `alt_form_family` comes from `_is_conductance_data(ode_params)` -- the
-    GENERATOR's family -- so on current data it reads "conductance" for a
-    conductance model too. If `_form_heads` ever goes back to reading it, this
-    run would be labelled current-form-own when the rollout used the
-    conductance known-ODE.
-    """
-    by_run = {"run0": {"alt_form_family": "conductance",
-                       "template_rollout_model": "flyvis_conductance_known_ode",
-                       "template_alt_rollout_model": "flyvis_known_ode"}}
-    monkeypatch.setattr(exp, "metrics_of", lambda r: by_run.get(r))
-    own, _alt = exp._form_heads([({"id": "a"}, {}, "run0")])
-    assert "cond" in own
+def test_the_columns_are_the_family_columns():
+    keys = [k for k, _h, _l in exp.COLUMNS]
+    assert "fitroll_current_r" in keys and "fitroll_conductance_r" in keys
+    assert "template_rollout_r" not in keys and "template_alt_rollout_r" not in keys

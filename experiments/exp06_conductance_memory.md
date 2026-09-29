@@ -63,6 +63,15 @@ analyse_job_ids:
   e8_flywireRF_noise_005_blank50_condl25mem_a100_cv00: '154461008'
   e8_flywireRF_noise_005_blank50_condl25mem_h100_cv00: '154461009'
   e8_flywireRF_noise_005_blank50_condl25mem_rtx6000_cv00: '154461010'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00: '154463209'
+  full_eye_flywireRF_noise_005_blank50_condl25mem_a100_cv00: '154463210'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00: '154463211'
+  full_eye_flywireRF_noise_005_blank50_condl25mem_h100_cv00: '154463212'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00: '154463214'
+  full_eye_flywireRF_noise_005_blank50_condl25mem_rtx6000_cv00: '154463215'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00: '154465663'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00: '154465664'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00: '154465665'
 ---
 
 # Experiment 6 — conductance_memory
@@ -236,6 +245,17 @@ RTX PRO 6000, killed) were relaunched on the new code: 9 runs = 3 cards x the
 3 large variants. The 3 e8 hybrid runs finished training and are in `-o
 test_plot`, which now also uses the streamed readout.
 
+## The answer (2026-09-29, all 12 landed)
+
+With the readout streaming, every variant trains, tests and plots on all three
+cards. Peak GPU in training: e8 hybrid 23 GB, e8 hybrid + n.e. 25 GB, FlyWire
+eye 46 GB, FlyWire eye + n.e. 70-76 GB (the plot pass peaks at 32 GB, the test
+at 11 GB). Host RAM peaks at 105 GB for both FlyWire eye variants. A100 and H100
+fit FlyWire eye + n.e. with only 3-9 GB to spare; the RTX PRO 6000 has 19 GB.
+**Experiment 7 runs on `gpu_rtx6000` with 12 slots.** The it/s column is
+dominated by the checkpoint readouts at 1% of a run's length and is not a
+production rate.
+
 ## Specs
 
 12 = 3 GPU arms x 4 variants, in `experiments/specs/exp06/fly/`, named
@@ -245,62 +265,63 @@ test_plot`, which now also uses the streamed readout.
 
 ## Status
 
-**3/12 landed**, 0 trained (awaiting `-o test_plot`), 9 running, 0 pending
+**12/12 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | variant | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | variant | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | a100 | e8_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.962 ± 0.000 (0.0) | 0.976 ± 0.000 (0.8) | 0.720 ± 0.000 (12.9) | 0.634 ± 0.000 | 0.942 ± 0.000 (0.0) | 0.073 ± 0.000 | 0.950 ± 0.000 | 0.731 ± 0.000 |
+| a100 | e8_flywireRF_proximal_nulls_noise_005 | 1 | 0.983 ± 0.000 | 0.986 ± 0.000 |  |  | 0.888 ± 0.000 (0.0) | 0.925 ± 0.000 (1.6) | 0.563 ± 0.000 (38.4) | 0.573 ± 0.000 | 0.800 ± 0.000 (3.0) | 0.111 ± 0.000 | 0.533 ± 0.000 | 0.611 ± 0.000 |
+| a100 | full_eye_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.952 ± 0.000 (0.0) | 0.928 ± 0.000 (1.5) | 0.753 ± 0.000 (13.4) | 0.650 ± 0.000 | 0.940 ± 0.000 (0.0) | 0.080 ± 0.000 | 1.742 ± 0.000 | 0.700 ± 0.000 |
+| a100 | full_eye_flywireRF_proximal_nulls_noise_005 | 1 | 0.974 ± 0.000 | 0.978 ± 0.000 |  |  | 0.868 ± 0.000 (0.0) | 0.930 ± 0.000 (2.9) | 0.600 ± 0.000 (37.7) | 0.507 ± 0.000 | 0.828 ± 0.000 (2.8) | 0.089 ± 0.000 | 0.003 ± 0.000 | 0.531 ± 0.000 |
 | h100 | e8_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.962 ± 0.000 (0.0) | 0.975 ± 0.000 (0.6) | 0.728 ± 0.000 (12.7) | 0.620 ± 0.000 | 0.942 ± 0.000 (0.0) | 0.076 ± 0.000 | 0.943 ± 0.000 | 0.707 ± 0.000 |
+| h100 | e8_flywireRF_proximal_nulls_noise_005 | 1 | 0.984 ± 0.000 | 0.989 ± 0.000 |  |  | 0.901 ± 0.000 (0.0) | 0.938 ± 0.000 (1.4) | 0.523 ± 0.000 (37.7) | 0.516 ± 0.000 | 0.799 ± 0.000 (2.9) | 0.108 ± 0.000 | 0.517 ± 0.000 | 0.590 ± 0.000 |
+| h100 | full_eye_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.952 ± 0.000 (0.0) | 0.951 ± 0.000 (3.1) | 0.763 ± 0.000 (14.3) | 0.646 ± 0.000 | 0.938 ± 0.000 (0.0) | 0.079 ± 0.000 | 1.716 ± 0.000 | 0.727 ± 0.000 |
+| h100 | full_eye_flywireRF_proximal_nulls_noise_005 | 1 | 0.972 ± 0.000 | 0.977 ± 0.000 |  |  | 0.862 ± 0.000 (0.0) | 0.928 ± 0.000 (4.0) | 0.589 ± 0.000 (36.6) | 0.552 ± 0.000 | 0.822 ± 0.000 (2.7) | 0.076 ± 0.000 | 0.037 ± 0.000 | 0.529 ± 0.000 |
 | rtx6000 | e8_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.959 ± 0.000 (0.0) | 0.969 ± 0.000 (0.7) | 0.719 ± 0.000 (11.9) | 0.632 ± 0.000 | 0.943 ± 0.000 (0.0) | 0.076 ± 0.000 | 1.007 ± 0.000 | 0.736 ± 0.000 |
+| rtx6000 | e8_flywireRF_proximal_nulls_noise_005 | 1 | 0.982 ± 0.000 | 0.985 ± 0.000 |  |  | 0.888 ± 0.000 (0.0) | 0.921 ± 0.000 (1.1) | 0.568 ± 0.000 (37.8) | 0.546 ± 0.000 | 0.779 ± 0.000 (3.7) | 0.121 ± 0.000 | 0.502 ± 0.000 | 0.588 ± 0.000 |
+| rtx6000 | full_eye_flywireRF_noise_005 | 1 | 0.996 ± 0.000 | 0.997 ± 0.000 |  |  | 0.952 ± 0.000 (0.0) | 0.929 ± 0.000 (1.6) | 0.756 ± 0.000 (13.8) | 0.652 ± 0.000 | 0.939 ± 0.000 (0.0) | 0.076 ± 0.000 | 1.810 ± 0.000 | 0.733 ± 0.000 |
+| rtx6000 | full_eye_flywireRF_proximal_nulls_noise_005 | 1 | 0.973 ± 0.000 | 0.975 ± 0.000 |  |  | 0.859 ± 0.000 (0.0) | 0.917 ± 0.000 (2.2) | 0.564 ± 0.000 (39.1) | 0.508 ± 0.000 | 0.825 ± 0.000 (3.0) | 0.073 ± 0.000 | -0.129 ± 0.000 | 0.542 ± 0.000 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | variant | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | variant | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| a100 | e8_flywireRF_proximal_nulls_noise_005 | 7,201 |  | 0.849 ± 0.000 |  |  | 0.817 ± 0.000 | 0.889 ± 0.000 | 0.525 ± 0.000 | 0.555 ± 0.000 | 0.741 ± 0.000 |  |  | 0.574 ± 0.000 |
-| a100 | full_eye_flywireRF_noise_005 | 8,801 |  | 0.868 ± 0.000 |  |  | 0.933 ± 0.000 | 0.857 ± 0.000 | 0.702 ± 0.000 | 0.584 ± 0.000 | 0.921 ± 0.000 |  |  | 0.661 ± 0.000 |
-| a100 | full_eye_flywireRF_proximal_nulls_noise_005 | 961 |  | 0.006 ± 0.000 |  |  | 0.002 ± 0.000 | -0.349 ± 0.000 | 0.615 ± 0.000 | 0.636 ± 0.000 | 0.172 ± 0.000 |  |  |  |
-| h100 | e8_flywireRF_proximal_nulls_noise_005 | 6,401 |  | 0.846 ± 0.000 |  |  | 0.806 ± 0.000 | 0.904 ± 0.000 | 0.565 ± 0.000 | 0.532 ± 0.000 | 0.732 ± 0.000 |  |  | 0.574 ± 0.000 |
-| h100 | full_eye_flywireRF_noise_005 | 7,201 |  | 0.063 ± 0.000 |  |  | 0.925 ± 0.000 | 0.816 ± 0.000 | 0.684 ± 0.000 | 0.574 ± 0.000 | 0.912 ± 0.000 |  |  | 0.711 ± 0.000 |
-| h100 | full_eye_flywireRF_proximal_nulls_noise_005 | 1 |  | 0.010 ± 0.000 |  |  | -0.020 ± 0.000 | -4.370 ± 0.000 | -0.728 ± 0.000 | -0.837 ± 0.000 | 0.022 ± 0.000 |  |  |  |
-| rtx6000 | e8_flywireRF_proximal_nulls_noise_005 | 7,201 |  | 0.848 ± 0.000 |  |  | 0.821 ± 0.000 | 0.883 ± 0.000 | 0.503 ± 0.000 | 0.551 ± 0.000 | 0.710 ± 0.000 |  |  | 0.569 ± 0.000 |
-| rtx6000 | full_eye_flywireRF_noise_005 | 8,801 |  | 0.868 ± 0.000 |  |  | 0.930 ± 0.000 | 0.882 ± 0.000 | 0.694 ± 0.000 | 0.597 ± 0.000 | 0.917 ± 0.000 |  |  | 0.667 ± 0.000 |
-| rtx6000 | full_eye_flywireRF_proximal_nulls_noise_005 | 641 |  | 0.005 ± 0.000 |  |  | -0.228 ± 0.000 | -1.354 ± 0.000 | 0.544 ± 0.000 | 0.545 ± 0.000 | 0.106 ± 0.000 |  |  |  |
+| — | | | | | | | | | | | | | | |
 
 ### Memory --- GPU peak reserved per phase, host peak from LSF
 
 | arm | variant | GPU | card GB | train GB | test GB | plot GB | host GB | it/s | outcome |
 |---|---|---|---|---|---|---|---|---|---|
 | a100 | e8_flywireRF_noise_005 | A100-SXM4-80GB | 79.3 | 22.8 | 1.0 | 6.5 | 37.6 | 8.7 | ok |
-| a100 | e8_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
-| a100 | full_eye_flywireRF_noise_005 |  |  |  |  |  |  |  | running |
-| a100 | full_eye_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
+| a100 | e8_flywireRF_proximal_nulls_noise_005 | A100-SXM4-80GB | 79.3 | 24.8 | 2.8 | 6.7 | 21.8 | 2.6 | ok |
+| a100 | full_eye_flywireRF_noise_005 | A100-SXM4-80GB | 79.3 | 46.1 | 3.6 | 25.1 | 103.3 | 3.0 | ok |
+| a100 | full_eye_flywireRF_proximal_nulls_noise_005 | A100-SXM4-80GB | 79.3 | 75.8 | 10.6 | 32.1 | 105.7 | 1.3 | ok |
 | h100 | e8_flywireRF_noise_005 | H100 80GB HBM3 | 79.2 | 22.8 | 1.0 | 6.5 | 37.4 | 8.2 | ok |
-| h100 | e8_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
-| h100 | full_eye_flywireRF_noise_005 |  |  |  |  |  |  |  | running |
-| h100 | full_eye_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
+| h100 | e8_flywireRF_proximal_nulls_noise_005 | H100 80GB HBM3 | 79.2 | 24.8 | 2.8 | 6.7 | 27.9 | 2.5 | ok |
+| h100 | full_eye_flywireRF_noise_005 | H100 80GB HBM3 | 79.2 | 46.0 | 3.6 | 25.1 | 104.3 | 2.6 | ok |
+| h100 | full_eye_flywireRF_proximal_nulls_noise_005 | H100 80GB HBM3 | 79.2 | 70.5 | 10.6 | 32.1 | 105.0 | 1.1 | ok |
 | rtx6000 | e8_flywireRF_noise_005 | RTX PRO 6000 Blackwell Server Edition | 95.1 | 22.9 | 1.0 | 6.5 | 37.7 | 8.9 | ok |
-| rtx6000 | e8_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
-| rtx6000 | full_eye_flywireRF_noise_005 |  |  |  |  |  |  |  | running |
-| rtx6000 | full_eye_flywireRF_proximal_nulls_noise_005 |  |  |  |  |  |  |  | running |
+| rtx6000 | e8_flywireRF_proximal_nulls_noise_005 | RTX PRO 6000 Blackwell Server Edition | 95.1 | 25.0 | 2.8 | 6.7 | 31.0 | 2.5 | ok |
+| rtx6000 | full_eye_flywireRF_noise_005 | RTX PRO 6000 Blackwell Server Edition | 95.1 | 45.5 | 3.6 | 25.1 | 104.4 | 3.0 | ok |
+| rtx6000 | full_eye_flywireRF_proximal_nulls_noise_005 | RTX PRO 6000 Blackwell Server Edition | 95.1 | 76.1 | 10.6 | 32.1 | 104.7 | 1.3 | ok |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
 | `e8_flywireRF_noise_005_blank50_condl25mem_a100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00` | running | 8,001 | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25mem_a100_cv00` | running | 9,601 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00` | running | 1,281 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25mem_a100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_a100_cv00` | landed | 30,401 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25mem_h100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00` | running | 7,201 | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25mem_h100_cv00` | running | 8,001 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00` | running | 321 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25mem_h100_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_h100_cv00` | landed | 30,401 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25mem_rtx6000_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00` | running | 7,201 | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25mem_rtx6000_cv00` | running | 9,601 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00` | running | 961 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25mem_rtx6000_cv00` | landed | 15,201 | `b8ca1372f4bb` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25mem_rtx6000_cv00` | landed | 30,401 | `b8ca1372f4bb` |  |
 
 <!-- STATUS:END -->

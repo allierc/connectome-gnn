@@ -63,36 +63,36 @@ job_ids:
   flyvis_noise_05_blank50_dtbug_cv03: '154396119'
   flyvis_noise_05_blank50_dtbug_cv04: '154396120'
 analyse_job_ids:
-  flyvis_noise_free_blank50_dtfd_cv00: '154399703'
-  flyvis_noise_free_blank50_dtfd_cv01: '154399704'
-  flyvis_noise_free_blank50_dtfd_cv02: '154399705'
-  flyvis_noise_free_blank50_dtfd_cv03: '154399706'
-  flyvis_noise_free_blank50_dtfd_cv04: '154399707'
-  flyvis_noise_005_blank50_dtfd_cv00: '154399708'
-  flyvis_noise_005_blank50_dtfd_cv01: '154399709'
-  flyvis_noise_005_blank50_dtfd_cv02: '154399710'
-  flyvis_noise_005_blank50_dtfd_cv03: '154399711'
-  flyvis_noise_005_blank50_dtfd_cv04: '154399712'
-  flyvis_noise_05_blank50_dtfd_cv00: '154399713'
-  flyvis_noise_05_blank50_dtfd_cv01: '154399714'
-  flyvis_noise_05_blank50_dtfd_cv02: '154399715'
-  flyvis_noise_05_blank50_dtfd_cv03: '154399716'
-  flyvis_noise_05_blank50_dtfd_cv04: '154399717'
-  flyvis_noise_free_blank50_dtbug_cv00: '154399718'
-  flyvis_noise_free_blank50_dtbug_cv01: '154399719'
-  flyvis_noise_free_blank50_dtbug_cv02: '154399720'
-  flyvis_noise_free_blank50_dtbug_cv03: '154399721'
-  flyvis_noise_free_blank50_dtbug_cv04: '154399722'
-  flyvis_noise_005_blank50_dtbug_cv00: '154399723'
-  flyvis_noise_005_blank50_dtbug_cv01: '154399724'
-  flyvis_noise_005_blank50_dtbug_cv02: '154399725'
-  flyvis_noise_005_blank50_dtbug_cv03: '154399726'
-  flyvis_noise_005_blank50_dtbug_cv04: '154399728'
-  flyvis_noise_05_blank50_dtbug_cv00: '154399729'
-  flyvis_noise_05_blank50_dtbug_cv01: '154399730'
-  flyvis_noise_05_blank50_dtbug_cv02: '154399731'
-  flyvis_noise_05_blank50_dtbug_cv03: '154399732'
-  flyvis_noise_05_blank50_dtbug_cv04: '154399733'
+  flyvis_noise_free_blank50_dtfd_cv00: '154462324'
+  flyvis_noise_free_blank50_dtfd_cv01: '154463029'
+  flyvis_noise_free_blank50_dtfd_cv02: '154463030'
+  flyvis_noise_free_blank50_dtfd_cv03: '154463031'
+  flyvis_noise_free_blank50_dtfd_cv04: '154463032'
+  flyvis_noise_005_blank50_dtfd_cv00: '154463033'
+  flyvis_noise_005_blank50_dtfd_cv01: '154463034'
+  flyvis_noise_005_blank50_dtfd_cv02: '154463035'
+  flyvis_noise_005_blank50_dtfd_cv03: '154463036'
+  flyvis_noise_005_blank50_dtfd_cv04: '154463037'
+  flyvis_noise_05_blank50_dtfd_cv00: '154463038'
+  flyvis_noise_05_blank50_dtfd_cv01: '154463039'
+  flyvis_noise_05_blank50_dtfd_cv02: '154463040'
+  flyvis_noise_05_blank50_dtfd_cv03: '154463041'
+  flyvis_noise_05_blank50_dtfd_cv04: '154463042'
+  flyvis_noise_free_blank50_dtbug_cv00: '154463043'
+  flyvis_noise_free_blank50_dtbug_cv01: '154463044'
+  flyvis_noise_free_blank50_dtbug_cv02: '154463045'
+  flyvis_noise_free_blank50_dtbug_cv03: '154463046'
+  flyvis_noise_free_blank50_dtbug_cv04: '154463047'
+  flyvis_noise_005_blank50_dtbug_cv00: '154463048'
+  flyvis_noise_005_blank50_dtbug_cv01: '154463049'
+  flyvis_noise_005_blank50_dtbug_cv02: '154463050'
+  flyvis_noise_005_blank50_dtbug_cv03: '154463051'
+  flyvis_noise_005_blank50_dtbug_cv04: '154463052'
+  flyvis_noise_05_blank50_dtbug_cv00: '154463053'
+  flyvis_noise_05_blank50_dtbug_cv01: '154463054'
+  flyvis_noise_05_blank50_dtbug_cv02: '154463055'
+  flyvis_noise_05_blank50_dtbug_cv03: '154463056'
+  flyvis_noise_05_blank50_dtbug_cv04: '154463057'
 report:
   arm_order:
   - bug
@@ -183,6 +183,26 @@ data. The conductance readout of a current model is therefore not a competing
 description that happens to win — it is an unidentified reparametrisation whose
 rollout is unstable, and the rollout is what exposes it.
 
+<!-- READOUT_FIX:BEGIN -->
+
+## Re-analysed on the fixed readout (2026-09-28)
+
+Every landed run was re-analysed after the second-pass fix and the switch to one uniform draw of 1,024 frames (commit 9ef188e6, experiment 8); the earlier `metrics.txt` is kept as `superseded/pre_readout_fix/`. Fold means, old -> new, from `tools/readout_fix_compare.py`. The status table below is the new readout.
+
+| arm | noise | n | R2_W | R2_Vrest | fit roll r current form | fit roll r conductance form | cluster | edges fitted % |
+|---|---|---|---|---|---|---|---|---|
+| nominal | noise_free | 5 | 0.904 -> 0.936 | 0.828 -> 0.831 | 0.997 -> 0.977 | 0.632 -> 0.693 | 0.856 -> 0.861 | 99.3 -> 76.8 |
+| nominal | noise_005 | 5 | 0.956 -> 0.989 | 0.874 -> 0.911 | 0.995 -> 0.979 | 0.604 -> 0.609 | 0.886 -> 0.884 | 99.3 -> 76.9 |
+| nominal | noise_05 | 5 | 0.984 -> 0.990 | 0.875 -> 0.880 | 0.994 -> 0.994 | 0.695 -> 0.712 | 0.879 -> 0.879 | 100.0 -> 96.2 |
+| bug | noise_free | 5 | 0.894 -> 0.935 | 0.830 -> 0.840 | 0.991 -> 0.978 | 0.582 -> 0.650 | 0.831 -> 0.823 | 99.3 -> 76.8 |
+| bug | noise_005 | 5 | 0.981 -> 0.991 | 0.967 -> 0.958 | 0.997 -> 0.980 | 0.621 -> 0.647 | 0.923 -> 0.923 | 99.3 -> 76.9 |
+| bug | noise_05 | 5 | 0.999 -> 1.000 | 0.997 -> 0.999 | 1.000 -> 0.999 | 0.641 -> 0.677 | 0.922 -> 0.922 | 100.0 -> 96.2 |
+
+<!-- READOUT_FIX:END -->
+
+**What changes:** every `R2_W` rises, most at noise_free (0.904 -> 0.936 nominal). The gap between the two targets at noise_005 shrinks from 0.025 (0.956 against 0.981) to 0.002 (0.989 against 0.991).
+
+
 <!-- STATUS:BEGIN -->
 
 ## Status
@@ -191,18 +211,18 @@ rollout is unstable, and the rollout is what exposes it.
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | noise | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | noise | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| nominal | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.997 ± 0.003 (0.2) | 0.632 ± 0.026 (4.9) | 0.904 ± 0.022 (0.0) | 0.929 ± 0.018 (2.5) | 0.828 ± 0.058 (11.9) | 0.818 ± 0.063 | 0.963 ± 0.013 (0.2) | 0.020 ± 0.008 | 0.225 ± 0.294 | 0.856 ± 0.026 |
-| nominal | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.995 ± 0.001 (0.0) | 0.604 ± 0.047 (10.9) | 0.956 ± 0.010 (0.0) | 0.979 ± 0.013 (0.1) | 0.874 ± 0.037 (4.0) | 0.756 ± 0.094 | 0.980 ± 0.009 (0.0) | 0.042 ± 0.020 | 0.324 ± 0.005 | 0.886 ± 0.009 |
-| nominal | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.994 ± 0.001 (0.0) | 0.695 ± 0.015 (2.0) | 0.984 ± 0.001 (0.0) | 0.996 ± 0.001 (0.0) | 0.875 ± 0.016 (2.2) | 0.893 ± 0.012 | 0.994 ± 0.001 (0.0) | 0.011 ± 0.005 | 0.062 ± 0.324 | 0.879 ± 0.018 |
-| bug | noise_free | 5 | 1.000 ± 0.000 | 0.909 ± 0.180 | 0.991 ± 0.011 (0.1) | 0.582 ± 0.076 (8.1) | 0.894 ± 0.024 (0.1) | 0.911 ± 0.042 (3.7) | 0.830 ± 0.035 (12.2) | 0.814 ± 0.040 | 0.963 ± 0.018 (0.3) | 0.024 ± 0.007 | 0.229 ± 0.294 | 0.831 ± 0.043 |
-| bug | noise_005 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.997 ± 0.005 (0.0) | 0.621 ± 0.066 (5.7) | 0.981 ± 0.009 (0.0) | 0.995 ± 0.003 (0.0) | 0.967 ± 0.024 (1.4) | 0.939 ± 0.029 | 0.993 ± 0.005 (0.0) | 0.011 ± 0.005 | 0.380 ± 0.006 | 0.923 ± 0.012 |
-| bug | noise_05 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 1.000 ± 0.000 (0.0) | 0.641 ± 0.068 (5.2) | 0.999 ± 0.001 (0.0) | 1.000 ± 0.000 (0.0) | 0.997 ± 0.001 (0.0) | 0.998 ± 0.001 | 1.000 ± 0.000 (0.0) | 0.001 ± 0.000 | 0.071 ± 0.310 | 0.922 ± 0.004 |
+| nominal | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.977 ± 0.002 (0.2) | 0.693 ± 0.033 (3.7) | 0.936 ± 0.028 (0.0) | 0.929 ± 0.018 (2.5) | 0.831 ± 0.057 (11.3) | 0.818 ± 0.063 | 0.963 ± 0.013 (0.2) | 0.015 ± 0.007 | 0.225 ± 0.294 | 0.861 ± 0.017 |
+| nominal | noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.609 ± 0.035 (9.1) | 0.989 ± 0.009 (0.0) | 0.979 ± 0.013 (0.1) | 0.911 ± 0.024 (2.7) | 0.756 ± 0.094 | 0.980 ± 0.009 (0.0) | 0.036 ± 0.018 | 0.324 ± 0.005 | 0.884 ± 0.013 |
+| nominal | noise_05 | 5 | 0.996 ± 0.000 | 0.993 ± 0.002 | 0.994 ± 0.001 (0.0) | 0.712 ± 0.009 (2.0) | 0.990 ± 0.001 (0.0) | 0.996 ± 0.001 (0.0) | 0.880 ± 0.015 (2.2) | 0.893 ± 0.012 | 0.994 ± 0.001 (0.0) | 0.010 ± 0.005 | 0.062 ± 0.324 | 0.879 ± 0.018 |
+| bug | noise_free | 5 | 1.000 ± 0.000 | 0.909 ± 0.180 | 0.978 ± 0.002 (0.1) | 0.650 ± 0.045 (4.4) | 0.935 ± 0.025 (0.0) | 0.911 ± 0.042 (3.7) | 0.840 ± 0.021 (11.2) | 0.814 ± 0.040 | 0.963 ± 0.018 (0.3) | 0.017 ± 0.004 | 0.229 ± 0.294 | 0.823 ± 0.065 |
+| bug | noise_005 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.980 ± 0.003 (0.0) | 0.647 ± 0.052 (5.3) | 0.991 ± 0.009 (0.0) | 0.995 ± 0.003 (0.0) | 0.958 ± 0.029 (1.4) | 0.939 ± 0.029 | 0.993 ± 0.005 (0.0) | 0.007 ± 0.003 | 0.380 ± 0.006 | 0.923 ± 0.011 |
+| bug | noise_05 | 5 | 1.000 ± 0.000 | 1.000 ± 0.000 | 0.999 ± 0.000 (0.0) | 0.677 ± 0.068 (4.6) | 1.000 ± 0.000 (0.0) | 1.000 ± 0.000 (0.0) | 0.999 ± 0.000 (0.0) | 0.998 ± 0.001 | 1.000 ± 0.000 (0.0) | 0.001 ± 0.000 | 0.071 ± 0.310 | 0.922 ± 0.004 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | noise | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | noise | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | — | | | | | | | | | | | | | | |
 

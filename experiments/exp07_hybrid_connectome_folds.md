@@ -11,7 +11,7 @@ baseline: GraphData/config/fly/<variant>_blank50_flywire_cv0N.yaml and <variant>
 specs_dir: experiments/specs/exp07/fly
 task: train
 queue: gpu_rtx6000
-wall: '24:00'
+wall: '120:00'
 n_cpus: 12
 axes:
   variant:
@@ -70,27 +70,47 @@ job_ids:
   e8_flywireRF_noise_005_blank50_condl25_cv02: '154460909'
   e8_flywireRF_noise_005_blank50_condl25_cv03: '154460910'
   e8_flywireRF_noise_005_blank50_condl25_cv04: '154460911'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154469750'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154469751'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154469752'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154469753'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154469754'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv00: '154469755'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv01: '154469756'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv02: '154469757'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv03: '154469758'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv04: '154469759'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154469760'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154469761'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154469763'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154469765'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154469767'
 analyse_job_ids:
-  e8_flywireRF_noise_005_blank50_kode_cv00: '154461024'
-  e8_flywireRF_noise_005_blank50_kode_cv01: '154461025'
-  e8_flywireRF_noise_005_blank50_kode_cv02: '154461026'
-  e8_flywireRF_noise_005_blank50_kode_cv03: '154461027'
-  e8_flywireRF_noise_005_blank50_kode_cv04: '154461028'
-  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv00: '154461029'
-  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv01: '154461030'
-  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv02: '154461031'
-  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv03: '154461032'
-  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv04: '154461033'
-  full_eye_flywireRF_noise_005_blank50_kode_cv00: '154461226'
-  full_eye_flywireRF_noise_005_blank50_kode_cv01: '154461227'
-  full_eye_flywireRF_noise_005_blank50_kode_cv02: '154461229'
-  full_eye_flywireRF_noise_005_blank50_kode_cv03: '154461231'
-  full_eye_flywireRF_noise_005_blank50_kode_cv04: '154461233'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv00: '154461235'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv01: '154461236'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv02: '154461238'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv03: '154461239'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv04: '154461240'
+  e8_flywireRF_noise_005_blank50_kode_cv00: '154463268'
+  e8_flywireRF_noise_005_blank50_kode_cv01: '154463269'
+  e8_flywireRF_noise_005_blank50_kode_cv02: '154463270'
+  e8_flywireRF_noise_005_blank50_kode_cv03: '154463271'
+  e8_flywireRF_noise_005_blank50_kode_cv04: '154463272'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv00: '154463273'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv01: '154463274'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv02: '154463275'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv03: '154463276'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_kode_cv04: '154463277'
+  full_eye_flywireRF_noise_005_blank50_kode_cv00: '154463278'
+  full_eye_flywireRF_noise_005_blank50_kode_cv01: '154463279'
+  full_eye_flywireRF_noise_005_blank50_kode_cv02: '154463280'
+  full_eye_flywireRF_noise_005_blank50_kode_cv03: '154463281'
+  full_eye_flywireRF_noise_005_blank50_kode_cv04: '154463282'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv00: '154463283'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv01: '154463284'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv02: '154463285'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv03: '154463286'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv04: '154463287'
+  e8_flywireRF_noise_005_blank50_condl25_cv00: '154465673'
+  e8_flywireRF_noise_005_blank50_condl25_cv01: '154465674'
+  e8_flywireRF_noise_005_blank50_condl25_cv02: '154465675'
+  e8_flywireRF_noise_005_blank50_condl25_cv03: '154465676'
+  e8_flywireRF_noise_005_blank50_condl25_cv04: '154465677'
 ---
 
 # Experiment 7 — hybrid_connectome_folds
@@ -154,7 +174,25 @@ each short edge's own frames instead of another edge's. Training-time readouts
 of the conductance runs already running use the old code, so their
 `tmp_training/` logs are on the old readout; `results/metrics.txt` comes from
 `-o test_plot`, submitted after the change, and is on the new one. The Known
-ODE runs have no template readout.
+ODE runs have no template readout (`readout: chain`, W read directly).
+
+**Every row is analysed at commit 9ef188e6 or later**: one uniform random draw
+of 1,024 frames, no second pass (experiment 8), and the neuron panels drawn from
+the final checkpoint. The 20 Known ODE runs had been analysed at b8ca1372; they
+were re-analysed (`analyse 7 --redo pre_readout_fix --arm kode`, old
+`metrics.txt` kept in `<run>/superseded/pre_readout_fix/`) so the table comes
+from one commit, although their metrics do not depend on the template readout.
+
+## The held batch, launched 2026-09-29
+
+Experiment 6 (streamed readout) put every variant through training, test and
+plot on all three cards. The training peak for FlyWire eye + n.e. is 70-76 GB,
+within 3-9 GB of an A100's or H100's 80 GB and 19 GB under the RTX PRO 6000's
+95 GB; host RAM peaks at 105 GB. So the 15 conductance runs on the three large
+variants run on `gpu_rtx6000` with 12 slots (240 GB). The wall is raised to
+120 h: the published current-form FlyWire eye + n.e. run never finished inside
+24 h on an H100 (segments of 23.5 h and 18.7 h, both killed), and the queue
+allows up to 14 days.
 
 ## Specs
 
@@ -165,22 +203,23 @@ ODE runs have no template readout.
 
 ## Status
 
-**20/40 landed**, 0 trained (awaiting `-o test_plot`), 5 running, 15 pending
+**25/40 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 15 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
-| arm | variant | n | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | variant | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | kode | e8_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.914 ± 0.000 (0.1) | 0.969 ± 0.000 (0.6) | 0.960 ± 0.000 (9.4) |  | 0.958 ± 0.005 (0.4) |  |  | 0.771 ± 0.021 |
 | kode | e8_flywireRF_proximal_nulls_noise_005 | 5 | 0.999 ± 0.000 | 0.998 ± 0.000 |  |  | 0.899 ± 0.001 (0.0) | 0.971 ± 0.000 (0.1) | 0.900 ± 0.001 (6.9) |  | 0.982 ± 0.002 (0.0) |  |  | 0.682 ± 0.014 |
 | kode | full_eye_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.917 ± 0.000 (0.1) | 0.972 ± 0.000 (0.4) | 0.962 ± 0.000 (9.1) |  | 0.963 ± 0.005 (0.3) |  |  | 0.768 ± 0.011 |
 | kode | full_eye_flywireRF_proximal_nulls_noise_005 | 5 | 0.998 ± 0.000 | 0.996 ± 0.000 |  |  | 0.890 ± 0.001 (0.0) | 0.970 ± 0.000 (0.5) | 0.858 ± 0.001 (8.5) |  | 0.976 ± 0.002 (0.0) |  |  | 0.670 ± 0.012 |
+| condl25 | e8_flywireRF_noise_005 | 5 | 0.998 ± 0.000 | 0.998 ± 0.001 |  |  | 0.984 ± 0.007 (0.0) | 0.976 ± 0.008 (0.3) | 0.870 ± 0.016 (6.4) | 0.862 ± 0.033 | 0.984 ± 0.003 (0.0) | 0.008 ± 0.004 | 0.235 ± 0.010 | 0.730 ± 0.043 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
-| arm | variant | iter | one-step r | rollout r | fit roll own form | fit roll other form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+| arm | variant | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| condl25 | e8_flywireRF_noise_005 | 640,001 |  | 0.861 ± 0.008 |  |  | 0.954 ± 0.005 | 0.974 ± 0.007 | 0.853 ± 0.037 | 0.836 ± 0.053 | 0.982 ± 0.004 |  |  | 0.715 ± 0.027 |
+| — | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -206,11 +245,11 @@ ODE runs have no template readout.
 | `full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv02` | landed | 38,001 | `b8ca1372f4bb` |  |
 | `full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv03` | landed | 38,001 | `b8ca1372f4bb` |  |
 | `full_eye_flywireRF_proximal_nulls_noise_005_blank50_kode_cv04` | landed | 38,001 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_noise_005_blank50_condl25_cv00` | running | 640,001 | `` |  |
-| `e8_flywireRF_noise_005_blank50_condl25_cv01` | running | 640,001 | `` |  |
-| `e8_flywireRF_noise_005_blank50_condl25_cv02` | running | 640,001 | `` |  |
-| `e8_flywireRF_noise_005_blank50_condl25_cv03` | running | 640,001 | `` |  |
-| `e8_flywireRF_noise_005_blank50_condl25_cv04` | running | 640,001 | `` |  |
+| `e8_flywireRF_noise_005_blank50_condl25_cv00` | landed | 1,520,001 | `b8ca1372f4bb` |  |
+| `e8_flywireRF_noise_005_blank50_condl25_cv01` | landed | 1,520,001 | `b8ca1372f4bb` |  |
+| `e8_flywireRF_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `b8ca1372f4bb` |  |
+| `e8_flywireRF_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `b8ca1372f4bb` |  |
+| `e8_flywireRF_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | pending |  | `` |  |
 | `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | pending |  | `` |  |
 | `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | pending |  | `` |  |
