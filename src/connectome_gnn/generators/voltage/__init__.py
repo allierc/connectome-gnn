@@ -18,10 +18,10 @@ Modules
     postprocess   noisy derivative targets, train tiling
     diagnostics   bracket, ranks, SNR, generation_log.txt
     figures       previews, kinograph, trace figures, the input video
-    pipeline      VoltageGeneration
+    pipeline      mutable VoltageGeneration with reusable StageTracker rules
 
-QUIRKS (kept byte-identical in phase 2; each is documented in CAPS at the top
-of the chain method named, and a ``<method>_v2`` is to fix it)
+QUIRKS (preserved for byte-identical output; each is documented in CAPS in
+the named chain method. Fixes belong to a separate follow-up branch.)
 
 1.  fork_rng is a no-op: ``torch.random.fork_rng(devices=device)`` without
     ``with``; the caller sees generation's final RNG state.        -> seed
@@ -30,7 +30,7 @@ of the chain method named, and a ``<method>_v2`` is to fix it)
 3.  ``x.stimulus`` aliases ``net.stimulus.buffer`` on CPU (not on CUDA/MPS,
     where ``.to`` copies); with only_noise_visual_input the stored stimulus
     is the rendered frame whenever the noise condition is false.
-    The PI accepts the GPU semantics for v2.                        -> init_state
+    The PI accepts the GPU semantics for a future fix.              -> init_state
 4.  the erase checks x_list_* / y_list_* without ``.zarr``: y_list_*.zarr,
     noisy_y_list_*.zarr and .pt/.ok/.txt side files survive.       -> prepare_output
     ... and a stale noisy_y_list_train.zarr is tiled.               -> tile_train

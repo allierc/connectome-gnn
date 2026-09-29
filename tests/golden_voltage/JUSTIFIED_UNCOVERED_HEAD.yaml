@@ -69,13 +69,6 @@ ids:
       is past the clip and it is refetched.
     reach: none
 
-  stale-guard:
-    category: guard
-    reason: >
-      StaleStageError: a stage (or finish) called on a VoltageGeneration an
-      earlier stage already consumed. data_generate_voltage calls each link once.
-    reach: Reusing a consumed link of the chain (API misuse).
-
   ledger-violation:
     category: guard
     reason: >

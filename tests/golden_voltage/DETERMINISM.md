@@ -200,11 +200,12 @@ since there is no CUDA device locally.
 * All ten quirks are listed in `generators/voltage/__init__.py` and
   documented in CAPS at the top of the chain method that keeps them.
 * **Head coverage** (`coverage --tier full --impl head`, 74 cells): lines
-  1447/1447 and branches 234/234 of the voltage package plus the
-  data_generate_voltage wrapper, outside 19 marked places under 10 IDs of
+  1467/1467 and branches 234/234 of the voltage package plus the
+  data_generate_voltage wrapper, outside 17 marked places under 9 IDs of
   JUSTIFIED_UNCOVERED_HEAD.yaml (the same dead / env-gated code as at base,
-  plus the CUDA/MPS RNG snapshot, the StaleStageError guard and the ledger's
-  raise); no stale marker.
+  plus the CUDA/MPS RNG snapshot and the ledger's raise); no stale marker.
+  StageTracker misuse guards are covered by focused unit tests because the
+  generic tracker lives outside the voltage package measured here.
 * **Mutant self-test against HEAD** (the eleven mutants re-planted in the new
   modules): all as expected. init_calcium_after_materialize, equivalent in
   phase 1 (the data cannot show it), is now CAUGHT: it moves a torch draw into
