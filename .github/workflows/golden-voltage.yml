@@ -1,0 +1,61 @@
+name: golden-voltage
+
+# Byte identity of data_generate_voltage against tests/golden_voltage/BASE_SHA
+# (the refactor of generators/graph_data_generator.py into generators/voltage/).
+#
+# The reference (base) run always happens on the same runner as the head run,
+# so BLAS / platform differences between Accelerate and OpenBLAS never enter
+# the comparison.
+on:
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "fast | full"
+        default: fast
+  pull_request:
+    paths:
+      - ".github/workflows/golden-voltage.yml"
+      - "src/connectome_gnn/generators/**"
+      - "src/connectome_gnn/stages.py"
+      - "src/connectome_gnn/zarr_io.py"
+      - "src/connectome_gnn/neuron_state.py"
+      - "src/connectome_gnn/plot.py"
+      - "src/connectome_gnn/models/teacher_eval.py"
+      - "GNN_PlotFigure.py"
+      - "tests/golden_voltage/**"
+      - "tests/test_stages.py"
+      - "tests/test_voltage_pipeline_stages.py"
+      - "scripts/golden_voltage.py"
+  # schedule:
+  #   - cron: "0 3 * * *"
+
+jobs:
+  golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Fetch pinned golden base
+        run: git fetch --depth=1 origin tag golden-voltage-base-20260925
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: echo "CGNN_GOLDEN_WORK=$RUNNER_TEMP/golden" >> "$GITHUB_ENV"
+      - name: Install matching PyTorch CPU wheels
+        run: >-
+          pip install torch==2.7.1+cpu torchvision==0.22.1+cpu
+          --index-url https://download.pytorch.org/whl/cpu
+      # flyvis pinned to the commit the local golden runs used
+      - run: pip install "git+https://github.com/lappalainenj/flyvis@7c29aed"
+      - run: pip install -e '.[test]'
+      - run: python scripts/golden_voltage.py fixtures --tier "${{ inputs.tier || 'fast' }}"
+      - run: python scripts/golden_voltage.py run --tier "${{ inputs.tier || 'fast' }}" --impl both --jobs 2 --label ci
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-voltage-runs
+          path: ${{ env.CGNN_GOLDEN_WORK }}/runs/ci
+          retention-days: 7

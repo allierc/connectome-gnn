@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import math
 import warnings
-from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -33,8 +32,6 @@ from connectome_gnn.config import (
     OptoWaveformKind,
 )
 from connectome_gnn.metrics import (
-    NAME_TO_INDEX,
-    IDENTIFIABLE_TYPES,
     NO_OUTGOING_TYPES,
     fingerprint_dataset,
     load_nullspace_ranking,
@@ -459,7 +456,7 @@ def add_optogenetics_stimulus(config) -> None:
     Noise handling
     --------------
     Uses config.simulation.seed (matching the source) and mirrors the per-frame
-    RNG order from data_generate_voltage._run_ode_generation:
+    RNG order of data_generate_voltage's frame loop (generators/voltage/integrate.py, run_frames):
       1. compute dv from ODE
       2. sample measurement noise (state.noise)
       3. write state at time t
@@ -473,10 +470,11 @@ def add_optogenetics_stimulus(config) -> None:
     """
     import logging
     import os
+
     import zarr
-    from connectome_gnn.neuron_state import NeuronTimeSeries, NeuronState
-    from connectome_gnn.utils import graphs_data_path
-    from connectome_gnn.utils import to_numpy
+
+    from connectome_gnn.neuron_state import NeuronState, NeuronTimeSeries
+    from connectome_gnn.utils import graphs_data_path, to_numpy
     from connectome_gnn.zarr_io import ZarrArrayWriter, ZarrSimulationWriterV3
 
     log = logging.getLogger(__name__)
@@ -557,7 +555,7 @@ def add_optogenetics_stimulus(config) -> None:
             continue
 
         # Match data_generate_voltage's split-conditional noise levels
-        # (graph_data_generator.py L1400-1401).
+        # (generators/voltage/spec.py, GenerationSpec.test_noise).
         if split == 'train':
             split_noise_model = float(sim.noise_model_level)
             split_noise_meas = float(sim.measurement_noise_level)
@@ -634,7 +632,7 @@ def add_optogenetics_stimulus(config) -> None:
         )
 
         # Forward integration. Per-frame RNG order MATCHES
-        # graph_data_generator._run_ode_generation L2208-2253 so that with a
+        # generators/voltage/integrate.py run_frames so that with a
         # matched seed the noise streams are statistically equivalent.
         from tqdm import tqdm
         with torch.no_grad():
@@ -821,11 +819,13 @@ def compare_traces(
     Returns metrics dict {mean_abs_dv_per_type, opto_on_frames, fig_path}.
     """
     import os
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    from connectome_gnn.metrics import INDEX_TO_NAME
     from connectome_gnn.neuron_state import NeuronTimeSeries
-    from connectome_gnn.metrics import INDEX_TO_NAME, NAME_TO_INDEX
     from connectome_gnn.utils import graphs_data_path
 
     def _resolve(name):

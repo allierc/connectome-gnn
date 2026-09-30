@@ -1,0 +1,51 @@
+# Base config for the data_generate_voltage golden harness (tests/golden_voltage).
+# Every cell starts from this file and applies its own overrides (cells.py).
+# Sizes are the flyvis extent-8 network: 13741 neurons, 1736 photoreceptors,
+# 434112 edges. datavis_roots is filled in by the runner with the absolute
+# fixture path, because that path is echoed into generation_log.txt.
+description: golden harness base
+dataset: flyvis_golden
+simulation:
+  params:
+  - - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+  n_neurons: 13741
+  n_input_neurons: 1736
+  n_neuron_types: 65
+  n_edges: 434112
+  n_frames: 120
+  max_train_sequences: 3
+  delta_t: 0.02
+  baseline_value: 0
+  visual_input_type: DAVIS
+  noise_model_level: 0.0
+  measurement_noise_level: 0.0
+  seed: 7
+  skip_short_videos: true
+  ensemble_id: '0000'
+  model_id: '000'
+graph_model:
+  signal_model_name: flyvis_current
+  prediction: first_derivative
+  input_size: 3
+  n_layers: 3
+  hidden_dim: 80
+  output_size: 1
+  input_size_update: 5
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
+  aggr_type: add
+  embedding_dim: 2
+  update_type: generic
+  g_phi_positive: true
+plotting:
+  colormap: tab20
+training:
+  device: cpu
+  n_runs: 1
+  batch_size: 1
+  seed: 1042
+  n_epochs: 1
