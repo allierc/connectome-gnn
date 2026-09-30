@@ -1,4 +1,4 @@
-description: 'Experiment 7: the published full_eye_flywireRF_proximal_nulls_noise_005_blank50_flywire_cv02 GNN spec with the conductance form (flyvis_conductance, input_size 6) and a group lasso of 25 on the g_phi inputs, full length.'
+description: 'Experiment 7: the published full_eye_flywireRF_proximal_nulls_noise_005_blank50_flywire_cv02 GNN spec with the conductance form (flyvis_conductance, input_size 6) and a group lasso of 25 on the g_phi inputs, capped at 960,000 iterations, where the published run of this variant stopped.'
 dataset: full_eye_flywireRF_proximal_nulls_noise_005_blank50_cv02
 simulation:
   connectivity_file: to be specified
@@ -50,6 +50,7 @@ plotting:
   - -100
   - 100
 training:
+  max_iterations_per_epoch: 960000
   n_runs: 1
   device: auto
   recurrent_training: false

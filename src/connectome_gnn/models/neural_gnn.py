@@ -403,6 +403,15 @@ class NeuralGNN(nn.Module):
                 outermost_linear=getattr(model_config, 'outermost_linear_nnr_hidden', True),
             )
             self.NNR_hidden.to(self.device)
+        elif self._inr_hidden_type == 'basis_mix' and _hidden_frac > 0.0:
+            # Hidden voltages as a learned mixture of a few visible neurons'
+            # voltages (models/hidden_basis.py); the basis is chosen from the
+            # visible traces by init_hidden_basis once the hidden ids exist.
+            from connectome_gnn.models.hidden_basis import BasisMixHidden
+            n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
+            self.n_hidden = int(n_non_retina * _hidden_frac)
+            self.NNR_hidden = BasisMixHidden(
+                self.n_hidden, int(getattr(model_config, 'hidden_basis_n', 256))).to(self.device)
         elif self._inr_hidden_type == 'ngp_t' and _hidden_frac > 0.0:
             n_non_retina = simulation_config.n_neurons - simulation_config.n_input_neurons
             n_hidden = int(n_non_retina * _hidden_frac)
@@ -550,6 +559,8 @@ class NeuralGNN(nn.Module):
                                device=self.device, dtype=torch.float32)
             in_feats = torch.cat([pos_h / self.NNR_hidden_xy_period, t_vec], dim=1)  # (n_hidden, 3)
             return self.NNR_hidden(in_feats).squeeze(-1)                        # (n_hidden,)
+        elif self._inr_hidden_type == 'basis_mix':
+            return self.NNR_hidden(state.voltage)                               # (n_hidden,)
         elif self._inr_hidden_type == 'ngp_t':
             if self._ngp_spatial_enabled:
                 self._ngp_cache_pos(state)

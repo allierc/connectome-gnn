@@ -898,7 +898,7 @@ def _observed_plan(n_edges_total, n_edges, n_total_frames, n_frames, seed,
     # FRAMES CHOSEN BY THE CALLER, when it has a reason to. A uniform sample
     # spends its rows where the network is already easy to measure: the frames
     # that matter for a rarely-active presynaptic cell are exactly the ones a
-    # uniform draw almost never contains. `choose_active_frames` picks them.
+    # uniform draw almost never contains.
     if frame_idx is None:
         frame_idx = rng.choice(n_total_frames, size=min(n_frames, n_total_frames),
                                replace=False)
@@ -3340,73 +3340,9 @@ def require_template_readout(config, exc, where: str):
 
 
 
-def choose_active_frames(x_ts, src_ids, floor, base=256, per_neuron=8,
-                         max_frames=2048, seed=0, device=None):
-    """Frames chosen so that every presynaptic cell is seen active.
-
-    THE PROBLEM WITH A UNIFORM SAMPLE. An edge is measurable only on frames where
-    its presynaptic cell is above the activity floor, and a cell active in 2% of
-    the recording contributes ~5 rows in a 256-frame draw -- below the 8 the fit
-    needs. Those cells are not rare edges: a quarter of this connectome's edges
-    have one. Taking four times as many frames moves that share by four points,
-    because the extra frames are drawn from the same distribution.
-
-    WHAT THIS DOES INSTEAD. Start from a uniform base sample, count how often each
-    presynaptic cell is active in it, and for the cells still short, add frames
-    drawn from THEIR OWN active frames. The result is a frame set of the same
-    order as the base -- the busy cells are already covered by it -- that carries
-    the rare cells to the threshold as well.
-
-    Returns the chosen frame indices, and never more than `max_frames`.
-    """
-    rng = np.random.default_rng(seed)
-    n_total = int(x_ts.n_frames)
-    base = min(int(base), n_total)
-    chosen = set(rng.choice(n_total, size=base, replace=False).tolist())
-
-    # The activity matrix over a pool of candidate frames, presynaptic cells
-    # only: (frames, cells) booleans, read straight from the trajectory with no
-    # model in the loop, because act(v_j) > floor depends on the data alone.
-    pool = np.arange(n_total) if n_total <= max_frames * 4 else \
-        rng.choice(n_total, size=max_frames * 4, replace=False)
-    pool = np.sort(np.asarray(pool))
-    cells = np.unique(np.asarray(src_ids).ravel())
-    def _voltage(k):
-        """The frame's voltages, whichever shape the trajectory hands back.
-
-        A NeuronState carries `.voltage`; the stub trajectories the tests build
-        hand back a bare tensor whose first column is the voltage. Reading both
-        keeps the chooser usable without a full dataset behind it.
-        """
-        fr = x_ts.frame(int(k))
-        v = getattr(fr, "voltage", None)
-        if v is None:
-            v = fr[:, 0] if getattr(fr, "ndim", 1) > 1 else fr
-        return to_numpy(v).ravel()
-
-    volt = np.stack([_voltage(k) for k in pool])
-    active = volt[:, cells] > floor                         # (pool, cells)
-
-    in_base = np.isin(pool, np.fromiter(chosen, dtype=np.int64))
-    have = active[in_base].sum(axis=0)
-    short = np.where(have < per_neuron)[0]
-    for c in short:
-        if len(chosen) >= max_frames:
-            break
-        cand = pool[active[:, c]]
-        cand = cand[~np.isin(cand, np.fromiter(chosen, dtype=np.int64))]
-        if cand.size == 0:
-            continue
-        take = min(int(per_neuron - have[c]), cand.size, max_frames - len(chosen))
-        chosen.update(rng.choice(cand, size=take, replace=False).tolist())
-    return np.sort(np.fromiter(chosen, dtype=np.int64))
-
-
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=1024, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
-                            second_pass_frames=0, second_pass_chunk=256,
-                            frame_choice="uniform",
                             gauge_frames=8, w_from="pooled_E",
                             t_slope=3.0, update_frames=64,
                             base: RecoveredParams = None) -> RecoveredParams:
@@ -3478,14 +3414,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     # takes the run down -- it never leaves a half-labelled object behind.
     rec.diagnostics["readout"] = "template"
 
-    # `frame_choice="active"` spends the same number of frames where they are
-    # worth spending: a first uniform draw, then frames added from the active
-    # windows of the presynaptic cells that the draw left short. The floor it
-    # needs is the same quantile of act(v_j) the fit uses, measured on a small
-    # uniform probe first so the two agree.
+    # ONE UNIFORM RANDOM DRAW OF n_frames FRAMES, ONE PASS (experiment 8,
+    # 2026-09-28). The "active" frame choice and the second pass for short edges
+    # were removed on 2026-09-30: they scored R2_W within 0.005 of the single
+    # draw, and the second pass had summed each short edge with another edge's
+    # frames until 2026-09-28.
     _rc = getattr(config, "recovery", None)
-    frame_choice = getattr(_rc, "template_frame_choice", frame_choice) or frame_choice
-    second_pass_frames = getattr(_rc, "template_second_pass_frames", second_pass_frames)
     # The config's frame count wins over the caller's only when it is set, so a
     # tool that passes n_frames explicitly keeps it under a default config.
     _nf = getattr(_rc, "template_n_frames", None)
@@ -3568,24 +3502,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     out_deg = np.bincount(src_all, minlength=_n_cells)
     in_deg = np.bincount(dst_all, minlength=_n_cells)
 
-    _frames = None
-    if frame_choice == "active":
-        _, _pf = _observed_plan(E_all, E_all, n_total, min(64, n_total), seed)
-        _u0 = _gt(to_numpy(_frame_voltages(x_ts, _pf, device)).astype(np.float64))
-        _floor = _pooled_quantile(_u0, out_deg, vj_quantile, positive=True)
-        _floor = 0.0 if _floor is None else _floor
-        # A trajectory that cannot answer "what was the voltage at frame k"
-        # falls back to the uniform draw rather than taking the run down: the
-        # frame choice is an optimisation, not a requirement.
-        try:
-            _frames = choose_active_frames(
-                x_ts, src_all, _floor,
-                base=n_frames, per_neuron=max(min_points, 8),
-                max_frames=max(4 * n_frames, n_frames), seed=seed)
-        except Exception:
-            _frames = None
-
-    sel, _fidx = _observed_plan(E_all, E_all, n_total, n_frames, seed, _frames)
+    sel, _fidx = _observed_plan(E_all, E_all, n_total, n_frames, seed)
     eid = np.asarray(sel).astype(np.int64)
     n_e = int(eid.size)
     i_ids = dst_all[eid]
@@ -3602,41 +3519,6 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     _vi_scale = float("nan") if _vi_scale is None else _vi_scale
 
     acc = _block_sums(eid, _vf, floor)
-    n_first_short = int((acc["n"] < min_points).sum())
-
-    # A SECOND PASS FOR THE EDGES THAT ARE SHORT, and for those only. The first
-    # sample leaves ~27% of edges with fewer than `min_points` usable rows --
-    # their presynaptic cell is rarely above the floor -- and raising n_frames
-    # for everyone re-fits every edge to admit them, which moves numbers that
-    # were already fine and costs memory quadratically (the sampler materialises
-    # edges x frames and dies at 4,096). Here the extra frames are streamed in
-    # chunks, their sums added ONLY where the first pass came up short, and the
-    # edges rescued this way are counted so the coverage gain is visible rather
-    # than assumed. Off by default: at four times the frames E_ij R2 fell from
-    # -0.013 to -0.828, because the edges admitted are the marginal ones.
-    #
-    # THE ADDED SUMS ARE THE SAME EDGE'S. Each chunk used to call the sampler,
-    # which re-permutes the edges from its own seed, and its sums were added
-    # position by position onto the first pass's: a short edge received the
-    # frames of whichever edge the new permutation put in its slot (4.6e-6 of
-    # slots coincide over 434,112 edges). The chunk's frames are still drawn
-    # from the same stream, so the frames are the ones it always read; only the
-    # edges they are summed for changed. With the right edges the pass rescues
-    # 2.9% of edges, not the 26% it appeared to (config.py, recovery).
-    _short = acc["n"] < min_points
-    n_rescued = 0
-    if second_pass_frames and _short.any():
-        _at = np.where(_short)[0]
-        _done = 0
-        while _done < int(second_pass_frames):
-            _chunk = min(int(second_pass_chunk), int(second_pass_frames) - _done)
-            _, _f2 = _observed_plan(E_all, E_all, n_total, _chunk, seed + 1 + _done)
-            _add = _block_sums(eid[_at], _frame_voltages(x_ts, _f2, device), floor)
-            for k_ in acc:
-                acc[k_][_at] = acc[k_][_at] + _add[k_]
-            _done += _chunk
-        n_rescued = int((_short & (acc["n"] >= min_points)).sum())
-
     n_used = acc["n"]
     S11, S12, S22 = acc["S11"], acc["S12"], acc["S22"]
     S13, S23, S33 = acc["S13"], acc["S23"], acc["n"]
@@ -4003,11 +3885,6 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         if np.isfinite(_E_med) and np.isfinite(_vi_scale) and _vi_scale > 0
         else float("nan"))
     rec.diagnostics["tmpl_frames_used"] = int(len(_fidx))
-    rec.diagnostics["tmpl_frame_choice"] = frame_choice
-    rec.diagnostics["tmpl_pct_unfitted_first_pass"] = float(
-        100.0 * n_first_short / max(n_e, 1))
-    rec.diagnostics["tmpl_pct_rescued_second_pass"] = float(
-        100.0 * n_rescued / max(n_e, 1))
     if cond:
         rec.diagnostics["msg_form_r2_median"] = r2_med
         # Edges whose fitted message RISES with the postsynaptic voltage: no

@@ -2681,4 +2681,19 @@ def run_recurrent_train_step(
         burn_in=rollout_burn_in,
     )
 
+    # THE ANCHOR LOSS, which the one-step step adds and this one never did: the
+    # recurrent arms of experiment 9 set 3,600 anchors and trained none of them
+    # (anchor r ~0). Scored at the rollout origins, as the one-step step scores
+    # its frames.
+    if (hn is not None and hn.has_anchor
+            and getattr(training, "coeff_anchor_voltage", 0.0) > 0):
+        _bs = int(training.batch_size)
+        _fi = epoch_state.frame_indices
+        k_starts = torch.as_tensor(
+            [int(_fi[(N * _bs + b) % len(_fi)]) for b in range(_bs)],
+            dtype=torch.long, device=device)
+        anchor_residual = hn.anchor_residual(model, k_starts, x_ts)
+        if anchor_residual is not None:
+            loss = loss + training.coeff_anchor_voltage * anchor_residual.norm(2)
+
     return loss

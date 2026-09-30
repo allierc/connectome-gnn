@@ -719,8 +719,11 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
                     x, lambda st: model(st, edges, data_id=data_id, return_all=False),
                     sim.delta_t, _int_method, _n_sub, dvdt=y)
 
-            # Update hidden neuron voltages via SIREN or keep silent
-            hn.inject_hidden(model, x, k + 1, True)
+            # Update hidden neuron voltages via SIREN or keep silent -- unless
+            # they run free (training.hidden_free_running), injected at frame 0
+            # only and simulated by the model from then on.
+            if not getattr(config.training, "hidden_free_running", False):
+                hn.inject_hidden(model, x, k + 1, True)
 
             # Guard against NaN / divergence from a poorly trained model
             if torch.isnan(x.voltage).any() or torch.isinf(x.voltage).any():

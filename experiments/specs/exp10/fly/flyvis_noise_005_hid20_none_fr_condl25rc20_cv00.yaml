@@ -1,5 +1,5 @@
-description: 'Experiment 7: the published full_eye_flywireRF_proximal_nulls_noise_005_blank50_flywire_cv04 GNN spec with the conductance form (flyvis_conductance, input_size 6) and a group lasso of 25 on the g_phi inputs, capped at 960,000 iterations, where the published run of this variant stopped.'
-dataset: full_eye_flywireRF_proximal_nulls_noise_005_blank50_cv04
+description: 'Experiment 10: flyvis_noise_005_hidden_020_no_ngp_blank50_unified_cv00, conductance lasso 25, 20-step recurrent training, hidden voltages zero-silenced, free-running after the first frame.'
+dataset: flyvis_noise_005_hidden_020_no_ngp_blank50_cv00
 simulation:
   connectivity_file: to be specified
   adjacency_matrix: ''
@@ -8,20 +8,16 @@ simulation:
     - 1.0
     - 1.0
     - 1.0
-  n_neurons: 50412
-  n_input_neurons: 6368
+  n_neurons: 13741
+  n_input_neurons: 1736
   n_neuron_types: 65
-  n_edges: 9642335
+  n_edges: 434112
   n_frames: 64000
   delta_t: 0.02
   baseline_value: 0
   visual_input_type: DAVIS
   noise_model_level: 0.05
-  derivative_smoothing_window: 1
-  seed: 46
-  all_columns: true
-  flywire_stimulus: true
-  edge_uncertainty: 1
+  seed: 42
   datavis_roots:
   - /groups/saalfeld/home/kumarv4/web_datasets/DAVIS2017-partial-test
   skip_short_videos: true
@@ -30,16 +26,18 @@ graph_model:
   signal_model_name: flyvis_conductance
   prediction: first_derivative
   input_size: 6
-  n_layers: 4
-  hidden_dim: 64
+  n_layers: 3
+  hidden_dim: 80
   output_size: 1
   input_size_update: 5
-  n_layers_update: 4
-  hidden_dim_update: 64
+  n_layers_update: 3
+  hidden_dim_update: 80
+  output_size_update: 1
   aggr_type: add
   embedding_dim: 2
   update_type: generic
   g_phi_positive: true
+  hidden_neuron_fraction: 0.2
 plotting:
   colormap: tab20
   arrow_length: 1
@@ -50,16 +48,15 @@ plotting:
   - -100
   - 100
 training:
-  max_iterations_per_epoch: 960000
   n_runs: 1
   device: auto
-  recurrent_training: false
+  recurrent_training: true
   time_step: 1
-  batch_size: 2
+  batch_size: 4
   batch_ratio: 1
   small_init_batch_size: false
   sparsity: none
-  lr_W: 0.0014
+  lr_W: 0.0009
   lr: 0.0018
   lr_embedding: 0.002325
   coeff_g_phi_diff: 750
@@ -69,25 +66,35 @@ training:
   coeff_f_theta_weight_L1: 0.05
   coeff_g_phi_weight_L2: 0
   coeff_f_theta_weight_L2: 0.001
-  coeff_W_L1: 0.001
+  coeff_W_L1: 0.00015
   coeff_W_L2: 1.5e-06
   regul_annealing_rate: 0.0
   w_init_mode: randn_scaled
   use_gt_edges: true
-  lr_scheduler: none
-  lr_scheduler_T0: 1000
-  lr_scheduler_T_mult: 2
-  lr_scheduler_eta_min_ratio: 0.01
-  lr_scheduler_warmup_iters: 100
-  seed: 1046
-  n_epochs: 1
-  data_augmentation_loop: 500
+  seed: 1042
+  n_epochs: 20
+  data_augmentation_loop: 50
+  hidden_free_running: true
   coeff_g_phi_input_group_L1: 25.0
-claude:
-  n_iter_block: 12
-  ucb_c: 1.414
-  generate_data: true
-  training_time_target_min: 60
-  n_epochs: 1
-  data_augmentation_loop: 500
-config_file: fly/full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04
+  rollout_horizon_schedule:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
+  - 14
+  - 15
+  - 16
+  - 17
+  - 18
+  - 19
+  - 20
+config_file: fly/flyvis_noise_005_hid20_none_fr_condl25rc20_cv00

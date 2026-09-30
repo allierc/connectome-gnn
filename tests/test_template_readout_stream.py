@@ -3,9 +3,8 @@
 extract_template_params used to hold (edges x frames) arrays for every edge at
 once and ran 80-95 GB cards out of memory on the 1.3-9.6 M-edge FlyWire graphs
 (experiment 6). It now sums a block of edges at a time. These tests pin the
-three things that change could break: the two global quantiles it now computes
-without the full array, independence from the block size, and the second pass
-adding each short edge's OWN frames (it used to add another edge's).
+two things that change could break: the two global quantiles it now computes
+without the full array, and independence from the block size.
 """
 import numpy as np
 import pytest
@@ -67,12 +66,6 @@ def _big_fixture(seed=0, n_e=40, T=400):
     return _OP(w_true, edges, e_per_neuron), model, edges, x_ts, w_true
 
 
-class _CfgUniform(_Cfg):
-    class recovery:
-        template_frame_choice = "uniform"
-        template_second_pass_frames = 64
-
-
 def _readout(model, op, cfg, edges, x_ts, **kw):
     return extract_template_params(model, op, config=cfg, edges=edges, x_ts=x_ts,
                                    device="cpu", n_neurons=N, gauge_tau="true", **kw)
@@ -94,8 +87,8 @@ def _same(a, b):
                                           err_msg=k)
 
 
-@pytest.mark.parametrize("cfg", [_Cfg, _CfgUniform])
-def test_the_block_size_does_not_move_a_single_number(monkeypatch, cfg):
+def test_the_block_size_does_not_move_a_single_number(monkeypatch):
+    cfg = _Cfg
     """Every sum is per edge, so cutting the edges into blocks of 7 (edge, frame)
     pairs -- one edge per block -- or of a million gives the same readout."""
     op, model, edges, x_ts, _ = _big_fixture()
@@ -105,25 +98,3 @@ def test_the_block_size_does_not_move_a_single_number(monkeypatch, cfg):
     monkeypatch.setattr(metrics, "TEMPLATE_BLOCK_PAIRS", 7)
     blocked = _readout(model, op, cfg(), edges, x_ts, **kw)
     _same(whole, blocked)
-
-
-def test_the_second_pass_adds_each_short_edges_own_frames():
-    """The message IS the template, so any edge fitted on its own frames comes
-    back exact. At 16 first-pass frames and a 12-row minimum nearly every edge is
-    short; the second pass must rescue them WITH THEIR OWN data. Before the fix
-    each chunk re-permuted the edges and a short edge was summed with another
-    edge's frames: W survived here only because the message was scaled by the
-    short edge's own W, while E came back as the OTHER edge's sender's reversal
-    (8 of 26 fitted edges off by more than 0.01, against 0 of 40 now)."""
-    op, model, edges, x_ts, w_true = _big_fixture()
-    rec = _readout(model, op, _CfgUniform(), edges, x_ts, n_frames=16, min_points=12)
-    assert rec.diagnostics["tmpl_pct_unfitted_first_pass"] > 50.0
-    assert rec.diagnostics["tmpl_pct_rescued_second_pass"] > 25.0
-    gt_w, learned_w = rec.get("W")
-    ok = np.isfinite(learned_w)
-    assert ok.mean() > 0.75
-    np.testing.assert_allclose(learned_w[ok], gt_w[ok], rtol=1e-3)
-    gt_e, learned_e = rec.pairs["E_ij"]
-    ok_e = np.isfinite(learned_e)
-    assert ok_e.mean() > 0.75
-    np.testing.assert_allclose(learned_e[ok_e], gt_e[ok_e], atol=1e-3)

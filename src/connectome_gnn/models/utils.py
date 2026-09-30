@@ -1371,6 +1371,10 @@ def _quick_ngp_pearson(model, x_ts, ids, *, use_anchor, device,
         with torch.no_grad():
             if use_anchor:
                 pred = model.forward_anchor_batched(k_t, anchor_ids=sel_ids)
+            elif getattr(model, '_inr_hidden_type', None) == 'basis_mix':
+                # A function of the voltages, not of time: read them at the frames.
+                _v = x_ts.voltage[k_t.to(x_ts.voltage.device)].to(device)
+                pred = model.NNR_hidden(_v)                                   # (B, n_total)
             else:
                 pred = model.forward_hidden_batched(k_t, hidden_ids=sel_ids)
     except RuntimeError:

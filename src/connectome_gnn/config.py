@@ -802,7 +802,10 @@ class GraphModelConfig(BaseModel):
     # "siren_t"   : SIREN(t) -> (n_hidden,)  — independent signal per neuron
     # "siren_txy" : SIREN(x,y,t) -> scalar   — spatially-correlated field
     # "ngp_t"     : MultiResTemporalGrid(t) -> (n_hidden,)  — no waterbed, faster
+    # "basis_mix" : sum_m W_im v_basis_m(t) + c_i over hidden_basis_n visible
+    #               neurons chosen blind from the visible traces (models/hidden_basis.py)
     inr_type_hidden: str = "none"
+    hidden_basis_n: int = 256
     hidden_neuron_fraction: float = 0.0  # fraction of non-retina neurons to hide; 0 = disabled
     # SIREN hidden params
     hidden_dim_nnr_hidden: int = 2048
@@ -1822,6 +1825,15 @@ class TrainingConfig(BaseModel):
     noise_recurrent_level: float = 0.0
 
     hidden_neuron_fraction: float = 0.0  # fraction of non-input neurons to silence (0 = disabled); seed = simulation.seed
+    # FREE-RUNNING HIDDEN NEURONS in recurrent training and the test rollout: the
+    # hidden voltages are injected (trace network, or 0) at the rollout's first
+    # frame only and then integrated by the model like every other neuron.
+    # Re-injected at every step (False), a hidden neuron is never simulated: its
+    # trace is a free per-frame input to the visible neurons, the visible ->
+    # hidden weights get no gradient, and a wrong trace never propagates
+    # (experiment 9 audit, 2026-09-30). Free-running, a wrong hidden voltage
+    # corrupts the visible neurons for the rest of the horizon.
+    hidden_free_running: bool = False
 
     neural_ODE_training: bool = False
     ode_method: OdeMethod = OdeMethod.DOPRI5
@@ -2584,43 +2596,8 @@ class RecoveryConfig(BaseModel):
     # describe nothing and are reported as invalid rather than as numbers.
     gate_fit_r2: float = 0.9
 
-    # HOW THE TEMPLATE FIT SPENDS ITS FRAMES. An edge is measurable only on
-    # frames where its presynaptic cell is above the activity floor, and a
-    # uniform draw leaves a quarter of this connectome's edges with fewer than
-    # the eight rows the three-parameter fit needs. Two knobs fix that, measured
-    # on flyvis_conductance_noise_005_conductance_gnnsil_cv00:
-    #
-    #   frame_choice "active" starts from a uniform base and adds frames drawn
-    #   from the active windows of the cells the base left short. At 1,024 frames
-    #   it gives Wij_R2 0.457 against 0.295 for a uniform 1,024 -- same budget,
-    #   better rows.
-    #
-    #   template_second_pass_frames streams that many extra frames and adds their
-    #   rows ONLY to the edges still short, leaving the rest untouched. It
-    #   rescues 2.9% of the 434,112 edges (unfitted 26.7% -> 23.7%) on
-    #   flyvis_noise_005_blank50_condl25_cv00.
-    #
-    #   IT WAS MEASURED AT 25.9% -> 0.37% WHEN IT HAD A BUG, and that number is
-    #   withdrawn: each chunk re-permuted the edges, so a short edge was summed
-    #   with a DIFFERENT edge's frames -- mostly a busy one, which is why nearly
-    #   every short edge crossed the eight-row minimum. Fixed 2026-09-28. On
-    #   that run the fix moves Wij_R2 0.971 -> 0.981 and the fitted share
-    #   99.3% -> 76.3%: the quarter of edges it had "rescued" were being fitted
-    #   on another edge's data.
-    #
-    # THE DEFAULT IS NOW ONE UNIFORM RANDOM DRAW OF 1,024 FRAMES, ONE PASS
-    # (2026-09-28, experiment 8). On experiment 2's 15 conductance lasso-25
-    # models, three noise levels, it scores R2_W within 0.005 of "active" plus
-    # the fixed second pass, at the same coverage (76-77% of edges at
-    # noise_free and noise_005, 96% at noise_05), with no frame chooser and no
-    # second-pass bookkeeping. "active" and a second pass stay available; runs
-    # analysed before this date used active + 768 (with the bug above) and a
-    # 256-frame base, so set all three to match one of them.
-    template_frame_choice: str = "uniform"
-    template_second_pass_frames: int = 0
-    # Frames in the first draw (the whole sample when uniform, the base the
-    # active choice starts from otherwise). None keeps the readout's own
-    # default, 1,024.
+    # THE TEMPLATE FIT'S FRAMES: one uniform random draw, one pass (experiment 8).
+    # The "active" frame choice and the second pass were removed on 2026-09-30.
     template_n_frames: Optional[int] = None
     report_scaled: bool = True
 

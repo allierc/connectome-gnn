@@ -60,6 +60,7 @@ from connectome_gnn.models.utils import (
     set_trainable_parameters,
 )
 
+from connectome_gnn.models.hidden_basis import init_hidden_basis
 from connectome_gnn.models.training_utils import (
     HiddenNeuronHandler,
     apply_lr_damping,
@@ -232,6 +233,7 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
     ids = torch.arange(n_neurons, device=device)
 
     hn = HiddenNeuronHandler(config, model, n_neurons, log_dir, device)
+    init_hidden_basis(model, hn, x_ts, config, log_dir)
 
     # ---------------------------------------------------------------------
     # Regularizer

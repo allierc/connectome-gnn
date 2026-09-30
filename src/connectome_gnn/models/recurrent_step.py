@@ -487,7 +487,9 @@ def _dense_rollout_loss(
             s, e = b_idx * neurons_per_sample, (b_idx + 1) * neurons_per_sample
             state_batch[b_idx].voltage = pred_x[s:e].squeeze()
             k_current = k_list[b_idx] + step + 1
-            if hn is not None:
+            # Free-running: hidden neurons keep the model's own prediction after
+            # the first frame (training.hidden_free_running).
+            if hn is not None and not getattr(tc, "hidden_free_running", False):
                 hn.inject_hidden(model, state_batch[b_idx], k_current, True)
             if has_visual_field:
                 vi = model.forward_visual(state_batch[b_idx], k_current)

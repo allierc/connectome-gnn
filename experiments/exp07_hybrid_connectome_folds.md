@@ -80,11 +80,11 @@ job_ids:
   full_eye_flywireRF_noise_005_blank50_condl25_cv02: '154469757'
   full_eye_flywireRF_noise_005_blank50_condl25_cv03: '154469758'
   full_eye_flywireRF_noise_005_blank50_condl25_cv04: '154469759'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154469760'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154469761'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154469763'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154469765'
-  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154469767'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154470576'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154470577'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154470578'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154470579'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154470580'
 analyse_job_ids:
   e8_flywireRF_noise_005_blank50_kode_cv00: '154463268'
   e8_flywireRF_noise_005_blank50_kode_cv01: '154463269'
@@ -111,6 +111,11 @@ analyse_job_ids:
   e8_flywireRF_noise_005_blank50_condl25_cv02: '154465675'
   e8_flywireRF_noise_005_blank50_condl25_cv03: '154465676'
   e8_flywireRF_noise_005_blank50_condl25_cv04: '154465677'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv00: '154477611'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv01: '154477612'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv02: '154477613'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv03: '154477614'
+  full_eye_flywireRF_noise_005_blank50_condl25_cv04: '154477615'
 ---
 
 # Experiment 7 — hybrid_connectome_folds
@@ -194,6 +199,18 @@ variants run on `gpu_rtx6000` with 12 slots (240 GB). The wall is raised to
 24 h on an H100 (segments of 23.5 h and 18.7 h, both killed), and the queue
 allows up to 14 days.
 
+## FlyWire eye + n.e. is capped at 960,000 iterations (2026-09-29)
+
+Its spec plans 3.2 M iterations (batch 2 x 500 augmentation loops), and the
+first launch ran at about 13,500 iterations/h on the RTX PRO 6000: about ten
+days, past the 120 h wall. The published run of this variant (archive_4,
+current form, H100, 1-4 May) never finished either: planned for 1.6 M, it was
+stopped at 960,001 iterations after segments of 23.5, 5.8 and 18.7 h, and the
+paper's row is that checkpoint. So the five conductance runs were killed after
+2.4 h and relaunched with `training.max_iterations_per_epoch: 960000`, the same
+number of iterations as the row they are compared against; the other three
+variants run in full.
+
 ## Specs
 
 40 = 2 arms x 4 variants x 5 folds, in `experiments/specs/exp07/fly/`, named
@@ -203,7 +220,7 @@ allows up to 14 days.
 
 ## Status
 
-**25/40 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 15 pending
+**30/40 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -214,12 +231,14 @@ allows up to 14 days.
 | kode | full_eye_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.917 ± 0.000 (0.1) | 0.972 ± 0.000 (0.4) | 0.962 ± 0.000 (9.1) |  | 0.963 ± 0.005 (0.3) |  |  | 0.768 ± 0.011 |
 | kode | full_eye_flywireRF_proximal_nulls_noise_005 | 5 | 0.998 ± 0.000 | 0.996 ± 0.000 |  |  | 0.890 ± 0.001 (0.0) | 0.970 ± 0.000 (0.5) | 0.858 ± 0.001 (8.5) |  | 0.976 ± 0.002 (0.0) |  |  | 0.670 ± 0.012 |
 | condl25 | e8_flywireRF_noise_005 | 5 | 0.998 ± 0.000 | 0.998 ± 0.001 |  |  | 0.984 ± 0.007 (0.0) | 0.976 ± 0.008 (0.3) | 0.870 ± 0.016 (6.4) | 0.862 ± 0.033 | 0.984 ± 0.003 (0.0) | 0.008 ± 0.004 | 0.235 ± 0.010 | 0.730 ± 0.043 |
+| condl25 | full_eye_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.991 ± 0.002 (0.0) | 0.974 ± 0.012 (0.0) | 0.905 ± 0.010 (4.1) | 0.867 ± 0.035 | 0.988 ± 0.002 (0.0) | 0.010 ± 0.005 | 0.447 ± 0.014 | 0.751 ± 0.037 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | variant | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | | |
+| condl25 | e8_flywireRF_proximal_nulls_noise_005 | 1,120,001 |  | 0.852 ± 0.007 |  |  | 0.931 ± 0.018 | 0.950 ± 0.010 | 0.675 ± 0.022 | 0.573 ± 0.033 | 0.808 ± 0.022 |  |  | 0.573 ± 0.021 |
+| condl25 | full_eye_flywireRF_proximal_nulls_noise_005 | 432,001 |  | 0.846 ± 0.009 |  |  | 0.890 ± 0.012 | 0.940 ± 0.006 | 0.631 ± 0.018 | 0.544 ± 0.008 | 0.807 ± 0.030 |  |  | 0.533 ± 0.036 |
 
 ### Per run
 
@@ -250,20 +269,20 @@ allows up to 14 days.
 | `e8_flywireRF_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | pending |  | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | pending |  | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | pending |  | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | pending |  | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | pending |  | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25_cv00` | pending |  | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25_cv01` | pending |  | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25_cv02` | pending |  | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25_cv03` | pending |  | `` |  |
-| `full_eye_flywireRF_noise_005_blank50_condl25_cv04` | pending |  | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | pending |  | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | pending |  | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | pending |  | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | pending |  | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | pending |  | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | running | 1,120,001 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | running | 1,120,001 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | running | 1,120,001 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | running | 1,120,001 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | running | 1,120,001 | `` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25_cv00` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25_cv01` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `full_eye_flywireRF_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | running | 432,001 | `` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | running | 432,001 | `` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | running | 432,001 | `` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | running | 432,001 | `` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | running | 432,001 | `` |  |
 
 <!-- STATUS:END -->

@@ -80,7 +80,22 @@ def _columns(fm):
     widen twenty slides to serve one.
     """
     extra = fm.get("report", {}).get("metric_columns") or {}
-    return COLUMNS + [(k, h, False) for k, h in extra.items()]
+    out = list(COLUMNS)
+    for k, h in extra.items():
+        # `{header: ..., live: <tmp_training stem>}` also fills the running
+        # table from that log's column named `k`; a bare header is landed-only.
+        if isinstance(h, dict):
+            out.append((k, h["header"], bool(h.get("live"))))
+        else:
+            out.append((k, h, False))
+    return out
+
+
+def _live_files(fm):
+    """_LIVE_FILE plus the experiment's own live metric columns."""
+    extra = fm.get("report", {}).get("metric_columns") or {}
+    return {**_LIVE_FILE, **{k: h["live"] for k, h in extra.items()
+                             if isinstance(h, dict) and h.get("live")}}
 
 
 _LIVE_FILE = {"rollout_r": "rollout", "Wij_R2": "Wij", "tau_R2": "tau",
@@ -259,7 +274,7 @@ def _rows_by_iter(run, stem):
     return out
 
 
-def live_of(run, at=None):
+def live_of(run, at=None, files=None):
     """The train-split numbers this run has written, and the iteration they are at.
 
     `at` pins the snapshot. WITHOUT IT A GROUP MEAN MIXES ITERATIONS: five folds
@@ -271,7 +286,7 @@ def live_of(run, at=None):
     states.
     """
     out, it = {}, None
-    for key, stem in _LIVE_FILE.items():
+    for key, stem in (files or _LIVE_FILE).items():
         rows = _rows_by_iter(run, stem)
         if not rows:
             continue
@@ -694,7 +709,7 @@ def _summary_rows(fm, rs, source, nd=3):
             else:
                 if status_of(run) != "running":
                     continue
-                it, d = live_of(run, at=at_iter)
+                it, d = live_of(run, at=at_iter, files=_live_files(fm))
                 if it is None:
                     continue
                 its.append(it)
@@ -1164,8 +1179,13 @@ def _slides(fm):
     # EVERY TABLE ON THE SLIDE IS BOXED BEFORE ANY IS PLACED, so one scale can be
     # taken from the widest (see \settablescale in the preamble). An absent
     # table is an empty box, width zero, which the max ignores.
-    _running = (_table(fm, "running")
-                if _summary_rows(fm, rs, "running", nd=2) else "")
+    _run_rows = _summary_rows(fm, rs, "running", nd=2)
+    _running = _table(fm, "running") if _run_rows else ""
+    # A LONG RUNNING TABLE GETS ITS OWN SLIDE. Experiment 9 has 28 rows per
+    # table; stacked under the landed table they ran off the bottom, and scaled
+    # to fit both became unreadable.
+    _running_own = bool(_running) and (
+        len(_summary_rows(fm, rs, "landed")) + len(_run_rows) > 14)
     _timing = (_timing_table(fm)
                if fm.get("report", {}).get("timing") else "")
     _memory = _memory_table(fm) if fm.get("report", {}).get("memory") else ""
@@ -1173,7 +1193,7 @@ def _slides(fm):
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\setlength{\tabcolsep}{2pt}",
          r"\sbox{\tblA}{\tiny " + _table(fm) + "}",
-         r"\sbox{\tblB}{\tiny " + _running + "}",
+         r"\sbox{\tblB}{\tiny " + ("" if _running_own else _running) + "}",
          r"\sbox{\tblC}{\tiny " + (_memory or _timing) + "}",
          r"\settablescale",
          r"\vspace*{0.3cm}", r"\centering\tiny",
@@ -1195,8 +1215,16 @@ def _slides(fm):
     # have been writing per-checkpoint numbers for hours. This is the TRAIN split
     # at a stated iteration, not held-out, so it is a second table with its own
     # caption rather than blanks filled in from a different meaning.
+    if _running_own:
+        L += [r"\end{frame}",
+              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}: still training}}}}",
+              rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
+              r"\setlength{\tabcolsep}{2pt}",
+              r"\sbox{\tblA}{}", r"\sbox{\tblC}{}",
+              r"\sbox{\tblB}{\tiny " + _running + "}",
+              r"\settablescale", r"\vspace*{0.2cm}"]
     if _running:
-        L += [r"\\[10pt]", r"\centering\tiny",
+        L += [r"\\[10pt]" if not _running_own else "", r"\centering\tiny",
               r"{\scriptsize\bfseries still training --- train split, not a result"
               r"\par}\vspace*{2pt}",
               r"\placetable{\tblB}", r"\\[4pt]",
@@ -1290,9 +1318,14 @@ def report(paths, make_pdf=True):
 \makeatletter
 \newcommand{\lenpt}[1]{\strip@pt\dimexpr#1\relax}
 \makeatother
+\newcommand{\htpt}[1]{\lenpt{\dimexpr\ht#1+\dp#1\relax}}
+% AND FROM THE HEIGHT, capped at 0.6 textheight over the tables on the frame:
+% a 28-row table at the width scale ran off the bottom (experiment 9). The
+% captions take the rest.
 \newcommand{\settablescale}{%
-  \pgfmathsetmacro{\tblscl}{min(1, \lenpt{\textwidth} /
-    max(max(\lenpt{\wd\tblA}, \lenpt{\wd\tblB}), max(\lenpt{\wd\tblC}, 1)))}}
+  \pgfmathsetmacro{\tblscl}{min(min(1, \lenpt{\textwidth} /
+    max(max(\lenpt{\wd\tblA}, \lenpt{\wd\tblB}), max(\lenpt{\wd\tblC}, 1))),
+    0.6 * \lenpt{\textheight} / max(\htpt{\tblA} + \htpt{\tblB} + \htpt{\tblC}, 1))}}
 \newcommand{\placetable}[1]{\scalebox{\tblscl}{\usebox{#1}}}
 \newlength{\panelbox}
 \setlength{\panelbox}{0.68\textheight}
