@@ -1835,6 +1835,24 @@ class TrainingConfig(BaseModel):
     # corrupts the visible neurons for the rest of the horizon.
     hidden_free_running: bool = False
 
+    # WHAT THE LOSS SEES. 'voltage' (every run before experiment 13): the
+    # dataset's voltage.zarr is the state. 'calcium': voltage.zarr is a calcium
+    # recording, the voltage is a latent the model integrates, and the rollout
+    # loss is scored on the calcium a GCaMP indicator would report
+    # (models/calcium_observation.py). Needs the dense rollout
+    # (rollout_horizon_schedule) with every horizon >= 2.
+    observable: Literal["voltage", "calcium"] = "voltage"
+    # The indicator: two leaky stages, rise then decay, each of unit gain --
+    # the unit-area difference of exponentials the datasets were built with.
+    # The taus are the START values in seconds; calcium_kernel_learned: false
+    # keeps them fixed ("kernel given"), true learns them ("kernel not given").
+    calcium_tau_rise: float = 0.075
+    calcium_tau_decay: float = 0.4
+    calcium_kernel_learned: bool = False
+    # Recorded frames c(k), ..., c(k - n + 1) the rollout's latent start is
+    # read from, through taps shared by every neuron and learned.
+    calcium_n_taps: int = 6
+
     neural_ODE_training: bool = False
     ode_method: OdeMethod = OdeMethod.DOPRI5
     ode_rtol: float = 1e-4

@@ -116,6 +116,12 @@ def recurrent_loss(
     tc = config.training
     n_neurons = sim.n_neurons
 
+    if getattr(tc, "observable", "voltage") == "calcium":
+        from connectome_gnn.models.calcium_observation import calcium_rollout_loss
+        return calcium_rollout_loss(
+            model, x_ts, edges, ids, frame_indices, iter_idx,
+            n_steps, sim, tc, device, xnorm, regularizer, has_visual_field, hn=hn,
+        )
     if n_steps is not None:
         return _dense_rollout_loss(
             model, x_ts, y_ts, edges, ids, frame_indices, iter_idx,

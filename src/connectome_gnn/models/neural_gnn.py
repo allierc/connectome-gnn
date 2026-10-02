@@ -489,6 +489,11 @@ class NeuralGNN(nn.Module):
                 )
                 self._ngp_use_a = False
 
+        # The calcium indicator, only when training.observable is 'calcium'
+        # (models/calcium_observation.py); otherwise nothing is added.
+        from connectome_gnn.models.calcium_observation import attach_calcium_indicator
+        attach_calcium_indicator(self, config)
+
     def _ngp_emb_lookup(self, ids: torch.Tensor) -> torch.Tensor:
         """(N,) neuron indices → (N, rank) factorized embedding."""
         if self._ngp_use_a:

@@ -611,9 +611,32 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
             logger.warning(f'no noise-free twin for {test_ds}; rollout_r is capped '
                            f'by the process noise and is not a model comparison')
 
+    # A DECONVOLVED DATASET CARRIES ITS TRUTH. tools/build_calcium_dataset.py
+    # writes the voltage recovered from calcium as voltage.zarr and keeps the
+    # simulated one as voltage_true.zarr; scoring against the estimate (what
+    # the old calcium runs did) rewards reproducing the deconvolution's errors.
+    _true_path = os.path.join(graphs_data_path(test_ds, _eval_split), 'voltage_true.zarr')
+    if _rollout_truth is x_ts_eval and os.path.isdir(_true_path):
+        _tv = load_simulation_data(graphs_data_path(test_ds, _eval_split),
+                                   fields=['voltage']).to(device)
+        import zarr as _zarr
+        _tv.voltage = torch.as_tensor(
+            np.asarray(_zarr.open(_true_path, mode='r')), device=device)
+        if tc.training_selected_neurons:
+            _tv = _tv.subset_neurons(selected_neuron_ids)
+        _rollout_truth = _tv
+        logger.info(f'rollout scored against voltage_true.zarr of {test_ds} '
+                    f'(the simulated voltage behind the deconvolved or calcium one)')
+
     x = x_ts_eval.frame(0)
     with torch.no_grad():
         hn.inject_hidden(model, x, 0, True)
+        # A calcium-observing model starts from its latent voltage, read from the
+        # recording by its learned taps (models/calcium_observation.py).
+        from connectome_gnn.models.calcium_observation import latent_start
+        _v0 = latent_start(model, x_ts_eval, 0)
+        if _v0 is not None:
+            x.voltage = _v0
 
     h_state = None
     c_state = None
