@@ -25,7 +25,7 @@ BLOCKS = [
     ("low model noise ($\\sigma = 0.05$)", "flyvis_noise_005_blank50_condl25_cv00"),
     ("high model noise ($\\sigma = 0.5$)", "flyvis_noise_05_blank50_condl25_cv00"),
 ]
-PANEL_CM, GAP_IN_CM, GAP_BLOCK_CM, GAP_ROW_CM = 2.0, 1.15, 1.15, 1.4   # the published figure's even spacing
+PANEL_CM, GAP_IN_CM, GAP_BLOCK_CM, GAP_ROW_CM = 1.95, 1.35, 1.35, 1.4   # the published figure's even spacing
 MARGIN_L_CM, MARGIN_B_CM = 0.9, 0.75
 
 
@@ -48,7 +48,7 @@ def main():
         rows[0] += axes[:2]; rows[1] += axes[2:]
         blocks_axes.append(axes)
     column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=16, fontsize=9)
-    panel_labels(fig, rows[0] + rows[1], dy_pt=3)
+    panel_labels(fig, rows[0] + rows[1], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_3col_noise_comparison"))
 
 

@@ -94,11 +94,12 @@ def scatter_density(ax, x, y, lo, hi, bins=300):
     ax.set_aspect("equal", adjustable="box")
 
 
-def panel_labels(fig, axes, letters=None, dx_pt=-2.0, dy_pt=2.0, align_rows=True, y_from="axes"):
+def panel_labels(fig, axes, letters=None, dx_pt=1.0, dy_pt=2.0, align_rows=True, y_from="axes", ha="left"):
     """Bold letters outside the top-left corner of each panel, as in the
-    published figures: x just left of the y-axis label (the tight bbox), y at
-    the top of the axes frame (`y_from="axes"`) or of the tight bbox; axes
-    whose tops agree within 2 pt share one label height."""
+    published figures: the letter starts at the y-axis label's left edge (the
+    tight bbox, so it sits over the label, next to its own panel and clear of
+    the previous one), y at the top of the axes frame (`y_from="axes"`) or of
+    the tight bbox; axes whose tops agree within 2 pt share one label height."""
     fig.canvas.draw()
     rend = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
@@ -112,7 +113,7 @@ def panel_labels(fig, axes, letters=None, dx_pt=-2.0, dy_pt=2.0, align_rows=True
     dx = dx_pt * fig.dpi / 72.0; dy = dy_pt * fig.dpi / 72.0
     for x, y, L in zip(xs, ys, letters):
         fx, fy = inv.transform((x + dx, y + dy))
-        fig.text(fx, fy, L, fontsize=FS_PANEL, fontweight="bold", ha="right", va="bottom")
+        fig.text(fx, fy, L, fontsize=FS_PANEL, fontweight="bold", ha=ha, va="bottom")
 
 
 def column_titles(fig, axes_per_block, titles, dy_pt=4.0, fontsize=FS_LABEL):
