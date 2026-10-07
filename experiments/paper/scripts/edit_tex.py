@@ -63,16 +63,16 @@ replace_figure("fig:gnn_params_3col_noise_comparison", r"""
     three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
     \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
     the template readout (the fraction of the $434{,}112$ edges fitted is printed; the rest have a
-    presynaptic neuron that never rises above the activity floor), coloured by the postsynaptic cell type.
-    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    presynaptic neuron that never rises above the activity floor).
+    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
+    by ground-truth cell type.
     \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
     \textbf{(h, j, l)}~Time constants $\tau_i$.
     Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
     \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
     $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
     bands in red and their fraction printed); the per-neuron $\tau$, $V^{\mathrm{rest}}$ and per-edge
-    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}); colours indicate
-    ground-truth cell types.}
+    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}).}
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -156,12 +156,13 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
     of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
     with proximal null edges.
     \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
-    template readout (fraction printed), coloured by the postsynaptic cell type.
-    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    template readout (fraction printed).
+    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
+    ground-truth cell type.
     \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants
     $\tau_i$ of the template readout, outliers beyond the dotted $\pm 0.2$ / $\pm 0.1$~s bands in red;
     $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
-    \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
+    \cref{tab:zero_edge_inliers}.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}

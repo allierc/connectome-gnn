@@ -1,7 +1,7 @@
 """The four circuit-parameter panels of one trained run, in the published
 figure's conventions, from the template readout that the tables score:
 
-    W      learned vs true synaptic weight, one point per fitted edge (the
+    W      learned vs true synaptic weight, one black point per fitted edge (the
            template readout's per-edge fit, models/template_fit_alt.pt, i.e.
            W * ReLU(v_j) + C fitted on 1,024 frames; an edge whose presynaptic
            neuron never rises above the activity floor is unfitted, stored as 0,
@@ -80,8 +80,9 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
     idx = rng.choice(n, min(n, n_edges_max), replace=False)
     lo, hi = W_RANGE
     identity(ax_W, lo, hi)
-    ax_W.scatter(run_data["W_true"][idx], run_data["W_learned"][idx], c=types[run_data["W_post"]][idx],
-                 cmap=cmap, s=0.5, alpha=0.5, lw=0, rasterized=True, zorder=2)
+    # the published panels: black points, alpha 0.3 (s = 1 on 10-inch panels, s = 0.1 for W)
+    ax_W.scatter(run_data["W_true"][idx], run_data["W_learned"][idx], c="k", s=0.3, alpha=0.25, lw=0,
+                 rasterized=True, zorder=2)
     ticks3(ax_W, lo, hi)
     ax_W.set_aspect("equal", adjustable="box")
     annotate(ax_W, f"R²: {m['Wij_R2']:.2f}\nslope: {m['Wij_slope']:.2f}\nfitted edges: {run_data['pct_fitted']:.0f}%")
@@ -106,9 +107,9 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         lo, hi = rng_
         out = np.abs(l - t) > THR[key]
         identity(ax, lo, hi, thr=THR[key])
-        ax.scatter(t[~out], l[~out], c=types[~out], cmap=cmap, s=1.5, alpha=0.7, lw=0, rasterized=True, zorder=2)
-        ax.scatter(t[out], np.clip(l[out], lo, hi), color=COLOR_OUTLIER, s=1.5, alpha=0.7, lw=0,
-                   rasterized=True, zorder=3)
+        ax.scatter(t[out], np.clip(l[out], lo, hi), color=COLOR_OUTLIER, s=1.2, alpha=0.5, lw=0,
+                   rasterized=True, zorder=2)
+        ax.scatter(t[~out], l[~out], c="k", s=0.8, alpha=0.3, lw=0, rasterized=True, zorder=3)
         ticks3(ax, lo, hi)
         ax.set_aspect("equal", adjustable="box")
         annotate(ax, f"R²: {m[key + '_R2']:.2f}{_r2_all(m[key + '_R2_all'])}\nslope: {m[key + '_slope']:.2f}\n"

@@ -70,7 +70,8 @@ def draw_traces(ax, b, idx, labels, step, header, show_labels):
     ax.tick_params(axis="y", length=0)
     ax.spines["left"].set_visible(False)
     ax.set_xlim(t[0], t[-1]); ax.set_xticks([T0 * DT_MS, (T0 + T1) / 2 * DT_MS, T1 * DT_MS])
-    ax.set_xticklabels([f"{v:.0f}" for v in ax.get_xticks()])
+    # time axis labelled on the first column only, as in the published figure
+    ax.set_xticklabels([f"{v:.0f}" for v in ax.get_xticks()] if show_labels else [])
     if show_labels:
         ax.set_xlabel("time (ms)"); ax.set_ylabel("neurons", labelpad=14)
     ax.set_ylim(-1.7 * step, n * step)

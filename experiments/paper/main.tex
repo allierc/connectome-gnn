@@ -322,16 +322,16 @@ mapping from the model's parameters to Flyvis-217 model quantities (\cref{app:be
     three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
     \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
     the template readout (the fraction of the $434{,}112$ edges fitted is printed; the rest have a
-    presynaptic neuron that never rises above the activity floor), coloured by the postsynaptic cell type.
-    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    presynaptic neuron that never rises above the activity floor).
+    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
+    by ground-truth cell type.
     \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
     \textbf{(h, j, l)}~Time constants $\tau_i$.
     Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
     \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
     $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
     bands in red and their fraction printed); the per-neuron $\tau$, $V^{\mathrm{rest}}$ and per-edge
-    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}); colours indicate
-    ground-truth cell types.}
+    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}).}
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -686,23 +686,19 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 
 \begin{figure}[ht!]
   \centering
-  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_ablation50_nf_green_no_affine.png}
-\caption{\textcolor{red}{[Published current-form figure. The ablation rollouts of the general-form GNN (group lasso $25$) on the three \texttt{mask\_50} datasets have not been run: new test jobs needed.]} \textbf{Rollout prediction under $50\%$ edge ablation.} GNN
-    evaluated on central $217$-column Flyvis data under three model noise regimes
-    (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on
-    held-out stimuli, and compared against noise-free ablated Flyvis
-    simulations. For each test, the simulator regenerates voltage traces
-    with $50\%$ of synaptic edges randomly zeroed, and the same edge mask
-    is applied to the trained GNN's learned weights $\hat{\mathbf{W}}$
-    before rollout (no retraining). Top row (\textbf{a}, \textbf{b},
-    \textbf{c}): GNN rollout traces for $12$ representative cell types
-    over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms). Green:
-    ablated ground-truth voltage; black: GNN rollout prediction; red:
-    one visual input stimulus. Bottom row (\textbf{d}, \textbf{e},
-    \textbf{f}): scatterplots of rollout voltage vs noise-free ablated
-    ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
-    pairs and subsampled to $2 \cdot 10^6$ points for display.
-    Pearson~$r$ computed on the full $8{,}000$-frame rollout.
+  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_ablation50.pdf}
+\caption{{\color{blue}\textbf{Rollout prediction under $50\%$ edge ablation.} General-form GNN (group
+    lasso $25$; fold cv00 of experiment 2) evaluated on central $217$-column Flyvis data under three model
+    noise regimes (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli,
+    and compared against the noise-free ablated Flyvis simulation. For each test the simulator
+    regenerates voltage traces with $50\%$ of the synaptic edges zeroed, and the same edge mask is applied
+    to the trained GNN's learned weights $\hat{\mathbf{W}}$ before rollout (no retraining). Top row
+    (\textbf{a}, \textbf{b}, \textbf{c}): GNN rollout traces for $12$ representative cell types over a
+    $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms). Green: ablated ground-truth voltage; black: GNN
+    rollout prediction; red: the visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e},
+    \textbf{f}): rollout voltage against the noise-free ablated voltage, pooled over all
+    $(\text{neuron}, \text{frame})$ pairs of the $8{,}000$-frame rollout as a log-density image.
+    Pearson~$r$: per-neuron, Fisher-$z$ pooled, on the full rollout.}
 }
   \label{fig:rollout_3col_noise_comparison_ablation50}
 \end{figure}
@@ -744,12 +740,13 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
     with proximal null edges.
     \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
-    template readout (fraction printed), coloured by the postsynaptic cell type.
-    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    template readout (fraction printed).
+    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
+    ground-truth cell type.
     \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants
     $\tau_i$ of the template readout, outliers beyond the dotted $\pm 0.2$ / $\pm 0.1$~s bands in red;
     $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
-    \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
+    \cref{tab:zero_edge_inliers}.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}
