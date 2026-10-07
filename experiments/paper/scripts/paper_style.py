@@ -19,7 +19,7 @@ CM = 1.0 / 2.54
 TEXT_W_CM = 18.0
 FS_LABEL = 8
 FS_TICK = 6
-FS_ANNOT = 5.5
+FS_ANNOT = 6
 FS_PANEL = 9
 LW_AXIS = 0.5
 
@@ -50,14 +50,22 @@ def type_cmap(n_types=65):
     return ListedColormap(cols[:n_types])
 
 
-def _fmt(v):
-    return f"{v:.0f}" if float(v).is_integer() else (f"{v:.1f}" if abs(v) >= 1 else f"{v:.2f}".rstrip("0").rstrip("."))
+def _decimals(v, max_d=2):
+    for d in range(max_d + 1):
+        if abs(round(v, d) - v) < 1e-9:
+            return d
+    return max_d
 
 
-def ticks3(ax, lo, hi, axis="both"):
-    """Ticks at the range's two ends and its middle, the published panels' convention."""
-    t = [lo, (lo + hi) / 2, hi]
-    lab = [_fmt(v) for v in t]
+def ticks3(ax, lo, hi, axis="both", mid_decimals=None):
+    """Ticks at the range's two ends and its middle, labelled as the published
+    panels ("0.0 0.5 1.0", "0.0 0.25 0.5"): each tick with the decimals it
+    needs, at least one when any tick is fractional. `mid_decimals` rounds the
+    middle tick itself (the embedding axes, whose ends are 1-decimal values)."""
+    mid = (lo + hi) / 2 if mid_decimals is None else round((lo + hi) / 2, mid_decimals)
+    t = [lo, mid, hi]
+    d_min = 1 if any(_decimals(v) > 0 for v in t) else 0
+    lab = [f"{v:.{max(d_min, _decimals(v))}f}" for v in t]
     if axis in ("x", "both"):
         ax.set_xlim(lo, hi); ax.set_xticks(t); ax.set_xticklabels(lab)
     if axis in ("y", "both"):

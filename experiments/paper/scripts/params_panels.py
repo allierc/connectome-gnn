@@ -95,7 +95,7 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
     ax_a.scatter(a[:, 0], a[:, 1], c=types, cmap=cmap, s=1.0, alpha=0.5, lw=0, rasterized=True)
     for axis, v in (("x", a[:, 0]), ("y", a[:, 1])):
         lo_, hi_ = np.percentile(v, [0.2, 99.8]); d = 0.05 * (hi_ - lo_)
-        ticks3(ax_a, round(lo_ - d, 1), round(hi_ + d, 1), axis)
+        ticks3(ax_a, round(lo_ - d, 1), round(hi_ + d, 1), axis, mid_decimals=1)
     ax_a.set_xlabel("$a_{i0}$")
     if show_ylabels:
         ax_a.set_ylabel("$a_{i1}$")
@@ -113,7 +113,7 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         ticks3(ax, lo, hi)
         ax.set_aspect("equal", adjustable="box")
         annotate(ax, f"R²: {m[key + '_R2']:.2f}{_r2_all(m[key + '_R2_all'])}\nslope: {m[key + '_slope']:.2f}\n"
-                     f"outliers: {m[key + '_pct_outliers']:.1f}%")
+                     f"Outliers: {m[key + '_pct_outliers']:.1f}%")
         ax.set_xlabel(xl)
         if show_ylabels:
             ax.set_ylabel(yl)
