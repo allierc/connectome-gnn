@@ -62,7 +62,7 @@ replace_figure("fig:gnn_params_3col_noise_comparison", r"""
     ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 under
     three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
     \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
-    the template readout (the fraction of the $434{,}112$ edges fitted is printed; the rest have a
+    the template readout ($77\%$, $76\%$ and $96\%$ of the $434{,}112$ edges at $\sigma = 0$, $0.05$, $0.5$; the rest have a
     presynaptic neuron that never rises above the activity floor).
     \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
     by ground-truth cell type.
@@ -164,7 +164,7 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
     of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
     with proximal null edges.
     \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
-    template readout (fraction printed).
+    template readout ($60\%$, $61\%$, $59\%$ and $62\%$ of the edges).
     \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
     ground-truth cell type.
     \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants

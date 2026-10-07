@@ -25,7 +25,7 @@ BLOCKS = [
     ("low model noise ($\\sigma = 0.05$)", "flyvis_noise_005_blank50_condl25_cv00"),
     ("high model noise ($\\sigma = 0.5$)", "flyvis_noise_05_blank50_condl25_cv00"),
 ]
-PANEL_CM, GAP_IN_CM, GAP_BLOCK_CM, GAP_ROW_CM = 2.0, 0.95, 1.3, 1.3   # the published figure's spacing
+PANEL_CM, GAP_IN_CM, GAP_BLOCK_CM, GAP_ROW_CM = 2.0, 1.15, 1.15, 1.4   # the published figure's even spacing
 MARGIN_L_CM, MARGIN_B_CM = 0.9, 0.75
 
 

@@ -81,18 +81,18 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
     lo, hi = W_RANGE
     identity(ax_W, lo, hi)
     # the published panels: black points, alpha 0.3 (s = 1 on 10-inch panels, s = 0.1 for W)
-    ax_W.scatter(run_data["W_true"][idx], run_data["W_learned"][idx], c="k", s=0.3, alpha=0.15, lw=0,
+    ax_W.scatter(run_data["W_true"][idx], run_data["W_learned"][idx], c="k", s=0.1, alpha=0.1, lw=0,
                  rasterized=True, zorder=2)
     ticks3(ax_W, lo, hi)
     ax_W.set_aspect("equal", adjustable="box")
-    annotate(ax_W, f"R²: {m['Wij_R2']:.2f}\nslope: {m['Wij_slope']:.2f}\nfitted edges: {run_data['pct_fitted']:.0f}%")
+    annotate(ax_W, f"R²: {m['Wij_R2']:.2f}\nslope: {m['Wij_slope']:.2f}")   # the fitted fraction is in the caption
     ax_W.set_xlabel("true $W_{ij}$")
     if show_ylabels:
         ax_W.set_ylabel("learned $\\hat W_{ij}$")
 
     # embedding
     a = np.asarray(p["a"])
-    ax_a.scatter(a[:, 0], a[:, 1], c=types, cmap=cmap, s=1.0, alpha=0.5, lw=0, rasterized=True)
+    ax_a.scatter(a[:, 0], a[:, 1], c=types, cmap=cmap, s=0.5, alpha=0.5, lw=0, rasterized=True)
     for axis, v in (("x", a[:, 0]), ("y", a[:, 1])):
         lo_, hi_ = np.percentile(v, [0.2, 99.8]); d = 0.05 * (hi_ - lo_)
         ticks3(ax_a, round(lo_ - d, 1), round(hi_ + d, 1), axis, mid_decimals=1)
@@ -107,9 +107,9 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         lo, hi = rng_
         out = np.abs(l - t) > THR[key]
         identity(ax, lo, hi, thr=THR[key])
-        ax.scatter(t[out], np.clip(l[out], lo, hi), color=COLOR_OUTLIER, s=1.0, alpha=0.35, lw=0,
+        ax.scatter(t[out], np.clip(l[out], lo, hi), color=COLOR_OUTLIER, s=0.4, alpha=0.5, lw=0,
                    rasterized=True, zorder=2)
-        ax.scatter(t[~out], l[~out], c="k", s=0.7, alpha=0.2, lw=0, rasterized=True, zorder=3)
+        ax.scatter(t[~out], l[~out], c="k", s=0.3, alpha=0.3, lw=0, rasterized=True, zorder=3)
         ticks3(ax, lo, hi)
         ax.set_aspect("equal", adjustable="box")
         annotate(ax, f"R²: {m[key + '_R2']:.2f}{_r2_all(m[key + '_R2_all'])}\nslope: {m[key + '_slope']:.2f}\n"
