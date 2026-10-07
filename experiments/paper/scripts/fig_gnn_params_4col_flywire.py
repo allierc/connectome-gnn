@@ -25,7 +25,7 @@ COLS = [
     ("FlyWire eye", "full_eye_flywireRF_noise_005_blank50_condl25_cv00"),
     ("FlyWire eye + n.e.", "full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"),
 ]
-PANEL_CM, GAP_CM = 3.0, 1.3
+PANEL_CM, GAP_CM = 2.9, 1.5
 MARGIN_L_CM, MARGIN_B_CM = 1.1, 0.8
 
 
@@ -42,7 +42,7 @@ def main():
     for c, (title, run) in enumerate(COLS):
         draw_block((axes[0][c], axes[1][c], axes[2][c], axes[3][c]), load_run(run), cmap=cmap)
     column_titles(fig, [[axes[0][c]] for c in range(n)], [t for t, _ in COLS], dy_pt=16, fontsize=9)
-    panel_labels(fig, [a for row in axes for a in row], dy_pt=3)
+    panel_labels(fig, [a for row in axes for a in row], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_4col_flywire_comparison"))
 
 
