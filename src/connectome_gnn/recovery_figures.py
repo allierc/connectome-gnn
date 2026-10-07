@@ -447,3 +447,54 @@ def write_form_arrays(rec, log_dir, out_path=None):
         t_driving_force=np.asarray(d.get("_form_t_b2_full"), dtype=np.float32),
         frames_per_edge=np.asarray(d.get("_form_n_used_full"), dtype=np.float32))
     return out
+
+
+def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_ts=None,
+                          n_edges=1024, n_frames=64, seed=0, out_path=None):
+    """results/recovered_pairs.npz: the (true, learned) arrays behind every scored
+    quantity, so a figure can draw what the tables score without a checkpoint.
+
+    From `rec`: W, tau, V_rest and msg_i pairs as `score_recovery` sees them (the
+    aggregated message over MSG_N_FRAMES frames, in the generator's units). From
+    the model, when given: the PER-EDGE message at observed (v_i, v_j) on
+    `n_edges` random edges x `n_frames` random frames, true against learned:
+
+        true     W_ij * ReLU(v_j)                       the current generator's
+        learned  k_i * W_hat_ij * g_phi(a_i, a_j, v_i, v_j)   through the template
+                                                        readout's gauge k_i
+
+    the raw material of the per-edge template fit (Wij_R2), and the general-form
+    counterpart of the published g_phi(a_j, v_j) panel. About 1-2 MB per run.
+    Conductance generators (a driving force on the true side) are not handled:
+    the edge arrays are then left out, the rest is still written.
+    """
+    import torch
+    from connectome_gnn.metrics import get_model_W, sample_g_phi_vi_vj_observed
+    out = out_path or _fig_out(log_dir, "recovered_pairs.npz")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    arrays = {}
+    for q in ("W", "tau", "V_rest", "msg_i"):
+        pair = rec.get(q)
+        if pair is not None:
+            arrays[f"{q}_true"] = np.asarray(pair[0], dtype=np.float32)
+            arrays[f"{q}_learned"] = np.asarray(pair[1], dtype=np.float32)
+    k = (getattr(rec, "diagnostics", {}) or {}).get("_tmpl_k_full")
+    gt_path = os.path.join(str(log_dir), "gt_weights.pt")
+    if (model is not None and config is not None and edges is not None and x_ts is not None
+            and k is not None and os.path.exists(gt_path)):
+        core = getattr(model, "_orig_mod", model)
+        s = sample_g_phi_vi_vj_observed(core, config, edges, x_ts, n_edges=n_edges,
+                                        n_frames=n_frames, seed=seed)
+        gt_W = torch.load(gt_path, map_location="cpu", weights_only=False)
+        gt_W = (gt_W.detach().cpu().numpy() if torch.is_tensor(gt_W) else np.asarray(gt_W)).ravel()
+        W_hat = get_model_W(core).detach().cpu().numpy().ravel()
+        e = s["edge_idx"]
+        i_ids = s["edge_ij"][:, 0]
+        arrays["edge_idx"] = e.astype(np.int64)
+        arrays["edge_post"] = i_ids.astype(np.int64)
+        arrays["edge_vi"] = s["vi"].astype(np.float32)
+        arrays["edge_vj"] = s["vj"].astype(np.float32)
+        arrays["edge_msg_true"] = (gt_W[e][:, None] * np.maximum(s["vj"], 0.0)).astype(np.float32)
+        arrays["edge_msg_learned"] = ((np.asarray(k)[i_ids] * W_hat[e])[:, None] * s["g_phi"]).astype(np.float32)
+    np.savez_compressed(out, **arrays)
+    return out

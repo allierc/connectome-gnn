@@ -3969,6 +3969,9 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _ratio = np.where(autograd_dfdmsg != 0, (T * G_fit) / autograd_dfdmsg, np.nan)
     rec.diagnostics["tmpl_dfdmsg_over_autograd"] = float(np.nanmedian(_ratio))
     rec.diagnostics["tmpl_k_median"] = float(np.nanmedian(k))
+    # THE GAUGE PER NEURON, not only its median: recovery_figures.write_recovered_pairs
+    # puts the model's per-edge message into the generator's units with it.
+    rec.diagnostics["_tmpl_k_full"] = np.asarray(k, dtype=np.float64)
     rec.diagnostics["tmpl_dfdmsg_median"] = float(np.nanmedian(dfdmsg))
     # THE MEDIAN OF A SIGNED QUANTITY THAT SPLITS, which df_theta/dmsg does when
     # half the neurons take their message with one sign and half the other,

@@ -516,11 +516,14 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     if rec is not None:
         try:
             from connectome_gnn.recovery_figures import (plot_form_comparison,
-                                                         write_form_arrays)
+                                                         write_form_arrays,
+                                                         write_recovered_pairs)
             _path, _lines = plot_form_comparison(rec, log_dir)
             for _l in _lines:
                 print(_l)
             write_form_arrays(rec, log_dir)
+            # the arrays behind every scored quantity, for the paper's figures
+            write_recovered_pairs(rec, log_dir, model=model, config=config, edges=edges, x_ts=x_ts)
         except Exception as _e:
             logger.warning(f"form comparison skipped: {type(_e).__name__}: {_e}")
 

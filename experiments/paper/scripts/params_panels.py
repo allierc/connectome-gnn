@@ -13,6 +13,14 @@ figure's conventions, from the template readout that the tables score:
            quoted R^2, dotted lines at +-0.2 (metrics V_rest_R2 / _pct_outliers)
     tau    the same for the membrane time constant, softplus(raw_tau); range
            [0, 0.5] s; threshold |dtau| > 0.1 s
+    msg_ij the per-edge message at observed (v_i, v_j): learned
+           k_i W_ij g_phi(a_i, a_j, v_i, v_j) against the generator's
+           W_ij ReLU(v_j), 1,024 random edges x 64 random frames
+           (results/recovered_pairs.npz, written by the plot pass); the
+           general-form counterpart of the published g_phi panel
+    msg_i  the aggregated per-neuron message, learned against true, over the
+           frames the metric msg_i_R2 is scored on (same file); the counterpart
+           of the published f_theta panel
 
 Annotations: R^2 (inlier) with the all-neuron R^2 in parentheses, slope,
 outlier %, every value read from metrics.txt and checked against the arrays.
@@ -58,9 +66,21 @@ def load_run(run):
         r2n = 1 - np.mean((l[ok] - t[ok]) ** 2) / np.var(t[ok])
         assert abs(r2n - m[f"{name}_R2"]) < 5e-3 and abs(100 * (~ok).mean() - m[f"{name}_pct_outliers"]) < 0.2, \
             (run, name, r2n, m[f"{name}_R2"], 100 * (~ok).mean(), m[f"{name}_pct_outliers"])
-    return dict(panels=p, metrics=m, W_true=W_true[fitted], W_learned=W_fit[fitted],
-                W_post=edges[1][fitted], pct_fitted=100.0 * fitted.mean(),
-                tau_true=tau_true, tau=tau, V_true=V_true, V=V)
+    out = dict(panels=p, metrics=m, W_true=W_true[fitted], W_learned=W_fit[fitted],
+               W_post=edges[1][fitted], pct_fitted=100.0 * fitted.mean(),
+               tau_true=tau_true, tau=tau, V_true=V_true, V=V)
+    rp = os.path.join(d, "results", "extras", "recovered_pairs.npz")      # results_layout puts it under extras/
+    if not os.path.exists(rp):
+        rp = os.path.join(d, "results", "recovered_pairs.npz")
+    if os.path.exists(rp):
+        r = np.load(rp)
+        if "edge_msg_true" in r.files:
+            out["msg_pairs"] = {k: np.asarray(r[k]) for k in
+                                ("edge_msg_true", "edge_msg_learned", "edge_post", "msg_i_true", "msg_i_learned")}
+            r2 = 1 - np.mean((r["msg_i_learned"] - r["msg_i_true"]) ** 2) / np.var(r["msg_i_true"])
+            if abs(r2 - m["msg_i_R2"]) > 0.02:
+                print(f"WARNING {run}: msg_i R2 from the pairs {r2:.3f} vs metrics {m['msg_i_R2']:.3f}")
+    return out
 
 
 def _r2_all(v):
@@ -114,6 +134,45 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         ax.set_aspect("equal", adjustable="box")
         annotate(ax, f"R²: {m[key + '_R2']:.2f}{_r2_all(m[key + '_R2_all'])}\nslope: {m[key + '_slope']:.2f}\n"
                      f"Outliers: {m[key + '_pct_outliers']:.1f}%")
+        ax.set_xlabel(xl)
+        if show_ylabels:
+            ax.set_ylabel(yl)
+
+
+def _range(v, pad=0.05):
+    lo, hi = np.percentile(v, [0.1, 99.9])
+    d = (hi - lo) * pad
+    lo, hi = lo - d, hi + d
+    step = 10 ** np.floor(np.log10(max(hi - lo, 1e-9)))
+    return float(np.floor(lo / step) * step), float(np.ceil(hi / step) * step)
+
+
+def draw_message_row(axes, run_data, show_ylabels=True, seed=0):
+    """axes = (ax_msg_i, ax_msg_ij): the aggregated per-neuron message and the
+    per-edge message, learned against true, black points, identity line."""
+    ax_i, ax_e = axes
+    mp = run_data.get("msg_pairs")
+    m = run_data["metrics"]
+    if mp is None:
+        for ax in axes:
+            ax.text(0.5, 0.5, "recovered_pairs.npz\nmissing", ha="center", va="center", fontsize=6,
+                    transform=ax.transAxes)
+        return
+    rng = np.random.default_rng(seed)
+    for ax, t, l, key, xl, yl, nmax in (
+            (ax_i, mp["msg_i_true"], mp["msg_i_learned"], "msg_i", "true $m_i$", "learned $m_i$", 150_000),
+            (ax_e, mp["edge_msg_true"].ravel(), mp["edge_msg_learned"].ravel(), None,
+             "true $W_{ij}\\,\\mathrm{ReLU}(v_j)$", "learned $\\hat W_{ij}\\, g_\\phi$", 150_000)):
+        t = np.asarray(t, np.float64); l = np.asarray(l, np.float64)
+        idx = rng.choice(len(t), min(len(t), nmax), replace=False)
+        lo, hi = _range(np.concatenate([t, t]))
+        identity(ax, lo, hi)
+        ax.scatter(t[idx], l[idx], c="k", s=0.3, alpha=0.2, lw=0, rasterized=True, zorder=2)
+        ticks3(ax, lo, hi)
+        ax.set_aspect("equal", adjustable="box")
+        r2 = m["msg_i_R2"] if key else 1 - np.mean((l - t) ** 2) / np.var(t)
+        slope = m["msg_i_slope"] if key else np.polyfit(t, l, 1)[0]
+        annotate(ax, f"R²: {r2:.2f}\nslope: {slope:.2f}")
         ax.set_xlabel(xl)
         if show_ylabels:
             ax.set_ylabel(yl)

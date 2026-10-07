@@ -62,7 +62,7 @@ never from a PNG, so fonts, spines and points are identical across panels.
 
 | figure | script | arrays |
 |---|---|---|
-| Fig. 1, Supp. FlyWire parameters | `fig_gnn_params_3col.py`, `fig_gnn_params_4col_flywire.py` | `gt_weights.pt`, `training_edges.pt`, `models/template_fit_alt.pt` (W, softplus(raw_tau), V_rest), `results/panels_*.npz` (a, true tau / V_rest, type_ids), `results/metrics.txt` |
+| Fig. 1, Supp. FlyWire parameters | `fig_gnn_params_3col.py`, `fig_gnn_params_4col_flywire.py` | `gt_weights.pt`, `training_edges.pt`, `models/template_fit_alt.pt` (W, softplus(raw_tau), V_rest), `results/panels_*.npz` (a, true tau / V_rest, type_ids), `results/recovered_pairs.npz` (per-edge and per-neuron message pairs, written by `-o plot` through `recovery_figures.write_recovered_pairs`), `results/metrics.txt` |
 | Supp. rollout, Supp. ablation | `fig_rollout_3col.py [--ablation50]` | `results/rollout_bundle.npz`, `ablation50/rollout_bundle_on_noise_free_mask_50.npz` |
 | Supp. SIREN stimulus | `fig_stim_rollout_inr.py` | `results/rollout_bundle.npz` (stimulus_input_true / _pred_corrected), dataset `pos.zarr` |
 | Supp. clustering | `fig_clustering_appendix.py` | as Fig. 1 plus the dataset's `ode_params.pt` |
