@@ -68,9 +68,11 @@ replace_figure("fig:gnn_params_3col_noise_comparison", r"""
     \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
     \textbf{(h, j, l)}~Time constants $\tau_i$.
     Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
-    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ on the inlier
-    set, outlier fraction printed; axes span the true range, learned outliers are clipped); colours
-    indicate ground-truth cell types.}
+    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
+    $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
+    bands in red and their fraction printed); the per-neuron $\tau$, $V^{\mathrm{rest}}$ and per-edge
+    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}); colours indicate
+    ground-truth cell types.}
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -88,8 +90,8 @@ replace_figure("fig:rollout_3col_noise_comparison", r"""
     $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: GNN rollout prediction; red: the
     visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
     voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
-    pairs and subsampled to $3 \cdot 10^5$ points for display. Pearson~$r$: per-neuron, Fisher-$z$
-    pooled, on the full $8{,}000$-frame rollout.}
+    pairs of the $8{,}000$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$
+    pooled, on the full rollout.}
 }
 \label{fig:rollout_3col_noise_comparison}
 \end{figure}
@@ -128,16 +130,17 @@ replace_figure("fig:stim_rollout_inr", r"""
     first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
     output is shown after the affine gauge correction of the tester (its raw output is defined up to the
     sign and scale the GNN's input weights absorb).
-    \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), six
-    frames spaced by $80$~ms, $z$-scored per frame; top: ground truth; middle: INR; bottom: residual.
-    \textbf{(b)} INR stimulus against the true one for $12$ photoreceptors over a $20$~s window
-    ($1{,}000$ frames at $\Delta t = 20$~ms); green: true, black: INR.
-    \textbf{(c)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
-    representative cell types over the same window.
-    \textbf{(d, e)} INR against true photoreceptor stimulus (\textbf{d}) and rollout voltage against
-    noise-free voltage (\textbf{e}), pooled over all $(\text{neuron},\,\text{frame})$ pairs and
-    subsampled to $3 \cdot 10^5$ points for display; Pearson~$r$ on the full $8\,000$ frames (per
-    neuron, Fisher-$z$ pooled, for the voltage).}
+    \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), ten
+    frames spaced by $80$~ms from $10{,}000$~ms, $z$-scored per frame; top: ground truth; middle: INR;
+    bottom: residual.
+    \textbf{(b)} INR stimulus (black) against the true one (green) for $12$ photoreceptors (R1--R8 of one
+    column, R1--R4 of another) over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms); the header
+    gives the Pearson~$r$ over all photoreceptor--frame pairs, which panel \textbf{(c)} shows as a
+    log-density image.
+    \textbf{(d)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
+    representative cell types over the same window; \textbf{(e)} the same over all
+    $(\text{neuron},\,\text{frame})$ pairs of the $8\,000$ frames as a log-density image, with the
+    per-neuron Fisher-$z$ pooled Pearson~$r$.}
 }
 \label{fig:stim_rollout_inr}
 \end{figure}
@@ -155,9 +158,10 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
     \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
     template readout (fraction printed), coloured by the postsynaptic cell type.
     \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
-    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(m--p)}~Time constants $\tau_i$.
-    $R^2$ and slope as in \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
+    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants
+    $\tau_i$ of the template readout, outliers beyond the dotted $\pm 0.2$ / $\pm 0.1$~s bands in red;
+    $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
+    \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}
@@ -170,12 +174,34 @@ tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAV
                   r"regenerated from the general-form runs of experiment 7 (no figure script in the "
                   r"repository for this panel set).]} \textbf{(d-f)} Rollout comparisons to 20{,}000~ms "
                   r"unseen DAVIS stimuli.")
-once(tex, r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN")
-tex = tex.replace(r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN",
-                  r"\caption{\textcolor{red}{[Published current-form figure. The ablation rollouts of the "
-                  r"general-form GNN (group lasso $25$) on the three \texttt{mask\_50} datasets have not "
-                  r"been run: new test jobs needed.]} \textbf{Rollout prediction under $50\%$ edge "
-                  r"ablation.} GNN")
+if os.path.exists(os.path.join(HERE, "figures", "fig_rollout_3col_noise_comparison_ablation50.pdf")):
+    replace_figure("fig:rollout_3col_noise_comparison_ablation50", r"""
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_ablation50.pdf}
+\caption{{\color{blue}\textbf{Rollout prediction under $50\%$ edge ablation.} General-form GNN (group
+    lasso $25$; fold cv00 of experiment 2) evaluated on central $217$-column Flyvis data under three model
+    noise regimes (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli,
+    and compared against the noise-free ablated Flyvis simulation. For each test the simulator
+    regenerates voltage traces with $50\%$ of the synaptic edges zeroed, and the same edge mask is applied
+    to the trained GNN's learned weights $\hat{\mathbf{W}}$ before rollout (no retraining). Top row
+    (\textbf{a}, \textbf{b}, \textbf{c}): GNN rollout traces for $12$ representative cell types over a
+    $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms). Green: ablated ground-truth voltage; black: GNN
+    rollout prediction; red: the visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e},
+    \textbf{f}): rollout voltage against the noise-free ablated voltage, pooled over all
+    $(\text{neuron}, \text{frame})$ pairs of the $8{,}000$-frame rollout as a log-density image.
+    Pearson~$r$: per-neuron, Fisher-$z$ pooled, on the full rollout.}
+}
+  \label{fig:rollout_3col_noise_comparison_ablation50}
+\end{figure}
+""")
+else:
+    once(tex, r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN")
+    tex = tex.replace(r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN",
+                      r"\caption{\textcolor{red}{[Published current-form figure. The ablation rollouts of the "
+                      r"general-form GNN (group lasso $25$) on the three \texttt{mask\_50} datasets have not "
+                      r"been run: new test jobs needed.]} \textbf{Rollout prediction under $50\%$ edge "
+                      r"ablation.} GNN")
 
 # ----------------------------------------------------------------------------- red: to be rewritten
 red_sentence(r"Second, the connectome serves well as \emph{binary} structural prior: the GNN tolerates a "

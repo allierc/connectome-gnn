@@ -327,9 +327,11 @@ mapping from the model's parameters to Flyvis-217 model quantities (\cref{app:be
     \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
     \textbf{(h, j, l)}~Time constants $\tau_i$.
     Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
-    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ on the inlier
-    set, outlier fraction printed; axes span the true range, learned outliers are clipped); colours
-    indicate ground-truth cell types.}
+    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
+    $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
+    bands in red and their fraction printed); the per-neuron $\tau$, $V^{\mathrm{rest}}$ and per-edge
+    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}); colours indicate
+    ground-truth cell types.}
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -653,8 +655,8 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: GNN rollout prediction; red: the
     visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
     voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
-    pairs and subsampled to $3 \cdot 10^5$ points for display. Pearson~$r$: per-neuron, Fisher-$z$
-    pooled, on the full $8{,}000$-frame rollout.}
+    pairs of the $8{,}000$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$
+    pooled, on the full rollout.}
 }
 \label{fig:rollout_3col_noise_comparison}
 \end{figure}
@@ -717,16 +719,17 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
     output is shown after the affine gauge correction of the tester (its raw output is defined up to the
     sign and scale the GNN's input weights absorb).
-    \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), six
-    frames spaced by $80$~ms, $z$-scored per frame; top: ground truth; middle: INR; bottom: residual.
-    \textbf{(b)} INR stimulus against the true one for $12$ photoreceptors over a $20$~s window
-    ($1{,}000$ frames at $\Delta t = 20$~ms); green: true, black: INR.
-    \textbf{(c)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
-    representative cell types over the same window.
-    \textbf{(d, e)} INR against true photoreceptor stimulus (\textbf{d}) and rollout voltage against
-    noise-free voltage (\textbf{e}), pooled over all $(\text{neuron},\,\text{frame})$ pairs and
-    subsampled to $3 \cdot 10^5$ points for display; Pearson~$r$ on the full $8\,000$ frames (per
-    neuron, Fisher-$z$ pooled, for the voltage).}
+    \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), ten
+    frames spaced by $80$~ms from $10{,}000$~ms, $z$-scored per frame; top: ground truth; middle: INR;
+    bottom: residual.
+    \textbf{(b)} INR stimulus (black) against the true one (green) for $12$ photoreceptors (R1--R8 of one
+    column, R1--R4 of another) over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms); the header
+    gives the Pearson~$r$ over all photoreceptor--frame pairs, which panel \textbf{(c)} shows as a
+    log-density image.
+    \textbf{(d)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
+    representative cell types over the same window; \textbf{(e)} the same over all
+    $(\text{neuron},\,\text{frame})$ pairs of the $8\,000$ frames as a log-density image, with the
+    per-neuron Fisher-$z$ pooled Pearson~$r$.}
 }
 \label{fig:stim_rollout_inr}
 \end{figure}
@@ -743,9 +746,10 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
     template readout (fraction printed), coloured by the postsynaptic cell type.
     \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
-    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(m--p)}~Time constants $\tau_i$.
-    $R^2$ and slope as in \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
+    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants
+    $\tau_i$ of the template readout, outliers beyond the dotted $\pm 0.2$ / $\pm 0.1$~s bands in red;
+    $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
+    \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}
