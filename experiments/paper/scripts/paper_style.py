@@ -86,15 +86,18 @@ def scatter_density(ax, x, y, lo, hi, bins=300):
     ax.set_aspect("equal", adjustable="box")
 
 
-def panel_labels(fig, axes, letters=None, dx_pt=-2.0, dy_pt=2.0, align_rows=True):
-    """Bold letters outside the top-left corner of each axes' tight bbox; axes
+def panel_labels(fig, axes, letters=None, dx_pt=-2.0, dy_pt=2.0, align_rows=True, y_from="axes"):
+    """Bold letters outside the top-left corner of each panel, as in the
+    published figures: x just left of the y-axis label (the tight bbox), y at
+    the top of the axes frame (`y_from="axes"`) or of the tight bbox; axes
     whose tops agree within 2 pt share one label height."""
     fig.canvas.draw()
     rend = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
     letters = letters or string.ascii_lowercase
     bbs = [ax.get_tightbbox(rend) for ax in axes]
-    xs = np.array([b.x0 for b in bbs]); ys = np.array([b.y1 for b in bbs])
+    xs = np.array([b.x0 for b in bbs])
+    ys = np.array([(ax.get_window_extent(rend).y1 if y_from == "axes" else b.y1) for ax, b in zip(axes, bbs)])
     if align_rows:
         tol = 2.0 * fig.dpi / 72.0
         ys = np.array([ys[np.abs(ys - y) < tol].max() for y in ys])

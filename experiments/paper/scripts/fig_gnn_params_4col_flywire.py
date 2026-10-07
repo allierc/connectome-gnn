@@ -41,8 +41,8 @@ def main():
     axes = [[fig.add_subplot(gs[r, c]) for c in range(n)] for r in range(4)]
     for c, (title, run) in enumerate(COLS):
         draw_block((axes[0][c], axes[1][c], axes[2][c], axes[3][c]), load_run(run), cmap=cmap)
-    column_titles(fig, [[axes[0][c]] for c in range(n)], [t for t, _ in COLS], dy_pt=9)
-    panel_labels(fig, [a for row in axes for a in row])
+    column_titles(fig, [[axes[0][c]] for c in range(n)], [t for t, _ in COLS], dy_pt=14)
+    panel_labels(fig, [a for row in axes for a in row], dy_pt=3)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_4col_flywire_comparison"))
 
 

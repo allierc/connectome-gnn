@@ -108,7 +108,7 @@ def main():
                 transform=ax.transAxes, ha="left", va="top", fontsize=FS_TICK, linespacing=1.4)
         ax.set_xlabel("UMAP$_1$" if do_umap else "$a_{i0}$"); ax.set_ylabel("UMAP$_2$" if do_umap else "$a_{i1}$")
         print(f"{title}: acc {acc:.3f} ari {ari:.3f} nmi {nmi:.3f} k {kk}")
-    panel_labels(fig, axes, dy_pt=14)
+    panel_labels(fig, axes, dy_pt=14, y_from="tight")
     save(fig, os.path.join(FIG_DIR, "fig_clustering_appendix"))
 
 

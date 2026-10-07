@@ -133,7 +133,7 @@ def main():
     ax_e.text(0.04, 0.96, f"$r$ = {r_v:.2f} $\\pm$ {sd_v:.2f}", transform=ax_e.transAxes, ha="left", va="top",
               fontsize=FS_ANNOT)
     ax_e.set_xlabel("ground truth voltage"); ax_e.set_ylabel("rollout voltage")
-    panel_labels(fig, [ax_b, ax_c, ax_d, ax_e], letters="bcde", align_rows=True, dy_pt=10)
+    panel_labels(fig, [ax_b, ax_c, ax_d, ax_e], letters="bcde", align_rows=True, dy_pt=10, y_from="tight")
     fig.text(left / WIDTH - 0.02, (y_hex0 + 3 * (hex_row + hex_title) + 0.05) / height, "a", fontsize=9,
              fontweight="bold", ha="right", va="bottom")
     save(fig, os.path.join(FIG_DIR, "fig_stim_rollout_inr"))

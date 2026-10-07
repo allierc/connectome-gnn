@@ -32,7 +32,7 @@ MARGIN_L_CM, MARGIN_B_CM = 1.0, 0.75
 def main():
     n_blocks = len(BLOCKS)
     width = MARGIN_L_CM + n_blocks * (2 * PANEL_CM + GAP_IN_CM) + (n_blocks - 1) * GAP_BLOCK_CM + 0.3
-    height = MARGIN_B_CM + 2 * PANEL_CM + GAP_IN_CM + 0.6
+    height = MARGIN_B_CM + 2 * PANEL_CM + GAP_IN_CM + 0.9
     fig = plt.figure(figsize=(width * CM, height * CM))
     cmap = type_cmap()
     rows = [[], []]
@@ -47,8 +47,8 @@ def main():
         draw_block((axes[0], axes[1], axes[2], axes[3]), load_run(run), cmap=cmap)
         rows[0] += axes[:2]; rows[1] += axes[2:]
         blocks_axes.append(axes)
-    column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=9)
-    panel_labels(fig, rows[0] + rows[1])
+    column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=14)
+    panel_labels(fig, rows[0] + rows[1], dy_pt=3)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_3col_noise_comparison"))
 
 

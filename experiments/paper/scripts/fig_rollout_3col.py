@@ -115,7 +115,7 @@ def main():
             ax.set_title(f"vs {truth}", fontsize=FS_TICK, pad=2)
         bot.append(ax)
     column_titles(fig, [[a] for a in top], [t for t, _ in BLOCKS], dy_pt=12)
-    panel_labels(fig, top + bot, dy_pt=4)
+    panel_labels(fig, top + bot, dy_pt=4, y_from="tight")
     save(fig, os.path.join(FIG_DIR, "fig_rollout_3col_noise_comparison" + ("_" + variant if variant else "")))
 
 
