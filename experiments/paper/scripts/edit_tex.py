@@ -83,14 +83,6 @@ replace_figure("fig:gnn_params_3col_noise_comparison", r"""
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{figures/fig_gnn_params_3col_noise_comparison_published.png}
-  \caption{\textcolor{orange}{[For comparison only, to be removed] The published Fig.~1: the current-form
-    GNN, with its $f_\theta$ and $g_\phi$ panels (g--l) and the gain-correction-chain readout of
-    $W$, $\tau$ and $V^{\mathrm{rest}}$.}}
-  \label{fig:gnn_params_3col_noise_comparison_published}
-\end{figure}
 """)
 
 replace_figure("fig:rollout_3col_noise_comparison", r"""
