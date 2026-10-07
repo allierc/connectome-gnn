@@ -119,7 +119,7 @@ analyse_job_ids:
   flyvis_noise_005_s5h21_condl25_cv02: '154465834'
   flyvis_noise_005_s5h21_condl25_cv03: '154465835'
   flyvis_noise_005_s5h21_condl25_cv04: '154465837'
-  flyvis_noise_005_s5h21_cur_cv00: '154459603'
+  flyvis_noise_005_s5h21_cur_cv00: '154487889'
 ---
 # Experiment 5 — stride5_frames
 

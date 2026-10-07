@@ -44,6 +44,9 @@ report:
       e8_flywireRF_proximal_nulls_noise_005: e8 hybrid + n.e.
       full_eye_flywireRF_noise_005: FlyWire eye
       full_eye_flywireRF_proximal_nulls_noise_005: FlyWire eye + n.e.
+  arm_labels:
+    kode: Known ODE
+    condl25: conductance lasso 25
 job_ids:
   e8_flywireRF_noise_005_blank50_kode_cv00: '154460872'
   e8_flywireRF_noise_005_blank50_kode_cv01: '154460873'
@@ -116,6 +119,16 @@ analyse_job_ids:
   full_eye_flywireRF_noise_005_blank50_condl25_cv02: '154477613'
   full_eye_flywireRF_noise_005_blank50_condl25_cv03: '154477614'
   full_eye_flywireRF_noise_005_blank50_condl25_cv04: '154477615'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154483256'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154483257'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154483258'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154483259'
+  e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154483260'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00: '154485527'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01: '154485544'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02: '154485529'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03: '154485530'
+  full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04: '154485531'
 ---
 
 # Experiment 7 — hybrid_connectome_folds
@@ -220,7 +233,7 @@ variants run in full.
 
 ## Status
 
-**30/40 landed**, 0 trained (awaiting `-o test_plot`), 10 running, 0 pending
+**40/40 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -231,14 +244,15 @@ variants run in full.
 | kode | full_eye_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.917 ± 0.000 (0.1) | 0.972 ± 0.000 (0.4) | 0.962 ± 0.000 (9.1) |  | 0.963 ± 0.005 (0.3) |  |  | 0.768 ± 0.011 |
 | kode | full_eye_flywireRF_proximal_nulls_noise_005 | 5 | 0.998 ± 0.000 | 0.996 ± 0.000 |  |  | 0.890 ± 0.001 (0.0) | 0.970 ± 0.000 (0.5) | 0.858 ± 0.001 (8.5) |  | 0.976 ± 0.002 (0.0) |  |  | 0.670 ± 0.012 |
 | condl25 | e8_flywireRF_noise_005 | 5 | 0.998 ± 0.000 | 0.998 ± 0.001 |  |  | 0.984 ± 0.007 (0.0) | 0.976 ± 0.008 (0.3) | 0.870 ± 0.016 (6.4) | 0.862 ± 0.033 | 0.984 ± 0.003 (0.0) | 0.008 ± 0.004 | 0.235 ± 0.010 | 0.730 ± 0.043 |
+| condl25 | e8_flywireRF_proximal_nulls_noise_005 | 5 | 0.990 ± 0.001 | 0.990 ± 0.003 |  |  | 0.930 ± 0.020 (0.0) | 0.942 ± 0.011 (0.9) | 0.681 ± 0.015 (21.9) | 0.571 ± 0.035 | 0.807 ± 0.023 (4.0) | 0.075 ± 0.016 | 0.228 ± 0.224 | 0.610 ± 0.031 |
 | condl25 | full_eye_flywireRF_noise_005 | 5 | 0.999 ± 0.000 | 0.999 ± 0.000 |  |  | 0.991 ± 0.002 (0.0) | 0.974 ± 0.012 (0.0) | 0.905 ± 0.010 (4.1) | 0.867 ± 0.035 | 0.988 ± 0.002 (0.0) | 0.010 ± 0.005 | 0.447 ± 0.014 | 0.751 ± 0.037 |
+| condl25 | full_eye_flywireRF_proximal_nulls_noise_005 | 5 | 0.982 ± 0.002 | 0.983 ± 0.003 |  |  | 0.891 ± 0.012 (0.0) | 0.943 ± 0.006 (1.2) | 0.630 ± 0.023 (29.8) | 0.553 ± 0.014 | 0.802 ± 0.030 (4.0) | 0.078 ± 0.010 | 0.062 ± 0.207 | 0.555 ± 0.025 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | variant | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| condl25 | e8_flywireRF_proximal_nulls_noise_005 | 1,120,001 |  | 0.852 ± 0.007 |  |  | 0.931 ± 0.018 | 0.950 ± 0.010 | 0.675 ± 0.022 | 0.573 ± 0.033 | 0.808 ± 0.022 |  |  | 0.573 ± 0.021 |
-| condl25 | full_eye_flywireRF_proximal_nulls_noise_005 | 432,001 |  | 0.846 ± 0.009 |  |  | 0.890 ± 0.012 | 0.940 ± 0.006 | 0.631 ± 0.018 | 0.544 ± 0.008 | 0.807 ± 0.030 |  |  | 0.533 ± 0.036 |
+| — | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -269,20 +283,20 @@ variants run in full.
 | `e8_flywireRF_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `b8ca1372f4bb` |  |
 | `e8_flywireRF_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `b8ca1372f4bb` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | running | 1,120,001 | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | running | 1,120,001 | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | running | 1,120,001 | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | running | 1,120,001 | `` |  |
-| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | running | 1,120,001 | `` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `7c8a83e7abac` |  |
+| `e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `7c8a83e7abac` |  |
 | `full_eye_flywireRF_noise_005_blank50_condl25_cv00` | landed | 1,520,001 | `7c8a83e7abac` |  |
 | `full_eye_flywireRF_noise_005_blank50_condl25_cv01` | landed | 1,520,001 | `7c8a83e7abac` |  |
 | `full_eye_flywireRF_noise_005_blank50_condl25_cv02` | landed | 1,520,001 | `7c8a83e7abac` |  |
 | `full_eye_flywireRF_noise_005_blank50_condl25_cv03` | landed | 1,520,001 | `7c8a83e7abac` |  |
 | `full_eye_flywireRF_noise_005_blank50_condl25_cv04` | landed | 1,520,001 | `7c8a83e7abac` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | running | 432,001 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | running | 432,001 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | running | 432,001 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | running | 432,001 | `` |  |
-| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | running | 432,001 | `` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00` | landed | 912,001 | `0e7f9931e4b6` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv01` | landed | 912,001 | `0e7f9931e4b6` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv02` | landed | 912,001 | `0e7f9931e4b6` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv03` | landed | 912,001 | `0e7f9931e4b6` |  |
+| `full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv04` | landed | 912,001 | `0e7f9931e4b6` |  |
 
 <!-- STATUS:END -->

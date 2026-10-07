@@ -1,0 +1,47 @@
+\begin{table}[h]
+\centering
+\caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation), reported on inliers only.
+All runs use low model noise $\sigma = 0.05$ on the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$, $65$ cell types); 5-fold CV (mean $\pm$ SD).
+$R^2_{\widehat{\tau}}$ and $R^2_{\widehat{V}^{\mathrm{rest}}}$ are the outlier-corrected R$^2$; the parenthetical value is the percentage of neurons dropped by a residual-based filter ($|\hat{\theta}-\theta|>0.1$ for $\tau$, $>0.2$ for $V^{\mathrm{rest}}$).
+\textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
+\label{tab:hybrid_recovery_inliers}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcrrrrr}
+\toprule
+& & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery (inliers)} \\
+model & condition & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$
+  & $R^2_{\widehat{\tau}}$\,(out.\ \%)
+  & $R^2_{\widehat{V}^{\mathrm{rest}}}$\,(out.\ \%) \\
+\midrule
+Known ODE & het.\ RF                  & $327\,358$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.98{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}\,(0.0)
+  & \good{$0.99{\pm}0.00$}\,(5.6) \\
+          & het.\ RF + n.e. & $2\,418\,403$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.93{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}\,(0.0)
+  & \good{$0.98{\pm}0.00$}\,(4.3) \\
+\midrule
+GNN       & het.\ RF                  & $327\,358$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.94{\pm}0.04$}
+  & \good{$0.99{\pm}0.01$}\,(0.1)
+  & \good{$0.87{\pm}0.03$}\,(6.9) \\
+          & het.\ RF + n.e. & $2\,418\,403$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.01$}
+  & \good{$0.90{\pm}0.06$}
+  & \good{$0.97{\pm}0.01$}\,(1.4)
+  & $0.65{\pm}0.06$\,(25.4) \\
+\midrule
+MLP       & het.\ RF                  & $2\,418\,403$
+  & \good{$0.90{\pm}0.09$} & \good{$0.97{\pm}0.05$} \\
+EED       & het.\ RF                  & $2\,418\,403$
+  & $0.88{\pm}0.12$        & \good{$0.97{\pm}0.05$} \\
+\bottomrule
+\end{tabular}
+\end{table}

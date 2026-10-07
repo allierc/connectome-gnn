@@ -51,6 +51,8 @@ report:
       live: nnr_pearson
     hidden_rollout_pearson: hidden rollout r
     visible_rollout_pearson: visible rollout r
+  arm_labels:
+    condl25rc20: conductance lasso 25, recurrent 20
 job_ids:
   flyvis_noise_005_hid10_none_rs_condl25rc20_cv00: '154479522'
   flyvis_noise_005_hid10_none_fr_condl25rc20_cv00: '154479523'
@@ -60,6 +62,11 @@ job_ids:
   flyvis_noise_005_hid20_none_fr_condl25rc20_cv00: '154479528'
   flyvis_noise_005_hid20_mix_rs_condl25rc20_cv00: '154479529'
   flyvis_noise_005_hid20_mix_fr_condl25rc20_cv00: '154479530'
+analyse_job_ids:
+  flyvis_noise_005_hid10_none_fr_condl25rc20_cv00: '154485438'
+  flyvis_noise_005_hid10_none_rs_condl25rc20_cv00: '154485458'
+  flyvis_noise_005_hid20_none_fr_condl25rc20_cv00: '154485459'
+  flyvis_noise_005_hid20_none_rs_condl25rc20_cv00: '154485472'
 ---
 
 # Experiment 10 — hidden_free_running
@@ -118,3 +125,39 @@ experiment 9's recurrent baseline, re-run here beside the others.
 8 runs in `experiments/specs/exp10/fly/`, named
 `flyvis_noise_005_hid<10|20>_<none|mix>_<rs|fr>_condl25rc20_cv00`. Queue
 `gpu_rtx6000`, wall 48 h.
+
+<!-- STATUS:BEGIN -->
+
+## Status
+
+**4/8 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending, **4 KILLED BY THE CLUSTER**
+
+### Landed --- held-out, `results/metrics.txt`
+
+| arm | hidden | generator | rollout | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster | hidden trace r (train) | hidden rollout r | visible rollout r |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| condl25rc20 | 10 | none | rs | 1 | 0.987 ± 0.000 | 0.885 ± 0.000 |  |  | 0.705 ± 0.000 (0.2) | 0.912 ± 0.000 (3.3) | 0.706 ± 0.000 (20.7) | 0.663 ± 0.000 | 0.908 ± 0.000 (4.3) | 0.035 ± 0.000 | 0.577 ± 0.000 | 0.573 ± 0.000 |  |  | 0.795 ± 0.000 |
+| condl25rc20 | 10 | none | fr | 1 | 0.986 ± 0.000 | 0.858 ± 0.000 |  |  | 0.718 ± 0.000 (0.2) | 0.934 ± 0.000 (2.4) | 0.730 ± 0.000 (14.5) | 0.734 ± 0.000 | 0.911 ± 0.000 (3.4) | 0.002 ± 0.000 | 0.544 ± 0.000 | 0.246 ± 0.000 |  | 0.022 ± 0.000 | 0.798 ± 0.000 |
+| condl25rc20 | 20 | none | rs | 1 | 0.961 ± 0.000 | 0.884 ± 0.000 |  |  | 0.502 ± 0.000 (0.3) | 0.879 ± 0.000 (5.6) | 0.682 ± 0.000 (32.2) | 0.662 ± 0.000 | 0.833 ± 0.000 (5.9) | 0.014 ± 0.000 | 0.612 ± 0.000 | 0.471 ± 0.000 |  |  | 0.791 ± 0.000 |
+| condl25rc20 | 20 | none | fr | 1 | 0.964 ± 0.000 | 0.823 ± 0.000 |  |  | 0.418 ± 0.000 (0.4) | 0.895 ± 0.000 (2.4) | 0.658 ± 0.000 (21.0) | 0.646 ± 0.000 | 0.843 ± 0.000 (6.7) | 0.009 ± 0.000 | 0.605 ± 0.000 | 0.496 ± 0.000 |  | 0.007 ± 0.000 | 0.798 ± 0.000 |
+
+### Running --- train split, `tmp_training/`, blank where not written per checkpoint
+
+| arm | hidden | generator | rollout | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster | hidden trace r (train) | hidden rollout r | visible rollout r |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | | | | | | | |
+
+### Per run
+
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_noise_005_hid10_none_rs_condl25rc20_cv00` | landed | 575,233 | `0e7f9931e4b6` |  |
+| `flyvis_noise_005_hid10_none_fr_condl25rc20_cv00` | landed | 575,233 | `0e7f9931e4b6` |  |
+| `flyvis_noise_005_hid10_mix_rs_condl25rc20_cv00` | died | 469,069 | `` | exited nonzero |
+| `flyvis_noise_005_hid10_mix_fr_condl25rc20_cv00` | died | 531,913 | `` | exited nonzero |
+| `flyvis_noise_005_hid20_none_rs_condl25rc20_cv00` | landed | 575,233 | `0e7f9931e4b6` |  |
+| `flyvis_noise_005_hid20_none_fr_condl25rc20_cv00` | landed | 575,233 | `0e7f9931e4b6` |  |
+| `flyvis_noise_005_hid20_mix_rs_condl25rc20_cv00` | died | 503,277 | `` | exited nonzero |
+| `flyvis_noise_005_hid20_mix_fr_condl25rc20_cv00` | died | 472,996 | `` | exited nonzero |
+
+<!-- STATUS:END -->

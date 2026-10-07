@@ -1,0 +1,74 @@
+\begin{table}[h!]
+\centering
+\caption{\textbf{Known-ODE evaluation across degraded versions} of the Flyvis training
+data: model and measurement noise, added/removed connectivity edges.
+Five-fold cross-validation (mean~$\pm$~SD). Prediction: metrics computed on noise-free data
+with held-out stimuli ($8{,}000$ frames). Parameter recovery:
+$R^2_{\hat{W}}$ over all edges, $R^2_{\hat{\tau}}$ and
+$R^2_{\hat{V}^{\mathrm{rest}}}$ over all neurons (outlier fraction
+in parentheses), GMM clustering accuracy over $65$ cell types.
+\good{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
+\label{tab:cv_known_ode}
+\label{tab:cv_known_ode}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcccrrrrrr}
+\toprule
+& model& measurement& & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+condition & noise $\sigma$ &noise $\gamma$ & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\hat{W}}$ & $R^2_{\hat{\tau}}(\text{outliers} \%)$ & $R^2_{\hat{V}^{\mathrm{rest}}}(\text{outliers} \%)$ & cluster\ acc. \\
+\midrule
+% Known-ODE blank50 (rows only).
+noise-free               & $0$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.96{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.9)$}
+  & \good{$0.97{\pm}0.00\,(10.2)$}
+  & \good{$0.92{\pm}0.00$} \\
+low model noise          & $0.05$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$0.99{\pm}0.00\,(4.7)$}
+  & \good{$0.93{\pm}0.00$} \\
+high model noise         & $0.5$ & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$0.93{\pm}0.00$} \\
+low meas. noise          & $0.05$ & $0.1$ & $434\,112$
+  & \good{$0.99{\pm}0.00$} & \good{$0.96{\pm}0.00$}
+  & $0.69{\pm}0.00$
+  & $0.32{\pm}0.00\,(7.9)$
+  & $0.89{\pm}0.00\,(49.1)$
+  & $0.88{\pm}0.01$ \\
+mid meas. noise          & $0.05$ & $0.2$ & $434\,112$
+  & \good{$0.96{\pm}0.00$} & \good{$0.92{\pm}0.00$}
+  & $0.43{\pm}0.00$
+  & \bad{$0.06{\pm}0.01\,(9.7)$}
+  & $0.90{\pm}0.00\,(67.9)$
+  & $0.87{\pm}0.01$ \\
+$+400\%$ null edges      & $0.05$ & $0$ & $2\,170\,560$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.95{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(0.0)$}
+  & \good{$1.00{\pm}0.00\,(11.8)$}
+  & \good{$0.90{\pm}0.01$} \\
+$-20\%$ edges removed    & $0.05$ & $0$ & $347\,000$
+  & \good{$1.00{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $0.82{\pm}0.00$
+  & \good{$0.99{\pm}0.00\,(0.3)$}
+  & \good{$0.94{\pm}0.00\,(31.5)$}
+  & $0.71{\pm}0.01$ \\
+$-50\%$ edges removed    & $0.05$ & $0$ & $217\,056$
+  & \good{$0.98{\pm}0.00$} & \good{$0.94{\pm}0.00$}
+  & \bad{$0.26{\pm}0.00$}
+  & \good{$0.97{\pm}0.00\,(0.9)$}
+  & \good{$0.92{\pm}0.00\,(57.8)$}
+  & $0.62{\pm}0.02$ \\
+% ------------------------------------------------------------
+\bottomrule
+\end{tabular}
+\end{table}

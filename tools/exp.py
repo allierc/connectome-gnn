@@ -1041,7 +1041,22 @@ def _arm_label(fm, arm_id):
     id stays the handle everywhere else -- `--arm`, the job record, the per-run
     table -- because it has to be unique and this does not.
     """
-    return fm.get("report", {}).get("arm_labels", {}).get(arm_id, arm_id)
+    return _model_words(fm.get("report", {}).get("arm_labels", {}).get(arm_id, arm_id))
+
+
+# THE TWO MODELS BY THEIR MESSAGE FUNCTION, in every table: "current" is the
+# prior GNN, g_phi = W_ij MLP(a_j, v_j); "conductance" the new one, g_phi =
+# W_ij MLP(a_i, a_j, v_i, v_j). The arm labels in the md files keep the short
+# names; only what the report prints is rewritten.
+_MODEL_WORDS = ((re.compile(r"\bcond\.(?=\s)"), "new MLP(ai,aj,vi,vj)"),
+                (re.compile(r"\bconductance\b"), "new MLP(ai,aj,vi,vj)"),
+                (re.compile(r"\bcurrent( form)?\b"), "prior MLP(aj,vj)"))
+
+
+def _model_words(label):
+    for pat, rep in _MODEL_WORDS:
+        label = pat.sub(rep, str(label))
+    return label
 
 
 def _arm_value(arms, arm_id, key):

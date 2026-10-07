@@ -1,0 +1,205 @@
+"""Derive experiments/paper/main.tex from the Overleaf export (overleaf/main.tex):
+
+  * figure paths figure/ -> figures/
+  * the captions of the regenerated figures (Fig. 1, Supp. Figs. rollout,
+    clustering, SIREN, FlyWire parameters) rewritten, in BLUE;
+  * figures that still show the published current-form model (Fig. 2 d-f, the
+    50% edge-ablation rollout) get a RED note in their caption;
+  * every passage whose numbers or claims rest on the current-form GNN is
+    wrapped in RED: it is to be rewritten by the authors, not here.
+
+    python scripts/edit_tex.py
+"""
+import os
+import re
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(HERE, "overleaf", "main.tex")
+DST = os.path.join(HERE, "main.tex")
+
+tex = open(SRC).read().replace("{figure/", "{figures/")
+
+RED_OPEN = "{\\color{red}%\n"
+RED_CLOSE = "}%\n"
+BLUE = "\\color{blue}"
+
+
+def once(hay, needle):
+    assert hay.count(needle) == 1, (hay.count(needle), needle[:60])
+
+
+def red_block(start, end):
+    """Wrap everything from `start` (inclusive) to `end` (exclusive) in red."""
+    global tex
+    once(tex, start); once(tex, end)
+    i = tex.index(start); j = tex.index(end, i)
+    tex = tex[:i] + RED_OPEN + tex[i:j].rstrip("\n") + "\n" + RED_CLOSE + "\n" + tex[j:]
+
+
+def red_sentence(sentence):
+    global tex
+    once(tex, sentence)
+    tex = tex.replace(sentence, "\\textcolor{red}{" + sentence + "}")
+
+
+def replace_figure(label, new_block):
+    """Replace the whole figure environment carrying \\label{label}."""
+    global tex
+    pat = re.compile(r"\\begin\{figure\}(?:\[[^\]]*\])?\s*\\centering.*?\\end\{figure\}", re.S)
+    hits = [m for m in pat.finditer(tex) if f"\\label{{{label}}}" in m.group(0)]
+    assert len(hits) == 1, (label, len(hits))
+    m = hits[0]
+    tex = tex[:m.start()] + new_block.strip("\n") + tex[m.end():]
+
+
+# ----------------------------------------------------------------------------- figures (blue captions)
+replace_figure("fig:gnn_params_3col_noise_comparison", r"""
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_gnn_params_3col_noise_comparison.pdf}
+  \caption{%
+    {\color{blue}\textbf{Circuit parameter extraction} from the general-form GNN
+    ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 under
+    three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
+    \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
+    the template readout (the fraction of the $434{,}112$ edges fitted is printed; the rest have a
+    presynaptic neuron that never rises above the activity floor), coloured by the postsynaptic cell type.
+    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
+    \textbf{(h, j, l)}~Time constants $\tau_i$.
+    Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
+    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ on the inlier
+    set, outlier fraction printed; axes span the true range, learned outliers are clipped); colours
+    indicate ground-truth cell types.}
+  }
+  \label{fig:gnn_params_3col_noise_comparison}
+\end{figure}
+""")
+
+replace_figure("fig:rollout_3col_noise_comparison", r"""
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison.pdf}
+\caption{{\color{blue}\textbf{Rollout prediction.} General-form GNN (group lasso $25$) evaluated on
+    central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$, $\sigma = 0.05$,
+    $\sigma = 0.5$; fold cv00 of experiment 2), tested on held-out stimuli, and compared against the
+    noise-free Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): GNN
+    rollout traces for $12$ representative cell types over a $20$~s window ($1{,}000$ frames at
+    $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: GNN rollout prediction; red: the
+    visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
+    voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
+    pairs and subsampled to $3 \cdot 10^5$ points for display. Pearson~$r$: per-neuron, Fisher-$z$
+    pooled, on the full $8{,}000$-frame rollout.}
+}
+\label{fig:rollout_3col_noise_comparison}
+\end{figure}
+""")
+
+replace_figure("fig:clustering_appendix", r"""
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/fig_clustering_appendix.pdf}
+\caption{{\color{blue}\textbf{Cell-type clusterability across feature spaces} of the general-form GNN
+    (group lasso $25$, $\sigma = 0.05$, fold cv00 of experiment 2).
+    Each panel scatters the $13{,}741$ neurons of the central $217$-column Flyvis model coloured by
+    ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM) accuracy, Adjusted Rand Index
+    (ARI) and Normalized Mutual Information (NMI) are quoted top-left of each panel, with $k$ the number
+    of populated mixture components (out of $100$ requested). The GMM is fit on the $z$-scored raw
+    features; UMAP is shown for visualisation only when the feature space is $>2$D.
+    (\textbf{a}) Ground-truth $(\tau, V_{\mathrm{rest}})$ plus $8$ connectivity statistics of the true
+    $\mathbf{W}$ ($10$D).
+    (\textbf{b}) Same statistics computed from the learned $\hat\tau$, $\hat V_{\mathrm{rest}}$ and the
+    template-readout $\hat{\mathbf{W}}$ over its fitted edges ($10$D).
+    (\textbf{c}) Learned 2D node embedding $\mathbf{a}_i$ shown directly (no projection).
+    (\textbf{d}) $\mathbf{a}_i$ concatenated with the learned
+    $(\hat\tau, \hat V_{\mathrm{rest}}, \hat{\mathbf{W}}\text{-stats})$ ($12$D).}
+}
+    \label{fig:clustering_appendix}
+\end{figure}
+""")
+
+replace_figure("fig:stim_rollout_inr", r"""
+\begin{figure}[ht!]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_stim_rollout_inr.pdf}
+\caption{{\color{blue}\textbf{Joint GNN+INR (visual SIREN)}: the general-form GNN (group lasso $25$,
+    one-step training) evaluated on central $217$-column Flyvis data with low model noise
+    ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
+    first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
+    output is shown after the affine gauge correction of the tester (its raw output is defined up to the
+    sign and scale the GNN's input weights absorb).
+    \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), six
+    frames spaced by $80$~ms, $z$-scored per frame; top: ground truth; middle: INR; bottom: residual.
+    \textbf{(b)} INR stimulus against the true one for $12$ photoreceptors over a $20$~s window
+    ($1{,}000$ frames at $\Delta t = 20$~ms); green: true, black: INR.
+    \textbf{(c)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
+    representative cell types over the same window.
+    \textbf{(d, e)} INR against true photoreceptor stimulus (\textbf{d}) and rollout voltage against
+    noise-free voltage (\textbf{e}), pooled over all $(\text{neuron},\,\text{frame})$ pairs and
+    subsampled to $3 \cdot 10^5$ points for display; Pearson~$r$ on the full $8\,000$ frames (per
+    neuron, Fisher-$z$ pooled, for the voltage).}
+}
+\label{fig:stim_rollout_inr}
+\end{figure}
+""")
+
+replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
+\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=0.95\textwidth]{figures/fig_gnn_params_4col_flywire_comparison.pdf}
+  \caption{%
+    {\color{blue}\textbf{Circuit parameter extraction from the general-form GNN} (group lasso $25$)
+    \textbf{on the four FlyWire connectome variants} with low model noise ($\sigma = 0.05$; fold cv00
+    of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
+    with proximal null edges.
+    \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
+    template readout (fraction printed), coloured by the postsynaptic cell type.
+    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$.
+    \textbf{(m--p)}~Time constants $\tau_i$.
+    $R^2$ and slope as in \cref{tab:zero_edge_inliers}; colours indicate ground-truth cell types.}
+  }
+  \label{fig:gnn_params_4col_flywire_comparison}
+\end{figure}
+""")
+
+# ----------------------------------------------------------------------------- figures kept, red note
+once(tex, r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli.")
+tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli.",
+                  r"\textcolor{red}{[Panels (e, f) still show the published current-form GNN; to be "
+                  r"regenerated from the general-form runs of experiment 7 (no figure script in the "
+                  r"repository for this panel set).]} \textbf{(d-f)} Rollout comparisons to 20{,}000~ms "
+                  r"unseen DAVIS stimuli.")
+once(tex, r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN")
+tex = tex.replace(r"\caption{\textbf{Rollout prediction under $50\%$ edge ablation.} GNN",
+                  r"\caption{\textcolor{red}{[Published current-form figure. The ablation rollouts of the "
+                  r"general-form GNN (group lasso $25$) on the three \texttt{mask\_50} datasets have not "
+                  r"been run: new test jobs needed.]} \textbf{Rollout prediction under $50\%$ edge "
+                  r"ablation.} GNN")
+
+# ----------------------------------------------------------------------------- red: to be rewritten
+red_sentence(r"Second, the connectome serves well as \emph{binary} structural prior: the GNN tolerates a "
+             r"400\% inflation of the edge set with random null edges and still recovers true synaptic "
+             r"weights at $R^2=0.96$, while removing 50\% of true edges breaks recovery.")
+red_sentence(r"Finally, measurement noise on voltage traces remains the principal open bottleneck: a "
+             r"$\gamma = 0.1$ measurement noise leaves rollouts intact but degrades synaptic-weight "
+             r"recovery from $R^2 = 0.99$ to $0.63$, and we flag this as the central challenge for "
+             r"connectome-inverse methods on real data.")
+red_block(r"\textbf{Graph neural network model}\label{method:GNN}", r"\textbf{Benchmark}")
+red_block(r"\textbf{Results with and without the ODE given.}", "\\begin{figure}[t]\n  \\centering\n  \\includegraphics[width=\\textwidth]{figures/fig_flywire_hybrid.png}")
+red_block(r"\textbf{Edge ablation as a mechanistic test.}", r"\textbf{Data degradation (measurement noise, partial data, unknown stimulus).}")
+red_block(r"\textbf{Data degradation (measurement noise, partial data, unknown stimulus).}", r"% \paragraph{Robustness to measurement noise.}")
+red_block(r"\textbf{GNN recovers fly visual system simulation with real synaptic connectivity.}", r"\textbf{GNN dynamical system inference overcomes false connectivity measurements.}")
+red_block(r"\textbf{GNN dynamical system inference overcomes false connectivity measurements.}", r"\section{Discussion}")
+red_block(r"We asked how and when interpretable, parameter-resolved circuit models can be recovered", r"\section{Limitations}")
+red_block(r"Several idealizations of the simulator do not transfer to real recordings.", r"\begin{ack}")
+red_block(r"The optimised networks of the GNN are $g_\phi$ and $f_\theta$ of", r"\input{tables/agent_GNN_HPO}")
+red_block(r"The GNN of \cref{eq:gnn_ct} does not expose the membrane time", r"\subsection{Joint stimulus recovery with SIREN.}")
+red_block(r"The unkown-stimulus results of \cref{tab:cv_cross_noise} is obtained by hiding the visual stimulus", r"% \subsection{Joint hidden-activity recovery with Instant-NGP}")
+
+# a legend after the title
+once(tex, r"\maketitle")
+tex = tex.replace(r"\maketitle", r"\maketitle" + "\n" + r"\begin{center}\small\textcolor{blue}{Blue: tables and figures regenerated with the general-form GNN (group lasso 25) of the 2026 experiment campaign.} \textcolor{red}{Red: text, or a figure, still carrying the published current-form results, to be rewritten.}\end{center}" + "\n")
+
+open(DST, "w").write(tex)
+print("wrote", DST, len(tex.splitlines()), "lines")
