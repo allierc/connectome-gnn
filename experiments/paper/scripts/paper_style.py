@@ -20,7 +20,7 @@ TEXT_W_CM = 18.0
 FS_LABEL = 8
 FS_TICK = 6
 FS_ANNOT = 5.5
-FS_PANEL = 9
+FS_PANEL = 7.5                # panel letters (bold), the same in every figure
 LW_AXIS = 0.5
 
 COLOR_GT = "#2ca02c"

@@ -9,7 +9,7 @@ never from a PNG, so fonts, spines and points are identical across panels.
 
 - Full-width figures are drawn **18 cm wide** and included at `\textwidth` (13.97 cm,
   scale 0.78). Drawn sizes: labels 8 pt, ticks 6 pt, annotations 5.5 pt, panel letters
-  9 pt bold, column titles 9 pt. A figure may run to 19-20 cm when its gaps need it; the
+  7.5 pt bold, column titles 9 pt. A figure may run to 19-20 cm when its gaps need it; the
   scale then drops to ~0.7, still legible.
 - Square parameter panels of **1.95-3.0 cm**; even gaps of **1.35 cm** laterally and
   **1.4 cm** between rows, so no tick label, axis label or letter reaches a neighbour

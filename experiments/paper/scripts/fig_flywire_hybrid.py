@@ -50,7 +50,7 @@ D_TITLE_ROW = 1208
 D_LABEL_ROWS = [1263, 1323, 1384, 1444, 1504, 1564]
 D_LABEL_COL_RIGHT = 205                                      # right edge of d's labels (px)
 D_TRACE_COLS = (208, 1385)
-# THE PANEL LETTERS ARE REDRAWN, all six at Fig. 1's size (FS_PANEL, 9 pt bold): the published PNG's own
+# THE PANEL LETTERS ARE REDRAWN, all six at Fig. 1's size (FS_PANEL, 7.5 pt bold): the published PNG's own
 # a-d are painted over at the pixel boxes measured on it (rows, cols), so the figure's letters are uniform.
 # (top row, baseline row, left col, right col) of each published letter, measured as the largest dark
 # component at an anti-aliasing threshold of 230 so the grey fringe is inside the box. "b" reaches row 0.
