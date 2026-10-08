@@ -217,7 +217,8 @@ def validate_rollout_masks(training):
     Three refusals:
 
     NO SCHEDULE. rollout_loss_stride and rollout_burn_in are read by
-    _dense_rollout_loss alone; without rollout_horizon_schedule the dispatcher
+    _dense_rollout_loss (and the stride by calcium_rollout_loss, which refuses a
+    burn-in); without rollout_horizon_schedule the dispatcher
     takes the legacy endpoint path, which never looks at them, so either knob
     would be accepted and do nothing.
 

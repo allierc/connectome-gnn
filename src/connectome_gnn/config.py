@@ -1850,8 +1850,17 @@ class TrainingConfig(BaseModel):
     calcium_tau_decay: float = 0.4
     calcium_kernel_learned: bool = False
     # Recorded frames c(k), ..., c(k - n + 1) the rollout's latent start is
-    # read from, through taps shared by every neuron and learned.
+    # read from, through taps shared by every neuron and learned. With
+    # rollout_loss_stride m > 1 only every m-th calcium frame is observed and
+    # scored, and the taps read c(k), c(k - m), ... (calcium_observation.py).
     calcium_n_taps: int = 6
+    # Recompute each GNN step of the calcium rollout in the backward pass
+    # instead of storing it: memory falls from ~1.1 GB per step (4 samples of
+    # Flyvis-217) to about one step (13 GB at a 100-step horizon), for one extra
+    # forward pass per step. Needed past a ~75-step horizon on a 95 GB GPU.
+    # Gradients equal the stored path's to GPU atomics
+    # (tests/test_calcium_observation.py, experiments/exp16 md).
+    calcium_checkpoint_steps: bool = False
 
     neural_ODE_training: bool = False
     ode_method: OdeMethod = OdeMethod.DOPRI5

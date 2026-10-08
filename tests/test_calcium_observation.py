@@ -63,3 +63,94 @@ def test_voltage_observable_adds_nothing():
         calcium_n_taps=6, calcium_kernel_learned=False)
     attach_calcium_indicator(model, cfg)
     assert "calcium.taps" in model.state_dict()
+
+
+# ----------------------------------------------------------------------------- the rollout loss
+from connectome_gnn.models.calcium_observation import calcium_rollout_loss  # noqa: E402
+from connectome_gnn.neuron_state import NeuronState  # noqa: E402
+
+
+class _Recording:
+    """x_ts stand-in: a calcium recording and a stimulus, frame(k) -> NeuronState."""
+
+    def __init__(self, n_frames=80, n=5, seed=0):
+        g = torch.Generator().manual_seed(seed)
+        self.voltage = torch.rand(n_frames, n, generator=g)
+        self.stimulus = torch.randn(n_frames, n, generator=g)
+        self.n_frames = n_frames
+
+    def frame(self, k):
+        return NeuronState(index=torch.arange(self.voltage.shape[1]),
+                           voltage=self.voltage[k].clone(), stimulus=self.stimulus[k].clone())
+
+
+class _Net(nn.Module):
+    """dv/dt = -v + W tanh(v + stimulus), on the batched state, as the GNN returns it.
+    The stimulus enters NONLINEARLY, as in the GNN's update MLP: added outside the
+    nonlinearity it would leave dL/dW unchanged by a stale stimulus, and the
+    checkpoint test below could not see the bug it is there for."""
+
+    def __init__(self, n=5):
+        super().__init__()
+        self.W = nn.Parameter(torch.randn(n, n, generator=torch.Generator().manual_seed(1)) * 0.3)
+        self.n = n
+
+    def forward(self, state, edges, data_id=None, return_all=False):
+        v = state.voltage.view(-1, self.n)
+        s = state.stimulus.view(-1, self.n)
+        pred = (-v + torch.tanh(v + s) @ self.W.T).reshape(-1, 1)
+        return pred, pred, None
+
+
+class _NoRegul:
+    def reset_iteration(self, device=None): pass
+    def sample_g_phi_perm(self, device): return None
+    def compute(self, **kw): return torch.zeros(())
+    def compute_update_regul(self, *a): return torch.zeros(())
+
+
+def _loss_and_grad(stride, ckpt, K=12):
+    rec = _Recording()
+    model = _Net()
+    model.calcium = CalciumIndicator(DT, 0.075, 0.4, n_taps=3, stride=stride)
+    tc = types.SimpleNamespace(batch_size=3, noise_recurrent_level=0.0, fit_reduction="norm2",
+                               integration_method="euler", calcium_checkpoint_steps=ckpt)
+    sim = types.SimpleNamespace(delta_t=DT)
+    frames = torch.tensor([20, 35, 50])
+    loss, _ = calcium_rollout_loss(model, rec, torch.zeros(2, 0, dtype=torch.long),
+                                   torch.arange(5), frames, 0, K, sim, tc, "cpu", None, _NoRegul(),
+                                   False)
+    loss.backward()
+    return loss.detach(), model.W.grad.clone(), model.calcium.taps.grad.clone()
+
+
+def test_checkpointed_rollout_has_the_stored_gradient():
+    """Recomputing each step in the backward pass gives the stored path's loss
+    and gradients, dense and with a stride -- the check that catches a
+    recompute reading the state objects after they moved on (Plexus exp17's
+    checkpoint bug), since every step overwrites them."""
+    for stride in (1, 3):
+        a, b = _loss_and_grad(stride, False), _loss_and_grad(stride, True)
+        assert torch.equal(a[0], b[0]), stride
+        for ga, gb in zip(a[1:], b[1:]):
+            assert torch.allclose(ga, gb, rtol=1e-6, atol=1e-9), (stride, (ga - gb).abs().max())
+        assert a[1].abs().max() > 0
+
+
+def test_stride_scores_only_the_observed_frames():
+    """With stride m the loss reads only c(k+m), c(k+2m), ...: changing an
+    unobserved frame of the recording changes nothing."""
+    base = _loss_and_grad(3, False)[0]
+    rec_frames = _Recording()
+    for unobserved in (21, 22, 24):                    # k = 20: observed are 23, 26, ... and taps 20, 17, 14
+        torch.manual_seed(0)
+        model = _Net(); model.calcium = CalciumIndicator(DT, 0.075, 0.4, n_taps=3, stride=3)
+        rec = _Recording(); rec.voltage[unobserved] += 10.0
+        tc = types.SimpleNamespace(batch_size=3, noise_recurrent_level=0.0, fit_reduction="norm2",
+                                   integration_method="euler", calcium_checkpoint_steps=False)
+        loss, _ = calcium_rollout_loss(model, rec, torch.zeros(2, 0, dtype=torch.long), torch.arange(5),
+                                       torch.tensor([20, 35, 50]), 0, 12, types.SimpleNamespace(delta_t=DT),
+                                       tc, "cpu", None, _NoRegul(), False)
+        assert torch.equal(loss.detach(), base), unobserved
+    assert calcium_history(rec_frames.voltage, 20, 3, 3).shape == (3, 5)
+    assert torch.equal(calcium_history(rec_frames.voltage, 20, 3, 3), rec_frames.voltage[[20, 17, 14]])
