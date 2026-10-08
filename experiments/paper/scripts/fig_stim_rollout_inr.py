@@ -131,6 +131,14 @@ def main():
            f"stimulus, INR, $r$ = {r_stim:.2f}", "time (ms)")
     ax_c = fig.add_axes(rect(left + tr_w + gap, bottom + tr_h + gap_tr, sc_s, sc_s))
     scatter_density(ax_c, st, sp, 0.0, 1.0)
+    # THE CEILING OF THE SQUARED OUTPUT, made explicit: the SIREN output s = SIREN^2 >= 0, and this run
+    # learned the inverted code (r(s, true) < 0), so s = 0 maps to the learned maximum; every brighter
+    # pixel is clamped there. Identity line for reference, the ceiling dashed and labelled.
+    cap = float(sp.max())
+    ax_c.plot([0, 1], [0, 1], color="0.6", lw=0.5, zorder=3)
+    ax_c.axhline(cap, color="k", lw=0.6, ls="--", zorder=3)
+    frac = 100.0 * float((st > cap).mean())
+    ax_c.text(0.04, cap + 0.02, f"SIREN$^2$ = 0 ({frac:.0f}% of pixels above)", fontsize=FS_ANNOT, ha="left", va="bottom")
     ax_c.text(0.04, 0.96, f"$r$ = {r_stim:.2f}", transform=ax_c.transAxes, ha="left", va="top", fontsize=FS_ANNOT)
     ax_c.set_xlabel("true stimulus"); ax_c.set_ylabel("learned stimulus")
     step_v = 3.0 * float(np.std(b["activity_true"][idx, T0:T1]))

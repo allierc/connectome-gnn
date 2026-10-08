@@ -144,7 +144,11 @@ replace_figure("fig:stim_rollout_inr", r"""
     \textbf{(b)} INR stimulus (black) against the true one (green) for $12$ photoreceptors (R1--R8 of one
     column, R1--R4 of another) over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms); the header
     gives the Pearson~$r$ over all photoreceptor--frame pairs, which panel \textbf{(c)} shows as a
-    log-density image.
+    log-density image. The SIREN's output enters the GNN squared, so it cannot be negative, and $f_\theta$
+    is free to read it with either sign; this run learned the inverted code (bright pixels $\to$ small
+    output, $r = -0.90$ before the sign is restored), so its zero floor becomes the ceiling marked by the
+    dashed line in \textbf{(c)}: the $7\%$ of photoreceptor--frames brighter than it all receive the same
+    input. The sign is set at random by the training (four of the five folds learned it inverted).
     \textbf{(d)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
     representative cell types over the same window; \textbf{(e)} the same over all
     $(\text{neuron},\,\text{frame})$ pairs of the $8\,000$ frames as a log-density image, with the
