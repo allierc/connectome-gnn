@@ -46,7 +46,9 @@ WIDTH = 18.0
 FS_T, FS_K = 4.5, 4.0
 # THE PANEL LETTERS ARE REDRAWN, all six at Fig. 1's size (FS_PANEL, 9 pt bold): the published PNG's own
 # a-d are painted over at the pixel boxes measured on it (rows, cols), so the figure's letters are uniform.
-PNG_LETTERS = {"a": (19, 72, 8, 55), "b": (1, 72, 1496, 1545), "c": (19, 72, 2878, 2925), "d": (1161, 1232, 7, 60)}
+# (top row, baseline row, left col, right col) of each published letter, measured as the largest dark
+# component at an anti-aliasing threshold of 230 so the grey fringe is inside the box. "b" reaches row 0.
+PNG_LETTERS = {"a": (19, 72, 8, 56), "b": (0, 72, 1496, 1545), "c": (19, 72, 2877, 2926), "d": (1160, 1232, 6, 56)}
 # the "time" text and arrow of panel d, as fractions of the PNG height from its top (measured): the new
 # panels' "time" and arrow are placed on the same lines
 TIME_TEXT_Y, TIME_ARROW_Y = 0.9665, 0.9860
@@ -73,7 +75,8 @@ def main():
     img = np.asarray(Image.open(PUBLISHED).convert("RGB")).copy()
     H, W = img.shape[:2]
     for r0, r1, c0, c1 in PNG_LETTERS.values():
-        img[r0 - 2:r1 + 3, c0 - 2:c1 + 3] = 255
+        # clamped at 0: a negative start would index from the END and erase nothing (the ghost "b")
+        img[max(0, r0 - 3):r1 + 4, max(0, c0 - 3):c1 + 4] = 255
     top = img[: int(ROW_SPLIT * H)]
     d_panel = img[int(ROW_SPLIT * H):, : int(D_SPLIT * W)]
     top_h = WIDTH * top.shape[0] / top.shape[1]                 # cm, at full width
@@ -88,10 +91,11 @@ def main():
 
     ax = fig.add_axes(rect(0, height - 0.2 - top_h, WIDTH, top_h)); ax.imshow(top); ax.set_axis_off()
     ax = fig.add_axes(rect(0, bottom, d_w, row_h)); ax.imshow(d_panel); ax.set_axis_off()
+    # redrawn on the published letters' BASELINE (a, c have no ascender, b has one, so their tops differ)
     for letter, (r0, r1, c0, c1) in PNG_LETTERS.items():
         px = c0 * WIDTH / W
-        py = (height - 0.2 - r0 * WIDTH / W) if r0 < ROW_SPLIT * H else (bottom + row_h - (r0 - ROW_SPLIT * H) * WIDTH / W)
-        fig.text(px / WIDTH, py / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="left", va="top")
+        py = (height - 0.2 - r1 * WIDTH / W) if r1 < ROW_SPLIT * H else (bottom + row_h - (r1 - ROW_SPLIT * H) * WIDTH / W)
+        fig.text(px / WIDTH, py / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="left", va="baseline")
     x = d_w + 0.9
     pw = (WIDTH - x - 0.3 - 1.1) / 2
     for k, (letter, title, run, footer) in enumerate(PANELS):
@@ -103,8 +107,9 @@ def main():
         axp = fig.add_axes(rect(x + k * (pw + 1.1), bottom + 0.5, pw, row_h - 0.85))
         traces(axp, b, idx, TYPES, step, title, footer, r, sd)
         xl = x + k * (pw + 1.1)
-        fig.text((xl - 0.6) / WIDTH, (bottom + row_h - 0.05) / height, letter, fontsize=FS_PANEL,
-                 fontweight="bold", ha="right", va="top")
+        y_base = bottom + row_h - (PNG_LETTERS["d"][1] - ROW_SPLIT * H) * WIDTH / W
+        fig.text((xl - 0.6) / WIDTH, y_base / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="right",
+                 va="baseline")
         # "time ->" on panel d's lines
         y_txt = bottom + row_h - (TIME_TEXT_Y * H - ROW_SPLIT * H) * WIDTH / W
         y_arr = bottom + row_h - (TIME_ARROW_Y * H - ROW_SPLIT * H) * WIDTH / W
