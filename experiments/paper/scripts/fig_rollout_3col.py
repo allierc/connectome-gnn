@@ -4,6 +4,12 @@ noise-free simulation of the same held-out stimuli (published layout).
 
     python scripts/fig_rollout_3col.py                 # held-out stimuli, full connectome
     python scripts/fig_rollout_3col.py --ablation50    # 50% edge ablation (Supp. Fig.)
+    python scripts/fig_rollout_3col.py --known-ode     # the Known-ODE oracle (Supp. Fig.)
+
+With --known-ode the three columns are the published Known-ODE runs
+(log/fly/archive_4/flyvis_noise_{free,005,05}_blank50_known_ode_cv00, May 2026),
+which the campaign did not re-run on Flyvis-217 (Tab. 1 keeps their rows);
+their results/rollout_bundle.npz hold the noise-free truth like the GNN's.
 
 Top row: 12 representative cell types over frames 500-1500 (10-30 s), green
 noise-free ground truth, black rollout, red the photoreceptor row's visual
@@ -38,14 +44,17 @@ SELECTED_TYPES = [23, 5, 6, 7, 12, 22, 43, 55, 35, 39, 31, 0]
 T0, T1, DT_MS = 500, 1500, 20.0
 V_RANGE = (-10.0, 10.0)
 LW_GT, LW_PRED, LW_STIM = 1.0, 0.4, 0.6
-BUNDLE = {"": "rollout_bundle.npz", "ablation50": "rollout_bundle_on_noise_free_mask_50.npz"}
+BUNDLE = {"": "rollout_bundle.npz", "ablation50": "rollout_bundle_on_noise_free_mask_50.npz",
+          "known_ode": "rollout_bundle.npz"}
+KNOWN_ODE_RUNS = ["archive_4/flyvis_noise_free_blank50_known_ode_cv00", "archive_4/flyvis_noise_005_blank50_known_ode_cv00",
+                  "archive_4/flyvis_noise_05_blank50_known_ode_cv00"]
 WIDTH_CM, COL_W, TRACE_H, SCAT_S = 18.0, 5.0, 5.0, 4.0
 LEFT, GAP_COL, GAP_ROW, BOTTOM, TOP_PAD = 1.1, 0.6, 1.4, 0.9, 0.9
 
 
 def load_bundle(run, variant=""):
     # the ablation bundles are kept in <run>/ablation50/: the tester clears results/*_on_* at each new test
-    path = os.path.join(LOG_ROOT, run, "ablation50" if variant else "results", BUNDLE[variant])
+    path = os.path.join(LOG_ROOT, run, "ablation50" if variant == "ablation50" else "results", BUNDLE[variant])
     if not os.path.exists(path):
         path = os.path.join(LOG_ROOT, run, "results", BUNDLE[variant])
     b = np.load(path, allow_pickle=True)
@@ -81,8 +90,11 @@ def draw_traces(ax, b, idx, labels, step, header, show_labels):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ablation50", action="store_true")
-    variant = "ablation50" if ap.parse_args().ablation50 else ""
-    bundles = [load_bundle(r, variant) for _, r in BLOCKS]
+    ap.add_argument("--known-ode", action="store_true")
+    args = ap.parse_args()
+    variant = "ablation50" if args.ablation50 else ("known_ode" if args.known_ode else "")
+    runs = KNOWN_ODE_RUNS if variant == "known_ode" else [r for _, r in BLOCKS]
+    bundles = [load_bundle(r, variant) for r in runs]
     types = bundles[0]["type_ids"]; names = list(bundles[0]["type_names"])
     idx, labels = [], []
     for tp in SELECTED_TYPES:
@@ -98,7 +110,7 @@ def main():
         return [x / WIDTH_CM, y / height, w / WIDTH_CM, h / height]
 
     top, bot = [], []
-    truth = "noise-free ablated" if variant else "noise-free"
+    truth = "noise-free ablated" if variant == "ablation50" else "noise-free"
     for k, (b, (title, _)) in enumerate(zip(bundles, BLOCKS)):
         x = LEFT + k * (COL_W + GAP_COL)
         r, sd = fisher_r(b["activity_true"], b["activity_pred"])

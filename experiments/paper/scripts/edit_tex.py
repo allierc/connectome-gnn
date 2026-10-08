@@ -180,6 +180,33 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
 \end{figure}
 """)
 
+# Supp. Fig. Known-ODE rollout: redrawn in the published conventions from the published runs' bundles
+# (scripts/fig_rollout_3col.py --known-ode); the published figure follows it for comparison.
+_ko_old = tex[tex.index(r"\begin{figure}[ht!]" + "\n" + r"  \centering" + "\n" + r"  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode_nf_green.png}"):]
+_ko_old = _ko_old[:_ko_old.index(r"\end{figure}") + len(r"\end{figure}")]
+assert r"\label{fig:know_ode_rollout}" in _ko_old
+_ko_new = r"""\begin{figure}[ht!]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode.pdf}
+\caption{{\color{blue}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published runs, fold
+    cv00) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
+    $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli, and compared against the noise-free
+    Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout
+    traces for $12$ representative cell types over a $20$~s window ($1{,}000$ frames at
+    $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: Known-ODE rollout prediction; red:
+    the visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
+    voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$ pairs
+    of the $8{,}000$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$ pooled, on
+    the full rollout.}
+}
+\label{fig:know_ode_rollout}
+\end{figure}
+"""
+_ko_cmp = _ko_old.replace(r"\label{fig:know_ode_rollout}", r"\label{fig:know_ode_rollout_published}").replace(
+    r"\caption{\textbf{Known-ODE rollout prediction.}",
+    r"\caption{\textcolor{orange}{[For comparison only, to be removed] The published figure.} \textbf{Known-ODE rollout prediction.}")
+tex = tex.replace(_ko_old, _ko_new + _ko_cmp)
+
 # ----------------------------------------------------------------------------- figures kept, red note
 # Fig. 2: the published panels a-d with e, f redrawn from experiment 7 (scripts/fig_flywire_hybrid.py);
 # the published figure follows it for comparison until Cedric drops it.
