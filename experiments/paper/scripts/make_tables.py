@@ -256,14 +256,11 @@ def table_cross(numbers):
     add("mid meas.\\ noise, 20-step recurrent", "0.2", "434\\,112", "flyvis_noise_005_020_condl25rc20_{fold}")
     add("unknown stimulus", "0", "434\\,112", "flyvis_noise_005_INR_davis_blank50_condl251s_{fold}")
     add("$+400\\%$ null edges", "0", "2\\,170\\,560", "flyvis_noise_005_null400_condl25_{fold}")
-    add(red_text("$-20\\%$ edges removed"), "0", "347\\,000", red=True,
-        pub=published((0.99, 0), (0.99, 0), (0.78, 0.05), (0.95, 0.02), 0.0, (0.74, 0.03), 18.3, (0.65, 0.02)))
-    add(red_text("$-50\\%$ edges removed"), "0", "217\\,056", red=True,
-        pub=published((0.97, 0), (0.56, 0.19), (0.19, 0.06), (0.93, 0.02), 0.7, (0.62, 0.03), 45.2, (0.54, 0.02)))
+    add("$-20\\%$ edges removed", "0", "347\\,000", "flyvis_noise_005_rm20_condl251s_{fold}")
+    add("$-50\\%$ edges removed", "0", "217\\,056", "flyvis_noise_005_rm50_condl251s_{fold}")
     add("$1/5$ frames, rollout horizon 6", "0", "434\\,112", "flyvis_noise_005_s5h06_condl25_{fold}")
     add("$1/5$ frames, rollout horizon 21", "0", "434\\,112", "flyvis_noise_005_s5h21_condl25_{fold}")
-    add(red_text("$10\\%$ hidden"), "0", "434\\,112", red=True,
-        pub=published((0.99, 0), (0.88, 0), (0.69, 0.04), (0.94, 0.02), 1.8, (0.62, 0.05), 21.1, (0.65, 0.03)))
+    add("$10\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid10_condl251s_{fold}")
     add("$20\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid20_none_condl251s_{fold}")
     numbers["table_cross"] = agg
     caption = (r"{\color{blue}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, "
@@ -272,9 +269,8 @@ def table_cross(numbers):
                r"($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) of the campaign: "
                r"experiments 2 (low model noise), 3 (measurement noise, trained with the 20-step recurrent rollout "
                r"since one-step training was not run for this form), 11 (unknown stimulus), 4 (null edges), "
-               r"5 ($1/5$ frames, the rollout scored on the observed frames only, horizons 6 and 21) and 9 "
-               r"($20\%$ hidden). \textcolor{red}{Red rows} are the published current-form numbers: no "
-               r"general-form run exists yet for them. Prediction metrics on noise-free held-out stimuli "
+               r"14 (edges removed, $10\%$ hidden), 5 ($1/5$ frames, the rollout scored on the observed frames "
+               r"only, horizons 6 and 21) and 9 ($20\%$ hidden). Prediction metrics on noise-free held-out stimuli "
                r"($8{,}000$ frames). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the fitted "
                r"edges; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, "
                r"outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
