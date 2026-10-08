@@ -8,10 +8,8 @@ published layout.
 a  the visual stimulus on the 217-column R1 lattice, ten frames 80 ms apart
    from 10,000 ms: ground truth, learned (SIREN), residual; z-scored per frame
 b  SIREN against true stimulus for 12 photoreceptors (R1-R8 of one column, R1-R4
-   of a second), 10-30 s; header: Pearson r over all photoreceptor-frame pairs
-c  SIREN against true stimulus, all pairs, log density
-d  GNN voltage rollout against the noise-free voltage, 12 cell types
-e  rollout against noise-free voltage, all pairs, log density
+   of a second), 10-30 s; header: per-photoreceptor Pearson r, Fisher-z pooled, mean +- SD
+c  GNN voltage rollout against the noise-free voltage, 12 cell types; same r over all neurons
 The rollout runs over the first 8,000 TRAINING frames (the SIREN cannot be
 queried outside the frames it was trained on); the SIREN output is shown with its mean and SD
 matched to the true stimulus, sign from the correlation (its raw output is
@@ -29,7 +27,7 @@ import zarr
 from matplotlib.colors import Normalize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from paper_style import (CM, COLOR_GT, COLOR_PRED, DATA_ROOT, FIG_DIR, FS_ANNOT, FS_LABEL, FS_TICK, LOG_ROOT,  # noqa: E402
+from paper_style import (CM, COLOR_GT, COLOR_PRED, DATA_ROOT, FIG_DIR, FS_ANNOT, FS_LABEL, FS_PANEL, FS_TICK, LOG_ROOT,  # noqa: E402
                          fisher_r, panel_labels, save, scatter_density)
 from fig_rollout_3col import SELECTED_TYPES, T0, T1, DT_MS  # noqa: E402
 
@@ -96,7 +94,7 @@ def main():
     # ---- geometry (cm) ----
     hex_row, hex_title, tr_h, sc_s = 1.5, 0.45, 3.6, 3.6
     left, right_w, gap, gap_tr, bottom, top_pad = 1.0, sc_s, 0.9, 1.5, 0.8, 0.4
-    tr_w = WIDTH - left - gap - right_w - 1.0
+    tr_w = WIDTH - left - 0.4
     height = bottom + 2 * tr_h + gap_tr + 1.3 + 3 * (hex_row + hex_title) + top_pad
     fig = plt.figure(figsize=(WIDTH * CM, height * CM))
 
@@ -124,34 +122,21 @@ def main():
     plt.colorbar(plt.cm.ScalarMappable(norm=Normalize(-HEX_VMAX, HEX_VMAX), cmap="RdBu_r"), cax=cax,
                  label="voltage (z-score)")
     cax.tick_params(labelsize=FS_TICK)
-    # b, d: traces; c, e: density scatters
+    # b, c: the stimulus and voltage traces at full width (no density panels). Both headers give the
+    # per-cell Pearson r, Fisher-z pooled, mean +- SD: over the 1,736 photoreceptors for b, over all
+    # 13,741 neurons for c.
+    r_s, sd_s = fisher_r(st.T, sp.T)
     step_s = 3.0 * float(np.std(st[T0:T1, sel]))
     ax_b = fig.add_axes(rect(left, bottom + tr_h + gap_tr, tr_w, tr_h))
     traces(ax_b, st[T0:T1 + 1, sel].T, sp[T0:T1 + 1, sel].T, sel_lab, step_s,
-           f"stimulus, INR, $r$ = {r_stim:.2f}", "time (ms)")
-    ax_c = fig.add_axes(rect(left + tr_w + gap, bottom + tr_h + gap_tr, sc_s, sc_s))
-    scatter_density(ax_c, st, sp, 0.0, 1.0)
-    # THE CEILING OF THE SQUARED OUTPUT, made explicit: the SIREN output s = SIREN^2 >= 0, and this run
-    # learned the inverted code (r(s, true) < 0), so s = 0 maps to the learned maximum; every brighter
-    # pixel is clamped there. Identity line for reference, the ceiling dashed and labelled.
-    cap = float(sp.max())
-    ax_c.plot([0, 1], [0, 1], color="0.6", lw=0.5, zorder=3)
-    ax_c.axhline(cap, color="k", lw=0.6, ls="--", zorder=3)
-    frac = 100.0 * float((st > cap).mean())
-    ax_c.text(0.04, cap + 0.02, f"SIREN$^2$ = 0 ({frac:.0f}% of pixels above)", fontsize=FS_ANNOT, ha="left", va="bottom")
-    ax_c.text(0.04, 0.96, f"$r$ = {r_stim:.2f}", transform=ax_c.transAxes, ha="left", va="top", fontsize=FS_ANNOT)
-    ax_c.set_xlabel("true stimulus"); ax_c.set_ylabel("learned stimulus")
+           f"stimulus, INR vs true, $r$ = {r_s:.2f} $\\pm$ {sd_s:.2f}", "time (ms)")
     step_v = 3.0 * float(np.std(b["activity_true"][idx, T0:T1]))
-    ax_d = fig.add_axes(rect(left, bottom, tr_w, tr_h))
-    traces(ax_d, b["activity_true"][idx, T0:T1 + 1], b["activity_pred"][idx, T0:T1 + 1], labels, step_v,
-           f"voltage, GNN vs noise-free, $r$ = {r_v:.2f} $\\pm$ {sd_v:.2f}", "time (ms)")
-    ax_e = fig.add_axes(rect(left + tr_w + gap, bottom, sc_s, sc_s))
-    scatter_density(ax_e, b["activity_true"], b["activity_pred"], -7.5, 7.5)
-    ax_e.text(0.04, 0.96, f"$r$ = {r_v:.2f} $\\pm$ {sd_v:.2f}", transform=ax_e.transAxes, ha="left", va="top",
-              fontsize=FS_ANNOT)
-    ax_e.set_xlabel("ground truth voltage"); ax_e.set_ylabel("rollout voltage")
-    panel_labels(fig, [ax_b, ax_c, ax_d, ax_e], letters="bcde", align_rows=True, dy_pt=10, y_from="tight")
-    fig.text(left / WIDTH - 0.02, (y_hex0 + 3 * (hex_row + hex_title) + 0.05) / height, "a", fontsize=9,
+    ax_c = fig.add_axes(rect(left, bottom, tr_w, tr_h))
+    traces(ax_c, b["activity_true"][idx, T0:T1 + 1], b["activity_pred"][idx, T0:T1 + 1], labels, step_v,
+           f"voltage, GNN rollout vs noise-free, $r$ = {r_v:.2f} $\\pm$ {sd_v:.2f}", "time (ms)")
+    print(f"stimulus r {r_s:.3f} +- {sd_s:.3f}; voltage r {r_v:.3f} +- {sd_v:.3f}")
+    panel_labels(fig, [ax_b, ax_c], letters="bc", align_rows=False, dy_pt=10, y_from="tight")
+    fig.text(left / WIDTH - 0.02, (y_hex0 + 3 * (hex_row + hex_title) + 0.05) / height, "a", fontsize=FS_PANEL,
              fontweight="bold", ha="right", va="bottom")
     save(fig, os.path.join(FIG_DIR, "fig_stim_rollout_inr"))
 
