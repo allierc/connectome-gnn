@@ -42,7 +42,7 @@ WIDTH = 18.0
 
 # fonts of the published PNG once scaled to the page: its titles are about 4.5 pt,
 # tick labels 4 pt, letters 7 pt bold -- the new panels use the same sizes
-FS_T, FS_K, FS_L = 4.5, 4.0, 7.0
+FS_T, FS_K, FS_L = 4.5, 4.0, 10.0   # letters: the published 'd' is 0.27 cm tall at page width, i.e. 10 pt bold
 
 
 def traces(ax, b, idx, labels, step, title, footer, r, sd):
@@ -96,10 +96,11 @@ def main():
         fig.text((x + k * (pw + 1.1) - 0.6) / WIDTH, (bottom + row_h - 0.05) / height, letter, fontsize=FS_L,
                  fontweight="bold", ha="right", va="top")
         print(f"{letter} {run}: r {r:.3f} +- {sd:.3f}")
-    # the legend between e and f, on the footer line
-    xl = (x + pw + 0.55) / WIDTH
-    fig.text(xl - 0.005, (bottom - 0.6) / height, "simulated", color=COLOR_GT, ha="right", va="top", fontsize=FS_K)
-    fig.text(xl + 0.005, (bottom - 0.6) / height, "inferred", color=COLOR_PRED, ha="left", va="top", fontsize=FS_K)
+    # the "simulated / inferred" legend under each of e and f, right-aligned on the footer line
+    for k in range(len(PANELS)):
+        xr = (x + k * (pw + 1.1) + pw) / WIDTH
+        fig.text(xr, (bottom - 0.6) / height, "inferred", color=COLOR_PRED, ha="right", va="top", fontsize=FS_K)
+        fig.text(xr - 0.045, (bottom - 0.6) / height, "simulated", color=COLOR_GT, ha="right", va="top", fontsize=FS_K)
     save(fig, os.path.join(FIG_DIR, "fig_flywire_hybrid_new"))
 
 
