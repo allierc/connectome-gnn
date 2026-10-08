@@ -56,13 +56,14 @@ def traces(ax, b, idx, labels, step, title, footer, r, sd):
         ax.plot(t, pr - base + off, color=COLOR_PRED, lw=0.35)
     ax.set_yticks([(n - 1 - k) * step for k in range(n)]); ax.set_yticklabels(labels, fontsize=FS_K)
     ax.tick_params(axis="y", length=0); ax.spines["left"].set_visible(False)
-    ax.set_xlim(t[0], t[-1]); ax.set_xticks([T0 * DT_MS, (T0 + T1) / 2 * DT_MS, T1 * DT_MS])
-    ax.set_xticklabels([f"{v:.0f}" for v in ax.get_xticks()], fontsize=FS_K)
-    ax.tick_params(axis="x", length=1.5, width=0.4, pad=1)
-    ax.set_xlabel("time (ms)", fontsize=FS_K, labelpad=1)
+    ax.set_xlim(t[0], t[-1]); ax.set_xticks([]); ax.spines["bottom"].set_visible(False)
     ax.set_ylim(-0.8 * step, (n - 0.2) * step)
     ax.set_title(title, fontsize=FS_T, pad=2, loc="left", x=0.12)
-    ax.text(0.0, -0.36, footer, transform=ax.transAxes, ha="left", va="top", fontsize=FS_K)
+    # the published footer strip: "time ->" arrow at the left, the totals to the right
+    ax.text(0.0, -0.06, "time", transform=ax.transAxes, ha="left", va="top", fontsize=FS_K)
+    ax.annotate("", xy=(0.085, -0.2), xytext=(0.0, -0.2), xycoords="axes fraction",
+                arrowprops=dict(arrowstyle="-|>", lw=0.6, color="k", shrinkA=0, shrinkB=0))
+    ax.text(0.42, -0.06, footer, transform=ax.transAxes, ha="center", va="top", fontsize=FS_K)
     ax.text(1.0, 1.0, f"$r$ = {r:.2f} $\\pm$ {sd:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=FS_K)
 
 
@@ -74,7 +75,7 @@ def main():
     top_h = WIDTH * top.shape[0] / top.shape[1]                 # cm, at full width
     d_w = WIDTH * D_SPLIT
     row_h = d_w * d_panel.shape[0] / d_panel.shape[1]
-    gap, bottom = 0.4, 0.9
+    gap, bottom = 0.4, 0.7
     height = bottom + row_h + gap + top_h + 0.2
     fig = plt.figure(figsize=(WIDTH * CM, height * CM))
 
@@ -96,11 +97,14 @@ def main():
         fig.text((x + k * (pw + 1.1) - 0.6) / WIDTH, (bottom + row_h - 0.05) / height, letter, fontsize=FS_L,
                  fontweight="bold", ha="right", va="top")
         print(f"{letter} {run}: r {r:.3f} +- {sd:.3f}")
-    # the "simulated / inferred" legend under each of e and f, right-aligned on the footer line
-    for k in range(len(PANELS)):
-        xr = (x + k * (pw + 1.1) + pw) / WIDTH
-        fig.text(xr, (bottom - 0.6) / height, "inferred", color=COLOR_PRED, ha="right", va="top", fontsize=FS_K)
-        fig.text(xr - 0.045, (bottom - 0.6) / height, "simulated", color=COLOR_GT, ha="right", va="top", fontsize=FS_K)
+    # one "-- simulated  -- inferred" legend between e and f, on the footer line (the published strip),
+    # as a legend of two proxy lines so the swatches sit at the text height
+    xr = (x + pw + 1.1 - 0.25) / WIDTH          # right-aligned just before panel f's "time" arrow
+    yl = (bottom + 0.15 - 0.22) / height
+    fig.legend(handles=[plt.Line2D([], [], color=COLOR_GT, lw=1.2, label="simulated"),
+                        plt.Line2D([], [], color=COLOR_PRED, lw=1.2, label="inferred")],
+               loc="upper right", bbox_to_anchor=(xr, yl), ncol=2, fontsize=FS_K, frameon=False,
+               handlelength=1.4, handletextpad=0.4, columnspacing=0.9, borderaxespad=0)
     save(fig, os.path.join(FIG_DIR, "fig_flywire_hybrid_new"))
 
 
