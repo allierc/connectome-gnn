@@ -1,13 +1,13 @@
 ---
 number: 16
 name: calcium_long_horizon
-title: 'Latent-calcium training with Plexus exp17''s time scales: horizons of 1-2 s
-  instead of 40-400 ms, every 20 ms frame or every 10th observed (2 x 2, 40 dB, kernel
-  given)'
-purpose: get W to train on calcium through the latent voltage, which experiment 13 never
-  did (R2_W -0.01 in all 8 runs), by rolling out over several indicator time constants
-  as Plexus exp17 does, and test whether a 5 Hz recording (one calcium frame in ten,
-  ten voltage updates between them) trains as well as a 50 Hz one
+title: 'Latent-calcium training with Plexus exp17''s time scales: horizons of 1-2
+  s instead of 40-400 ms, every 20 ms frame or every 10th observed (2 x 2, 40 dB,
+  kernel given)'
+purpose: get W to train on calcium through the latent voltage, which experiment 13
+  never did (R2_W -0.01 in all 8 runs), by rolling out over several indicator time
+  constants as Plexus exp17 does, and test whether a 5 Hz recording (one calcium frame
+  in ten, ten voltage updates between them) trains as well as a 50 Hz one
 baseline: experiments/specs/exp13/fly/flyvis_cal_40db_kg.yaml (same GNN, regularisers,
   data, kernel given, 20 epochs, data_augmentation_loop 50, batch 4)
 specs_dir: experiments/specs/exp16/fly
@@ -38,6 +38,11 @@ report:
       h100: horizon 20 -> 100 steps (0.4 -> 2 s)
   arm_labels:
     kg: latent calcium, kernel given, long horizon
+job_ids:
+  flyvis_cal_40db_f20ms_h50: '154583479'
+  flyvis_cal_40db_f20ms_h100: '154583480'
+  flyvis_cal_40db_f200ms_h50: '154583481'
+  flyvis_cal_40db_f200ms_h100: '154583482'
 ---
 
 # Experiment 16 — calcium_long_horizon
@@ -140,3 +145,51 @@ R2_W rises. The bar is experiment 12's deconvolution at 40 dB, R2_W 0.42 / rollo
 ## Specs
 
 4 runs in `experiments/specs/exp16/fly/`.
+
+## First reading (2026-10-08, iteration 801 of epoch 0, horizon 20, train split)
+
+W leaves zero in all four runs, which experiment 13 never did. Template-readout R2_W,
+learned/true slope and Pearson r of the raw learned W against the true W:
+
+| run | R2_W | slope | Pearson r of W |
+|---|---|---|---|
+| experiment 13, `flyvis_cal_40db_kg` (horizon 2) | -0.012 | 0.000 | -0.008 |
+| `f20ms_h50` | 0.105 | 0.111 | 0.161 |
+| `f20ms_h100` | 0.102 | 0.107 | 0.292 |
+| `f200ms_h50` | 0.030 | 0.073 | 0.151 |
+| `f200ms_h100` | 0.008 | 0.089 | 0.181 |
+
+The two pairs share epoch 0 (both start at horizon 20), so their differences there are
+GPU nondeterminism (same seed, same batches), not the schedule. Held-out numbers come at `-o test_plot`.
+
+<!-- STATUS:BEGIN -->
+
+## Status
+
+**0/4 landed**, 0 trained (awaiting `-o test_plot`), 4 running, 0 pending
+
+### Landed --- held-out, `results/metrics.txt`
+
+| arm | frame | horizon | n | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | | | | | | | | | | | | | | | |
+
+### Running --- train split, `tmp_training/`, blank where not written per checkpoint
+
+| arm | frame | horizon | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| kg | f20ms | h50 | 801 |  | 0.431 ± 0.000 |  |  | 0.105 ± 0.000 | -0.465 ± 0.000 | 0.388 ± 0.000 | 0.294 ± 0.000 | 0.761 ± 0.000 |  |  | 0.663 ± 0.000 |
+| kg | f20ms | h100 | 801 |  | 0.429 ± 0.000 |  |  | 0.102 ± 0.000 | -0.505 ± 0.000 | 0.391 ± 0.000 | 0.298 ± 0.000 | 0.755 ± 0.000 |  |  | 0.651 ± 0.000 |
+| kg | f200ms | h50 | 801 |  | 0.383 ± 0.000 |  |  | 0.030 ± 0.000 | 0.399 ± 0.000 | 0.308 ± 0.000 | 0.329 ± 0.000 | 0.615 ± 0.000 |  |  | 0.487 ± 0.000 |
+| kg | f200ms | h100 | 801 |  | 0.400 ± 0.000 |  |  | 0.008 ± 0.000 | 0.241 ± 0.000 | 0.329 ± 0.000 | 0.227 ± 0.000 | 0.627 ± 0.000 |  |  | 0.537 ± 0.000 |
+
+### Per run
+
+| run | status | iter | commit | LSF |
+|---|---|---|---|---|
+| `flyvis_cal_40db_f20ms_h50` | running | 801 | `` |  |
+| `flyvis_cal_40db_f20ms_h100` | running | 801 | `` |  |
+| `flyvis_cal_40db_f200ms_h50` | running | 801 | `` |  |
+| `flyvis_cal_40db_f200ms_h100` | running | 801 | `` |  |
+
+<!-- STATUS:END -->
