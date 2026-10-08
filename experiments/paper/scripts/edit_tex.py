@@ -202,10 +202,7 @@ _ko_new = r"""\begin{figure}[ht!]
 \label{fig:know_ode_rollout}
 \end{figure}
 """
-_ko_cmp = _ko_old.replace(r"\label{fig:know_ode_rollout}", r"\label{fig:know_ode_rollout_published}").replace(
-    r"\caption{\textbf{Known-ODE rollout prediction.}",
-    r"\caption{\textcolor{orange}{[For comparison only, to be removed] The published figure.} \textbf{Known-ODE rollout prediction.}")
-tex = tex.replace(_ko_old, _ko_new + _ko_cmp)
+tex = tex.replace(_ko_old, _ko_new)          # the published figure, shown beside it for comparison, removed 2026-10-08
 
 # ----------------------------------------------------------------------------- figures kept, red note
 # Fig. 2: the published panels a-d with e, f redrawn from experiment 7 (scripts/fig_flywire_hybrid.py);
@@ -268,6 +265,9 @@ red_sentence(r"Finally, measurement noise on voltage traces remains the principa
              r"$\gamma = 0.1$ measurement noise leaves rollouts intact but degrades synaptic-weight "
              r"recovery from $R^2 = 0.99$ to $0.63$, and we flag this as the central challenge for "
              r"connectome-inverse methods on real data.")
+# experiment 15 re-analysed the Known-ODE: noise-free V_rest R2 0.90 (1.7% outliers), so "R2 > 0.95" no longer holds
+red_sentence("The parameter recovery over $> 4.5\\cdot 10^5$\nvalues is comparably accurate even at high model noise "
+             "($R^2>0.95$, outliers $<10\\%$, \\cref{fig:know_ode_rollout,fig:known_ode_params_3col_noise_comparison}).")
 red_block(r"\textbf{Graph neural network model}\label{method:GNN}", r"\textbf{Benchmark}")
 red_block(r"\textbf{Results with and without the ODE given.}", "\\begin{figure}[t]\n  \\centering\n  \\includegraphics[width=\\textwidth]{figures/fig_flywire_hybrid.png}")
 red_block(r"\textbf{Edge ablation as a mechanistic test.}", r"\textbf{Data degradation (measurement noise, partial data, unknown stimulus).}")

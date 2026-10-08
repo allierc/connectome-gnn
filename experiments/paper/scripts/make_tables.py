@@ -106,11 +106,14 @@ def table1(numbers):
         "noise_05": aggregate("flyvis_noise_05_blank50_condl25_{fold}"),
     }
     numbers["table1_gnn"] = gnn
-    kode = {   # published Known-ODE rows (not re-run on Flyvis-217 by the campaign)
+    kode15 = {k: aggregate(f"flyvis_{k}_blank50_kode217_{{fold}}") for k in ("noise_free", "noise_005", "noise_05")}
+    kode_pub = {   # published Known-ODE rows, used only until experiment 15's re-analysis has landed
         "noise_free": published((1.0, 0), (1.0, 0), (0.96, 0), (1.0, 0), 1.9, (0.97, 0), 10.2, (0.92, 0)),
         "noise_005": published((1.0, 0), (1.0, 0), (0.99, 0), (1.0, 0), 0.0, (0.99, 0), 4.7, (0.93, 0)),
         "noise_05": published((1.0, 0), (1.0, 0), (1.0, 0), (1.0, 0), 0.0, (1.0, 0), 0.0, (0.93, 0)),
     }
+    kode = {k: (kode15[k] if kode15[k]["n"] == 5 else kode_pub[k]) for k in kode15}
+    numbers["table1_known_ode"] = kode
     rows = []
     labels = [("noise_free", "noise-free", "0"), ("noise_005", "low noise", "0.05"), ("noise_05", "high noise", "0.5")]
     for i, (k, lab, sig) in enumerate(labels):
@@ -136,8 +139,9 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
                r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). GNN rows: the general-form GNN, "
                r"$g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$ on its "
                r"input groups, one-step training (experiment 2 of the campaign, runs "
-               r"\texttt{flyvis\_noise\_*\_blank50\_condl25\_cv0N}). Known-ODE and ML-baseline rows are the "
-               r"published ones. Prediction metrics on noise-free held-out stimuli ($8{,}000$ frames). "
+               r"\texttt{flyvis\_noise\_*\_blank50\_condl25\_cv0N}). Known-ODE rows: the published "
+               r"Known-ODE runs re-analysed with the current analysis code (experiment 15). ML-baseline rows are "
+               r"the published ones. Prediction metrics on noise-free held-out stimuli ($8{,}000$ frames). "
                r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ by the per-edge "
                r"template readout over the fitted edges of the $434{,}112$; $R^2_{\hat{\tau}}$ and "
                r"$R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
@@ -281,7 +285,7 @@ def table_cross(numbers):
 \caption{""" + caption + r"""}
 \label{tab:cv_cross_noise}
 \tiny
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{1.5pt}
 \begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} @{}llrrrrr@{}rr@{}rr@{}}
 \toprule
 & \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
@@ -300,9 +304,68 @@ condition & noise $\gamma$ & \multicolumn{1}{c}{edges}
     open(os.path.join(TAB_DIR, "cv_table_gnn_cross_noise.tex"), "w").write(tex)
 
 
+# ----------------------------------------------------------------------------- Supp. Tab. 7 (Known-ODE)
+KO_ROWS = [
+    ("noise-free", "0", "0", "434\\,112", "flyvis_noise_free"),
+    ("low model noise", "0.05", "0", "434\\,112", "flyvis_noise_005"),
+    ("high model noise", "0.5", "0", "434\\,112", "flyvis_noise_05"),
+    ("low meas.\\ noise", "0.05", "0.1", "434\\,112", "flyvis_noise_005_010"),
+    ("mid meas.\\ noise", "0.05", "0.2", "434\\,112", "flyvis_noise_005_020"),
+    ("$+400\\%$ null edges", "0.05", "0", "2\\,170\\,560", "flyvis_noise_005_null_edges_pc_400"),
+    ("$-20\\%$ edges removed", "0.05", "0", "347\\,000", "flyvis_noise_005_removed_pc_20"),
+    ("$-50\\%$ edges removed", "0.05", "0", "217\\,056", "flyvis_noise_005_removed_pc_50"),
+]
+
+
+def table_known_ode(numbers):
+    rows, agg = [], {}
+    for lab, sig, gam, edges, base in KO_ROWS:
+        a = aggregate(f"{base}_blank50_kode217_{{fold}}")
+        if a["n"] == 0:
+            print(f"  [Supp. Tab. 7] {base}: experiment 15 not landed, table left as published")
+            return
+        agg[base] = a
+        rows.append(f"{lab:<24} & ${sig}$ & ${gam}$ & ${edges}$\n" + metric_cells(a)
+                    + f"  & {cell(a['clustering_accuracy'])} \\\\")
+    numbers["table_known_ode"] = agg
+    caption = (r"{\color{blue}\textbf{Known-ODE evaluation across degraded versions} of the Flyvis training "
+               r"data: model and measurement noise, added/removed connectivity edges. The published Known-ODE "
+               r"runs, re-analysed with the paper's current analysis code (experiment 15). Five-fold "
+               r"cross-validation (mean~$\pm$~SD). Prediction: metrics computed on noise-free data with "
+               r"held-out stimuli ($8{,}000$ frames). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the "
+               r"fitted edges, as for the GNN rows; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over "
+               r"all neurons, outlier-corrected (outlier fraction in parentheses, Appendix~\ref{app:metrics}); "
+               r"GMM clustering accuracy over $65$ cell types. "
+               r"\good{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}")
+    tex = (r"""% Supp. Tab. 7 -- written by scripts/make_tables.py from experiment 15 (kode217 runs)
+\begin{table}[h!]
+\centering
+\caption{""" + caption + r"""}
+\label{tab:cv_known_ode}
+\tiny
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} @{}lllrrrrr@{}rr@{}rr@{}}
+\toprule
+& model & measurement & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+condition & noise $\sigma$ & noise $\gamma$ & \multicolumn{1}{c}{edges}
+  & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
+  & \multicolumn{1}{c}{$R^2_{\hat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\hat{\tau}} (\text{out.} \%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}} (\text{out.} \%)$}
+  & \multicolumn{1}{c}{cluster\ acc.} \\
+\midrule
+""" + "\n".join(rows) + r"""
+\bottomrule
+\end{tabular*}
+\end{table}
+""")
+    open(os.path.join(TAB_DIR, "cv_table_known_ode_conditions.tex"), "w").write(tex)
+
+
 def main():
     numbers = {}
     table1(numbers)
+    table_known_ode(numbers)
     table2(numbers)
     table_cross(numbers)
     json.dump(numbers, open(os.path.join(TAB_DIR, "table_numbers.json"), "w"), indent=1)

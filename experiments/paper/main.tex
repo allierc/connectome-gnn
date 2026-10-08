@@ -353,8 +353,8 @@ connection parameters. If we know the differentiable ODE (\cref{eq:simulated_upd
 activation is known, but cell-type assignments are not. With $\ell_1$/$\ell_2$ regularisation on the parameters and an
 MSE one-step prediction loss (\cref{app:benchmark}), this trained 
 Known-ODE models achieves near-perfect activity prediction (one-step $r$ and rollout $r$ are close to $1.00$ over $8{,}000$ frames. Notably, the Known-ODE trained on noisy activity reproduces the noise-free rollout: it cannot explicitly fit the stochastic fluctuations and instead converges on the underlying
-deterministic dynamics. The parameter recovery over $> 4.5\cdot 10^5$
-values is comparably accurate even at high model noise ($R^2>0.95$, outliers $<10\%$, \cref{fig:know_ode_rollout,fig:known_ode_params_3col_noise_comparison}).
+deterministic dynamics. \textcolor{red}{The parameter recovery over $> 4.5\cdot 10^5$
+values is comparably accurate even at high model noise ($R^2>0.95$, outliers $<10\%$, \cref{fig:know_ode_rollout,fig:known_ode_params_3col_noise_comparison}).}
 Although the inverse problem is strongly ill-posed, full knowledge
 of the equation form combined with $\ell_1$/$\ell_2$ regularisation
 makes it tractable.
@@ -1908,25 +1908,7 @@ FlyWireRF runs.
 }
 \label{fig:know_ode_rollout}
 \end{figure}
-\begin{figure}[ht!]
-  \centering
-  \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode_nf_green.png}
-\caption{\textcolor{orange}{[For comparison only, to be removed] The published figure.} \textbf{Known-ODE rollout prediction.} Known-ODE
-    models evaluated on central $217$-column Flyvis data under three model noise regimes
-    ($\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out
-    stimuli, and compared against noise-free Flyvis simulations. Top row
-    (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout traces for
-    $12$ representative cell types over a $20$~s window ($1{,}000$ frames
-    at $\Delta t = 20$~ms). Green: ground-truth voltage; black: Known-ODE
-    rollout prediction; red: one visual input stimulus. Bottom row
-    (\textbf{d}, \textbf{e}, \textbf{f}): scatterplots of rollout voltage
-    vs noise-free ground-truth voltage, pooled over all
-    $(\text{neuron}, \text{frame})$ pairs and subsampled to $2 \cdot 10^6$
-    points for display. Pearson~$r$ computed on the full $8{,}000$-frame
-    rollout.
-}
-\label{fig:know_ode_rollout_published}
-\end{figure}
+
 
 
 \begin{figure}[ht!]
