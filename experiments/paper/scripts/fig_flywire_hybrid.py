@@ -43,7 +43,13 @@ WIDTH = 18.0
 
 # fonts of the published PNG once scaled to the page: its titles are about 4.5 pt,
 # tick labels 4 pt, letters 7 pt bold -- the new panels use the same sizes
-FS_T, FS_K = 4.5, 4.0
+FS_T, FS_K = 4.9, 4.4   # panel d's title and labels at page scale (Arial there, DejaVu Sans here: ~12% larger glyphs)
+# PANEL d's GRID, measured on the published PNG (rows): the title line, the six cell-type labels
+# T5a .. Tm3 (60 px apart), and the trace x-extent within the d crop -- e and f are laid on the same lines
+D_TITLE_ROW = 1208
+D_LABEL_ROWS = [1263, 1323, 1384, 1444, 1504, 1564]
+D_LABEL_COL_RIGHT = 205                                      # right edge of d's labels (px)
+D_TRACE_COLS = (208, 1385)
 # THE PANEL LETTERS ARE REDRAWN, all six at Fig. 1's size (FS_PANEL, 9 pt bold): the published PNG's own
 # a-d are painted over at the pixel boxes measured on it (rows, cols), so the figure's letters are uniform.
 # (top row, baseline row, left col, right col) of each published letter, measured as the largest dark
@@ -66,9 +72,9 @@ def traces(ax, b, idx, labels, step, title, footer, r, sd):
     ax.set_yticks([(n - 1 - k) * step for k in range(n)]); ax.set_yticklabels(labels, fontsize=FS_K)
     ax.tick_params(axis="y", length=0); ax.spines["left"].set_visible(False)
     ax.set_xlim(t[0], t[-1]); ax.set_xticks([]); ax.spines["bottom"].set_visible(False)
-    ax.set_ylim(-0.8 * step, (n - 0.2) * step)
-    ax.set_title(title, fontsize=FS_T, pad=2, loc="left", x=0.12)
-    ax.text(1.0, 1.0, f"$r$ = {r:.2f} $\\pm$ {sd:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=FS_K)
+    # the axes span exactly half a row beyond the first and last label row, so trace k's offset lands on
+    # d's label row k
+    ax.set_ylim(-0.5 * step, (n - 0.5) * step)
 
 
 def main():
@@ -86,6 +92,10 @@ def main():
     height = bottom + row_h + gap + top_h + 0.2
     fig = plt.figure(figsize=(WIDTH * CM, height * CM))
 
+    def row_cm(row):
+        """A row of the published PNG's bottom strip, in figure cm from the bottom."""
+        return bottom + row_h - (row - ROW_SPLIT * H) * WIDTH / W
+
     def rect(x, y, w, h):
         return [x / WIDTH, y / height, w / WIDTH, h / height]
 
@@ -96,19 +106,29 @@ def main():
         px = c0 * WIDTH / W
         py = (height - 0.2 - r1 * WIDTH / W) if r1 < ROW_SPLIT * H else (bottom + row_h - (r1 - ROW_SPLIT * H) * WIDTH / W)
         fig.text(px / WIDTH, py / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="left", va="baseline")
-    x = d_w + 0.9
-    pw = (WIDTH - x - 0.3 - 1.1) / 2
+    GAP_EF = 1.4                     # between e and f: room for the letter and "Examples"
+    x = d_w + 1.2
+    pw = (WIDTH - x - 0.3 - GAP_EF) / 2
     for k, (letter, title, run, footer) in enumerate(PANELS):
         b = np.load(os.path.join(LOG_ROOT, run, "results", "rollout_bundle.npz"), allow_pickle=True)
         names = list(b["type_names"]); types = b["type_ids"]
         idx = [int(np.where(types == names.index(nm))[0][0]) for nm in TYPES]
         step = 2.5 * float(np.std(b["activity_true"][idx, T0:T1]))
         r, sd = fisher_r(b["activity_true"], b["activity_pred"])
-        axp = fig.add_axes(rect(x + k * (pw + 1.1), bottom + 0.5, pw, row_h - 0.85))
+        sp = D_LABEL_ROWS[1] - D_LABEL_ROWS[0]
+        y_top, y_bot = row_cm(D_LABEL_ROWS[0] - sp / 2), row_cm(D_LABEL_ROWS[-1] + sp / 2)
+        axp = fig.add_axes(rect(x + k * (pw + GAP_EF), y_bot, pw, y_top - y_bot))
         traces(axp, b, idx, TYPES, step, title, footer, r, sd)
-        xl = x + k * (pw + 1.1)
+        # title, "Examples" and r on d's title line
+        yt = row_cm(D_TITLE_ROW) / height
+        # as in d: "Examples" over the labels, the title starting a little into the traces
+        fig.text((x + k * (pw + GAP_EF) + 0.55) / WIDTH, yt, title, ha="left", va="center", fontsize=FS_T)
+        fig.text((x + k * (pw + GAP_EF) + 0.02) / WIDTH, yt, "Examples", ha="right", va="center", fontsize=FS_K)
+        fig.text((x + k * (pw + GAP_EF) + pw) / WIDTH, yt, f"$r$ = {r:.2f} $\\pm$ {sd:.2f}", ha="right", va="center",
+                 fontsize=FS_K)
+        xl = x + k * (pw + GAP_EF)
         y_base = bottom + row_h - (PNG_LETTERS["d"][1] - ROW_SPLIT * H) * WIDTH / W
-        fig.text((xl - 0.6) / WIDTH, y_base / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="right",
+        fig.text((xl - 0.85) / WIDTH, y_base / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="right",
                  va="baseline")
         # "time ->" on panel d's lines
         y_txt = bottom + row_h - (TIME_TEXT_Y * H - ROW_SPLIT * H) * WIDTH / W
@@ -118,11 +138,11 @@ def main():
                                        transform=fig.transFigure, arrowstyle="-|>", mutation_scale=4,
                                        lw=0.6, color="k", shrinkA=0, shrinkB=0))
         # the totals on the "time" line, centred under the panel; the legend between e and f on that line
-        fig.text((xl + 0.9) / WIDTH, y_txt / height, footer, ha="left", va="center", fontsize=FS_K)
+        fig.text((xl + 0.55) / WIDTH, y_txt / height, footer, ha="left", va="center", fontsize=FS_K)
         print(f"{letter} {run}: r {r:.3f} +- {sd:.3f}")
     # one "-- simulated  -- inferred" legend between e and f, on the footer line (the published strip),
     # as a legend of two proxy lines so the swatches sit at the text height
-    xr = (x + pw + 1.1 - 0.15) / WIDTH          # right-aligned just before panel f's "time" arrow
+    xr = (x + pw + GAP_EF - 0.12) / WIDTH          # right-aligned just before panel f's "time" arrow
     yl = (bottom + row_h - (TIME_TEXT_Y * H - ROW_SPLIT * H) * WIDTH / W + 0.1) / height
     fig.legend(handles=[plt.Line2D([], [], color=COLOR_GT, lw=1.2, label="simulated"),
                         plt.Line2D([], [], color=COLOR_PRED, lw=1.2, label="inferred")],
