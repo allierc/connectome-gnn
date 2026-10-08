@@ -373,19 +373,30 @@ $\hat{\mathbf{W}}$ matches the clustering accuracy of the same
 procedure applied to ground-truth parameters
 ($0.92$ vs.\ $0.93$ at $\sigma = 0.05$;
 \cref{fig:clustering_appendix,tab:cv_gnn_vs_baselines}).
+
+
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_flywire_hybrid_new.png}
+\caption{\textbf{Hybrid Flyvis--FlyWire connectome model inference.}
+\textbf{(a)}~Hybrid model combining the Flyvis convolutional template (represented by orange disc, extent~8) with the FlyWire FAFB-v783 column lattice (teal disc) on the right hemisphere; 3D oblique view, right optic-lobe with representative registered visual neurons through lamina, medulla, lobula, and lobula plate neuropil meshes. Orange discs indicate ``e8 hybrid'' columns, scatter points indicate synapse positions, circles indicate $6\,\mu$m edge confusion radius around synapse clouds.
+\textbf{(b)}~In contrast to Flyvis template connectivity (Supplementary \cref{fig:flywire_SI}), per-column FlyWire receptive-field connectivity for an example projection (Tm3\,$\to$\,T4c): Each mini-hexlattice is the spatial RF kernel of one T4c target column at the location $(p, q) \in \{(0, 0), (0, 1), (1, 0), \cdots\}$ (extent~1), with input cells annotated by per-edge synapse count.  Cells lacking FlyWire evidence but covered by a null edge (n.e.) are marked \textit{n.e.}
+\textbf{(c)}~Average column connectivity for the same Tm3\,$\to$\,T4c projection.  \emph{Flyvis}: per-column-averaged convolutional kernel from the original Flyvis template.  \emph{FlyWire}: per-(d$p$,\,d$q$) offset average of FlyWire synapse counts.  \emph{Hull overlay}: union of offset support, coloured by membership (orange = Flyvis only, teal = FlyWire only, magenta = both).
+\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{blue}\textbf{(e)} Rollouts of the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled Pearson $r$ over all $50{,}412$ neurons and $8{,}000$ frames. \textbf{(f)} The same GNN trained with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}
+}
+\label{fig:flywire}
+\end{figure}
 }%
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}
-\caption{\textbf{Hybrid Flyvis--FlyWire connectome model inference.}
-\textbf{(a)}~Hybrid model combining the Flyvis convolutional template (represented by orange disc, extent~8) with the FlyWire FAFB-v783 column lattice (teal disc) on the right hemisphere; 3D oblique view, right optic-lobe with representative registered visual neurons through lamina, medulla, lobula, and lobula plate neuropil meshes. Orange discs indicate ``e8 hybrid'' columns, scatter points indicate synapse positions, circles indicate $6\,\mu$m edge confusion radius around synapse clouds.
-\textbf{(b)}~In contrast to Flyvis template connectivity (Supplementary \cref{fig:flywire_SI}), per-column FlyWire receptive-field connectivity for an example projection (Tm3\,$\to$\,T4c): Each mini-hexlattice is the spatial RF kernel of one T4c target column at the location $(p, q) \in \{(0, 0), (0, 1), (1, 0), \cdots\}$ (extent~1), with input cells annotated by per-edge synapse count.  Cells lacking FlyWire evidence but covered by a null edge (n.e.) are marked \textit{n.e.}
-\textbf{(c)}~Average column connectivity for the same Tm3\,$\to$\,T4c projection.  \emph{Flyvis}: per-column-averaged convolutional kernel from the original Flyvis template.  \emph{FlyWire}: per-(d$p$,\,d$q$) offset average of FlyWire synapse counts.  \emph{Hull overlay}: union of offset support, coloured by membership (orange = Flyvis only, teal = FlyWire only, magenta = both).
-\textcolor{red}{[Panels (e, f) still show the published current-form GNN; to be regenerated from the general-form runs of experiment 7 (no figure script in the repository for this panel set).]} \textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). \textbf{(e)} Rollouts of GNN (black) vs. FlyWire eye simulations (green). \textbf{(f)} Rollouts of GNN with $761\%$ false-positive edges (black, FlyWire eye~+~n.e.) vs. FlyWire eye simulations (green).
-}
-\label{fig:flywire}
+  \caption{\textcolor{orange}{[For comparison only, to be removed] The published Fig.~2, panels e--f with the
+    current-form GNN.}}
+  \label{fig:flywire_published}
 \end{figure}
+
 
 {\color{red}%
 \textbf{Edge ablation as a mechanistic test.}
@@ -720,8 +731,9 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     one-step training) evaluated on central $217$-column Flyvis data with low model noise
     ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
     first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
-    output is shown after the affine gauge correction of the tester (its raw output is defined up to the
-    sign and scale the GNN's input weights absorb).
+    output is shown with its mean and SD matched to the true stimulus, sign from the correlation (its raw
+    output is defined up to the sign and scale the GNN's input weights absorb; the tester's least-squares
+    correction would compress the learned range by the factor $r$).
     \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), ten
     frames spaced by $80$~ms from $10{,}000$~ms, $z$-scored per frame; top: ground truth; middle: INR;
     bottom: residual.

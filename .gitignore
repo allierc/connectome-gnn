@@ -221,3 +221,4 @@ experiments/paper/figures/*
 !experiments/paper/figures/fig_stim_rollout_inr.p*
 !experiments/paper/scripts/
 !experiments/paper/figures/fig_rollout_3col_noise_comparison_ablation50.p*
+!experiments/paper/figures/fig_flywire_hybrid_new.p*

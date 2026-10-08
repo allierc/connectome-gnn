@@ -13,9 +13,10 @@ c  SIREN against true stimulus, all pairs, log density
 d  GNN voltage rollout against the noise-free voltage, 12 cell types
 e  rollout against noise-free voltage, all pairs, log density
 The rollout runs over the first 8,000 TRAINING frames (the SIREN cannot be
-queried outside the frames it was trained on); the SIREN output is the tester's
-affine-corrected one (stimulus_input_pred_corrected: the raw output is defined
-up to the sign and scale the GNN's input weights absorb).
+queried outside the frames it was trained on); the SIREN output is shown with its mean and SD
+matched to the true stimulus, sign from the correlation (its raw output is
+defined up to the sign and scale the GNN's input weights absorb; the tester's
+least-squares correction would compress the range by the factor r).
 
 Output: figures/fig_stim_rollout_inr.{pdf,png}
 """
@@ -67,7 +68,15 @@ def traces(ax, true, pred, labels, step, header, xlabel):
 def main():
     b = np.load(os.path.join(LOG_ROOT, RUN, "results", "rollout_bundle.npz"), allow_pickle=True)
     types = b["type_ids"]; names = list(b["type_names"])
-    st, sp = b["stimulus_input_true"], b["stimulus_input_pred_corrected"]        # (T, 1736)
+    st, raw = b["stimulus_input_true"], b["stimulus_input_pred"]                  # (T, 1736)
+    # THE GAUGE: the SIREN output is defined up to the sign and scale the GNN's input
+    # weights absorb. The tester's stimulus_input_pred_corrected is the least-squares
+    # fit of true on raw, whose slope is r x SD(true)/SD(raw): at r = 0.90 it compresses
+    # the learned range to 0.68 of the true one (the flat top of the old panel c). Shown
+    # instead with its mean and SD matched to the true stimulus, sign from r; r itself
+    # is unchanged by either choice.
+    sign = np.sign(np.corrcoef(st.ravel(), raw.ravel())[0, 1])
+    sp = st.mean() + sign * (raw - raw.mean()) * (st.std() / raw.std())
     pos = np.asarray(zarr.open(os.path.join(DATA_ROOT, DATASET, "x_list_train", "pos.zarr"), mode="r")[:])
     in_types = types[:1736]
     r1 = np.where(in_types == R_TYPES[0])[0]

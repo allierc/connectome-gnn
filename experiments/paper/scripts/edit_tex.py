@@ -135,8 +135,9 @@ replace_figure("fig:stim_rollout_inr", r"""
     one-step training) evaluated on central $217$-column Flyvis data with low model noise
     ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
     first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
-    output is shown after the affine gauge correction of the tester (its raw output is defined up to the
-    sign and scale the GNN's input weights absorb).
+    output is shown with its mean and SD matched to the true stimulus, sign from the correlation (its raw
+    output is defined up to the sign and scale the GNN's input weights absorb; the tester's least-squares
+    correction would compress the learned range by the factor $r$).
     \textbf{(a)} INR-reconstructed visual stimulus on the R1 photoreceptor lattice ($217$ columns), ten
     frames spaced by $80$~ms from $10{,}000$~ms, $z$-scored per frame; top: ground truth; middle: INR;
     bottom: residual.
@@ -176,12 +177,29 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
 """)
 
 # ----------------------------------------------------------------------------- figures kept, red note
-once(tex, r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli.")
-tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli.",
-                  r"\textcolor{red}{[Panels (e, f) still show the published current-form GNN; to be "
-                  r"regenerated from the general-form runs of experiment 7 (no figure script in the "
-                  r"repository for this panel set).]} \textbf{(d-f)} Rollout comparisons to 20{,}000~ms "
-                  r"unseen DAVIS stimuli.")
+# Fig. 2: the published panels a-d with e, f redrawn from experiment 7 (scripts/fig_flywire_hybrid.py);
+# the published figure follows it for comparison until Cedric drops it.
+once(tex, r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}")
+tex = tex.replace(r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}",
+                  r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid_new.png}")
+once(tex, r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). \textbf{(e)} Rollouts of GNN (black) vs. FlyWire eye simulations (green). \textbf{(f)} Rollouts of GNN with $761\%$ false-positive edges (black, FlyWire eye~+~n.e.) vs. FlyWire eye simulations (green).")
+tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). \textbf{(e)} Rollouts of GNN (black) vs. FlyWire eye simulations (green). \textbf{(f)} Rollouts of GNN with $761\%$ false-positive edges (black, FlyWire eye~+~n.e.) vs. FlyWire eye simulations (green).",
+                  r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of "
+                  r"FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{blue}\textbf{(e)} Rollouts of the "
+                  r"general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; "
+                  r"black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled "
+                  r"Pearson $r$ over all $50{,}412$ neurons and $8{,}000$ frames. \textbf{(f)} The same GNN trained "
+                  r"with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}")
+once(tex, r"\label{fig:flywire}" + "\n\\end{figure}")
+tex = tex.replace(r"\label{fig:flywire}" + "\n\\end{figure}", r"\label{fig:flywire}" + "\n\\end{figure}" + r"""
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}
+  \caption{\textcolor{orange}{[For comparison only, to be removed] The published Fig.~2, panels e--f with the
+    current-form GNN.}}
+  \label{fig:flywire_published}
+\end{figure}
+""")
 if os.path.exists(os.path.join(HERE, "figures", "fig_rollout_3col_noise_comparison_ablation50.pdf")):
     replace_figure("fig:rollout_3col_noise_comparison_ablation50", r"""
 \begin{figure}[ht!]
