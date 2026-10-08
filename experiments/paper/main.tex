@@ -62,6 +62,7 @@
 \definecolor{cgreen}{HTML}{2ea043}
 \definecolor{corange}{HTML}{d29922}
 \definecolor{cred}{HTML}{cf222e}
+\definecolor{revised}{HTML}{1a9e3a}
 \newcommand{\good}[1]{\textcolor{green!50!black}{#1}}
 \newcommand{\bad}[1]{\textcolor{orange}{#1}}
 \newcommand{\tbd}{\multicolumn{1}{c}{\textcolor{gray}{\textemdash}}}
@@ -94,7 +95,7 @@
 
 
 \maketitle
-\begin{center}\small\textcolor{blue}{Blue: tables and figures regenerated with the general-form GNN (group lasso 25) of the 2026 experiment campaign.} \textcolor{red}{Red: text, or a figure, still carrying the published current-form results, to be rewritten.}\end{center}
+\begin{center}\small\textcolor{revised}{Green: tables and figures regenerated with the general-form GNN (group lasso 25) of the 2026 experiment campaign.} \textcolor{red}{Red: text, or a figure, still carrying the published current-form results, to be rewritten.}\end{center}
 
 
 
@@ -317,7 +318,7 @@ mapping from the model's parameters to Flyvis-217 model quantities (\cref{app:be
   \centering
   \includegraphics[width=\textwidth]{figures/fig_gnn_params_3col_noise_comparison.pdf}
   \caption{%
-    {\color{blue}\textbf{Circuit parameter extraction} from the general-form GNN
+    {\color{revised}\textbf{Circuit parameter extraction} from the general-form GNN
     ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 under
     three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
     \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
@@ -383,7 +384,7 @@ procedure applied to ground-truth parameters
 \textbf{(a)}~Hybrid model combining the Flyvis convolutional template (represented by orange disc, extent~8) with the FlyWire FAFB-v783 column lattice (teal disc) on the right hemisphere; 3D oblique view, right optic-lobe with representative registered visual neurons through lamina, medulla, lobula, and lobula plate neuropil meshes. Orange discs indicate ``e8 hybrid'' columns, scatter points indicate synapse positions, circles indicate $6\,\mu$m edge confusion radius around synapse clouds.
 \textbf{(b)}~In contrast to Flyvis template connectivity (Supplementary \cref{fig:flywire_SI}), per-column FlyWire receptive-field connectivity for an example projection (Tm3\,$\to$\,T4c): Each mini-hexlattice is the spatial RF kernel of one T4c target column at the location $(p, q) \in \{(0, 0), (0, 1), (1, 0), \cdots\}$ (extent~1), with input cells annotated by per-edge synapse count.  Cells lacking FlyWire evidence but covered by a null edge (n.e.) are marked \textit{n.e.}
 \textbf{(c)}~Average column connectivity for the same Tm3\,$\to$\,T4c projection.  \emph{Flyvis}: per-column-averaged convolutional kernel from the original Flyvis template.  \emph{FlyWire}: per-(d$p$,\,d$q$) offset average of FlyWire synapse counts.  \emph{Hull overlay}: union of offset support, coloured by membership (orange = Flyvis only, teal = FlyWire only, magenta = both).
-\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{blue}\textbf{(e)} Rollouts of the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled Pearson $r$ over all $50{,}412$ neurons and $8{,}000$ frames. \textbf{(f)} The same GNN trained with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}
+\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{revised}\textbf{(e)} Rollouts of the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled Pearson $r$ over all $50{,}412$ neurons and $8{,}000$ frames. \textbf{(f)} The same GNN trained with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}
 }
 \label{fig:flywire}
 \end{figure}
@@ -665,7 +666,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison.pdf}
-\caption{{\color{blue}\textbf{Rollout prediction.} General-form GNN (group lasso $25$) evaluated on
+\caption{{\color{revised}\textbf{Rollout prediction.} General-form GNN (group lasso $25$) evaluated on
     central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$, $\sigma = 0.05$,
     $\sigma = 0.5$; fold cv00 of experiment 2), tested on held-out stimuli, and compared against the
     noise-free Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): GNN
@@ -683,7 +684,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \begin{figure}[t]
     \centering
     \includegraphics[width=0.8\linewidth]{figures/fig_clustering_appendix.pdf}
-\caption{{\color{blue}\textbf{Cell-type clusterability across feature spaces} of the general-form GNN
+\caption{{\color{revised}\textbf{Cell-type clusterability across feature spaces} of the general-form GNN
     (group lasso $25$, $\sigma = 0.05$, fold cv00 of experiment 2).
     Each panel scatters the $13{,}741$ neurons of the central $217$-column Flyvis model coloured by
     ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM) accuracy, Adjusted Rand Index
@@ -705,7 +706,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_ablation50.pdf}
-\caption{{\color{blue}\textbf{Rollout prediction under $50\%$ edge ablation.} General-form GNN (group
+\caption{{\color{revised}\textbf{Rollout prediction under $50\%$ edge ablation.} General-form GNN (group
     lasso $25$; fold cv00 of experiment 2) evaluated on central $217$-column Flyvis data under three model
     noise regimes (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli,
     and compared against the noise-free ablated Flyvis simulation. For each test the simulator
@@ -727,7 +728,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \begin{figure}[ht!]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_stim_rollout_inr.pdf}
-\caption{{\color{blue}\textbf{Joint GNN+INR (visual SIREN)}: the general-form GNN (group lasso $25$,
+\caption{{\color{revised}\textbf{Joint GNN+INR (visual SIREN)}: the general-form GNN (group lasso $25$,
     one-step training) evaluated on central $217$-column Flyvis data with low model noise
     ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
     first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
@@ -758,7 +759,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
   \centering
   \includegraphics[width=0.95\textwidth]{figures/fig_gnn_params_4col_flywire_comparison.pdf}
   \caption{%
-    {\color{blue}\textbf{Circuit parameter extraction from the general-form GNN} (group lasso $25$)
+    {\color{revised}\textbf{Circuit parameter extraction from the general-form GNN} (group lasso $25$)
     \textbf{on the four FlyWire connectome variants} with low model noise ($\sigma = 0.05$; fold cv00
     of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
     with proximal null edges.
@@ -1895,7 +1896,7 @@ FlyWireRF runs.
 \begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode.pdf}
-\caption{{\color{blue}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published runs, fold
+\caption{{\color{revised}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published runs, fold
     cv00) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
     $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli, and compared against the noise-free
     Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout
@@ -1913,8 +1914,26 @@ FlyWireRF runs.
 
 \begin{figure}[ht!]
   \centering
+  \includegraphics[width=\textwidth]{figures/fig_known_ode_params_3col_noise_comparison_new.pdf}
+\caption{{\color{revised}\textbf{Known-ODE parameter recovery}. Known-ODE models (the published runs, fold cv00,
+    re-analysed with the current analysis code, experiment 15) on Flyvis-217 under three model noise regimes
+    ($\sigma = 0$, $0.05$, $0.5$). \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$,
+    one point per edge, all $434{,}112$ edges (the Known-ODE learns $W$ directly); $1{,}085$ edges ($0.25\%$)
+    lie outside the $[-1, 2]$ axes. \textbf{(b, d, f)}~UMAP projection of the per-neuron feature vector the
+    clustering accuracy is computed on (learned $\tau$ and $V^{\mathrm{rest}}$, with the mean, SD, minimum
+    and maximum of the incoming and of the outgoing learned weights, standardised), coloured by
+    ground-truth cell type. \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
+    \textbf{(h, j, l)}~Time constants $\tau_i$. Each scatter is annotated with the $R^2$ and slope of learned
+    against true quoted in \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and
+    $V^{\mathrm{rest}}$ the inlier $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted
+    $\pm 0.1$~s / $\pm 0.2$ bands in red, drawn on the axis edge when beyond it, and their fraction printed).}}
+\label{fig:known_ode_params_3col_noise_comparison}
+\end{figure}
+
+\begin{figure}[ht!]
+  \centering
   \includegraphics[width=\textwidth]{figures/fig_known_ode_params_3col_noise_comparison.png}
-\caption{\textbf{Known-ODE parameter recovery}. Known-ODE
+\caption{\textcolor{orange}{[For comparison only, to be removed] The published figure.} \textbf{Known-ODE parameter recovery}. Known-ODE
     models evaluated on central $217$-column Flyvis data under three model noise regimes
     ($\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$). Each column shows the
     same four diagnostics for one noise level. \textbf{(a, c, e)} Learned
@@ -1927,7 +1946,7 @@ FlyWireRF runs.
     flagged in red, and R$^2$ / slope are reported on the inlier set
     (full-sample R$^2$ in parentheses). \textbf{(h, j, l)} Same convention for
     the membrane time constant $\tau$.}
-\label{fig:known_ode_params_3col_noise_comparison}
+\label{fig:known_ode_params_3col_noise_comparison_published}
 \end{figure}
 
 \input{tables/cv_table_known_ode_conditions}

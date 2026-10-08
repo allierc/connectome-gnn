@@ -15,7 +15,7 @@ Mean +- SD over folds (SD with ddof = 0, as the published tables).
 
 Rows with no campaign run yet keep the published numbers and are printed in
 red; rows the campaign ran with a different training scheme say so in their
-label. Captions are blue where they describe new content.
+label. Captions are green (colour `revised`, defined by edit_tex.py) where they describe new content.
 """
 import json
 import os
@@ -135,7 +135,7 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
  & low-noise & $0.05$ & $0.90{\pm}0.10$ & \good{$0.97{\pm}0.04$} & \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
  & high-noise & $0.5$ & $0.60{\pm}0.20$ & $0.77{\pm}0.25$ & \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
 """
-    caption = (r"{\color{blue}\textbf{GNN and baselines on Flyvis-217} across three training-noise levels "
+    caption = (r"{\color{revised}\textbf{GNN and baselines on Flyvis-217} across three training-noise levels "
                r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). GNN rows: the general-form GNN, "
                r"$g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$ on its "
                r"input groups, one-step training (experiment 2 of the campaign, runs "
@@ -208,7 +208,7 @@ EED  & het.\ RF   &  $13\,741$ & $327\,358$ & e8 hybrid & $0.88{\pm}0.12$ & \goo
 EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.83{\pm}0.14$ & \good{$0.95{\pm}0.06$}
 & \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
 """
-    caption = (r"{\color{blue}\textbf{GNN recovery on hybrid connectome variants} under connectivity uncertainty "
+    caption = (r"{\color{revised}\textbf{GNN recovery on hybrid connectome variants} under connectivity uncertainty "
                r"(null-edge augmentation); low model noise $\sigma = 0.05$, 5-fold CV (mean $\pm$ SD). Variant is "
                r"either e8 hybrid ($13{,}741$ neurons) or FlyWire eye ($50{,}412$ neurons). Known-ODE and GNN rows "
                r"are the campaign's re-runs (experiment 7, runs \texttt{<variant>\_blank50\_kode\_cv0N} and "
@@ -267,7 +267,7 @@ def table_cross(numbers):
     add("$10\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid10_condl251s_{fold}")
     add("$20\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid20_none_condl251s_{fold}")
     numbers["table_cross"] = agg
-    caption = (r"{\color{blue}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, "
+    caption = (r"{\color{revised}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, "
                r"5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, "
                r"added/removed edges, sub-sampled frames, and hidden neurons. Every row is the general-form GNN "
                r"($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) of the campaign: "
@@ -328,7 +328,7 @@ def table_known_ode(numbers):
         rows.append(f"{lab:<24} & ${sig}$ & ${gam}$ & ${edges}$\n" + metric_cells(a)
                     + f"  & {cell(a['clustering_accuracy'])} \\\\")
     numbers["table_known_ode"] = agg
-    caption = (r"{\color{blue}\textbf{Known-ODE evaluation across degraded versions} of the Flyvis training "
+    caption = (r"{\color{revised}\textbf{Known-ODE evaluation across degraded versions} of the Flyvis training "
                r"data: model and measurement noise, added/removed connectivity edges. The published Known-ODE "
                r"runs, re-analysed with the paper's current analysis code (experiment 15). Five-fold "
                r"cross-validation (mean~$\pm$~SD). Prediction: metrics computed on noise-free data with "
