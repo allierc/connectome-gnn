@@ -21,6 +21,7 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
+from matplotlib.patches import FancyArrowPatch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paper_style import (CM, COLOR_GT, COLOR_PRED, FIG_DIR, FS_ANNOT, FS_LABEL, FS_PANEL, FS_TICK, LOG_ROOT,  # noqa: E402
@@ -42,7 +43,13 @@ WIDTH = 18.0
 
 # fonts of the published PNG once scaled to the page: its titles are about 4.5 pt,
 # tick labels 4 pt, letters 7 pt bold -- the new panels use the same sizes
-FS_T, FS_K, FS_L = 4.5, 4.0, 10.0   # letters: the published 'd' is 0.27 cm tall at page width, i.e. 10 pt bold
+FS_T, FS_K = 4.5, 4.0
+# THE PANEL LETTERS ARE REDRAWN, all six at Fig. 1's size (FS_PANEL, 9 pt bold): the published PNG's own
+# a-d are painted over at the pixel boxes measured on it (rows, cols), so the figure's letters are uniform.
+PNG_LETTERS = {"a": (19, 72, 8, 55), "b": (1, 72, 1496, 1545), "c": (19, 72, 2878, 2925), "d": (1161, 1232, 7, 60)}
+# the "time" text and arrow of panel d, as fractions of the PNG height from its top (measured): the new
+# panels' "time" and arrow are placed on the same lines
+TIME_TEXT_Y, TIME_ARROW_Y = 0.9665, 0.9860
 
 
 def traces(ax, b, idx, labels, step, title, footer, r, sd):
@@ -59,17 +66,14 @@ def traces(ax, b, idx, labels, step, title, footer, r, sd):
     ax.set_xlim(t[0], t[-1]); ax.set_xticks([]); ax.spines["bottom"].set_visible(False)
     ax.set_ylim(-0.8 * step, (n - 0.2) * step)
     ax.set_title(title, fontsize=FS_T, pad=2, loc="left", x=0.12)
-    # the published footer strip: "time ->" arrow at the left, the totals to the right
-    ax.text(0.0, -0.06, "time", transform=ax.transAxes, ha="left", va="top", fontsize=FS_K)
-    ax.annotate("", xy=(0.085, -0.2), xytext=(0.0, -0.2), xycoords="axes fraction",
-                arrowprops=dict(arrowstyle="-|>", lw=0.6, color="k", shrinkA=0, shrinkB=0))
-    ax.text(0.42, -0.06, footer, transform=ax.transAxes, ha="center", va="top", fontsize=FS_K)
     ax.text(1.0, 1.0, f"$r$ = {r:.2f} $\\pm$ {sd:.2f}", transform=ax.transAxes, ha="right", va="bottom", fontsize=FS_K)
 
 
 def main():
-    img = np.asarray(Image.open(PUBLISHED).convert("RGB"))
+    img = np.asarray(Image.open(PUBLISHED).convert("RGB")).copy()
     H, W = img.shape[:2]
+    for r0, r1, c0, c1 in PNG_LETTERS.values():
+        img[r0 - 2:r1 + 3, c0 - 2:c1 + 3] = 255
     top = img[: int(ROW_SPLIT * H)]
     d_panel = img[int(ROW_SPLIT * H):, : int(D_SPLIT * W)]
     top_h = WIDTH * top.shape[0] / top.shape[1]                 # cm, at full width
@@ -84,6 +88,10 @@ def main():
 
     ax = fig.add_axes(rect(0, height - 0.2 - top_h, WIDTH, top_h)); ax.imshow(top); ax.set_axis_off()
     ax = fig.add_axes(rect(0, bottom, d_w, row_h)); ax.imshow(d_panel); ax.set_axis_off()
+    for letter, (r0, r1, c0, c1) in PNG_LETTERS.items():
+        px = c0 * WIDTH / W
+        py = (height - 0.2 - r0 * WIDTH / W) if r0 < ROW_SPLIT * H else (bottom + row_h - (r0 - ROW_SPLIT * H) * WIDTH / W)
+        fig.text(px / WIDTH, py / height, letter, fontsize=FS_PANEL, fontweight="bold", ha="left", va="top")
     x = d_w + 0.9
     pw = (WIDTH - x - 0.3 - 1.1) / 2
     for k, (letter, title, run, footer) in enumerate(PANELS):
@@ -92,19 +100,29 @@ def main():
         idx = [int(np.where(types == names.index(nm))[0][0]) for nm in TYPES]
         step = 2.5 * float(np.std(b["activity_true"][idx, T0:T1]))
         r, sd = fisher_r(b["activity_true"], b["activity_pred"])
-        axp = fig.add_axes(rect(x + k * (pw + 1.1), bottom + 0.15, pw, row_h - 0.6))
+        axp = fig.add_axes(rect(x + k * (pw + 1.1), bottom + 0.5, pw, row_h - 0.85))
         traces(axp, b, idx, TYPES, step, title, footer, r, sd)
-        fig.text((x + k * (pw + 1.1) - 0.6) / WIDTH, (bottom + row_h - 0.05) / height, letter, fontsize=FS_L,
+        xl = x + k * (pw + 1.1)
+        fig.text((xl - 0.6) / WIDTH, (bottom + row_h - 0.05) / height, letter, fontsize=FS_PANEL,
                  fontweight="bold", ha="right", va="top")
+        # "time ->" on panel d's lines
+        y_txt = bottom + row_h - (TIME_TEXT_Y * H - ROW_SPLIT * H) * WIDTH / W
+        y_arr = bottom + row_h - (TIME_ARROW_Y * H - ROW_SPLIT * H) * WIDTH / W
+        fig.text(xl / WIDTH, y_txt / height, "time", ha="left", va="center", fontsize=FS_K)
+        fig.add_artist(FancyArrowPatch((xl / WIDTH, y_arr / height), ((xl + 0.45) / WIDTH, y_arr / height),
+                                       transform=fig.transFigure, arrowstyle="-|>", mutation_scale=4,
+                                       lw=0.6, color="k", shrinkA=0, shrinkB=0))
+        # the totals on the "time" line, centred under the panel; the legend between e and f on that line
+        fig.text((xl + 0.9) / WIDTH, y_txt / height, footer, ha="left", va="center", fontsize=FS_K)
         print(f"{letter} {run}: r {r:.3f} +- {sd:.3f}")
     # one "-- simulated  -- inferred" legend between e and f, on the footer line (the published strip),
     # as a legend of two proxy lines so the swatches sit at the text height
-    xr = (x + pw + 1.1 - 0.25) / WIDTH          # right-aligned just before panel f's "time" arrow
-    yl = (bottom + 0.15 - 0.22) / height
+    xr = (x + pw + 1.1 - 0.15) / WIDTH          # right-aligned just before panel f's "time" arrow
+    yl = (bottom + row_h - (TIME_TEXT_Y * H - ROW_SPLIT * H) * WIDTH / W + 0.1) / height
     fig.legend(handles=[plt.Line2D([], [], color=COLOR_GT, lw=1.2, label="simulated"),
                         plt.Line2D([], [], color=COLOR_PRED, lw=1.2, label="inferred")],
                loc="upper right", bbox_to_anchor=(xr, yl), ncol=2, fontsize=FS_K, frameon=False,
-               handlelength=1.4, handletextpad=0.4, columnspacing=0.9, borderaxespad=0)
+               handlelength=1.2, handletextpad=0.3, columnspacing=0.7, borderaxespad=0)
     save(fig, os.path.join(FIG_DIR, "fig_flywire_hybrid_new"))
 
 
