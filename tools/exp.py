@@ -898,7 +898,13 @@ _FIGURES = {"derivative_target":
              ("Fig/exp02_panels_conductance_noise005_top.png",
               "neuron 2895 Am, conductance lasso 100 --- a, b, c, e", 0.72),
              ("Fig/exp02_panels_conductance_noise005_bot.png",
-              "neuron 2895 Am, conductance lasso 100 --- d, f", 0.80)]}
+              "neuron 2895 Am, conductance lasso 100 --- d, f", 0.80)],
+            # tools/error_histograms.py 15: three rows (model noise, measurement
+            # noise, connectivity), taller than exp01's two, hence the height
+            "known_ode_217_reanalysis":
+            [("Fig/exp15_errors.png", "recovery errors, five folds pooled", 0.85)]
+            + [(f"Fig/exp15_errors_cv{i:02d}.png", f"recovery errors, fold cv{i:02d}", 0.85)
+               for i in range(5)]}
 _GREEN = 0.9
 
 
