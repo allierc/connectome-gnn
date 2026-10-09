@@ -201,26 +201,5 @@ bsub_*.err
 /papers/
 /presentation/
 
-# experiments/paper: the manuscript build (scripts, tables, tex and the regenerated figures are tracked;
-# the Overleaf export, its copied figures, the zips and the compiled pdf are not)
-!experiments/paper/
-experiments/paper/overleaf/
-experiments/paper/*.zip
-experiments/paper/*.pdf
-experiments/paper/main.aux
-experiments/paper/main.log
-experiments/paper/main.out
-experiments/paper/main.bbl
-experiments/paper/main.blg
-experiments/paper/scripts/__pycache__/
-experiments/paper/figures/*
-!experiments/paper/figures/fig_gnn_params_3col_noise_comparison.*
-!experiments/paper/figures/fig_rollout_3col_noise_comparison.p*
-!experiments/paper/figures/fig_gnn_params_4col_flywire_comparison.*
-!experiments/paper/figures/fig_clustering_appendix.*
-!experiments/paper/figures/fig_stim_rollout_inr.p*
-!experiments/paper/scripts/
-!experiments/paper/figures/fig_rollout_3col_noise_comparison_ablation50.p*
-!experiments/paper/figures/fig_flywire_hybrid_new.p*
-!experiments/paper/figures/fig_rollout_3col_noise_comparison_known_ode.p*
-!experiments/paper/figures/fig_known_ode_params_3col_noise_comparison_new.p*
+# experiments/paper: the manuscript build -- local only, not tracked (2026-10-09)
+experiments/paper/
