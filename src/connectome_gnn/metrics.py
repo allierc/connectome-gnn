@@ -4498,9 +4498,11 @@ CLUSTERING_VARIANTS = ("gt", "params", "emb")
 
 def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learned_tau=None,
                               learned_vrest=None, embedding=None, gt_W=None, gt_tau=None,
-                              gt_vrest=None, n_components=None):
+                              gt_vrest=None, n_components=None, return_features=False):
     """{clustering_<variant>_<stat>: value} for each CLUSTERING_VARIANTS entry
-    whose inputs are given; a variant with nothing to cluster is left out."""
+    whose inputs are given; a variant with nothing to cluster is left out. With
+    return_features, also `_X_<variant>`: the stack that variant was clustered on
+    (underscore keys never reach metrics.txt)."""
     inputs = {
         "gt": dict(learned_W=gt_W, learned_tau=gt_tau, learned_vrest=gt_vrest),
         "params": dict(learned_W=learned_W, learned_tau=learned_tau, learned_vrest=learned_vrest),
@@ -4513,9 +4515,12 @@ def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learn
             continue
         res = cluster_recovery(type_list, edges, kw.get("learned_W"), n_neurons,
                                embedding=kw.get("embedding"), learned_tau=kw.get("learned_tau"),
-                               learned_vrest=kw.get("learned_vrest"), n_components=n_components)
+                               learned_vrest=kw.get("learned_vrest"), n_components=n_components,
+                               return_features=return_features)
         if res is None:
             continue
+        if return_features:
+            out[f"_X_{variant}"] = res.pop("_X")
         for k, v in res.items():
             out[f"clustering_{variant}_{k[len('clustering_'):]}"] = v
     return out

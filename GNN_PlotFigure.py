@@ -2804,14 +2804,21 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # the site below recompute and write clustering_accuracy a second time.
             if _cl is not None:
                 try:
-                    write_recovery_metrics(cluster_recovery_variants(
+                    _cv = cluster_recovery_variants(
                         to_numpy(type_list), to_numpy(edges), n_neurons,
                         learned_W=learned_weights, learned_tau=learned_tau,
                         learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
                         embedding=to_numpy(model.a) if _has_emb else None,
                         gt_W=to_numpy(gt_weights).ravel(), gt_tau=gt_taus_np,
                         gt_vrest=gt_vrest_np if ode_params.has_vrest() else None,
-                        n_components=n_gmm), log_dir, log_file=log_file, logger=logger)
+                        n_components=n_gmm, return_features=True)
+                    # the stacks themselves, so a figure projects exactly what was scored
+                    np.savez_compressed(
+                        _fig_out(log_dir, "clustering_features.npz"),
+                        type_ids=to_numpy(type_list).ravel().astype(np.int64), X_full=a_aug,
+                        **{k[1:]: v for k, v in _cv.items() if k.startswith("_X_")})
+                    write_recovery_metrics({k: v for k, v in _cv.items() if not k.startswith("_")},
+                                           log_dir, log_file=log_file, logger=logger)
                 except Exception as _e:
                     logger.warning(f"clustering variants skipped: {type(_e).__name__}: {_e}")
             # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
