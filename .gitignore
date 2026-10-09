@@ -207,6 +207,7 @@ bsub_*.err
 experiments/paper/overleaf/
 experiments/paper/*.zip
 experiments/paper/*.pdf
+!experiments/paper/main.pdf
 experiments/paper/main.aux
 experiments/paper/main.log
 experiments/paper/main.out
