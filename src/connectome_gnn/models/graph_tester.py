@@ -788,6 +788,7 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
 
     # Compute stimuli_R2: SIREN output vs true stimulus (with linear correction ax+b)
     stimuli_R2 = None
+    stimuli_r_cell = stimuli_r_cell_sd = None
     stim_true_2d = None
     stim_pred_2d = None
     stim_pred_corrected_2d = None
@@ -806,6 +807,13 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         stimuli_r  = float(stimuli_R2 ** 0.5) if stimuli_R2 >= 0 else 0.0
         stim_pred_corrected_2d = pred_corrected
         logger.info(f'stimuli_R2 (corrected a={a_coeff:.4f} b={b_coeff:.4f}): {stimuli_R2:.4f}  stimuli_r={stimuli_r:.4f}')
+        # PER PHOTORECEPTOR, as the rollout is per neuron: the Pearson r of each input
+        # cell's recovered stimulus over the frames (invariant to the a, b correction),
+        # pooled in Fisher z by utils.fisher_pool -- mean and symmetric SD. stimuli_r
+        # above is one global fit; a figure quoting a per-cell mean +- SD reads these.
+        _, _stim_pear, _, _ = compute_trace_metrics(stim_true_2d.T, stim_pred_2d.T, label="stimulus")
+        _stim_fz = fisher_pool(_stim_pear)
+        stimuli_r_cell, stimuli_r_cell_sd = float(_stim_fz["r_mean"]), float(_stim_fz["r_sd_sym"])
 
         # Generate stimuli GT vs Pred video
         if hasattr(x_ts_eval.frame(0), 'pos') and x_ts_eval.frame(0).pos is not None:
@@ -870,6 +878,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if stimuli_R2 is not None:
             f.write(f"stimuli_R2: {stimuli_R2:.4f}\n")
             f.write(f"stimuli_r: {stimuli_r:.4f}\n")
+        if stimuli_r_cell is not None:
+            f.write(f"stimuli_r_cell: {stimuli_r_cell:.4f}\n")
+            f.write(f"stimuli_r_cell_sd: {stimuli_r_cell_sd:.4f}\n")
     logger.debug(f'rollout metrics saved to {rollout_log_path}')
 
     # RMSE and Pearson r as a function of rollout step (every 500 frames), saved as CSV
@@ -906,6 +917,9 @@ def data_test_gnn(config, best_model=None, device=None, log_file=None, test_conf
         if stimuli_R2 is not None:
             log_file.write(f'stimuli_R2: {stimuli_R2:.4f}\n')
             log_file.write(f'stimuli_r: {stimuli_r:.4f}\n')
+        if stimuli_r_cell is not None:
+            log_file.write(f'stimuli_r_cell: {stimuli_r_cell:.4f}\n')
+            log_file.write(f'stimuli_r_cell_sd: {stimuli_r_cell_sd:.4f}\n')
 
     # --- Rollout trace plots ---
     neuron_types = to_numpy(type_list).astype(int).squeeze()

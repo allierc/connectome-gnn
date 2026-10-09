@@ -1508,6 +1508,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         _keys = (
             'Pearson r', 'RMSE', 'hidden_rollout_pearson',
             'visible_rollout_pearson', 'stimuli_R2', 'stimuli_r',
+            'stimuli_r_cell', 'stimuli_r_cell_sd',
         )
         _mirrored = []
         for _k in _keys:
