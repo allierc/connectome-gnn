@@ -1280,9 +1280,7 @@ def _slides(fm):
               r"training and analysis jobs. Outcome: CUDA OOM or LSF \texttt{TERM\_MEMLIMIT}.\par}"]
     elif _timing:
         L += [r"\\[10pt]", r"\centering\tiny",
-              r"\placetable{\tblC}", r"\\[4pt]",
-              r"{\tiny\raggedright it/s: last iteration in \texttt{tmp\_training/Wij.log} / "
-              r"LSF \texttt{Run time} (\texttt{cluster.out}). Training job only.\par}"]
+              r"\placetable{\tblC}"]
     L += [r"\end{frame}"]
     for fig, cap, *rest in ([] if _w else _FIGURES.get(fm["name"], [])):
         box = rest[0] if rest else 0.72
