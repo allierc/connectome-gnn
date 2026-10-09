@@ -525,7 +525,7 @@ def launch(number, dry_run=False, only_arm=None, where=None):
 
 
 def analyse(number, dry_run=False, only_arm=None, preliminary=False,
-            redo=None, queue=None, n_cpus=None, limit=None):
+            redo=None, queue=None, n_cpus=None, limit=None, where=None):
     """bsub `-o test_plot` for every run whose training has finished.
 
     The held-out numbers the landed table reads come from results/metrics.txt,
@@ -549,10 +549,16 @@ def analyse(number, dry_run=False, only_arm=None, preliminary=False,
     # experiments (exp02 reads exp01's folds) is submitted once.
     def _kept(r):
         return os.path.join(LOG_ROOT, r, "superseded", redo, "metrics.txt")
+    # `where` cuts by axis value as launch's does -- a `--redo` that should touch
+    # three folds would otherwise re-analyse the whole experiment (2026-09-29,
+    # exp02 ablation_clear: 15 runs instead of 3).
+    where = dict(where or [])
     seen = set()
     todo = []
     for _a, _pt, r in runs(fm):
         if r in seen or (only_arm is not None and _a["id"] != only_arm):
+            continue
+        if not all(_pt.get(k) in v for k, v in where.items()):
             continue
         seen.add(r)
         if redo:
@@ -1412,9 +1418,11 @@ def main(argv=None) -> int:
     if a.verb == "analyse":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]
+        where = [(w.split("=", 1)[0], set(w.split("=", 1)[1].split(",")))
+                 for w in a.where]
         return max(analyse(n, dry_run=a.dry_run, only_arm=a.arm,
                            preliminary=a.preliminary, redo=a.redo,
-                           queue=a.queue, n_cpus=a.n_cpus, limit=a.limit)
+                           queue=a.queue, n_cpus=a.n_cpus, limit=a.limit, where=where)
                    for n in ns)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))

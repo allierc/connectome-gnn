@@ -496,5 +496,13 @@ def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_t
         arrays["edge_vj"] = s["vj"].astype(np.float32)
         arrays["edge_msg_true"] = (gt_W[e][:, None] * np.maximum(s["vj"], 0.0)).astype(np.float32)
         arrays["edge_msg_learned"] = ((np.asarray(k)[i_ids] * W_hat[e])[:, None] * s["g_phi"]).astype(np.float32)
+        # The per-edge message's fit, scored HERE (the plot pass) so a figure of
+        # these pairs prints test_plot's number: msg_ij_R2 (identity line, no
+        # outlier band), msg_ij_slope, msg_ij_n (edges x frames).
+        from connectome_gnn.metrics import recovery_param_metrics, write_recovery_metrics
+        m = recovery_param_metrics(arrays["edge_msg_true"].astype(np.float64).ravel(),
+                                   arrays["edge_msg_learned"].astype(np.float64).ravel(), None)
+        write_recovery_metrics({"msg_ij_R2": float(m["r2"]), "msg_ij_slope": float(m["slope"]),
+                                "msg_ij_n": int(m["n_total"])}, str(log_dir))
     np.savez_compressed(out, **arrays)
     return out

@@ -4486,6 +4486,41 @@ def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
     return out
 
 
+# THE CLUSTERING VARIANTS the paper's clusterability figure compares, scored here
+# so the figure prints numbers test_plot wrote rather than computing its own.
+# Each is cluster_recovery on a subset of its feature stack, its keys renamed
+# clustering_<variant>_<stat> (the main clustering_<stat> keeps the full stack):
+#   gt      the TRUE tau, V_rest and statistics of the true W -- the ceiling
+#   params  the learned tau, V_rest and W, no embedding
+#   emb     the learned embedding a_i alone
+CLUSTERING_VARIANTS = ("gt", "params", "emb")
+
+
+def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learned_tau=None,
+                              learned_vrest=None, embedding=None, gt_W=None, gt_tau=None,
+                              gt_vrest=None, n_components=None):
+    """{clustering_<variant>_<stat>: value} for each CLUSTERING_VARIANTS entry
+    whose inputs are given; a variant with nothing to cluster is left out."""
+    inputs = {
+        "gt": dict(learned_W=gt_W, learned_tau=gt_tau, learned_vrest=gt_vrest),
+        "params": dict(learned_W=learned_W, learned_tau=learned_tau, learned_vrest=learned_vrest),
+        "emb": dict(learned_W=None, embedding=embedding),
+    }
+    out = {}
+    for variant in CLUSTERING_VARIANTS:
+        kw = inputs[variant]
+        if all(v is None for v in kw.values()):
+            continue
+        res = cluster_recovery(type_list, edges, kw.get("learned_W"), n_neurons,
+                               embedding=kw.get("embedding"), learned_tau=kw.get("learned_tau"),
+                               learned_vrest=kw.get("learned_vrest"), n_components=n_components)
+        if res is None:
+            continue
+        for k, v in res.items():
+            out[f"clustering_{variant}_{k[len('clustering_'):]}"] = v
+    return out
+
+
 def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
                  estimator, need):
     """A GNN keeps no parameter in the units of ode_params.W, so every quantity

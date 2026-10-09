@@ -91,7 +91,8 @@ from connectome_gnn.results_layout import (
     fig_out as _fig_out,
 )
 from connectome_gnn.metrics import (
-    RECOVERY_KEYS, cluster_recovery, write_recovery_metrics, score_recovery)
+    RECOVERY_KEYS, cluster_recovery, cluster_recovery_variants, write_recovery_metrics,
+    score_recovery)
 
 # Per-parameter outlier thresholds for the recovery scatters / R² / metrics.
 # Fixed by neurips.tex eq:outlier_threshold (|theta_hat - theta| > delta), held
@@ -2796,6 +2797,22 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             except Exception as _e:
                 logger.warning(f"clustering deferred: {type(_e).__name__}: {_e}")
                 _cl = None
+            # the clusterability figure's comparison -- ground truth, learned
+            # parameters alone, embedding alone (metrics.cluster_recovery_variants).
+            # Its own guard: a failure here must not reset _cl, which would make
+            # the site below recompute and write clustering_accuracy a second time.
+            if _cl is not None:
+                try:
+                    write_recovery_metrics(cluster_recovery_variants(
+                        to_numpy(type_list), to_numpy(edges), n_neurons,
+                        learned_W=learned_weights, learned_tau=learned_tau,
+                        learned_vrest=learned_V_rest if ode_params.has_vrest() else None,
+                        embedding=to_numpy(model.a) if _has_emb else None,
+                        gt_W=to_numpy(gt_weights).ravel(), gt_tau=gt_taus_np,
+                        gt_vrest=gt_vrest_np if ode_params.has_vrest() else None,
+                        n_components=n_gmm), log_dir, log_file=log_file, logger=logger)
+                except Exception as _e:
+                    logger.warning(f"clustering variants skipped: {type(_e).__name__}: {_e}")
             # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
             # against the truth and E_ij did not, although the template readout
             # produces the pair -- so the one quantity that is gauge-invariant,
