@@ -1,0 +1,47 @@
+\begin{table}[h]
+\centering
+\caption{GNN recovery on hybrid connectome variants under connectivity uncertainty (zero-edge augmentation, no coregistration perturbation).
+All runs use low model noise $\sigma = 0.05$ on the flyvis hex lattice ($13{,}741$ neurons, extent $= 8$, $65$ cell types).
+$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ are reported on the full neuron set; the parenthetical pair shows the outlier-corrected $R^2$ and the percentage of neurons dropped (residual-based outlier filter).
+\textcolor{green!50!black}{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}
+\label{tab:hybrid_recovery}
+\tiny
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcrrrrr}
+\toprule
+& & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+model & condition & edges
+  & one-step $r$ & rollout $r$
+  & $R^2_{\widehat{W}}$
+  & $R^2_{\widehat{\tau}}$ (outlier-corr., out.\ \%)
+  & $R^2_{\widehat{V}^{\mathrm{rest}}}$ (outlier-corr., out.\ \%) \\
+\midrule
+Known ODE & het.\ RF                  & $327\,358$
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.98{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00,\,0.0)$}
+  & \good{$0.93{\pm}0.00\,(0.99,\,5.6)$} \\
+          & het.\ RF + uncert.\ edges & $2\,418\,403$
+  & \good{$1.00$} & \good{$1.00$}
+  & \good{$0.93{\pm}0.00$}
+  & \good{$1.00{\pm}0.00\,(1.00,\,0.0)$}
+  & $0.89{\pm}0.00\,(\good{0.98},\,4.3)$ \\
+\midrule
+GNN       & het.\ RF                  & $327\,358$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.94{\pm}0.04$}
+  & \good{$0.98{\pm}0.02\,(0.99,\,0.1)$}
+  & \bad{$-0.23{\pm}1.55$}\,$(\good{0.87},\,6.9)$ \\
+          & het.\ RF + uncert.\ edges & $2\,418\,403$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.01$}
+  & \good{$0.90{\pm}0.06$}
+  & $0.87{\pm}0.06\,(\good{0.97},\,1.4)$
+  & \bad{$-1.32{\pm}0.76$}\,$(0.65,\,25.4)$ \\
+\midrule
+MLP       & het.\ RF                  & $2\,418\,403$
+  & \good{$0.90{\pm}0.09$} & \good{$0.97{\pm}0.05$} \\
+EED       & het.\ RF                  & $2\,418\,403$
+  & $0.88{\pm}0.12$        & \good{$0.97{\pm}0.05$} \\
+\bottomrule
+\end{tabular}
+\end{table}

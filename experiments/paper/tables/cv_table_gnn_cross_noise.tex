@@ -1,0 +1,86 @@
+% Supp. Tab. 4 -- written by scripts/make_tables.py; conductance lasso 25 rows from experiments 2, 3, 4, 5, 9, 11
+\begin{table}[h!]
+\centering
+\caption{{\color{revised}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, sub-sampled frames, and hidden neurons. Every row is the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) of the campaign: experiments 2 (low model noise), 3 (measurement noise, trained with the 20-step recurrent rollout since one-step training was not run for this form), 11 (unknown stimulus), 4 (null edges), 14 (edges removed, $10\%$ hidden), 5 ($1/5$ frames, the rollout scored on the observed frames only, horizons 6 and 21) and 9 ($20\%$ hidden). Prediction metrics on noise-free held-out stimuli ($8{,}000$ frames). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the fitted edges; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$. \bad{Orange}: $<0.3$.}}
+\label{tab:cv_cross_noise}
+\tiny
+\setlength{\tabcolsep}{1.5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} @{}llrrrrr@{}rr@{}rr@{}}
+\toprule
+& \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+condition & noise $\gamma$ & \multicolumn{1}{c}{edges}
+  & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
+  & \multicolumn{1}{c}{$R^2_{\hat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\hat{\tau}} (\text{out.} \%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}} (\text{out.} \%)$}
+  & \multicolumn{1}{c}{cluster.\ acc.} \\
+\midrule
+low model noise                          & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$0.98{\pm}0.00$} & \good{$\,(0.0)$}
+  & \good{$0.90{\pm}0.02$} & \good{$\,(3.1)$}
+  & $0.89{\pm}0.01$ \\
+low meas.\ noise, 20-step recurrent      & $0.1$ & $434\,112$
+  & \good{$0.98{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $0.89{\pm}0.01$
+  & $0.53{\pm}0.05$ & $\,(5.3)$
+  & $0.70{\pm}0.03$ & $\,(23.2)$
+  & $0.85{\pm}0.03$ \\
+mid meas.\ noise, 20-step recurrent      & $0.2$ & $434\,112$
+  & \good{$0.95{\pm}0.00$} & \good{$0.98{\pm}0.00$}
+  & $0.75{\pm}0.01$
+  & \bad{$0.20{\pm}0.03$} & \bad{$\,(9.7)$}
+  & $0.58{\pm}0.03$ & $\,(38.2)$
+  & $0.80{\pm}0.02$ \\
+unknown stimulus                         & $0$ & $434\,112$
+  & \good{$0.99{\pm}0.00$} & $0.52{\pm}0.29$
+  & $0.65{\pm}0.46$
+  & $0.79{\pm}0.15$ & $\,(3.6)$
+  & $0.72{\pm}0.06$ & $\,(41.0)$
+  & $0.82{\pm}0.07$ \\
+$+400\%$ null edges                      & $0$ & $2\,170\,560$
+  & \good{$1.00{\pm}0.00$} & $0.80{\pm}0.40$
+  & \good{$0.96{\pm}0.04$}
+  & \good{$0.96{\pm}0.01$} & \good{$\,(0.9)$}
+  & $0.43{\pm}0.06$ & $\,(16.4)$
+  & $0.83{\pm}0.03$ \\
+$-20\%$ edges removed                    & $0$ & $347\,000$
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & $0.83{\pm}0.01$
+  & \good{$0.97{\pm}0.01$} & \good{$\,(0.1)$}
+  & $0.74{\pm}0.03$ & $\,(14.8)$
+  & $0.67{\pm}0.05$ \\
+$-50\%$ edges removed                    & $0$ & $217\,056$
+  & \good{$0.97{\pm}0.00$} & \good{$0.93{\pm}0.00$}
+  & \bad{$0.25{\pm}0.02$}
+  & \good{$0.95{\pm}0.01$} & \good{$\,(0.4)$}
+  & $0.57{\pm}0.03$ & $\,(35.6)$
+  & $0.55{\pm}0.02$ \\
+$1/5$ frames, rollout horizon 6          & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.98{\pm}0.01$}
+  & \good{$0.95{\pm}0.01$} & \good{$\,(0.5)$}
+  & $0.85{\pm}0.01$ & $\,(6.6)$
+  & $0.87{\pm}0.01$ \\
+$1/5$ frames, rollout horizon 21         & $0$ & $434\,112$
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.97{\pm}0.00$}
+  & \good{$0.93{\pm}0.02$} & \good{$\,(0.2)$}
+  & $0.83{\pm}0.04$ & $\,(8.6)$
+  & $0.87{\pm}0.02$ \\
+$10\%$ hidden                            & $0$ & $434\,112$
+  & \good{$0.99{\pm}0.00$} & $0.88{\pm}0.00$
+  & $0.81{\pm}0.01$
+  & \good{$0.96{\pm}0.01$} & \good{$\,(2.6)$}
+  & $0.83{\pm}0.02$ & $\,(14.1)$
+  & $0.68{\pm}0.03$ \\
+$20\%$ hidden                            & $0$ & $434\,112$
+  & \good{$0.98{\pm}0.00$} & $0.88{\pm}0.00$
+  & $0.57{\pm}0.03$
+  & \good{$0.92{\pm}0.02$} & \good{$\,(4.6)$}
+  & $0.72{\pm}0.01$ & $\,(27.5)$
+  & $0.51{\pm}0.03$ \\
+\bottomrule
+\end{tabular*}
+\end{table}

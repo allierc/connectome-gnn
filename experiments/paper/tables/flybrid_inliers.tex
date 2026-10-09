@@ -1,0 +1,74 @@
+% Tab. 2 -- written by scripts/make_tables.py; Known ODE + GNN rows = experiment 7 (kode, condl25)
+\begin{table}[t]
+\centering
+\caption{{\color{revised}\textbf{GNN recovery on hybrid connectome variants} under connectivity uncertainty (null-edge augmentation); low model noise $\sigma = 0.05$, 5-fold CV (mean $\pm$ SD). Variant is either e8 hybrid ($13{,}741$ neurons) or FlyWire eye ($50{,}412$ neurons). Known-ODE and GNN rows are the campaign's re-runs (experiment 7, runs \texttt{<variant>\_blank50\_kode\_cv0N} and \texttt{<variant>\_blank50\_condl25\_cv0N}): the GNN is the general-form GNN, $g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$; ML baselines are the published controls. Prediction metrics on noise-free held-out stimuli ($8{,}000$ frames). Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over the fitted non-zero edges; $R^2_{\widehat{\tau}}$ and $R^2_{\widehat{V}^{\mathrm{rest}}}$ over all neurons, outlier-corrected (Appendix~\ref{app:metrics}). \textcolor{green!50!black}{Green}: $>0.9$.}}
+\label{tab:zero_edge_inliers}
+\tiny
+\setlength{\tabcolsep}{3pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} lrrrrrrrr@{}rr@{}r@{}}
+\toprule
+& & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+model & \multicolumn{1}{c}{condition} & \multicolumn{1}{c}{neurons} & \multicolumn{1}{c}{edges} & \multicolumn{1}{c}{variant}
+  & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
+  & \multicolumn{1}{c}{$R^2_{\widehat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\widehat{\tau}}$\,(out.\ \%)}
+  & \multicolumn{2}{c}{$R^2_{\widehat{V}^{\mathrm{rest}}}$\,(out.\ \%)} \\
+\midrule
+Known ODE                & het.\ RF   & $13\,741$ & $327\,358$ & e8 hybrid
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.91{\pm}0.00$}
+  & \good{$0.97{\pm}0.00$} & \good{$\,(0.6)$}
+  & \good{$0.96{\pm}0.00$} & \good{$\,(9.4)$} \\
+                         & + n.e.     & $13\,741$ & $2\,418\,403$ & e8 hybrid
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & $0.90{\pm}0.00$
+  & \good{$0.97{\pm}0.00$} & \good{$\,(0.1)$}
+  & $0.90{\pm}0.00$ & $\,(6.9)$ \\
+  \cmidrule(l{0pt}r{0pt}){2-12}
+\textit{larger}          & het.\ RF   & $50\,412$ & $1\,266\,378$ & FlyWire eye
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.92{\pm}0.00$}
+  & \good{$0.97{\pm}0.00$} & \good{$\,(0.4)$}
+  & \good{$0.96{\pm}0.00$} & \good{$\,(9.1)$} \\
+\textit{visual field}    & + n.e.     & $50\,412$ & $9\,642\,335$ & FlyWire eye
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & $0.89{\pm}0.00$
+  & \good{$0.97{\pm}0.00$} & \good{$\,(0.5)$}
+  & $0.86{\pm}0.00$ & $\,(8.5)$ \\
+\midrule
+GNN                      & het.\ RF   & $13\,741$ & $327\,358$ & e8 hybrid
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.98{\pm}0.01$}
+  & \good{$0.98{\pm}0.01$} & \good{$\,(0.3)$}
+  & $0.87{\pm}0.02$ & $\,(6.4)$ \\
+                         & + n.e.     & $13\,741$ & $2\,418\,403$ & e8 hybrid
+  & \good{$0.99{\pm}0.00$} & \good{$0.99{\pm}0.00$}
+  & \good{$0.93{\pm}0.02$}
+  & \good{$0.94{\pm}0.01$} & \good{$\,(0.9)$}
+  & $0.68{\pm}0.02$ & $\,(21.9)$ \\
+  \cmidrule(l{0pt}r{0pt}){2-12}
+\textit{larger}          & het.\ RF   & $50\,412$ & $1\,266\,378$ & FlyWire eye
+  & \good{$1.00{\pm}0.00$} & \good{$1.00{\pm}0.00$}
+  & \good{$0.99{\pm}0.00$}
+  & \good{$0.97{\pm}0.01$} & \good{$\,(0.0)$}
+  & \good{$0.91{\pm}0.01$} & \good{$\,(4.1)$} \\
+\textit{visual field}    & + n.e.     & $50\,412$ & $9\,642\,335$ & FlyWire eye
+  & \good{$0.98{\pm}0.00$} & \good{$0.98{\pm}0.00$}
+  & $0.89{\pm}0.01$
+  & \good{$0.94{\pm}0.01$} & \good{$\,(1.2)$}
+  & $0.63{\pm}0.02$ & $\,(29.8)$ \\
+  \midrule
+MLP & het.\ RF   & $13\,741$ & $327\,358$ & e8 hybrid & \good{$0.90{\pm}0.09$} & \good{$0.97{\pm}0.05$}
+& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\cmidrule(l{0pt}r{0pt}){2-12}
+MLP \textit{l.v.f.} & het.\ RF   & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.86{\pm}0.10$ & \good{$0.96{\pm}0.06$}
+& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\midrule
+EED  & het.\ RF   &  $13\,741$ & $327\,358$ & e8 hybrid & $0.88{\pm}0.12$ & \good{$0.97{\pm}0.05$}
+& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\cmidrule(l{0pt}r{0pt}){2-12}
+EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.83{\pm}0.14$ & \good{$0.95{\pm}0.06$}
+& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\bottomrule
+\end{tabular*}
+\end{table}
