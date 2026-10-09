@@ -902,8 +902,8 @@ _FIGURES = {"derivative_target":
             # tools/error_histograms.py 15: three rows (model noise, measurement
             # noise, connectivity), taller than exp01's two, hence the height
             "known_ode_217_reanalysis":
-            [("Fig/exp15_errors.png", "recovery errors, five folds pooled", 0.85)]
-            + [(f"Fig/exp15_errors_cv{i:02d}.png", f"recovery errors, fold cv{i:02d}", 0.85)
+            [("Fig/exp15_errors.png", "recovery errors, five folds pooled", 0.68)]
+            + [(f"Fig/exp15_errors_cv{i:02d}.png", f"recovery errors, fold cv{i:02d}", 0.68)
                for i in range(5)]}
 _GREEN = 0.9
 
