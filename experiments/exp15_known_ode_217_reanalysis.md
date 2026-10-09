@@ -36,6 +36,7 @@ arms:
   submit: false
   differs_by: {}
 report:
+  slide_title: 'Known ODE re-analysed on degraded Flyvis-217 data'
   axis_labels:
     condition:
       flyvis_noise_free: noise-free

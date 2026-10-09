@@ -56,6 +56,7 @@ job_ids:
   flyvis_noise_005_null400_condl25_cv03: '154400339'
   flyvis_noise_005_null400_condl25_cv04: '154400340'
 report:
+  slide_title: '+400% null edges'
   arm_order:
   - current
   - cond_l25

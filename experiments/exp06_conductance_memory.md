@@ -39,6 +39,7 @@ arms:
   differs_by:
     queue: gpu_rtx6000
 report:
+  slide_title: 'FlyWire hybrid connectomes on three GPUs'
   memory: true
   axis_labels:
     variant:

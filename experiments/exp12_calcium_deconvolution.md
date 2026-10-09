@@ -33,6 +33,7 @@ arms:
   differs_by:
     training.recurrent_training: true
 report:
+  slide_title: 'Calcium: deconvolution, then training'
   axis_labels:
     data:
       'true': true voltage (control)

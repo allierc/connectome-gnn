@@ -77,6 +77,7 @@ job_ids:
   flyvis_noise_005_s5h21_condl25_cv03: '154448195'
   flyvis_noise_005_s5h21_condl25_cv04: '154448196'
 report:
+  slide_title: '1/5 frames observed'
   arm_order:
   - current
   - cond_l25

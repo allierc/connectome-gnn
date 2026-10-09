@@ -36,6 +36,7 @@ arms:
     training.calcium_tau_rise: 0.05
     training.calcium_tau_decay: 1.0
 report:
+  slide_title: 'Calcium: latent voltage, horizons 2 to 20'
   axis_labels:
     data:
       inf: calcium, no meas. noise

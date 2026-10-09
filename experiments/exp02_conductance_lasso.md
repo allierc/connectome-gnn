@@ -120,6 +120,7 @@ analyse_job_ids:
   flyvis_noise_05_blank50_condl25_cv03: '154565236'
   flyvis_noise_05_blank50_condl25_cv04: '154565237'
 report:
+  slide_title: 'GNN MLP(ai,aj,vi,vj), group lasso, model noise'
   arm_order:
   - current
   - cond_l25

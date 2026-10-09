@@ -35,6 +35,7 @@ arms:
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true
 report:
+  slide_title: 'Hidden neurons: free-running rollout'
   axis_labels:
     hidden:
       '10': 10% hidden

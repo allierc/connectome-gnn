@@ -38,6 +38,7 @@ analyse_job_ids:
   bench_a100_fp32: '154463665'
   bench_a100_bf16: '154463666'
 report:
+  slide_title: 'GPU benchmark: RTX 6000 vs A100, fp32 vs bf16'
   timing: true
   timing_iters: 1600000
 ---

@@ -36,6 +36,7 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 report:
+  slide_title: 'Edges removed (-20%, -50%) and 10% hidden neurons'
   axis_labels:
     condition:
       rm20: -20% edges removed (347,000 edges)

@@ -32,6 +32,7 @@ arms:
   differs_by:
     training.calcium_checkpoint_steps: true
 report:
+  slide_title: 'Calcium: latent voltage, horizons 20 to 100'
   axis_labels:
     data:
       40db: calcium, 40 dB

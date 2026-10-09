@@ -892,13 +892,13 @@ _FIGURES = {"derivative_target":
             [("Fig/exp02_errors.png",
               "recovery errors, three arms, five folds pooled"),
              ("Fig/exp02_panels_current_noise005_top.png",
-              "neuron 2895 Am, current form --- a, b, c, e", 0.72),
+              "neuron 2895 Am, MLP(aj,vj) --- a, b, c, e", 0.72),
              ("Fig/exp02_panels_current_noise005_bot.png",
-              "neuron 2895 Am, current form --- d, f", 0.80),
+              "neuron 2895 Am, MLP(aj,vj) --- d, f", 0.80),
              ("Fig/exp02_panels_conductance_noise005_top.png",
-              "neuron 2895 Am, conductance lasso 100 --- a, b, c, e", 0.72),
+              "neuron 2895 Am, MLP(ai,aj,vi,vj) lasso 100 --- a, b, c, e", 0.72),
              ("Fig/exp02_panels_conductance_noise005_bot.png",
-              "neuron 2895 Am, conductance lasso 100 --- d, f", 0.80)],
+              "neuron 2895 Am, MLP(ai,aj,vi,vj) lasso 100 --- d, f", 0.80)],
             # tools/error_histograms.py 15: three rows (model noise, measurement
             # noise, connectivity), taller than exp01's two, hence the height
             "known_ode_217_reanalysis":
@@ -906,6 +906,12 @@ _FIGURES = {"derivative_target":
             + [(f"Fig/exp15_errors_cv{i:02d}.png", f"recovery errors, fold cv{i:02d}", 0.85)
                for i in range(5)]}
 _GREEN = 0.9
+
+
+def _slide_title(fm):
+    """A slide's title: the experiment's report.slide_title, in the paper's terms
+    (no model-class names such as 'conductance'); its snake-case name otherwise."""
+    return (fm.get("report") or {}).get("slide_title") or fm["name"]
 
 
 def _cellf(txt):
@@ -1192,7 +1198,7 @@ def _slides(fm):
         # The slide stays, so the deck does not silently lose an experiment; what
         # goes is every number on it.
         return "\n".join([
-            rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
+            rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(_slide_title(fm))}}}}}",
             rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
             r"\vspace*{1.2cm}", r"\centering",
             r"{\large\bfseries results withdrawn\par}", r"\vspace*{0.4cm}",
@@ -1216,7 +1222,7 @@ def _slides(fm):
     _timing = (_timing_table(fm)
                if fm.get("report", {}).get("timing") else "")
     _memory = _memory_table(fm) if fm.get("report", {}).get("memory") else ""
-    L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}}}}}",
+    L = [rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(_slide_title(fm))}}}}}",
          rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
          r"\setlength{\tabcolsep}{2pt}",
          r"\sbox{\tblA}{\tiny " + _table(fm) + "}",
@@ -1230,13 +1236,9 @@ def _slides(fm):
          r"\placetable{\tblA}",
          r"\\[6pt]",
          r"{\tiny\raggedright",
-         rf"{_tex(fm['purpose'])} \\[2pt]",
-         rf"{n_land} of {len(rs)} runs landed; mean $\pm$ SD over the folds that "
-         rf"have. In parentheses: the percentage of outliers dropped on the "
-         rf"$R^2$ columns, and on the two fit-roll columns the percentage of "
-         rf"neuron-frames the $\pm$100\,V divergence clamp was holding --- a "
-         rf"fit roll $r$ beside a large one is a diverged rollout, not a score. "
-         rf"Green above ${_GREEN}$.\par}}"]
+         rf"{n_land} of {len(rs)} runs landed. Mean $\pm$ SD over folds. Parentheses: "
+         rf"\% outliers excluded ($R^2$ columns); \% neuron-frames at the $\pm$100\,V "
+         rf"clamp (fit-roll columns). Green: $>{_GREEN}$.\par}}"]
     # THE RUNNING BLOCK GOES ON THE SLIDE TOO, WHEN THERE IS ONE. An experiment
     # mid-flight otherwise shows a row of dashes and says nothing, while its jobs
     # have been writing per-checkpoint numbers for hours. This is the TRAIN split
@@ -1244,7 +1246,7 @@ def _slides(fm):
     # caption rather than blanks filled in from a different meaning.
     if _running_own:
         L += [r"\end{frame}",
-              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}: still training}}}}",
+              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(_slide_title(fm))}: running}}}}",
               rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
               r"\setlength{\tabcolsep}{2pt}",
               r"\sbox{\tblA}{}", r"\sbox{\tblC}{}",
@@ -1252,20 +1254,17 @@ def _slides(fm):
               r"\settablescale", r"\vspace*{0.2cm}"]
     if _running:
         L += [r"\\[10pt]" if not _running_own else "", r"\centering\tiny",
-              r"{\scriptsize\bfseries still training --- train split, not a result"
+              r"{\scriptsize\bfseries running --- train split"
               r"\par}\vspace*{2pt}",
               r"\placetable{\tblB}", r"\\[4pt]",
-              r"{\tiny\raggedright Still training --- the TRAIN split from "
-              r"\texttt{tmp\_training/}, every fold read at the same iteration. "
-              r"Not held-out and not comparable to the table above; the "
-              r"quantities not written per checkpoint are blank rather than "
-              r"borrowed from it.\par}"]
+              r"{\tiny\raggedright Train split, \texttt{tmp\_training/}, all folds at "
+              r"the same iteration; not held-out. Blank: not logged per checkpoint.\par}"]
     # THE MEMORY TABLE GETS ITS OWN SLIDE. It has a row per run, not per arm,
     # so under the landed and running tables it ran off the bottom
     # (experiment 6, 2026-09-28); shrinking all three to fit made them unreadable.
     if _memory:
         L += [r"\end{frame}",
-              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(fm['name'])}: memory}}}}",
+              rf"\begin{{frame}}{{\ft{{Experiment {fm['number']} --- {_tex(_slide_title(fm))}: memory}}}}",
               rf"\srcpath{{experiments/{_tex(os.path.basename(exp_path(fm['number'])))}}}",
               r"\setlength{\tabcolsep}{2pt}",
               # A frame is a group, so the boxes filled on the first slide are
@@ -1274,20 +1273,16 @@ def _slides(fm):
               r"\sbox{\tblC}{\tiny " + _memory + "}",
               r"\settablescale",
               r"\vspace*{0.3cm}", r"\centering\tiny",
-              r"{\scriptsize\bfseries what each run needed, and how it ended\par}\vspace*{2pt}",
+              r"{\scriptsize\bfseries peak memory per run\par}\vspace*{2pt}",
               r"\placetable{\tblC}", r"\\[4pt]",
-              r"{\tiny\raggedright GPU: torch peak reserved per phase, from "
-              r"\texttt{gpu\_memory.log}; on a GPU OOM, what the process held when the "
-              r"allocation failed, from torch's own message. Host: LSF \texttt{Max Memory} over the "
-              r"training and analysis jobs. Outcome separates a CUDA out-of-memory "
-              r"from LSF's host-RAM \texttt{TERM\_MEMLIMIT}.\par}"]
+              r"{\tiny\raggedright GPU: torch peak reserved per phase (\texttt{gpu\_memory.log}); "
+              r"after an OOM, memory held at failure (torch message). Host: LSF \texttt{Max Memory}, "
+              r"training and analysis jobs. Outcome: CUDA OOM or LSF \texttt{TERM\_MEMLIMIT}.\par}"]
     elif _timing:
         L += [r"\\[10pt]", r"\centering\tiny",
               r"\placetable{\tblC}", r"\\[4pt]",
-              r"{\tiny\raggedright LSF \texttt{Run time} from each run's "
-              r"\texttt{cluster.out}, over the last iteration its "
-              r"\texttt{tmp\_training/Wij.log} reached. Training wall only; "
-              r"\texttt{-o test\_plot} is a separate job.\par}"]
+              r"{\tiny\raggedright it/s: last iteration in \texttt{tmp\_training/Wij.log} / "
+              r"LSF \texttt{Run time} (\texttt{cluster.out}). Training job only.\par}"]
     L += [r"\end{frame}"]
     for fig, cap, *rest in ([] if _w else _FIGURES.get(fm["name"], [])):
         box = rest[0] if rest else 0.72
@@ -1359,8 +1354,8 @@ def report(paths, make_pdf=True):
 \newcommand{\fitgfx}[2][\linewidth]{%
   \includegraphics[width=#1,height=\panelbox,keepaspectratio]{#2}}
 """,
-         rf"\title{{{_tex(PAPER)} --- experimental plan}}",
-         r"\subtitle{Results as they land}",
+         r"\title{Graph neural networks recover interpretable circuit models from neural activity}",
+         r"\subtitle{Experiments 0--16: tables and figures}",
          r"\author{Cedric Allier}", r"\institute{Saalfeld lab, Janelia}",
          r"\date{\today}", r"\begin{document}", r"\frame{\titlepage}"]
     for p in paths:

@@ -71,6 +71,7 @@ arms:
   differs_by:
     training.seed: 2042
 report:
+  slide_title: 'Unknown visual stimulus (SIREN)'
   metric_columns:
     stimuli_r: stimulus r
     stimuli_R2: stimulus R2

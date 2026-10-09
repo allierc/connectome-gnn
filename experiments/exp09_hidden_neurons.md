@@ -99,6 +99,7 @@ arms:
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true
 report:
+  slide_title: '20% hidden neurons'
   axis_labels:
     hidden:
       none: zero-silenced

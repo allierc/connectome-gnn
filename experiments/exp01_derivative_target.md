@@ -94,6 +94,7 @@ analyse_job_ids:
   flyvis_noise_05_blank50_dtbug_cv03: '154463056'
   flyvis_noise_05_blank50_dtbug_cv04: '154463057'
 report:
+  slide_title: 'Derivative target: finite difference vs generator output'
   arm_order:
   - bug
   - nominal

@@ -38,6 +38,7 @@ arms:
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 report:
+  slide_title: 'FlyWire hybrids: Known ODE and GNN'
   axis_labels:
     variant:
       e8_flywireRF_noise_005: e8 hybrid

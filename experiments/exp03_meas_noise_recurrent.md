@@ -134,6 +134,7 @@ job_ids:
   flyvis_noise_005_020_condl25bi8w1_cv03: '154452626'
   flyvis_noise_005_020_condl25bi8w1_cv04: '154452627'
 report:
+  slide_title: 'Measurement noise: 20-step recurrent training'
   arm_order:
   - current_1s
   - current
