@@ -16,6 +16,9 @@ queue: gpu_rtx6000
 wall: '48:00'
 n_cpus: 12
 axes:
+  data:
+  - 40db
+  - inf
   frame:
   - f20ms
   - f200ms
@@ -25,11 +28,14 @@ axes:
 arms:
 - id: kg
   label: latent calcium, kernel given, long horizon
-  spec_pattern: flyvis_cal_40db_{frame}_{horizon}
+  spec_pattern: flyvis_cal_{data}_{frame}_{horizon}
   differs_by:
     training.calcium_checkpoint_steps: true
 report:
   axis_labels:
+    data:
+      40db: calcium, 40 dB
+      inf: calcium, no meas. noise
     frame:
       f20ms: every 20 ms frame observed
       f200ms: 1 frame in 10 observed (200 ms), 10 voltage steps between
@@ -117,6 +123,11 @@ All four: experiment 13's 40 dB data (`flyvis_unified_blank50_cal_40db`), kernel
 The trainer divides an epoch's iterations by its horizon (constant compute per epoch),
 so h50 runs ~103k iterations and h100 ~65k, against experiment 13's 423k.
 
+**Noise-free twins (added 2026-10-09):** the same four runs on
+`flyvis_unified_blank50_cal_inf` (`flyvis_cal_inf_<frame>_<horizon>`), for the
+comparison with experiment 12's deconvolve-then-train without measurement noise,
+R2_W 0.978 (20-step recurrent).
+
 ## Decisions
 
 - **40 dB, not noise-free.** Experiment 12's deconvolve-then-train reaches R2_W 0.42 at
@@ -178,18 +189,18 @@ GPU nondeterminism (same seed, same batches), not the schedule. Held-out numbers
 
 | arm | frame | horizon | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| kg | f20ms | h50 | 5,201 |  | 0.239 ± 0.000 |  |  | 0.413 ± 0.000 | -0.033 ± 0.000 | 0.459 ± 0.000 | 0.345 ± 0.000 | 0.769 ± 0.000 |  |  | 0.754 ± 0.000 |
-| kg | f20ms | h100 | 5,201 |  | 0.251 ± 0.000 |  |  | 0.411 ± 0.000 | -0.034 ± 0.000 | 0.445 ± 0.000 | 0.441 ± 0.000 | 0.747 ± 0.000 |  |  | 0.767 ± 0.000 |
-| kg | f200ms | h50 | 5,201 |  | 0.254 ± 0.000 |  |  | 0.433 ± 0.000 | -0.062 ± 0.000 | 0.437 ± 0.000 | 0.491 ± 0.000 | 0.661 ± 0.000 |  |  | 0.761 ± 0.000 |
-| kg | f200ms | h100 | 5,201 |  | 0.263 ± 0.000 |  |  | 0.409 ± 0.000 | -0.029 ± 0.000 | 0.474 ± 0.000 | 0.543 ± 0.000 | 0.647 ± 0.000 |  |  | 0.771 ± 0.000 |
+| kg | f20ms | h50 | 89,706 |  | 0.232 ± 0.000 |  |  | 0.158 ± 0.000 | -0.019 ± 0.000 | 0.570 ± 0.000 | 0.538 ± 0.000 | 0.725 ± 0.000 |  |  | 0.684 ± 0.000 |
+| kg | f20ms | h100 | 57,978 |  | 0.248 ± 0.000 |  |  | 0.178 ± 0.000 | -0.013 ± 0.000 | 0.545 ± 0.000 | 0.538 ± 0.000 | 0.610 ± 0.000 |  |  | 0.708 ± 0.000 |
+| kg | f200ms | h50 | 90,186 |  | 0.228 ± 0.000 |  |  | 0.326 ± 0.000 | 0.049 ± 0.000 | 0.527 ± 0.000 | 0.611 ± 0.000 | 0.559 ± 0.000 |  |  | 0.666 ± 0.000 |
+| kg | f200ms | h100 | 58,330 |  | 0.254 ± 0.000 |  |  | 0.355 ± 0.000 | -0.144 ± 0.000 | 0.532 ± 0.000 | 0.602 ± 0.000 | 0.576 ± 0.000 |  |  | 0.688 ± 0.000 |
 
 ### Per run
 
 | run | status | iter | commit | LSF |
 |---|---|---|---|---|
-| `flyvis_cal_40db_f20ms_h50` | running | 5,201 | `` |  |
-| `flyvis_cal_40db_f20ms_h100` | running | 5,201 | `` |  |
-| `flyvis_cal_40db_f200ms_h50` | running | 5,201 | `` |  |
-| `flyvis_cal_40db_f200ms_h100` | running | 5,201 | `` |  |
+| `flyvis_cal_40db_f20ms_h50` | running | 89,706 | `` |  |
+| `flyvis_cal_40db_f20ms_h100` | running | 58,066 | `` |  |
+| `flyvis_cal_40db_f200ms_h50` | running | 90,186 | `` |  |
+| `flyvis_cal_40db_f200ms_h100` | running | 58,330 | `` |  |
 
 <!-- STATUS:END -->
