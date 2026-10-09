@@ -267,7 +267,7 @@ We compare GNN results with four baseline models detailed in \cref{app:benchmark
 \input{tables/cv_table_gnn_vs_baselines}
 
 We report four quantities throughout the results section: the one-step and
-$8{,}000$-frame auto-regressive rollout Pearson~$r$ on neural activity
+{\color{revised}held-out auto-regressive rollout ($7{,}207$ to $7{,}999$ frames by fold)} Pearson~$r$ on neural activity
 (per neuron, Fisher-$z$ pooled), and the identity-line $R^2$ on
 $\hat{\mathbf{W}}$, $\hat{\boldsymbol{\tau}}$, and
 $\hat{\mathbf{V}}^{\mathrm{rest}}$. The two parameter $R^2$'s are
@@ -352,7 +352,7 @@ equation of the neural signal together with per-neuron and
 connection parameters. If we know the differentiable ODE (\cref{eq:simulated_update}, $0.46$M parameters), we can directly learn the connectivity weights $\hat{\mathbf{W}}$ and the per-neuron $\hat{\boldsymbol{\tau}}$, $\hat{\mathbf{V}}^{\mathrm{rest}}$. The shared ReLU
 activation is known, but cell-type assignments are not. With $\ell_1$/$\ell_2$ regularisation on the parameters and an
 MSE one-step prediction loss (\cref{app:benchmark}), this trained 
-Known-ODE models achieves near-perfect activity prediction (one-step $r$ and rollout $r$ are close to $1.00$ over $8{,}000$ frames. Notably, the Known-ODE trained on noisy activity reproduces the noise-free rollout: it cannot explicitly fit the stochastic fluctuations and instead converges on the underlying
+Known-ODE models achieves near-perfect activity prediction (one-step $r$ and {\color{revised}rollout $r$ are close to $1.00$ over the held-out $7{,}207$ to $7{,}999$ frames.} Notably, the Known-ODE trained on noisy activity reproduces the noise-free rollout: it cannot explicitly fit the stochastic fluctuations and instead converges on the underlying
 deterministic dynamics. \textcolor{red}{The parameter recovery over $> 4.5\cdot 10^5$
 values is comparably accurate even at high model noise ($R^2>0.95$, outliers $<10\%$, \cref{fig:know_ode_rollout,fig:known_ode_params_3col_noise_comparison}).}
 Although the inverse problem is strongly ill-posed, full knowledge
@@ -383,7 +383,7 @@ procedure applied to ground-truth parameters
 \textbf{(a)}~Hybrid model combining the Flyvis convolutional template (represented by orange disc, extent~8) with the FlyWire FAFB-v783 column lattice (teal disc) on the right hemisphere; 3D oblique view, right optic-lobe with representative registered visual neurons through lamina, medulla, lobula, and lobula plate neuropil meshes. Orange discs indicate ``e8 hybrid'' columns, scatter points indicate synapse positions, circles indicate $6\,\mu$m edge confusion radius around synapse clouds.
 \textbf{(b)}~In contrast to Flyvis template connectivity (Supplementary \cref{fig:flywire_SI}), per-column FlyWire receptive-field connectivity for an example projection (Tm3\,$\to$\,T4c): Each mini-hexlattice is the spatial RF kernel of one T4c target column at the location $(p, q) \in \{(0, 0), (0, 1), (1, 0), \cdots\}$ (extent~1), with input cells annotated by per-edge synapse count.  Cells lacking FlyWire evidence but covered by a null edge (n.e.) are marked \textit{n.e.}
 \textbf{(c)}~Average column connectivity for the same Tm3\,$\to$\,T4c projection.  \emph{Flyvis}: per-column-averaged convolutional kernel from the original Flyvis template.  \emph{FlyWire}: per-(d$p$,\,d$q$) offset average of FlyWire synapse counts.  \emph{Hull overlay}: union of offset support, coloured by membership (orange = Flyvis only, teal = FlyWire only, magenta = both).
-\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{revised}\textbf{(e)} Rollouts of the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled Pearson $r$ over all $50{,}412$ neurons and $8{,}000$ frames. \textbf{(f)} The same GNN trained with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}
+\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{revised}\textbf{(e)} Rollouts of the general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled Pearson $r$ over all $50{,}412$ neurons and $7{,}207$ frames. \textbf{(f)} The same GNN trained with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}
 }
 \label{fig:flywire}
 \end{figure}
@@ -668,7 +668,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: GNN rollout prediction; red: the
     visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
     voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$
-    pairs of the $8{,}000$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$
+    pairs of the $7{,}207$-frame rollout (the fold's held-out stimuli) as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$
     pooled, on the full rollout.}
 }
 \label{fig:rollout_3col_noise_comparison}
@@ -681,17 +681,18 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \caption{{\color{revised}\textbf{Cell-type clusterability across feature spaces} of the general-form GNN
     (group lasso $25$, $\sigma = 0.05$, fold cv00 of experiment 2).
     Each panel scatters the $13{,}741$ neurons of the central $217$-column Flyvis model coloured by
-    ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM) accuracy, Adjusted Rand Index
-    (ARI) and Normalized Mutual Information (NMI) are quoted top-left of each panel, with $k$ the number
-    of populated mixture components (out of $100$ requested). The GMM is fit on the $z$-scored raw
-    features; UMAP is shown for visualisation only when the feature space is $>2$D.
+    ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM, $100$ components) accuracy,
+    Adjusted Rand Index (ARI) and Normalized Mutual Information (NMI), quoted top-left of each panel, are
+    the analysis pipeline's own scores of each feature stack (the stack standardised per feature); UMAP
+    is shown for visualisation only when the feature space is $>2$D.
     (\textbf{a}) Ground-truth $(\tau, V_{\mathrm{rest}})$ plus $8$ connectivity statistics of the true
-    $\mathbf{W}$ ($10$D).
-    (\textbf{b}) Same statistics computed from the learned $\hat\tau$, $\hat V_{\mathrm{rest}}$ and the
-    template-readout $\hat{\mathbf{W}}$ over its fitted edges ($10$D).
+    $\mathbf{W}$ (mean, SD, minimum and maximum of the incoming and of the outgoing weights; $10$D).
+    (\textbf{b}) The same from the learned $\hat\tau$, $\hat V_{\mathrm{rest}}$ and $\hat{\mathbf{W}}$
+    ($10$D).
     (\textbf{c}) Learned 2D node embedding $\mathbf{a}_i$ shown directly (no projection).
     (\textbf{d}) $\mathbf{a}_i$ concatenated with the learned
-    $(\hat\tau, \hat V_{\mathrm{rest}}, \hat{\mathbf{W}}\text{-stats})$ ($12$D).}
+    $(\hat\tau, \hat V_{\mathrm{rest}}, \hat{\mathbf{W}}\text{-stats})$ ($12$D): the stack of the clustering
+    accuracy reported in \cref{tab:cv_gnn_vs_baselines}.}
 }
     \label{fig:clustering_appendix}
 \end{figure}
@@ -710,7 +711,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms). Green: ablated ground-truth voltage; black: GNN
     rollout prediction; red: the visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e},
     \textbf{f}): rollout voltage against the noise-free ablated voltage, pooled over all
-    $(\text{neuron}, \text{frame})$ pairs of the $8{,}000$-frame rollout as a log-density image.
+    $(\text{neuron}, \text{frame})$ pairs of the $7{,}999$-frame rollout as a log-density image.
     Pearson~$r$: per-neuron, Fisher-$z$ pooled, on the full rollout.}
 }
   \label{fig:rollout_3col_noise_comparison_ablation50}
@@ -725,7 +726,7 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
 \caption{{\color{revised}\textbf{Joint GNN+INR (visual SIREN)}: the general-form GNN (group lasso $25$,
     one-step training) evaluated on central $217$-column Flyvis data with low model noise
     ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
-    first $8\,000$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
+    first $7{,}999$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
     output is shown with its mean and SD matched to the true stimulus, sign from the correlation (its raw
     output is defined up to the sign and scale the GNN's input weights absorb; the tester's least-squares
     correction would compress the learned range by the factor $r$).
@@ -734,12 +735,12 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     bottom: residual.
     \textbf{(b)} INR stimulus (black) against the true one (green) for $12$ photoreceptors (R1--R8 of one
     column, R1--R4 of another) over a $20$~s window ($1{,}000$ frames at $\Delta t = 20$~ms); the header
-    gives the per-photoreceptor Pearson~$r$ over the $8{,}000$ frames, Fisher-$z$ pooled over the
+    gives the per-photoreceptor Pearson~$r$ over the $7{,}999$ frames, Fisher-$z$ pooled over the
     $1{,}736$ photoreceptors (mean $\pm$ SD). The SIREN's output enters the GNN squared, so it cannot be
     negative, and $f_\theta$ is free to read it with either sign; this run learned the inverted code
     (bright pixels $\to$ small output), so its zero floor becomes a ceiling at $0.73$ of the true range:
     the $7\%$ of photoreceptor--frames brighter than it all receive the same input, visible as the
-    flattened bright plateaus. The sign is set at random by the training (four of the five folds learned
+    flattened bright plateaus. The sign is set at random by the training (4 of the 5 folds learned
     it inverted).
     \textbf{(c)} GNN voltage rollout (black) against the noise-free ground truth (green) for $12$
     representative cell types over the same window; the header gives the per-neuron Pearson~$r$,
@@ -1890,15 +1891,15 @@ FlyWireRF runs.
 \begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode.pdf}
-\caption{{\color{revised}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published runs, fold
-    cv00) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
+\caption{{\color{revised}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published checkpoints,
+    fold cv00, re-analysed with the current analysis code, experiment 15) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
     $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli, and compared against the noise-free
     Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout
     traces for $12$ representative cell types over a $20$~s window ($1{,}000$ frames at
     $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: Known-ODE rollout prediction; red:
     the visual input of the photoreceptor row. Bottom row (\textbf{d}, \textbf{e}, \textbf{f}): rollout
     voltage against noise-free ground-truth voltage, pooled over all $(\text{neuron}, \text{frame})$ pairs
-    of the $8{,}000$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$ pooled, on
+    of the $7{,}207$-frame rollout as a log-density image. Pearson~$r$: per-neuron, Fisher-$z$ pooled, on
     the full rollout.}
 }
 \label{fig:know_ode_rollout}
@@ -2107,8 +2108,8 @@ For the rollout the model receives only the initial voltage
 $\tilde v(0)$ and the full stimulus stream
 $\{I(0),\ldots,I(T-1)\}$; from $t = 1$ onwards it is fed back its own
 prediction $\hat v(t-1)$ to produce $\hat v(t)$, with no resetting to
-ground truth. The trajectory length is $T = 8{,}000$ frames
-($160$~s at $\Delta t = 20$~ms) for every Flyvis evaluation. The
+ground truth. {\color{revised}The trajectory length $T$ is the length of the fold's held-out stretch, $7{,}207$ to $7{,}999$ frames
+($144$ to $160$~s at $\Delta t = 20$~ms).} The
 rollout trace is compared against the noise-free ground truth
 $\tilde v_i(\cdot)$ on a per-neuron basis, and the Fisher-$z$ pooling
 of \cref{eq:fisher_pool} is applied unchanged.
@@ -2199,11 +2200,10 @@ coordinates.
 
 \paragraph{Cross-validation aggregation.}
 For five-fold CV results, every metric above is computed independently
-in each fold; the table value is the mean across folds and the
-$\pm$ figure is one standard deviation across folds. Pearson~$r$
-values are averaged in Fisher-$z$ space across folds as well
-(\cref{eq:fisher_pool}, with the $N$ now being the total number of
-finite per-neuron entries pooled over all folds).
+in each fold; {\color{revised}the table value is the mean of the five per-fold values and the
+$\pm$ figure their standard deviation (population SD, $\mathrm{ddof}=0$). Pearson~$r$
+values are aggregated the same way: each fold's $r$ is the Fisher-$z$ pooled per-neuron value of
+\cref{eq:fisher_pool}, and the five are averaged directly.}
 
 
 

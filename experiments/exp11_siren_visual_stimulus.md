@@ -94,7 +94,7 @@ job_ids:
   flyvis_noise_005_INR_davis_blank50_cur1sseed2_cv00: '154489407'
 analyse_job_ids:
   flyvis_noise_005_INR_davis_blank50_cur1s_cv00: '154482384'
-  flyvis_noise_005_INR_davis_blank50_condl251s_cv00: '154483236'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv00: '154594758'
   flyvis_noise_005_INR_davis_blank50_condl25rc20_cv00: '154485332'
   flyvis_noise_005_INR_davis_blank50_currc20_cv00: '154485349'
   flyvis_noise_005_INR_davis_blank50_condl251s_cv01: '154489228'

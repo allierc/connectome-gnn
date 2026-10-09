@@ -27,6 +27,7 @@ types, training_edges.pt, results/metrics.txt).
 
 Output: figures/fig_known_ode_params_3col_noise_comparison_new.{pdf,png}
 """
+import json
 import os
 import sys
 import warnings
@@ -85,8 +86,9 @@ def load_kode(run):
     print(f"{run}: W R2 {r2w:.3f} over {len(W_t)} edges, clustering accuracy {cl['clustering_accuracy']:.3f} "
           f"(metrics {m['clustering_accuracy']:.3f}), "
           f"{int(((W_t < -1) | (W_t > 2) | (W_l < -1) | (W_l > 2)).sum())} edges outside the [-1, 2] axes")
+    n_out = int(((W_t < -1) | (W_t > 2) | (W_l < -1) | (W_l > 2)).sum())
     return dict(panels={"a": _umap(cl["_X"]), "type_ids": types}, metrics=m, W_true=W_t, W_learned=W_l,
-                tau_true=tau_t, tau=tau_l, V_true=V_t, V=V_l)
+                tau_true=tau_t, tau=tau_l, V_true=V_t, V=V_l, n_outside=n_out)
 
 
 def main():
@@ -97,6 +99,7 @@ def main():
     cmap = type_cmap()
     rows = [[], []]
     blocks_axes = []
+    n_outside = []
     for k, (title, run) in enumerate(BLOCKS):
         x0 = (MARGIN_L_CM + k * (2 * PANEL_CM + GAP_IN_CM + GAP_BLOCK_CM)) / width
         y0 = MARGIN_B_CM / height
@@ -105,6 +108,7 @@ def main():
                           wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
         axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(2)]
         data = load_kode(run)
+        n_outside.append(data["n_outside"]); n_edges = len(data["W_true"])
         draw_block(axes, data, cmap=cmap)
         # the map's axes: symmetric about 0 in whole UMAP units, ticks -L, 0, L
         a = data["panels"]["a"]
@@ -122,6 +126,9 @@ def main():
     column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=16, fontsize=9)
     panel_labels(fig, rows[0] + rows[1], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_known_ode_params_3col_noise_comparison_new"))
+    # the caption's clipping count (edit_tex.py reads it): the most edges any column puts off the W axes
+    json.dump({"n_outside": max(n_outside), "n_edges": int(n_edges)},
+              open(os.path.join(FIG_DIR, "fig_known_ode_params_3col_noise_comparison_new.json"), "w"), indent=1)
 
 
 if __name__ == "__main__":

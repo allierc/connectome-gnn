@@ -55,18 +55,37 @@ never from a PNG, so fonts, spines and points are identical across panels.
   y-axis label, 2-4 pt above the top of the axes frame (`panel_labels`, `ha="left"`,
   `y_from="axes"`); panels that carry a header inside use the tight bbox instead
   (`y_from="tight"`). Letters run row-major across the whole figure.
-- Caption colour: blue `{\color{blue} ...}` for a regenerated figure or table, red for a
-  passage or figure still resting on the published current-form results.
+- Caption colour: green (colour `revised`) for a regenerated figure or table; red for a sentence whose
+  result changed, or a section chosen for rewriting.
 
-## Data sources (one script = one figure)
+## Rule: every number is test_plot's
 
-| figure | script | arrays |
+A figure or table prints only numbers `-o test_plot` wrote: `results/metrics.txt` (plot pass) or the
+tester's `results_rollout*.log` ("Pearson r: <mean> +/- <sd>", "Frames evaluated"). A script may
+recompute a number only as an `assert` against those files. Display-only measurements a script makes
+on its own arrays (axis clipping, the SIREN gauge) go to `figures/<name>.json`, which `edit_tex.py`
+reads; no number is typed into a caption.
+
+## Data sources (one script = one figure, one script = one table)
+
+| figure / table | script | reads |
 |---|---|---|
-| Fig. 1, Supp. FlyWire parameters | `fig_gnn_params_3col.py`, `fig_gnn_params_4col_flywire.py` | `gt_weights.pt`, `training_edges.pt`, `models/template_fit_alt.pt` (W, softplus(raw_tau), V_rest), `results/panels_*.npz` (a, true tau / V_rest, type_ids), `results/recovered_pairs.npz` (per-edge and per-neuron message pairs, written by `-o plot` through `recovery_figures.write_recovered_pairs`), `results/metrics.txt` |
-| Fig. 2 (panels e, f; a-d cropped from the published PNG) | `fig_flywire_hybrid.py` | `results/rollout_bundle.npz` of the two FlyWire-eye cv00 runs of experiment 7 |
-| Supp. rollout, Supp. ablation, Supp. Known-ODE rollout | `fig_rollout_3col.py [--ablation50 \| --known-ode]` | `results/rollout_bundle.npz`, `ablation50/rollout_bundle_on_noise_free_mask_50.npz` |
-| Supp. SIREN stimulus | `fig_stim_rollout_inr.py` | `results/rollout_bundle.npz` (stimulus_input_true / _pred, the raw SIREN output shown with its mean and SD matched to the true stimulus), dataset `pos.zarr` |
-| Supp. clustering | `fig_clustering_appendix.py` | as Fig. 1 plus the dataset's `ode_params.pt` |
-| tables | `make_tables.py` | `results/metrics.txt` of every fold |
+| Fig. 1 | `fig_gnn_params_3col.py` | `models/template_fit_alt.pt`, `results/panels_*.npz`, `results/extras/recovered_pairs.npz`, `results/metrics.txt` (Wij_*, tau_*, V_rest_*, msg_i_*, msg_ij_*) |
+| Supp. FlyWire parameters | `fig_gnn_params_4col_flywire.py` | as Fig. 1, the four experiment 7 cv00 runs |
+| Fig. 2 (e, f; a-d cropped from the published PNG) | `fig_flywire_hybrid.py` | `results/rollout_bundle.npz`, `results_rollout.log` (r) of the two FlyWire-eye cv00 runs |
+| Supp. rollout | `fig_rollout_3col.py` | `results/rollout_bundle.npz`, `results_rollout.log` |
+| Supp. 50% ablation | `fig_rollout_ablation50.py` | `ablation50/rollout_bundle_on_noise_free_mask_50.npz`, `ablation50/results_rollout_on_noise_free_mask_50.log` |
+| Supp. Known-ODE rollout | `fig_rollout_known_ode.py` | experiment 15's `*_kode217_cv00`: `results/rollout_bundle.npz`, `results_rollout.log` |
+| Supp. Known-ODE parameters | `fig_known_ode_params_3col.py` | `results/extras/recovered_pairs.npz`, `results/metrics.txt`; writes its `.json` |
+| Supp. SIREN stimulus | `fig_stim_rollout_inr.py` | `results/rollout_bundle.npz`, `results_rollout.log`, metrics `stimuli_r_cell[_sd]`; writes its `.json` |
+| Supp. clustering | `fig_clustering_appendix.py` | `results/extras/clustering_features.npz`, metrics `clustering_*` |
+| Tab. 1 | `table_1_gnn_vs_baselines.py` | `results/metrics.txt` of every fold (experiments 2, 15) |
+| Tab. 2 | `table_2_flybrid.py` | experiment 7 |
+| Supp. Tab. 4 | `table_s4_cross_noise.py` | experiments 2, 3, 4, 5, 9, 11, 14 |
+| Supp. Tab. 7 | `table_s7_known_ode.py` | experiment 15 |
+
+Shared code: `paper_style.py` (style, `read_metrics`, `tester_rollout_r`), `params_panels.py`,
+`rollout_panels.py`, `table_common.py` (fold aggregation: mean and SD with ddof 0 of the per-fold
+values, as `tools/exp.py`).
 
 `bash scripts/build.sh` regenerates everything and the PDF.

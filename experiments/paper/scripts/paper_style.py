@@ -7,6 +7,7 @@ Geometry: every full-width figure is drawn at 18 cm (included at the 13.97 cm
 NeurIPS text width, scale 0.78), with labels 8 pt and ticks / annotations 6 pt.
 """
 import os
+import re
 import string
 
 import matplotlib
@@ -151,15 +152,22 @@ def read_metrics(run_dir):
     return out
 
 
-def fisher_r(true, pred):
-    """Per-neuron Pearson r pooled in Fisher z (the tables' recipe): (r, sd)."""
-    true = np.asarray(true, np.float64); pred = np.asarray(pred, np.float64)
-    t = true - true.mean(1, keepdims=True); p = pred - pred.mean(1, keepdims=True)
-    st, sp = t.std(1), p.std(1)
-    ok = (st > 1e-8) & (sp > 1e-8)
-    r = (t[ok] * p[ok]).mean(1) / (st[ok] * sp[ok])
-    z = np.arctanh(np.clip(r, -0.999999, 0.999999))
-    return float(np.tanh(z.mean())), float((np.tanh(z.mean() + z.std()) - np.tanh(z.mean() - z.std())) / 2)
+def tester_rollout_r(log_path):
+    """(r, sd) as -o test_plot wrote them: the "Pearson r: <mean> +/- <sd>" line of a
+    results_rollout*.log (per-neuron Pearson r pooled by utils.fisher_pool). The
+    paper never recomputes a rollout r; it reads this one."""
+    m = re.search(r"Pearson r:\s*([-\d.eE+]+)\s*\+/-\s*([-\d.eE+]+)", open(log_path).read())
+    if m is None:
+        raise ValueError(f"no 'Pearson r: <r> +/- <sd>' line in {log_path}")
+    return float(m.group(1)), float(m.group(2))
+
+
+def tester_rollout_frames(log_path):
+    """The number of rollout frames the tester scored ("Frames evaluated: 0 to N" -> N)."""
+    m = re.search(r"Frames evaluated:\s*0 to (\d+)", open(log_path).read())
+    if m is None:
+        raise ValueError(f"no 'Frames evaluated' line in {log_path}")
+    return int(m.group(1))
 
 
 ROOT = os.environ.get("GNN_OUTPUT_ROOT", "/groups/saalfeld/home/allierc/GraphData")

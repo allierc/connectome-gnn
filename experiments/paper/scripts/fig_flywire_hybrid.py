@@ -10,7 +10,7 @@ that PNG. Panels e and f are drawn here: the GNN's 8,000-frame rollout
 (black) against the simulated voltage (green) for the six example cell types
 of the published figure over a 20 s window, on the FlyWire eye (e) and on the
 FlyWire eye with proximal null edges (f), fold cv00 of experiment 7; the
-Fisher-z pooled Pearson r over all neurons and frames is printed.
+Pearson r printed is the tester's (results_rollout.log of the run).
 Data: <GNN_OUTPUT_ROOT>/log/fly/full_eye_flywireRF[_proximal_nulls]_noise_005_blank50_condl25_cv00/results/rollout_bundle.npz
 
 Output: figures/fig_flywire_hybrid_new.{pdf,png}
@@ -25,8 +25,8 @@ from matplotlib.patches import FancyArrowPatch
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paper_style import (CM, COLOR_GT, COLOR_PRED, FIG_DIR, FS_ANNOT, FS_LABEL, FS_PANEL, FS_TICK, LOG_ROOT,  # noqa: E402
-                         fisher_r, save)
-from fig_rollout_3col import T0, T1, DT_MS  # noqa: E402
+                         save, tester_rollout_r)
+from rollout_panels import T0, T1, DT_MS  # noqa: E402
 
 PUBLISHED = os.path.join(FIG_DIR, "fig_flywire_hybrid.png")
 PANELS = [
@@ -114,7 +114,7 @@ def main():
         names = list(b["type_names"]); types = b["type_ids"]
         idx = [int(np.where(types == names.index(nm))[0][0]) for nm in TYPES]
         step = 2.5 * float(np.std(b["activity_true"][idx, T0:T1]))
-        r, sd = fisher_r(b["activity_true"], b["activity_pred"])
+        r, sd = tester_rollout_r(os.path.join(LOG_ROOT, run, "results_rollout.log"))   # the tester's r
         sp = D_LABEL_ROWS[1] - D_LABEL_ROWS[0]
         y_top, y_bot = row_cm(D_LABEL_ROWS[0] - sp / 2), row_cm(D_LABEL_ROWS[-1] + sp / 2)
         axp = fig.add_axes(rect(x + k * (pw + GAP_EF), y_bot, pw, y_top - y_bot))

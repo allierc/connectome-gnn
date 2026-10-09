@@ -11,8 +11,10 @@ export GNN_OUTPUT_ROOT=${GNN_OUTPUT_ROOT:-/groups/saalfeld/home/allierc/GraphDat
 mkdir -p figures tables
 cp -n overleaf/figure/* figures/ 2>/dev/null || true       # published figures kept as they are
 cp -n overleaf/tables/*.tex tables/ 2>/dev/null || true    # published tables not regenerated here
-$PY scripts/make_tables.py
-for f in fig_gnn_params_3col fig_flywire_hybrid fig_rollout_3col "fig_rollout_3col --ablation50" "fig_rollout_3col --known-ode" fig_known_ode_params_3col fig_gnn_params_4col_flywire fig_clustering_appendix fig_stim_rollout_inr; do
+for t in table_1_gnn_vs_baselines table_2_flybrid table_s4_cross_noise table_s7_known_ode; do   # one script per table
+  $PY scripts/$t.py | grep -v "^  "
+done
+for f in fig_gnn_params_3col fig_flywire_hybrid fig_rollout_3col fig_rollout_ablation50 fig_rollout_known_ode fig_known_ode_params_3col fig_gnn_params_4col_flywire fig_clustering_appendix fig_stim_rollout_inr; do   # one script per figure
   set -- $f; $PY scripts/$1.py "${@:2}" 2>&1 | grep -v "findfont\|UserWarning\|warnings.warn"
 done
 $PY scripts/edit_tex.py

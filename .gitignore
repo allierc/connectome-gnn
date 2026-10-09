@@ -224,3 +224,4 @@ experiments/paper/figures/*
 !experiments/paper/figures/fig_flywire_hybrid_new.p*
 !experiments/paper/figures/fig_rollout_3col_noise_comparison_known_ode.p*
 !experiments/paper/figures/fig_known_ode_params_3col_noise_comparison_new.p*
+!experiments/paper/figures/fig_*.json

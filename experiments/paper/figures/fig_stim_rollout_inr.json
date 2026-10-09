@@ -1,0 +1,7 @@
+{
+ "ceiling_frac": 0.727407421971806,
+ "pct_above_ceiling": 6.896138515010229,
+ "n_inverted": 4,
+ "n_folds": 5,
+ "cv00_inverted": true
+}

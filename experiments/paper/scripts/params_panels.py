@@ -23,7 +23,8 @@ figure's conventions, from the template readout that the tables score:
            of the published f_theta panel
 
 Annotations: R^2 (inlier) with the all-neuron R^2 in parentheses, slope,
-outlier %, every value read from metrics.txt and checked against the arrays.
+outlier %, every value read from metrics.txt (msg_ij_R2 / msg_ij_slope for the
+per-edge panel) and checked against the arrays.
 """
 import glob
 import os
@@ -170,8 +171,10 @@ def draw_message_row(axes, run_data, show_ylabels=True, seed=0):
         ax.scatter(t[idx], l[idx], c="k", s=0.3, alpha=0.2, lw=0, rasterized=True, zorder=2)
         ticks3(ax, lo, hi)
         ax.set_aspect("equal", adjustable="box")
-        r2 = m["msg_i_R2"] if key else 1 - np.mean((l - t) ** 2) / np.var(t)
-        slope = m["msg_i_slope"] if key else np.polyfit(t, l, 1)[0]
+        # both from metrics.txt: msg_i_* by score_recovery, msg_ij_* by the plot pass's
+        # write_recovered_pairs, on these same pairs
+        r2 = m["msg_i_R2"] if key else m["msg_ij_R2"]
+        slope = m["msg_i_slope"] if key else m["msg_ij_slope"]
         annotate(ax, f"R²: {r2:.2f}\nslope: {slope:.2f}")
         ax.set_xlabel(xl)
         if show_ylabels:

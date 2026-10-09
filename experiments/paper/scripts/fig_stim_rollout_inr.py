@@ -8,7 +8,7 @@ published layout.
 a  the visual stimulus on the 217-column R1 lattice, ten frames 80 ms apart
    from 10,000 ms: ground truth, learned (SIREN), residual; z-scored per frame
 b  SIREN against true stimulus for 12 photoreceptors (R1-R8 of one column, R1-R4
-   of a second), 10-30 s; header: per-photoreceptor Pearson r, Fisher-z pooled, mean +- SD
+   of a second), 10-30 s; header: the tester's per-photoreceptor Pearson r, Fisher-z pooled, mean +- SD (metrics stimuli_r_cell, _sd)
 c  GNN voltage rollout against the noise-free voltage, 12 cell types; same r over all neurons
 The rollout runs over the first 8,000 TRAINING frames (the SIREN cannot be
 queried outside the frames it was trained on); the SIREN output is shown with its mean and SD
@@ -18,6 +18,7 @@ least-squares correction would compress the range by the factor r).
 
 Output: figures/fig_stim_rollout_inr.{pdf,png}
 """
+import json
 import os
 import sys
 
@@ -28,8 +29,8 @@ from matplotlib.colors import Normalize
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paper_style import (CM, COLOR_GT, COLOR_PRED, DATA_ROOT, FIG_DIR, FS_ANNOT, FS_LABEL, FS_PANEL, FS_TICK, LOG_ROOT,  # noqa: E402
-                         fisher_r, panel_labels, save, scatter_density)
-from fig_rollout_3col import SELECTED_TYPES, T0, T1, DT_MS  # noqa: E402
+                         panel_labels, read_metrics, save, scatter_density, tester_rollout_r)
+from rollout_panels import SELECTED_TYPES, T0, T1, DT_MS  # noqa: E402
 
 RUN = "flyvis_noise_005_INR_davis_blank50_condl251s_cv00"
 DATASET = "flyvis_noise_005_INR_davis_blank50_cv00"
@@ -79,8 +80,11 @@ def main():
     in_types = types[:1736]
     r1 = np.where(in_types == R_TYPES[0])[0]
     xy = pos[r1]
-    r_stim = float(np.corrcoef(st.ravel(), sp.ravel())[0, 1])
-    r_v, sd_v = fisher_r(b["activity_true"], b["activity_pred"])
+    # the numbers printed are -o test_plot's: the rollout r of results_rollout.log, and the
+    # per-photoreceptor stimulus r pooled in Fisher z (metrics stimuli_r_cell, _sd)
+    r_v, sd_v = tester_rollout_r(os.path.join(LOG_ROOT, RUN, "results_rollout.log"))
+    m = read_metrics(os.path.join(LOG_ROOT, RUN))
+    r_s, sd_s = m["stimuli_r_cell"], m["stimuli_r_cell_sd"]
     # 12 photoreceptors: R1..R8 of the first column, R1..R4 of a second, as the published figure
     cols = {tp: np.where(in_types == tp)[0] for tp in R_TYPES}
     sel = [cols[tp][0] for tp in R_TYPES] + [cols[tp][len(r1) // 2] for tp in R_TYPES[:4]]
@@ -125,7 +129,6 @@ def main():
     # b, c: the stimulus and voltage traces at full width (no density panels). Both headers give the
     # per-cell Pearson r, Fisher-z pooled, mean +- SD: over the 1,736 photoreceptors for b, over all
     # 13,741 neurons for c.
-    r_s, sd_s = fisher_r(st.T, sp.T)
     step_s = 3.0 * float(np.std(st[T0:T1, sel]))
     ax_b = fig.add_axes(rect(left, bottom + tr_h + gap_tr, tr_w, tr_h))
     traces(ax_b, st[T0:T1 + 1, sel].T, sp[T0:T1 + 1, sel].T, sel_lab, step_s,
@@ -138,6 +141,20 @@ def main():
     panel_labels(fig, [ax_b, ax_c], letters="bc", align_rows=False, dy_pt=10, y_from="tight")
     fig.text(left / WIDTH - 0.02, (y_hex0 + 3 * (hex_row + hex_title) + 0.05) / height, "a", fontsize=FS_PANEL,
              fontweight="bold", ha="right", va="bottom")
+    # THE GAUGE, measured for the caption (edit_tex.py reads figures/fig_stim_rollout_inr.json): the
+    # displayed SIREN output at a raw output of 0 -- its floor, a ceiling when the sign is inverted -- as a
+    # fraction of the true range, the share of photoreceptor-frames brighter than it, and over the five
+    # folds' tester bundles how many learned the inverted sign.
+    ceil = st.mean() - sign * raw.mean() * (st.std() / raw.std())
+    inverted = []
+    for k in range(5):
+        bk = np.load(os.path.join(LOG_ROOT, RUN[:-1] + str(k), "results", "rollout_bundle.npz"), allow_pickle=True)
+        inverted.append(bool(np.corrcoef(bk["stimulus_input_true"].ravel(), bk["stimulus_input_pred"].ravel())[0, 1] < 0))
+    gauge = {"ceiling_frac": float((ceil - st.min()) / (st.max() - st.min())),
+             "pct_above_ceiling": float(100 * np.mean(st > ceil)) if sign < 0 else 0.0,
+             "n_inverted": int(sum(inverted)), "n_folds": 5, "cv00_inverted": bool(sign < 0)}
+    json.dump(gauge, open(os.path.join(FIG_DIR, "fig_stim_rollout_inr.json"), "w"), indent=1)
+    print("gauge", gauge)
     save(fig, os.path.join(FIG_DIR, "fig_stim_rollout_inr"))
 
 
