@@ -1236,9 +1236,11 @@ def _slides(fm):
          r"\placetable{\tblA}",
          r"\\[6pt]",
          r"{\tiny\raggedright",
-         rf"{n_land} of {len(rs)} runs landed. Mean $\pm$ SD over folds. Parentheses: "
-         rf"\% outliers excluded ($R^2$ columns); \% neuron-frames at the $\pm$100\,V "
-         rf"clamp (fit-roll columns). Green: $>{_GREEN}$.\par}}"]
+         rf"{n_land} of {len(rs)} runs landed. Mean $\pm$ SD over folds. "
+         rf"In parentheses, $R^2$ columns: \% of edges or neurons excluded as outliers. "
+         rf"In parentheses, fit roll $r$ columns (rollout of the generator equation with the "
+         rf"recovered $W$, $\tau$, $V^{{\mathrm{{rest}}}}$): \% of (neuron, frame) values held at "
+         rf"the $\pm$100\,V limit. Green: $>{_GREEN}$.\par}}"]
     # THE RUNNING BLOCK GOES ON THE SLIDE TOO, WHEN THERE IS ONE. An experiment
     # mid-flight otherwise shows a row of dashes and says nothing, while its jobs
     # have been writing per-checkpoint numbers for hours. This is the TRAIN split
