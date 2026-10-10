@@ -724,6 +724,13 @@ def _summary_rows(fm, rs, source, nd=3):
                     if live:
                         acc[k].append(d.get(k))
         if not n_here:
+            # A LAUNCHED ARM WITH NOTHING LANDED YET gets a blank row in the landed
+            # table (n = 0), so a pending arm is visible on the slide; an arm never
+            # launched is still left out.
+            launched = set((fm.get("job_ids") or {}))
+            if source == "landed" and any(
+                    r in launched for a, p, r in rs if a["id"] == arm_id and _cell(p) == cell):
+                out.append((arm_id, cell, "0", [""] * len(cols)))
             continue
         cells = []
         for k, _h, live in cols:
