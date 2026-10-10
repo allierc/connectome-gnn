@@ -39,6 +39,13 @@ arms:
     graph_model.signal_model_name: flyvis_conductance
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
+- id: cond_l100
+  label: conductance, group lasso 100
+  spec_pattern: flyvis_noise_005_null400_condl100_{fold}
+  differs_by:
+    graph_model.signal_model_name: flyvis_conductance
+    graph_model.input_size: 6
+    training.coeff_g_phi_input_group_L1: 100.0
 job_ids:
   flyvis_noise_005_null400_cur_cv00: '154400229'
   flyvis_noise_005_null400_cur_cv01: '154400230'
@@ -60,9 +67,11 @@ report:
   arm_order:
   - current
   - cond_l25
+  - cond_l100
   - conductance
   arm_labels:
     cond_l25: conductance
+    cond_l100: conductance
   arm_columns:
     lasso: training.coeff_g_phi_input_group_L1
 analyse_job_ids:
