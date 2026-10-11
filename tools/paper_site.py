@@ -247,6 +247,67 @@ def report_crop(report_doc, pi, out, dpi=260):
     return out
 
 
+def areas_tex(areas):
+    """[(x0, y0, x1, y1, kind, target)] -> \\area lines; kind 'url' (GitHub) or 'slide' (a hypertarget)."""
+    out = []
+    for x0, y0, x1, y1, kind, tgt in areas:
+        x0, y0, x1, y1 = (max(0.0, min(1.0, v)) for v in (x0, y0, x1, y1))
+        if x1 - x0 < 1e-3 or y1 - y0 < 1e-3:
+            continue
+        cmd = rf"\href{{{tgt.replace('#', chr(92) + '#')}}}" if kind == "url" else rf"\hyperlink{{{tgt}}}"
+        out.append(rf"\area{{{x0:.4f}}}{{{y0:.4f}}}{{{x1:.4f}}}{{{y1:.4f}}}{{{cmd}}}")
+    return "\n".join(out)
+
+
+def linkimg(path, areas, width=r"\linewidth", height=r"\panelbox"):
+    return rf"\vspace{{0pt}}\topgfx{{\linkimg{{{width}}}{{{height}}}{{{path}}}{{{areas_tex(areas)}}}}}"
+
+
+def caption_rect(doc, pi, cap_block):
+    """The whole caption paragraph: the caption's first block and the blocks right below it (gap < 6 pt), right of
+    the line-number margin."""
+    import fitz
+    pg = doc[pi]
+    box = fitz.Rect(cap_block[:4])
+    blocks = sorted((fitz.Rect(b[:4]) for b in pg.get_text("blocks") if b[0] >= cap_block[0] - 3), key=lambda r: r.y0)
+    for r in blocks:
+        if r.y0 > box.y1 and r.y0 - box.y1 < 6:
+            box |= r
+    return box
+
+
+def experiment_refs(doc, pi, rect):
+    """Rects of 'experiment N' references inside rect: integers after 'experiment(s)', up to the sentence's end,
+    outside parentheses (so '20%' or '(cv00)' are not read as numbers of experiments)."""
+    import fitz
+    words = [w for w in doc[pi].get_text("words") if rect.contains(fitz.Point((w[0] + w[2]) / 2, (w[1] + w[3]) / 2))]
+    words.sort(key=lambda w: (w[5], w[6], w[7]))
+    refs, on, depth = [], False, 0
+    known = {int(os.path.basename(p)[3:5]) for p in EXP.all_experiments()}
+    for w in words:
+        t = w[4]
+        if re.match(r"^\(?experiments?$", t.lower()):
+            on, depth = True, 0
+            continue
+        if on:
+            core = t.strip("(),;.")
+            if depth == 0 and core.isdigit() and int(core) in known and not t.endswith("%"):
+                refs.append((w[:4], int(core)))
+            depth += t.count("(") - t.count(")")
+            if t.endswith(".") and depth <= 0:
+                on = False
+    return refs
+
+
+def exp_url(man, sha, n):
+    return f"{man['github']}/blob/{sha}/{os.path.relpath(EXP.exp_path(n), ROOT)}"
+
+
+def to_frac(r, rect):
+    return ((r[0] - rect.x0) / rect.width, (r[1] - rect.y0) / rect.height,
+            (r[2] - rect.x0) / rect.width, (r[3] - rect.y0) / rect.height)
+
+
 # --------------------------------------------------------------------------- 4. GitHub permalinks
 def permalinks(man):
     gh, branch = man["github"], man.get("branch", "main")
@@ -460,8 +521,8 @@ def links_tex(links):
     return r"\\ ".join(rf"\href{{{u.replace('#', chr(92) + '#')}}}{{\textcolor{{cyan}}{{{tex(n)}}}}}" for n, u in links)
 
 
-def frame(title, left, right, src=""):
-    return (rf"""\begin{{frame}}{{{title}}}
+def frame(title, left, right, src="", target=""):
+    return (rf"""\begin{{frame}}{{{title}}}""" + (rf"\hypertarget{{{target}}}{{}}" if target else "") + rf"""
 \begin{{columns}}[T]
 \begin{{column}}{{0.57\textwidth}}
 {left}
@@ -473,8 +534,8 @@ def frame(title, left, right, src=""):
 """ + (rf"\srcpath{{{tex(src)}}}" + "\n" if src else "") + r"\end{frame}" + "\n")
 
 
-def frame_one(title, body, src=""):
-    return (rf"""\begin{{frame}}{{{title}}}
+def frame_one(title, body, src="", target=""):
+    return (rf"""\begin{{frame}}{{{title}}}""" + (rf"\hypertarget{{{target}}}{{}}" if target else "") + rf"""
 \vspace{{2pt}}{{\centering
 {body}
 \par}}
@@ -527,6 +588,19 @@ PREAMBLE = r"""\documentclass[aspectratio=169]{beamer}
 \newcommand{\fitgfx}[2][\linewidth]{\includegraphics[width=#1,height=\panelbox,keepaspectratio]{#2}}
 \newcommand{\topgfx}[1]{\vtop{\hbox to \linewidth{\hss#1\hss}}}
 \newcommand{\panel}[2][\linewidth]{\vspace{0pt}\topgfx{\fitgfx[#1]{#2}}}
+\usepackage{tikz}
+\newsavebox{\lbox}
+% \linkimg{width}{height}{file}{areas}: the image with clickable areas laid over it
+\newcommand{\linkimg}[4]{%
+  \sbox{\lbox}{\includegraphics[width=#1,height=#2,keepaspectratio]{#3}}%
+  \begin{tikzpicture}[inner sep=0pt, outer sep=0pt]
+    \node[anchor=south west] at (0,0) {\usebox{\lbox}};
+    #4
+  \end{tikzpicture}}
+% \area{x0}{y0}{x1}{y1}{\href{url}} or {\hyperlink{target}}: fractions of the image, top-left origin
+\newcommand{\area}[5]{%
+  \node[anchor=north west] at ({#1*\wd\lbox},{(1-#2)*\ht\lbox})
+    {#5{\phantom{\rule{\fpeval{#3-#1}\wd\lbox}{\fpeval{#4-#2}\ht\lbox}}}};}
 \newsavebox{\fitbox}
 \newlength{\fitht}
 \newlength{\fitwd}
@@ -584,15 +658,31 @@ def build(only=None, force=False):
         title_short = short_title(it["caption"]) if it["caption"] else it["label"]
         title = f"{it['short']} $\\cdot$ {tex(title_short)}"
         rules.append([f"{it['short']}: {title_short}", rf"^{re.escape(it['short'])} ·"])
-        # the item image
+        # the item image with its clickable areas: panels and sections -> their slides, 'experiment N' in the
+        # caption -> the experiment file on GitHub
+        pj = os.path.join(PAPER, ((mi or {}).get("figure") or "") + ".panels.json")
+        panels = json.load(open(pj)) if (mi and mi.get("figure") and os.path.exists(pj)) else {}
+        secs = (mi or {}).get("sections", [])
+        left = r"\textcolor{gray}{(image not found)}"
         if it["fig"]:
             img = figure_png(it, mi, img_dir)
+            if img:
+                a_fig = [(*p["box"], "slide", f"p-{tag}-{L}") for L, p in panels.items()]
+                left = linkimg(img, a_fig, height=r"0.60\textheight")
+                if it["pi"] is not None:
+                    crect = caption_rect(paper, it["pi"], it["cap_block"])
+                    cimg = table_png(paper, it["pi"], crect + (-2, -2, 2, 2), os.path.join(img_dir, f"{tag}_caption.png"))
+                    a_cap = [(*to_frac(r, crect + (-2, -2, 2, 2)), "url", exp_url(man, sha, n))
+                             for r, n in experiment_refs(paper, it["pi"], crect)]
+                    left += r"\par\vspace{3pt}" + linkimg(cimg, a_cap, height=r"0.24\textheight")
         elif it["pi"] is not None:
             rect = table_region(paper, it["pi"], it["cap_block"])
             img = table_png(paper, it["pi"], rect, os.path.join(img_dir, f"{tag}.png"))
-        else:
-            img = None
-        left = rf"\panel{{{img}}}" if img else r"\textcolor{gray}{(image not found)}"
+            bands = section_bands(paper, it["pi"], rect, secs) if secs else []
+            a_tab = [(0.0, (b[0] - rect.y0) / rect.height, 1.0, (b[1] - rect.y0) / rect.height, "slide",
+                      f"s-{tag}-{re.sub(chr(92) + 'W+', '_', sc['name'])}") for sc, b in zip(secs, bands) if b]
+            a_tab += [(*to_frac(r, rect), "url", exp_url(man, sha, n)) for r, n in experiment_refs(paper, it["pi"], rect)]
+            left = linkimg(img, a_tab)
         code = [(links[k]["name"], links[k]["url"]) for k in (mi or {}).get("code", [])]
         if mi:
             code = [("plotting / table script", file_link(man, sha, mi["script"]))] + code
@@ -600,24 +690,24 @@ def build(only=None, force=False):
         else:
             right = right_col(it["caption"][:300], None,
                               {"source": "published figure / table, not regenerated by the 2026 campaign"}, [])
-        slides.append(frame(title, left, right, src=f"experiments/paper/main.pdf p. {it['page']}"))
+        slides.append(frame(title, left, right, src=f"experiments/paper/main.pdf p. {it['page']}", target=f"i-{tag}"))
         if not mi:
             continue
-        # one slide per panel (figures with a panel file)
-        pj = os.path.join(PAPER, (mi.get("figure") or "") + ".panels.json")
-        if it["fig"] and mi.get("figure") and os.path.exists(pj):
-            for L, p in json.load(open(pj)).items():
+        # one slide per panel (figures with a panel file); the panel links back to the figure
+        if it["fig"] and panels:
+            for L, p in panels.items():
                 crop = crop_panel(img, p["box"], os.path.join(img_dir, f"{tag}_panel_{L}.png"))
                 m = EXP.metrics_of(p["run"]) or {} if p.get("run") else {}
                 keys = ("one_step_r", "rollout_r", "Wij_R2", "Wij_slope", "tau_R2", "V_rest_R2", "msg_i_R2",
                         "msg_ij_R2", "clustering_accuracy", "stimuli_r_cell")
                 facts = {"run": p.get("run") or ""}
                 facts.update({k: m[k] for k in keys if k in m})
-                slides.append(frame(f"{it['short']} $\\cdot$ panel {L}", rf"\panel{{{crop}}}",
+                slides.append(frame(f"{it['short']} $\\cdot$ panel {L}",
+                                    linkimg(crop, [(0, 0, 1, 1, "slide", f"i-{tag}")]),
                                     right_col(f"panel {L}", None, facts,
                                               [("plotting script", file_link(man, sha, mi["script"]))],
                                               param_table_tex([("value", p.get("run"))]) if p.get("run") else ""),
-                                    src=f"{mi['figure']}.panels.json"))
+                                    src=f"{mi['figure']}.panels.json", target=f"p-{tag}-{L}"))
         # one slide per table section, then one metrics page per section
         bands = (section_bands(paper, it["pi"], table_region(paper, it["pi"], it["cap_block"]), mi.get("sections", []))
                  if not it["fig"] and it["pi"] is not None else [None] * len(mi.get("sections", [])))
@@ -626,9 +716,13 @@ def build(only=None, force=False):
             if not it["fig"] and it["pi"] is not None:
                 rect = table_region(paper, it["pi"], it["cap_block"])
                 simg = table_png(paper, it["pi"], rect, os.path.join(img_dir, f"{tag}_{stag}.png"), highlight=band)
-                slides.append(frame(f"{it['short']} $\\cdot$ {tex(s['name'])}", rf"\panel{{{simg}}}",
+                a_sec = [(0.0, (band[0] - rect.y0) / rect.height, 1.0, (band[1] - rect.y0) / rect.height, "url",
+                          exp_url(man, sha, s["experiment"]))] if (band and s.get("experiment")) else []
+                a_sec += [(*to_frac(r, rect), "url", exp_url(man, sha, n)) for r, n in experiment_refs(paper, it["pi"], rect)]
+                slides.append(frame(f"{it['short']} $\\cdot$ {tex(s['name'])}", linkimg(simg, a_sec),
                                     right_col(s["name"], None, section_facts(s), code[:1],
-                                              param_table_tex(section_columns(s))), src=mi["script"]))
+                                              param_table_tex(section_columns(s))), src=mi["script"],
+                                    target=f"s-{tag}-{stag}"))
             if not s.get("experiment"):
                 continue
             head, rows = select_rows(s)
@@ -640,7 +734,8 @@ def build(only=None, force=False):
                     report_crop(report, rp, rimg)
                 right = (rf"{{\tiny\textcolor{{gray}}{{experiment {s['experiment']}, all arms (experiments/report.pdf, "
                          rf"slide {rp + 1})}}}}\\[2pt]" + rf"\includegraphics[width=\linewidth]{{{rimg}}}")
-            left = (rf"{{\scriptsize\textbf{{experiment {s['experiment']}: landed rows}}}}\\[3pt]"
+            murl = exp_url(man, sha, s["experiment"]).replace("#", chr(92) + "#")
+            left = (rf"{{\scriptsize\href{{{murl}}}{{\textcolor{{cyan}}{{\textbf{{experiment {s['experiment']}: landed rows}}}}}}}}\\[3pt]"
                     + (metrics_table_tex(head, rows) if rows else r"\textcolor{gray}{no landed row}")
                     + r"\\[4pt]{\tiny\textcolor{gray}{mean $\pm$ SD over folds; parentheses: \% outliers (R$^2$), "
                       r"\% values at the $\pm$100\,V limit (fit roll)}}")

@@ -128,7 +128,11 @@ function show(i) {
     stage.appendChild(v);
   });
   (s.links || []).forEach((l) => {
-    const a = document.createElement("a"); a.className = "lnk"; a.href = l.href; a.target = "_blank"; a.title = l.href;
+    const a = document.createElement("a"); a.className = "lnk";
+    if (l.page !== undefined) {
+      a.href = "#" + (l.page + 1); a.title = "slide " + (l.page + 1) + ": " + S[l.page].title;
+      a.onclick = (e) => { e.preventDefault(); show(l.page); };
+    } else { a.href = l.href; a.target = "_blank"; a.title = l.href; }
     a.style.left = l.x + "%"; a.style.top = l.y + "%"; a.style.width = l.w + "%"; a.style.height = l.h + "%";
     stage.appendChild(a);
   });
@@ -189,10 +193,13 @@ def build(pdf, out=None, dpi=220, title=None, rules=None, min_sections=5, max_se
         mv, lk = [], []
         for ln in pg.get_links():
             uri = ln.get("uri") or ""
+            r = ln["from"]
+            box = {"x": 100 * r.x0 / W, "y": 100 * r.y0 / H, "w": 100 * r.width / W, "h": 100 * r.height / H}
             if uri.startswith(("http://", "https://")):
-                r = ln["from"]
-                lk.append({"href": uri, "x": 100 * r.x0 / W, "y": 100 * r.y0 / H,
-                           "w": 100 * r.width / W, "h": 100 * r.height / H})
+                lk.append(dict(box, href=uri))
+                continue
+            if not uri and not ln.get("file") and isinstance(ln.get("page"), int) and ln["page"] >= 0:
+                lk.append(dict(box, page=ln["page"]))          # a link to another slide of the deck
                 continue
             f = urllib.parse.unquote(ln.get("file") or ln.get("uri") or "").replace("run:", "").split("?")[0]
             if not f.endswith(".mp4"):
