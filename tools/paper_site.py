@@ -537,8 +537,9 @@ PREAMBLE = r"""\documentclass[aspectratio=169]{beamer}
 \makeatother
 \title{\textbf{Graph neural networks recover interpretable circuit models from neural activity}}
 \subtitle{Figures and tables: experiments, runs, code}
-\author{Cedric Allier}
-\institute{Saalfeld lab, Janelia}
+\author{C\'edric Allier\textsuperscript{1}, Janne K. Lappalainen\textsuperscript{2,3}, Stephan Saalfeld\textsuperscript{1}\\[2pt]
+  {\scriptsize \textsuperscript{1}Janelia Research Campus, HHMI \quad \textsuperscript{2}Allen Institute \quad
+  \textsuperscript{3}Machine Learning in Science, University of T\"ubingen \& T\"ubingen AI Center}}
 \date{\today}
 \begin{document}
 \frame{\titlepage}
@@ -677,7 +678,7 @@ def build(only=None, force=False, use_agent=True):
     import deck_site
     deck_site.build(os.path.join(OUT, "deck.pdf"), out=os.path.join(OUT, "site"),
                     title="GNN circuit models: paper figures and tables", rules=rules,
-                    min_sections=1, max_sections=200)
+                    min_sections=1, max_sections=200, first_title="title page")
 
 
 if __name__ == "__main__":

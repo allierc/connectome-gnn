@@ -171,7 +171,7 @@ def sections(slides, rules):
     return out
 
 
-def build(pdf, out=None, dpi=220, title=None, rules=None, min_sections=5, max_sections=12):
+def build(pdf, out=None, dpi=220, title=None, rules=None, min_sections=5, max_sections=12, first_title=None):
     import fitz
     base = os.path.dirname(os.path.abspath(pdf))
     out = out or os.path.join(base, "site")
@@ -205,7 +205,9 @@ def build(pdf, out=None, dpi=220, title=None, rules=None, min_sections=5, max_se
             mv.append({"src": f, "x": 100 * r.x0 / W, "y": 100 * r.y0 / H, "w": 100 * r.width / W, "h": 100 * r.height / H})
         # ?v=<build time>: a browser that cached an older build's slide images loads the new ones (Cedric, 2026-10-10:
         # "I do not see the modifications" -- the page showed a cached 61-page build after the 65-page one was served)
-        slides.append({"img": f"{img}?v={stamp}", "title": lines[0] if lines else f"slide {p + 1}", "movies": mv,
+        # the title page has no frame title: its first text line is a name, so the menu takes `first_title`
+        name_p = first_title if (p == 0 and first_title) else (lines[0] if lines else f"slide {p + 1}")
+        slides.append({"img": f"{img}?v={stamp}", "title": name_p, "movies": mv,
                        "links": lk})
     for f in sorted(movies):
         dst = os.path.join(out, f)
