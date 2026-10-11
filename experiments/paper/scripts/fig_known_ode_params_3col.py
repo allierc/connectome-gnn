@@ -107,6 +107,8 @@ def main():
                           bottom=y0, top=y0 + (2 * PANEL_CM + GAP_ROW_CM) / height,
                           wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
         axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(2)]
+        for _a in axes:
+            _a._site_run = run          # the run this panel shows (paper site)
         data = load_kode(run)
         n_outside.append(data["n_outside"]); n_edges = len(data["W_true"])
         draw_block(axes, data, cmap=cmap)

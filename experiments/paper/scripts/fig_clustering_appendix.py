@@ -58,6 +58,7 @@ def main():
         r, c = divmod(k, 2)
         ax = fig.add_axes([(margin + c * (side + gap)) / w, (margin + (1 - r) * (side + gap)) / h, side / w, side / h])
         axes.append(ax)
+        ax._site_run = RUN                # the run this panel shows (paper site)
         X = f[key]
         acc, ari, nmi = m[pre + "accuracy"], m[pre + "ari"], m[pre + "nmi"]
         assert int(m[pre + "n_features"]) == X.shape[1], (key, m[pre + "n_features"], X.shape)

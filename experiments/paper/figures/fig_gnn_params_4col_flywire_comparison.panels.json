@@ -1,0 +1,146 @@
+{
+ "a": {
+  "box": [
+   0.004,
+   0.0535,
+   0.2411,
+   0.264
+  ],
+  "run": "e8_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "b": {
+  "box": [
+   0.2556,
+   0.0535,
+   0.4927,
+   0.264
+  ],
+  "run": "e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "c": {
+  "box": [
+   0.5073,
+   0.0535,
+   0.7444,
+   0.264
+  ],
+  "run": "full_eye_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "d": {
+  "box": [
+   0.7589,
+   0.0535,
+   0.996,
+   0.264
+  ],
+  "run": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "e": {
+  "box": [
+   0.0089,
+   0.2996,
+   0.2411,
+   0.5036
+  ],
+  "run": "e8_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "f": {
+  "box": [
+   0.2605,
+   0.2996,
+   0.4927,
+   0.5036
+  ],
+  "run": "e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "g": {
+  "box": [
+   0.5121,
+   0.2996,
+   0.7444,
+   0.5036
+  ],
+  "run": "full_eye_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "h": {
+  "box": [
+   0.768,
+   0.2996,
+   0.996,
+   0.5036
+  ],
+  "run": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "i": {
+  "box": [
+   0.0181,
+   0.5457,
+   0.2411,
+   0.7525
+  ],
+  "run": "e8_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "j": {
+  "box": [
+   0.2697,
+   0.5457,
+   0.4927,
+   0.7525
+  ],
+  "run": "e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "k": {
+  "box": [
+   0.5213,
+   0.5457,
+   0.7444,
+   0.7525
+  ],
+  "run": "full_eye_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "l": {
+  "box": [
+   0.7729,
+   0.5457,
+   0.996,
+   0.7525
+  ],
+  "run": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "m": {
+  "box": [
+   0.0129,
+   0.7918,
+   0.2411,
+   0.9961
+  ],
+  "run": "e8_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "n": {
+  "box": [
+   0.2645,
+   0.7918,
+   0.4927,
+   0.9961
+  ],
+  "run": "e8_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ },
+ "o": {
+  "box": [
+   0.5161,
+   0.7918,
+   0.7444,
+   0.9961
+  ],
+  "run": "full_eye_flywireRF_noise_005_blank50_condl25_cv00"
+ },
+ "p": {
+  "box": [
+   0.7678,
+   0.7918,
+   0.996,
+   0.9961
+  ],
+  "run": "full_eye_flywireRF_proximal_nulls_noise_005_blank50_condl25_cv00"
+ }
+}

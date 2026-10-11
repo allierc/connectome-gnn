@@ -1,0 +1,20 @@
+{
+ "b": {
+  "box": [
+   0.0153,
+   0.4301,
+   0.996,
+   0.6949
+  ],
+  "run": "flyvis_noise_005_INR_davis_blank50_condl251s_cv00"
+ },
+ "c": {
+  "box": [
+   0.0047,
+   0.729,
+   0.996,
+   0.9958
+  ],
+  "run": "flyvis_noise_005_INR_davis_blank50_condl251s_cv00"
+ }
+}

@@ -46,6 +46,8 @@ def main():
                           bottom=y0, top=y0 + (3 * PANEL_CM + 2 * GAP_ROW_CM) / height,
                           wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
         axes = [fig.add_subplot(gs[r, c]) for r in range(3) for c in range(2)]
+        for _a in axes:
+            _a._site_run = run          # the run this panel shows (paper site)
         data = load_run(run)
         draw_block((axes[0], axes[1], axes[4], axes[5]), data, cmap=cmap)
         draw_message_row((axes[2], axes[3]), data)

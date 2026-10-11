@@ -115,6 +115,8 @@ def panel_labels(fig, axes, letters=None, dx_pt=1.0, dy_pt=2.0, align_rows=True,
     for x, y, L in zip(xs, ys, letters):
         fx, fy = inv.transform((x + dx, y + dy))
         fig.text(fx, fy, L, fontsize=FS_PANEL, fontweight="bold", ha=ha, va="bottom")
+    # remembered for save(): each letter's panel, so the site can cut the figure into panels
+    fig._site_panels = getattr(fig, "_site_panels", []) + list(zip(letters, axes))
 
 
 def column_titles(fig, axes_per_block, titles, dy_pt=4.0, fontsize=FS_LABEL):
@@ -132,7 +134,31 @@ def save(fig, out_base, pad_pt=2.0):
     os.makedirs(os.path.dirname(out_base), exist_ok=True)
     fig.savefig(out_base + ".pdf", bbox_inches="tight", pad_inches=pad_pt / 72.0)
     fig.savefig(out_base + ".png", dpi=300, bbox_inches="tight", pad_inches=pad_pt / 72.0)
+    _save_panel_boxes(fig, out_base, pad_pt)
     print("wrote", out_base + ".{pdf,png}")
+
+
+def _save_panel_boxes(fig, out_base, pad_pt):
+    """<out_base>.panels.json: every lettered panel's box in the SAVED png, as fractions of its
+    width and height from the top-left corner (the tight bbox of the axes with its labels), and
+    the run an axes was tagged with (`ax._site_run`), for the paper site (tools/paper_site.py)."""
+    panels = getattr(fig, "_site_panels", [])
+    if not panels:
+        return
+    import json
+    fig.canvas.draw()
+    rend = fig.canvas.get_renderer()
+    tb = fig.get_tightbbox(rend)                      # inches
+    pad = pad_pt / 72.0
+    x0, y1 = tb.x0 - pad, tb.y1 + pad
+    w, h = tb.width + 2 * pad, tb.height + 2 * pad
+    out = {}
+    for L, ax in panels:
+        b = ax.get_tightbbox(rend).transformed(fig.dpi_scale_trans.inverted())
+        out[L] = {"box": [round((b.x0 - x0) / w, 4), round((y1 - b.y1) / h, 4),
+                          round((b.x1 - x0) / w, 4), round((y1 - b.y0) / h, 4)],
+                  "run": getattr(ax, "_site_run", None)}
+    json.dump(out, open(out_base + ".panels.json", "w"), indent=1)
 
 
 def read_metrics(run_dir):

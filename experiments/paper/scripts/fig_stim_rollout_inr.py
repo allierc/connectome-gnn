@@ -138,6 +138,7 @@ def main():
     traces(ax_c, b["activity_true"][idx, T0:T1 + 1], b["activity_pred"][idx, T0:T1 + 1], labels, step_v,
            f"voltage, GNN rollout vs noise-free, $r$ = {r_v:.2f} $\\pm$ {sd_v:.2f}", "time (ms)")
     print(f"stimulus r {r_s:.3f} +- {sd_s:.3f}; voltage r {r_v:.3f} +- {sd_v:.3f}")
+    ax_b._site_run = ax_c._site_run = RUN   # the run these panels show (paper site)
     panel_labels(fig, [ax_b, ax_c], letters="bc", align_rows=False, dy_pt=10, y_from="tight")
     fig.text(left / WIDTH - 0.02, (y_hex0 + 3 * (hex_row + hex_title) + 0.05) / height, "a", fontsize=FS_PANEL,
              fontweight="bold", ha="right", va="bottom")
