@@ -59,12 +59,6 @@ def draw_traces(ax, b, idx, labels, step, header, show_labels):
     ax.text(0.02, 1.0, header, transform=ax.transAxes, ha="left", va="bottom", fontsize=FS_ANNOT)
 
 
-def _run_of(path):
-    """The run folder a bundle path lies in (<LOG_ROOT>/<run>/...)."""
-    from paper_style import LOG_ROOT
-    return os.path.relpath(path, LOG_ROOT).split(os.sep)[0]
-
-
 def draw_figure(bundle_paths, rollout_logs, out_name, truth="noise-free"):
     """bundle_paths / rollout_logs: one per column (sigma 0, 0.05, 0.5)."""
     bundles = [load_bundle(p) for p in bundle_paths]
@@ -89,7 +83,6 @@ def draw_figure(bundle_paths, rollout_logs, out_name, truth="noise-free"):
         header = ("" if k == 0 else f"vs {truth}, ") + f"$r$ = {r:.2f} $\\pm$ {sd:.2f}"
         ax = fig.add_axes(rect(x, BOTTOM + SCAT_S + GAP_ROW, COL_W, TRACE_H))
         draw_traces(ax, b, idx, labels, step, header, show_labels=(k == 0)); top.append(ax)
-        ax._site_run = _run_of(bundle_paths[k])
         ax = fig.add_axes(rect(x, BOTTOM, SCAT_S, SCAT_S))
         scatter_density(ax, b["activity_true"], b["activity_pred"], *V_RANGE)
         ax.text(0.04, 0.96, f"$r$ = {r:.2f} $\\pm$ {sd:.2f}", transform=ax.transAxes, ha="left", va="top",
@@ -98,7 +91,6 @@ def draw_figure(bundle_paths, rollout_logs, out_name, truth="noise-free"):
             ax.set_xlabel(f"{truth} voltage"); ax.set_ylabel("rollout voltage")
         else:
             ax.set_title(f"vs {truth}", fontsize=FS_TICK, pad=2)
-        ax._site_run = _run_of(bundle_paths[k])
         bot.append(ax)
         print(f"column {k}: tester r {r:.3f} +- {sd:.3f}, {b['activity_true'].shape[1]} frames")
     column_titles(fig, [[a] for a in top], TITLES, dy_pt=12)

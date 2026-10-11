@@ -208,9 +208,6 @@ experiments/paper/overleaf/
 experiments/paper/*.zip
 experiments/paper/*.pdf
 !experiments/paper/main.pdf
-experiments/paper/site/out/*
-!experiments/paper/site/out/site/
-!experiments/paper/site/out/site/slides/*.png
 experiments/paper/main.aux
 experiments/paper/main.log
 experiments/paper/main.out
@@ -229,5 +226,4 @@ experiments/paper/figures/*
 !experiments/paper/figures/fig_rollout_3col_noise_comparison_known_ode.p*
 !experiments/paper/figures/fig_known_ode_params_3col_noise_comparison_new.p*
 !experiments/paper/figures/fig_*.json
-!experiments/paper/figures/*.panels.json
 experiments/sync_status.json
