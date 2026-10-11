@@ -1301,6 +1301,67 @@ def _slides(fm):
     return "\n".join(L)
 
 
+def sync(numbers=None, submit_analyses=False, paper=False):
+    """Bring every experiment file and report.pdf up to date, and say what is not.
+
+    In order: `poll` every experiment (its markdown rewritten from the runs);
+    count each run's state; with `submit_analyses`, `analyse` the experiments
+    that have runs in state `trained`; rebuild report.pdf; with `paper`, rebuild
+    the manuscript (experiments/paper/scripts/build.sh). Writes
+    experiments/sync_status.json -- per experiment the counts and the names of
+    the runs that are trained-but-not-analysed or died, plus the commit and
+    modification time of report.pdf and main.pdf -- the file a site or deck
+    generator reads to refuse building on stale inputs.
+
+    Returns 1 while any run is `trained` (analysis owed) or `died`, else 0.
+    """
+    import json
+    import subprocess
+    import time
+    paths = [exp_path(n) for n in numbers] if numbers else all_experiments()
+    status = {"time": time.strftime("%Y-%m-%d %H:%M:%S"),
+              "commit": subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"],
+                                       capture_output=True, text=True).stdout.strip(),
+              "experiments": {}}
+    owed = 0
+    for path in paths:
+        fm, _ = load(path)
+        n = int(fm["number"])
+        poll(n)
+        fm, _ = load(path)
+        counts, by_state = {}, {}
+        for _arm, _pt, run in runs(fm):
+            st = status_of(run)
+            counts[st] = counts.get(st, 0) + 1
+            by_state.setdefault(st, []).append(run)
+        if submit_analyses and counts.get("trained"):
+            analyse(n)
+        owed += counts.get("trained", 0) + counts.get("died", 0)
+        status["experiments"][n] = {
+            "name": fm["name"], "file": os.path.relpath(path, ROOT), "counts": counts,
+            "trained_not_analysed": by_state.get("trained", []), "died": by_state.get("died", [])}
+    report(all_experiments())
+    if paper:
+        subprocess.run(["bash", os.path.join(EXP_DIR, "paper", "scripts", "build.sh")],
+                       cwd=os.path.join(EXP_DIR, "paper"), check=True)
+
+    def _stamp(rel):
+        f = os.path.join(ROOT, rel)
+        if not os.path.exists(f):
+            return None
+        return {"path": rel, "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(f)))}
+    status["report_pdf"] = _stamp("experiments/report.pdf")
+    status["paper_pdf"] = _stamp("experiments/paper/main.pdf")
+    out = os.path.join(EXP_DIR, "sync_status.json")
+    json.dump(status, open(out, "w"), indent=1)
+    print(f"\nsync {status['time']} @ {status['commit']}  ->  {os.path.relpath(out, ROOT)}")
+    for n, e in status["experiments"].items():
+        c = e["counts"]
+        flag = "  <- analysis owed" if c.get("trained") else ("  <- died" if c.get("died") else "")
+        print(f"  exp{n:02d} {e['name']:<32} " + "  ".join(f"{k} {v}" for k, v in sorted(c.items())) + flag)
+    return 1 if owed else 0
+
+
 def report(paths, make_pdf=True):
     """experiments/report.pdf -- the same deck style as presentation/.
 
@@ -1398,7 +1459,11 @@ def report(paths, make_pdf=True):
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("verb", choices=["launch", "analyse", "poll", "report"])
+    ap.add_argument("verb", choices=["launch", "analyse", "poll", "report", "sync"])
+    ap.add_argument("--submit-analyses", action="store_true",
+                    help="sync: submit -o test_plot for every run in state trained")
+    ap.add_argument("--paper", action="store_true",
+                    help="sync: also rebuild the manuscript (experiments/paper/scripts/build.sh)")
     ap.add_argument("numbers", nargs="*", type=int)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-pdf", action="store_true")
@@ -1432,6 +1497,8 @@ def main(argv=None) -> int:
                            preliminary=a.preliminary, redo=a.redo,
                            queue=a.queue, n_cpus=a.n_cpus, limit=a.limit, where=where)
                    for n in ns)
+    if a.verb == "sync":
+        return sync(a.numbers or None, submit_analyses=a.submit_analyses, paper=a.paper)
     if a.verb == "poll":
         ns = a.numbers or [int(re.match(r"exp(\d+)_", os.path.basename(p)).group(1))
                            for p in all_experiments()]

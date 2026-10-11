@@ -59,6 +59,10 @@ analyse_job_ids:
   flyvis_cal_40db_f200ms_h50: '154593576'
   flyvis_cal_40db_f20ms_h100: '154593681'
   flyvis_cal_40db_f200ms_h100: '154593682'
+  flyvis_cal_inf_f20ms_h50: '154669782'
+  flyvis_cal_inf_f20ms_h100: '154669783'
+  flyvis_cal_inf_f200ms_h50: '154669784'
+  flyvis_cal_inf_f200ms_h100: '154669785'
 ---
 
 # Experiment 16 — calcium_long_horizon
@@ -187,7 +191,7 @@ GPU nondeterminism (same seed, same batches), not the schedule. Held-out numbers
 
 ## Status
 
-**4/8 landed**, 0 trained (awaiting `-o test_plot`), 4 running, 0 pending
+**4/8 landed**, 4 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -197,15 +201,16 @@ GPU nondeterminism (same seed, same batches), not the schedule. Held-out numbers
 | kg | 40db | f20ms | h100 | 1 | -0.043 ± 0.000 | 0.883 ± 0.000 |  |  | 0.184 ± 0.000 (0.2) | -0.013 ± 0.000 (9.6) | 0.551 ± 0.000 (51.3) | 0.548 ± 0.000 | 0.606 ± 0.000 (6.3) | 0.243 ± 0.000 | -0.883 ± 0.000 | 0.735 ± 0.000 |
 | kg | 40db | f200ms | h50 | 1 | -0.038 ± 0.000 | 0.913 ± 0.000 |  |  | 0.306 ± 0.000 (0.2) | 0.047 ± 0.000 (7.5) | 0.517 ± 0.000 (47.3) | 0.613 ± 0.000 | 0.555 ± 0.000 (6.9) | 0.180 ± 0.000 | -0.600 ± 0.000 | 0.672 ± 0.000 |
 | kg | 40db | f200ms | h100 | 1 | -0.034 ± 0.000 | 0.916 ± 0.000 |  |  | 0.351 ± 0.000 (0.1) | -0.153 ± 0.000 (9.3) | 0.524 ± 0.000 (47.3) | 0.606 ± 0.000 | 0.574 ± 0.000 (6.8) | 0.214 ± 0.000 | -0.762 ± 0.000 | 0.702 ± 0.000 |
+| kg | inf | f20ms | h50 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| kg | inf | f20ms | h100 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| kg | inf | f200ms | h50 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| kg | inf | f200ms | h100 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | data | frame | horizon | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| kg | inf | f20ms | h50 | 34,001 |  | 0.202 ± 0.000 |  |  | 0.089 ± 0.000 | -0.090 ± 0.000 | 0.565 ± 0.000 | 0.562 ± 0.000 | 0.605 ± 0.000 |  |  | 0.690 ± 0.000 |
-| kg | inf | f20ms | h100 | 27,467 |  | 0.244 ± 0.000 |  |  | 0.216 ± 0.000 | -0.009 ± 0.000 | 0.538 ± 0.000 | 0.544 ± 0.000 | 0.588 ± 0.000 |  |  | 0.756 ± 0.000 |
-| kg | inf | f200ms | h50 | 34,001 |  | 0.217 ± 0.000 |  |  | 0.223 ± 0.000 | -0.112 ± 0.000 | 0.527 ± 0.000 | 0.516 ± 0.000 | 0.584 ± 0.000 |  |  | 0.682 ± 0.000 |
-| kg | inf | f200ms | h100 | 27,467 |  | 0.244 ± 0.000 |  |  | 0.332 ± 0.000 | -0.131 ± 0.000 | 0.485 ± 0.000 | 0.485 ± 0.000 | 0.584 ± 0.000 |  |  | 0.719 ± 0.000 |
+| — | | | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -215,9 +220,9 @@ GPU nondeterminism (same seed, same batches), not the schedule. Held-out numbers
 | `flyvis_cal_40db_f20ms_h100` | landed | 64,843 | `d73607caa9a5` |  |
 | `flyvis_cal_40db_f200ms_h50` | landed | 102,506 | `d73607caa9a5` |  |
 | `flyvis_cal_40db_f200ms_h100` | landed | 64,843 | `d73607caa9a5` |  |
-| `flyvis_cal_inf_f20ms_h50` | running | 34,001 | `` |  |
-| `flyvis_cal_inf_f20ms_h100` | running | 27,467 | `` |  |
-| `flyvis_cal_inf_f200ms_h50` | running | 34,001 | `` |  |
-| `flyvis_cal_inf_f200ms_h100` | running | 27,467 | `` |  |
+| `flyvis_cal_inf_f20ms_h50` | trained | 102,506 | `9ee2920be0bf` |  |
+| `flyvis_cal_inf_f20ms_h100` | trained | 64,843 | `9ee2920be0bf` |  |
+| `flyvis_cal_inf_f200ms_h50` | trained | 102,506 | `9ee2920be0bf` |  |
+| `flyvis_cal_inf_f200ms_h100` | trained | 64,843 | `9ee2920be0bf` |  |
 
 <!-- STATUS:END -->
