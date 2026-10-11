@@ -208,7 +208,9 @@ experiments/paper/overleaf/
 experiments/paper/*.zip
 experiments/paper/*.pdf
 !experiments/paper/main.pdf
-experiments/paper/site/out/
+experiments/paper/site/out/*
+!experiments/paper/site/out/site/
+!experiments/paper/site/out/site/slides/*.png
 experiments/paper/main.aux
 experiments/paper/main.log
 experiments/paper/main.out
