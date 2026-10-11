@@ -4,9 +4,9 @@ name: null_edges_400
 title: '+400% null edges: the general form under a group lasso, against nominal current
   training'
 purpose: does the general form g_phi = MLP(a_i, a_j, v_i, v_j) under a group lasso
-  of 10, 25 or 100 regress against nominal current training when the connectome is inflated five-fold
-  with null edges; and does the lasso kill the per-edge offset C_ij, read as R2_Vrest
-  against R2_Vrest without the C_i correction
+  of 10, 25 or 100 regress against nominal current training when the connectome is
+  inflated five-fold with null edges; and does the lasso kill the per-edge offset
+  C_ij, read as R2_Vrest against R2_Vrest without the C_i correction
 baseline: experiments/baseline/gnn_current_baseline.yaml
 specs_dir: experiments/specs/exp04/fly
 task: train
@@ -95,6 +95,11 @@ analyse_job_ids:
   flyvis_noise_005_null400_condl25_cv04: '154465699'
   flyvis_noise_005_null400_condl10_cv03: '154465693'
   flyvis_noise_005_null400_condl10_cv04: '154465694'
+  flyvis_noise_005_null400_condl100_cv00: '154668916'
+  flyvis_noise_005_null400_condl100_cv01: '154668917'
+  flyvis_noise_005_null400_condl100_cv02: '154668918'
+  flyvis_noise_005_null400_condl100_cv03: '154668919'
+  flyvis_noise_005_null400_condl100_cv04: '154668920'
 ---
 # Experiment 4 — null_edges_400
 
@@ -223,7 +228,7 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 
 ## Status
 
-**15/20 landed**, 0 trained (awaiting `-o test_plot`), 5 running, 0 pending
+**20/20 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -232,13 +237,13 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 | current | 5 | 0.997 ± 0.000 | 0.996 ± 0.000 |  |  | 0.981 ± 0.004 (0.0) | 0.963 ± 0.023 (0.3) | 0.540 ± 0.092 (16.1) | 0.242 ± 0.064 | 0.943 ± 0.009 (0.0) | 0.051 ± 0.009 | 0.152 ± 0.005 | 0.821 ± 0.007 |
 | conductance | 5 | 0.996 ± 0.001 | 0.995 ± 0.000 |  |  | 0.951 ± 0.054 (0.0) | 0.963 ± 0.005 (1.3) | 0.500 ± 0.169 (19.3) | 0.305 ± 0.131 | 0.911 ± 0.082 (2.4) | 0.058 ± 0.050 | 0.128 ± 0.063 | 0.840 ± 0.007 |
 | cond_l25 | 5 | 0.996 ± 0.000 | 0.797 ± 0.396 |  |  | 0.962 ± 0.036 (0.0) | 0.965 ± 0.010 (0.9) | 0.427 ± 0.060 (16.4) | 0.337 ± 0.075 | 0.949 ± 0.009 (0.2) | 0.017 ± 0.008 | 0.124 ± 0.082 | 0.831 ± 0.026 |
-| cond_l100 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| cond_l100 | 5 | 0.914 ± 0.165 | 0.891 ± 0.208 |  |  | 0.783 ± 0.392 (0.0) | 0.798 ± 0.320 (4.4) | 0.492 ± 0.066 (31.7) | 0.515 ± 0.084 | 0.688 ± 0.530 (19.6) | 417.092 ± 834.173 | -2.067 ± 4.468 | 0.786 ± 0.152 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cond_l100 | 1 |  | 0.002 ± 0.002 |  |  |  |  |  |  |  |  |  |  |
+| — | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -259,11 +264,11 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 | `flyvis_noise_005_null400_condl25_cv02` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv03` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
 | `flyvis_noise_005_null400_condl25_cv04` | landed | 1,520,001 | `64c8a3b9e6ca` |  |
-| `flyvis_noise_005_null400_condl100_cv00` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl100_cv01` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl100_cv02` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl100_cv03` | running | 1 | `` |  |
-| `flyvis_noise_005_null400_condl100_cv04` | running | 1 | `` |  |
+| `flyvis_noise_005_null400_condl100_cv00` | landed | 1,520,001 | `a28cb4228c34` |  |
+| `flyvis_noise_005_null400_condl100_cv01` | landed | 1,520,001 | `a28cb4228c34` |  |
+| `flyvis_noise_005_null400_condl100_cv02` | landed | 1,520,001 | `a28cb4228c34` |  |
+| `flyvis_noise_005_null400_condl100_cv03` | landed | 1,520,001 | `a28cb4228c34` |  |
+| `flyvis_noise_005_null400_condl100_cv04` | landed | 1,520,001 | `a28cb4228c34` |  |
 
 <!-- STATUS:END -->
 
@@ -273,3 +278,7 @@ Arm `cond_l100` (`flyvis_noise_005_null400_condl100_cv0{0..4}`): the condl10 spe
 `coeff_g_phi_input_group_L1` 100. Launched 2026-10-09, LSF 154623581-154623585, queue
 gpu_rtx6000, bf16 MLP matmuls as every arm here. The lasso-10 arm had been launched in
 its place by mistake; its runs are kept.
+
+2026-10-11: the five lasso-100 runs landed (analysis LSF 154668916-154668920). Fold cv03:
+R2_W -0.00001, slope 0.000 from iteration 320,001 to the end of training (tmp_training/Wij.log),
+one-step r 0.583, rollout r 0.475; folds cv00, cv01, cv02, cv04: R2_W 0.984, 0.981, 0.979, 0.972.

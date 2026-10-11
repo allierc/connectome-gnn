@@ -32,6 +32,7 @@ def table_cross(numbers):
     add("mid meas.\\ noise, 20-step recurrent", "0.2", "434\\,112", "flyvis_noise_005_020_condl25rc20_{fold}")
     add("unknown stimulus", "0", "434\\,112", "flyvis_noise_005_INR_davis_blank50_condl251s_{fold}")
     add("$+400\\%$ null edges", "0", "2\\,170\\,560", "flyvis_noise_005_null400_condl25_{fold}")
+    add("$+400\\%$ null edges, group lasso $100$", "0", "2\\,170\\,560", "flyvis_noise_005_null400_condl100_{fold}")
     add("$-20\\%$ edges removed", "0", "347\\,000", "flyvis_noise_005_rm20_condl251s_{fold}")
     add("$-50\\%$ edges removed", "0", "217\\,056", "flyvis_noise_005_rm50_condl251s_{fold}")
     add("$1/5$ frames, rollout horizon 6", "0", "434\\,112", "flyvis_noise_005_s5h06_condl25_{fold}")
@@ -39,17 +40,23 @@ def table_cross(numbers):
     add("$10\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid10_condl251s_{fold}")
     add("$20\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid20_none_condl251s_{fold}")
     numbers["table_cross"] = agg
+    from table_common import FOLDS as _F, LOG_ROOT as _L, read_metrics as _rm
+    per_fold_w100 = ", ".join(f"${round(_rm(os.path.join(_L, f'flyvis_noise_005_null400_condl100_{f}'))['Wij_R2'], 2) + 0.0:.2f}$"
+                              for f in _F)
     caption = (r"{\color{revised}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, "
                r"5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, "
                r"added/removed edges, sub-sampled frames, and hidden neurons. Every row is the general-form GNN "
-               r"($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) of the campaign: "
+               r"($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; group lasso $100$ where the "
+               r"row says so) of the campaign: "
                r"experiments 2 (low model noise), 3 (measurement noise, trained with the 20-step recurrent rollout "
-               r"since one-step training was not run for this form), 11 (unknown stimulus), 4 (null edges), "
+               r"since one-step training was not run for this form), 11 (unknown stimulus), 4 (null edges, group lasso $25$ and $100$; "
+               r"bf16 matrix products in the two MLPs, fp32 elsewhere), "
                r"14 (edges removed, $10\%$ hidden), 5 ($1/5$ frames, the rollout scored on the observed frames "
                r"only, horizons 6 and 21) and 9 ($20\%$ hidden). Prediction metrics on noise-free held-out stimuli "
                r"(" + frames_tex(*[a for k, a in agg.items() if k != "unknown stimulus"]) + r" frames by fold; the unknown-stimulus row on the first " + frames_tex(agg["unknown stimulus"]) + r" training frames, which the SIREN was fitted on). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the fitted "
                r"edges; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, "
                r"outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
+               r"Group lasso $100$, $R^2_{\hat{W}}$ per fold (cv00--cv04): " + per_fold_w100 + r". "
                r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.}")
     tex = (r"""% Supp. Tab. 4 -- written by scripts/make_tables.py; conductance lasso 25 rows from experiments 2, 3, 4, 5, 9, 11
 \begin{table}[h!]
