@@ -115,7 +115,7 @@ class _XTS:
 
 class _Cfg:
     class graph_model:
-        signal_model_name = "flyvis_conductance"
+        signal_model_name = "flyvis_general_form"
         g_phi_positive = False
         embedding_dim = EMB
 

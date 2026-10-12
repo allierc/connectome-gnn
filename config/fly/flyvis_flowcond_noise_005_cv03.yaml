@@ -30,7 +30,7 @@ simulation:
   model_id: '001'
   conductance_checkpoint_index: 28
 graph_model:
-  signal_model_name: flyvis_conductance
+  signal_model_name: flyvis_general_form
   prediction: first_derivative
   input_size: 3
   n_layers: 3

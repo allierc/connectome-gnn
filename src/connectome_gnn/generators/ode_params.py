@@ -306,7 +306,8 @@ class ODEParamsBase:
     # configs under log/ still name it, and they are not in git.
     "flyvis_current",
     "flyvis_A",
-    "flyvis_conductance",
+    "flyvis_general_form",
+    "flyvis_conductance",      # the general form's old name, for archived run configs
     "flyvis_C",
     "flyvis_D",
     "flyvis_A_multiple_ReLU",

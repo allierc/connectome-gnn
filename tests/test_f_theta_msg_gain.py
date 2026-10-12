@@ -47,7 +47,7 @@ def _cfg(coeff):
         simulation={"params": [[1.0, 1.0]], "n_neurons": N, "n_input_neurons": 2,
                     "n_neuron_types": 2, "n_edges": 8, "n_frames": 100,
                     "delta_t": 0.02, "seed": 42},
-        graph_model={"signal_model_name": "flyvis_conductance", "aggr_type": "add",
+        graph_model={"signal_model_name": "flyvis_general_form", "aggr_type": "add",
                      "embedding_dim": EMB, "input_size": 6, "output_size": 1,
                      "hidden_dim": 8, "n_layers": 2, "input_size_update": 5,
                      "hidden_dim_update": 8, "n_layers_update": 2,

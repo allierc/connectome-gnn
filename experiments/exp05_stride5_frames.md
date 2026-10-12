@@ -33,7 +33,7 @@ arms:
   label: conductance, group lasso 100
   spec_pattern: flyvis_noise_005_s5{horizon}_condl100_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
     training.rollout_loss_stride: 5
@@ -41,7 +41,7 @@ arms:
   label: conductance, group lasso 25
   spec_pattern: flyvis_noise_005_s5{horizon}_condl25_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.rollout_loss_stride: 5

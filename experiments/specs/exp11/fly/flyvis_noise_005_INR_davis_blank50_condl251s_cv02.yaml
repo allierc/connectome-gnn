@@ -21,7 +21,7 @@ simulation:
   blank_prefix_fraction: 0.5
   skip_short_videos: true
 graph_model:
-  signal_model_name: flyvis_conductance
+  signal_model_name: flyvis_general_form
   prediction: first_derivative
   field_type: visual
   input_size: 6

@@ -29,21 +29,21 @@ arms:
   label: conductance, group lasso 10
   spec_pattern: flyvis_noise_005_null400_condl10_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 10.0
 - id: cond_l25
   label: conductance, group lasso 25
   spec_pattern: flyvis_noise_005_null400_condl25_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 - id: cond_l100
   label: conductance, group lasso 100
   spec_pattern: flyvis_noise_005_null400_condl100_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
 job_ids:

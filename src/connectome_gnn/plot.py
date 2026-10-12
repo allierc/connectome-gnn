@@ -348,7 +348,7 @@ def plot_g_phi(ax, model, config, n_neurons, type_list, cmap, device, step=20,
         gt_v_range: (n_pts,) x values for gt_curves.
         type_names: list of type name strings for legend.
         edges: (2, E) edge index — required when signal_model_name is
-            flyvis_conductance (see `eval_g_phi_over_domain`).
+            flyvis_general_form (see `eval_g_phi_over_domain`).
     """
     model_config = config.graph_model
     n_pts = 1000

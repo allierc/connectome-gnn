@@ -625,7 +625,7 @@ def flat_table(runs, window, thresh):
                 f"bptt_win {r.bptt_window}" if r.bptt_window else
                 f"shoot {r.shooting_stride}" if r.shooting_stride else
                 (f"{r.weighting} g={r.gamma}" if r.weighting == "discount" else r.weighting))
-        model = "cond" if r.model == "flyvis_conductance" else "flyA"
+        model = "cond" if r.model in ("flyvis_general_form", "flyvis_conductance") else "flyA"
         print(f"{t:6}{n[:29]:30}{model:6}{r.dataset:6}{r.seed:<6}{r.input_size:<3}{r.n_noise:<3}"
               f"{r.lasso:<7}{r.g_phi_norm:<8}{knob:16}{r.progress*100:>5.0f}%"
               f"{fmt(v):>9}{fmt(c):>9}{fmt(vi):>9}{fmt(ai):>9}{fmt(no, 5):>10}{mark(r, full)}")

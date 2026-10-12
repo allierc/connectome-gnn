@@ -27,7 +27,7 @@ simulation:
   n_extra_null_edges: 1736448
   null_edges_mode: per_column
 graph_model:
-  signal_model_name: flyvis_conductance
+  signal_model_name: flyvis_general_form
   prediction: first_derivative
   input_size: 6
   n_layers: 3

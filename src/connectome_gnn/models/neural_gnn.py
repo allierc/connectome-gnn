@@ -6,6 +6,7 @@ import torch.nn as nn
 
 from connectome_gnn.models.MLP import MLP
 from connectome_gnn.models.registry import register_model
+from connectome_gnn.models.utils import is_general_form_gnn
 from connectome_gnn.models.Siren_Network import Siren
 from connectome_gnn.models.MultiResGrid_Network import (
     MultiResTemporalGrid,
@@ -54,6 +55,9 @@ class AdditiveUpdate(nn.Module):
     "flyvis_A_tanh",
     "flyvis_A_multiple_ReLU",
     "flyvis_A_NULL",
+    # `flyvis_general_form` is the name; `flyvis_conductance` is kept as an ALIAS for the
+    # 340 archived run configs under log/fly (see models/utils.GENERAL_FORM_GNN_NAMES).
+    "flyvis_general_form",
     "flyvis_conductance",
     "flyvis_C",
     "flyvis_D",
@@ -75,7 +79,7 @@ class NeuralGNN(nn.Module):
 
     Equations:
         msg_j = W[edge] * g_phi(v_j, a_j)^2   (g_phi_positive=True)
-        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (flyvis_conductance)
+        msg_j = W[edge] * g_phi(v_i, v_j, a_i, a_j)^2   (flyvis_general_form)
         du/dt = f_theta(v, a, sum(msg), excitation)
 
     Uses explicit scatter_add for message passing (no PyG dependency).
@@ -93,7 +97,7 @@ class NeuralGNN(nn.Module):
         },
         "equations": {
             "message_flyvis_A": "msg_j = W[edge_idx] * g_phi(v_j, a_j)^2   (g_phi_positive=True)",
-            "message_flyvis_conductance": "msg_j = W[edge_idx] * g_phi(v_i, v_j, a_i, a_j)^2",
+            "message_flyvis_general_form": "msg_j = W[edge_idx] * g_phi(v_i, v_j, a_i, a_j)^2",
             "update": "du/dt = f_theta(v, a, sum(msg), excitation)",
         },
         "graph_model_config": {
@@ -102,7 +106,7 @@ class NeuralGNN(nn.Module):
                 "description": "Edge message function — computes per-edge features, multiplied by W[edge]",
                 "input_size": {
                     "flyvis_A": "input_size = 1 + embedding_dim  (v_j, a_j)",
-                    "flyvis_conductance": "input_size = 2 + 2*embedding_dim  (v_i, v_j, a_i, a_j)",
+                    "flyvis_general_form": "input_size = 2 + 2*embedding_dim  (v_i, v_j, a_i, a_j)",
                 },
                 "output_size": "1 (scalar edge message)",
                 "hidden_dim": {"description": "Hidden layer width", "typical_range": [32, 128], "default": 64},
@@ -177,7 +181,7 @@ class NeuralGNN(nn.Module):
                 },
                 {
                     "name": "coeff_g_phi_input_group_L1",
-                    "description": "Group lasso on g_phi input columns (vi/vj/ai/aj) — flyvis_conductance only",
+                    "description": "Group lasso on g_phi input columns (vi/vj/ai/aj) — flyvis_general_form only",
                     "typical_range": [0, 10],
                 },
                 {
@@ -737,7 +741,7 @@ class NeuralGNN(nn.Module):
 
         # build per-edge features (ensure 2D even when embedding_dim=1)
         emb = embedding if embedding.dim() == 2 else embedding.unsqueeze(-1)
-        if self.model == "flyvis_conductance":
+        if is_general_form_gnn(self.model):
             # [v_j, a_j, v_i, a_i] -- a PREFIX-EXTENSION of the non-conductance
             # layout [v_j, a_j], so column 0 is v_j in EVERY family. The previous
             # interleaved order [v_i, v_j, a_i, a_j] made column 0 mean v_i here and

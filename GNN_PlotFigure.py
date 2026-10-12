@@ -53,7 +53,7 @@ from connectome_gnn.sparsify import clustering_gmm
 from connectome_gnn.models.neural_gnn import NeuralGNN  # noqa: F401 — kept for backwards compat
 from connectome_gnn.models.registry import create_model
 from connectome_gnn.models.utils import (model_family, restore_edge_sign_lock,
-                                        is_conductance_gnn)
+                                        is_general_form_gnn)
 from connectome_gnn.config import NeuralGraphConfig
 from connectome_gnn.metrics import (
     get_model_W,
@@ -572,7 +572,7 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     _cond = scored.get("conductance_form_r2_median")
     _cur = scored.get("current_form_r2_median")
     if _cond is not None or _cur is not None:
-        _is_cond = is_conductance_gnn(config.graph_model.signal_model_name)
+        _is_cond = is_general_form_gnn(config.graph_model.signal_model_name)
         _own, _other = (("conductance", "current") if _is_cond
                         else ("current", "conductance"))
         _g, _gsd = (scored.get("driving_force_r2_gain_mean"),
@@ -1891,9 +1891,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             type_np = to_numpy(type_list).astype(int).ravel()
 
             # g_phi domain range: evaluate + slope extraction (vectorized). Reuses
-            # the same flyvis_conductance-aware domain/feature logic as
+            # the same flyvis_general_form-aware domain/feature logic as
             # plot_training_gnn (ai = real average postsynaptic-partner embedding
-            # via `edges` for flyvis_conductance, not a self-pair ai=aj).
+            # via `edges` for flyvis_general_form, not a self-pair ai=aj).
             rr_domain_edge_slope, func_domain_edge_slope, valid_edge = evaluate_g_phi_curves(
                 model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
             slopes_edge, _ = _vectorized_linear_fit(rr_domain_edge_slope, func_domain_edge_slope)

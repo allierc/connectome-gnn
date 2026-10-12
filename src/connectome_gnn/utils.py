@@ -255,7 +255,7 @@ def migrate_state_dict(state_dict: dict) -> dict:
 
 
 def legacy_g_phi_column_permutation(width: int, emb_dim: int) -> list[int]:
-    """Column permutation taking a PRE-REORDER flyvis_conductance g_phi first-layer
+    """Column permutation taking a PRE-REORDER flyvis_general_form g_phi first-layer
     weight to the current layout.
 
         legacy  : [v_i, v_j, a_i, a_j] + noise      (interleaved endpoints)
@@ -274,7 +274,7 @@ def legacy_g_phi_column_permutation(width: int, emb_dim: int) -> list[int]:
     if width < base:
         raise ValueError(
             f"width {width} is narrower than the conductance layout {base}; "
-            "this permutation only applies to flyvis_conductance g_phi weights")
+            "this permutation only applies to flyvis_general_form g_phi weights")
     return (
         [1]                              # v_j   <- legacy column 1
         + list(range(2 + emb_dim, base))  # a_j   <- legacy a_j block

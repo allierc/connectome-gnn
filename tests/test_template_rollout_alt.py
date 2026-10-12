@@ -27,7 +27,7 @@ class _Rec:
 
 class _Cfg:
     class graph_model:
-        signal_model_name = "flyvis_conductance"
+        signal_model_name = "flyvis_general_form"
 
 
 def test_the_alt_view_swaps_only_what_the_family_changes():

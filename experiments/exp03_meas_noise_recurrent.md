@@ -39,7 +39,7 @@ arms:
   label: conductance, lasso 100, recurrent 20
   spec_pattern: flyvis_noise_005_{meas}_condl100rc20_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 100.0
     training.recurrent_training: true
@@ -48,7 +48,7 @@ arms:
   label: conductance, lasso 25, recurrent 20
   spec_pattern: flyvis_noise_005_{meas}_condl25rc20_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true
@@ -65,7 +65,7 @@ arms:
   label: conductance, lasso 25, recurrent, burn-in 8, warm start 1 epoch
   spec_pattern: flyvis_noise_005_{meas}_condl25bi8w1_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true

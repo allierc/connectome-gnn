@@ -3,7 +3,7 @@
 graph_trainer compiles it with fullgraph=True, so a single untraceable op in it
 disables torch.compile for the whole run. That is exactly what happened: a
 torch.randperm building g_phi's random (a_i, a_j) partner pairs forced every
-flyvis_conductance config to carry torch_compile: false. The permutation is now
+flyvis_general_form config to carry torch_compile: false. The permutation is now
 drawn by sample_g_phi_perm() just outside the compiled call and passed in.
 
 Three properties are pinned here, because breaking any of them is silent:
@@ -65,7 +65,7 @@ class _FakeModel(torch.nn.Module):
         super().__init__()
         self.W = torch.nn.Parameter(torch.randn(E))
         self.a = torch.nn.Parameter(torch.randn(N, EMB))
-        n_in = 2 + 2 * EMB if mc.signal_model_name == "flyvis_conductance" else 1 + EMB
+        n_in = 2 + 2 * EMB if mc.signal_model_name == "flyvis_general_form" else 1 + EMB
         self.g_phi = MLP(input_size=n_in, output_size=1, nlayers=2, hidden_size=16, device="cpu")
         self.f_theta = MLP(input_size=mc.input_size_update, output_size=1,
                            nlayers=2, hidden_size=16, device="cpu")
@@ -91,14 +91,14 @@ def _call(reg_fn, model, perm):
 
 class TestGPhiPermHoist:
     def test_compiles_fullgraph_for_conductance(self):
-        model, reg = _build("flyvis_conductance")
+        model, reg = _build("flyvis_general_form")
         compiled = torch.compile(reg.compute, fullgraph=True)
         reg.reset_iteration(device=DEV)
         out = _call(compiled, model, reg.sample_g_phi_perm(DEV))
         assert torch.isfinite(out)
 
     def test_permutation_is_resampled_every_call(self):
-        _, reg = _build("flyvis_conductance")
+        _, reg = _build("flyvis_general_form")
         reg.reset_iteration(device=DEV)
         perms = [reg.sample_g_phi_perm(DEV) for _ in range(5)]
         assert all(p is not None and p.shape == (N,) for p in perms)
@@ -107,7 +107,7 @@ class TestGPhiPermHoist:
         assert not all(torch.equal(perms[0], p) for p in perms[1:])
 
     def test_compiled_matches_eager(self):
-        model, reg = _build("flyvis_conductance")
+        model, reg = _build("flyvis_general_form")
         reg.reset_iteration(device=DEV)
         perm = reg.sample_g_phi_perm(DEV)
         eager = _call(reg.compute, model, perm)
@@ -125,7 +125,7 @@ class TestGPhiPermHoist:
 
     def test_no_perm_when_g_phi_priors_are_off(self):
         """Mirrors the old guard: randperm only ran when a g_phi prior was active."""
-        mc = _model_config("flyvis_conductance")
+        mc = _model_config("flyvis_general_form")
         reg = LossRegularizer(train_config=TrainingConfig(n_epochs=1, batch_size=1),
                               model_config=mc, activity_column=3, plot_frequency=1,
                               n_neurons=N, trainer_type="flyvis", n_neuron_types=0)

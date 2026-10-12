@@ -75,7 +75,7 @@ def _g_phi_at(model, config, vi, vj, src, dst):
     ai = model.a[dst].unsqueeze(1).expand(-1, n_f, -1).reshape(-1, emb)
     aj = model.a[src].unsqueeze(1).expand(-1, n_f, -1).reshape(-1, emb)
     vi_f, vj_f = vi.reshape(-1, 1), vj.reshape(-1, 1)
-    cond = M.is_conductance_gnn(config.graph_model.signal_model_name)
+    cond = M.is_general_form_gnn(config.graph_model.signal_model_name)
     outs = []
     with torch.no_grad():
         for lo in range(0, vj_f.shape[0], M.G_PHI_EVAL_CHUNK):

@@ -32,7 +32,7 @@ arms:
   label: conductance lasso 25, one-step
   spec_pattern: flyvis_noise_005_{condition}_condl251s_{fold}
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 report:

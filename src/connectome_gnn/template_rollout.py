@@ -45,7 +45,8 @@ from connectome_gnn.utils import to_numpy
 _KNOWN_ODE_FOR = {
     "flyvis_current": "flyvis_known_ode",
     "flyvis": "flyvis_known_ode",
-    "flyvis_conductance": "flyvis_conductance_known_ode",
+    "flyvis_general_form": "flyvis_conductance_known_ode",
+    "flyvis_conductance": "flyvis_conductance_known_ode",      # the general form's old name
 }
 
 # Absolute tolerance on the read-back. Loose enough for float32 storage of

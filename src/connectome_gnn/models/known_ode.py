@@ -341,7 +341,7 @@ class ZebrafishKnownODE(KnownODEBase):
 # model that has no g_phi at all -- silent wrong features, not a crash, and
 # only some of them guard on hasattr(model,'g_phi').
 #
-# Those sites now use models.utils.is_conductance_gnn(), which excludes the
+# Those sites now use models.utils.is_general_form_gnn(), which excludes the
 # known-ODE explicitly, so the dispatch carries the distinction instead of the
 # name having to dodge it. `flyvis_cond_known_ode` remains a registry ALIAS for
 # the archived runs.

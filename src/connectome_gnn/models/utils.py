@@ -528,11 +528,11 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device,
         perm_indices: (n_neurons,) long tensor pairing each neuron i with a random
             partner j, so the g_phi priors are enforced on a fresh Monte-Carlo
             sample of (a_i, a_j) embedding pairs each call. Only used by
-            flyvis_conductance, whose g_phi takes both endpoints.
+            flyvis_general_form, whose g_phi takes both endpoints.
 
             MUST be supplied by the caller when this runs inside a torch.compile
             fullgraph region: torch.randperm is not traceable by inductor, which
-            is the sole reason every flyvis_conductance config carries
+            is the sole reason every flyvis_general_form config carries
             torch_compile: false. LossRegularizer.sample_g_phi_perm draws it just
             outside the compiled call. Drawing it here instead is kept only as
             the fallback for uncompiled callers — do NOT rely on it, and do not
@@ -547,7 +547,7 @@ def get_in_features_g_phi(x, model, model_config, xnorm, n_neurons, device,
     # Multiplicative (v*1.05) flips direction for negative voltages.
     delta_v = 0.05 * max(float(xnorm), 1e-6)
 
-    if signal_model_name == 'flyvis_conductance':
+    if is_general_form_gnn(signal_model_name):
         if perm_indices is None:
             perm_indices = torch.randperm(n_neurons, device=model.a.device)
         # [v_j, a_j, v_i, a_i]; a_j is the random partner, a_i the neuron itself.
@@ -1449,23 +1449,24 @@ def rmse_color(rmse, scale, thresholds=(0.02, 0.05, 0.20)):
 # Lazy re-export for backward compatibility — existing imports like
 # `from connectome_gnn.models.utils import LossRegularizer` continue to work.
 # Uses __getattr__ to avoid circular import (regularizer.py imports from utils.py).
-def is_conductance_gnn(signal_model_name: str) -> bool:
-    """True for the conductance GNN family, False for the conductance known-ODE.
+# THE GENERAL-FORM GNN, g_phi = MLP(v_j, a_j, v_i, a_i): the one GNN whose message sees the
+# receiving neuron. `flyvis_conductance` is its old name -- given when the layout was built
+# for conductance-generated data, wrong since it is trained on current-generated data too --
+# and stays as an ALIAS: the 340 archived run config.yaml files under log/fly name it and are
+# not in git. Every check on the model name goes through is_general_form_gnn, never through a
+# string comparison, so the two names cannot behave differently.
+GENERAL_FORM_GNN_NAMES = ("flyvis_general_form", "flyvis_conductance")
 
-    Seven sites branch on the conductance layout to build 6-column
-    [v_i, v_j, a_i, a_j] g_phi features. `flyvis_conductance_known_ode` has no
-    g_phi at all -- it is a known ODE with two reversal potentials -- so those
-    branches must not fire for it: the result is silent wrong features rather
-    than a crash, and only some of the sites guard on hasattr(model, 'g_phi').
 
-    Until the rename this was avoided by calling the known-ODE
-    `flyvis_cond_known_ode`, i.e. by keeping the substring out of its name. The
-    name is now honest and the dispatch carries the distinction instead, which
-    is where it belonged. Every site that used
-    `'flyvis_conductance' in signal_model_name` must use this.
+def is_general_form_gnn(signal_model_name: str) -> bool:
+    """True for the general-form GNN (either of GENERAL_FORM_GNN_NAMES), whose g_phi takes
+    the 2 + 2*embedding_dim columns [v_j, a_j, v_i, a_i].
+
+    An exact match, not a substring test: `flyvis_conductance_known_ode` contains the old
+    name and has no g_phi at all, and a substring test fired the six-column branches on
+    it (silently wrong features, not a crash).
     """
-    return ("flyvis_conductance" in signal_model_name
-            and "known_ode" not in signal_model_name)
+    return signal_model_name in GENERAL_FORM_GNN_NAMES
 
 
 def __getattr__(name):

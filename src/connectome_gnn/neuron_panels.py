@@ -144,7 +144,8 @@ def gather(model, data, neuron, start, n_frames, device="cpu", x_ts=None):
     squared = bool(getattr(core, "w_squared", False))
     # Matches NeuralGNN._compute_messages: only the conductance family appends
     # the postsynaptic pair to g_phi's input.
-    wide_g_phi = (getattr(core, "model", "") == "flyvis_conductance")
+    from connectome_gnn.models.utils import is_general_form_gnn
+    wide_g_phi = is_general_form_gnn(getattr(core, "model", ""))
     m_true, m_model, v_js = [], [], []
     with torch.no_grad():
         for idx in inc:

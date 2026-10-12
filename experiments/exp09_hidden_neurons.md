@@ -67,7 +67,7 @@ arms:
     hidden:
     - none
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 - id: condl251s_inr
@@ -84,7 +84,7 @@ arms:
     fold:
     - cv00
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
 - id: condl25rc20
@@ -94,7 +94,7 @@ arms:
     hidden:
     - none
   differs_by:
-    graph_model.signal_model_name: flyvis_conductance
+    graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
     training.recurrent_training: true

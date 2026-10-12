@@ -6,7 +6,7 @@ Extracted from models/utils.py for independent testability and clear module boun
 import numpy as np
 import torch
 
-from connectome_gnn.models.utils import get_in_features_g_phi, get_in_features_update
+from connectome_gnn.models.utils import get_in_features_g_phi, get_in_features_update, is_general_form_gnn
 from connectome_gnn.utils import to_numpy
 
 
@@ -235,7 +235,7 @@ class LossRegularizer:
         return ((self._coeffs['g_phi_diff'] > 0 or self._coeffs['g_phi_norm'] > 0
                  or self._coeffs['g_phi_zero_below'] > 0
                  or self._coeffs['g_phi_silent'] > 0)
-                and self.model_config.signal_model_name == 'flyvis_conductance')
+                and is_general_form_gnn(self.model_config.signal_model_name))
 
     def sample_g_phi_perm(self, device=None):
         """Draw the g_phi partner permutation OUTSIDE any torch.compile region.
@@ -243,7 +243,7 @@ class LossRegularizer:
         Call immediately before each compute() and pass the result in as
         perm_indices. It used to be drawn inside compute(), which is compiled with
         fullgraph=True — torch.randperm is not traceable by inductor, so every
-        flyvis_conductance config had to set torch_compile: false to run at all.
+        flyvis_general_form config had to set torch_compile: false to run at all.
 
         Drawn per compute() call rather than stashed on self in reset_iteration()
         for two reasons. It keeps the draw one-for-one with the consumer whatever

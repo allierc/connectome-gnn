@@ -1,6 +1,6 @@
 """g_phi's input layout must mean the same thing in every model family.
 
-flyvis_conductance's g_phi input was reordered from the interleaved
+flyvis_general_form's g_phi input was reordered from the interleaved
 
     [v_i, v_j, a_i, a_j]
 
@@ -11,7 +11,7 @@ to a PREFIX-EXTENSION of the non-conductance layout
 so that columns 0..emb_dim are [v_j, a_j] in BOTH families. That invariant is what
 makes a hardcoded column index safe. It was not safe before: the coeff_g_phi_norm
 prior pins `in_features[:, 0] = 2*xnorm`, which meant v_j on flyvis_A (the intended
-presynaptic anchor) but v_i on flyvis_conductance -- and since the probe leaves v_j
+presynaptic anchor) but v_i on flyvis_general_form -- and since the probe leaves v_j
 varying across neurons while demanding a constant output, it required g_phi to be
 FLAT IN v_j, directly opposing coeff_g_phi_diff which requires dg/dv_j > 0.
 
@@ -79,7 +79,7 @@ class TestLayoutInvariant:
         class Fake(torch.nn.Module):
             def __init__(s):
                 super().__init__()
-                s.model = "flyvis_conductance"
+                s.model = "flyvis_general_form"
                 s.g_phi = MLP(input_size=2 + 2 * EMB, output_size=1, nlayers=2,
                               hidden_size=8, device="cpu")
                 s.a = torch.zeros(N, EMB)
@@ -194,7 +194,7 @@ class TestNormAnchorNowTargetsVj:
         class Fake(torch.nn.Module):
             def __init__(s):
                 super().__init__()
-                s.model = "flyvis_conductance"
+                s.model = "flyvis_general_form"
                 s.g_phi = MLP(input_size=2 + 2 * EMB, output_size=1, nlayers=2,
                               hidden_size=8, device="cpu")
                 s.a = torch.zeros(N, EMB)

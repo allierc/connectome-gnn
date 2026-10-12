@@ -17,7 +17,7 @@ import torch
 from scipy.optimize import curve_fit
 
 from connectome_gnn.fitting_models import linear_model
-from connectome_gnn.models.utils import pad_g_phi_input, is_conductance_gnn
+from connectome_gnn.models.utils import pad_g_phi_input, is_general_form_gnn
 from connectome_gnn.utils import graphs_data_path, to_numpy
 
 # ------------------------------------------------------------------ #
@@ -611,14 +611,14 @@ def _build_g_phi_features(rr_flat, emb_flat, signal_model_name, emb_i_flat=None)
     """Build input features for g_phi MLP.
 
     rr_flat / emb_flat: swept presynaptic voltage vj and embedding aj.
-    emb_i_flat: postsynaptic embedding ai — required for flyvis_conductance, where
+    emb_i_flat: postsynaptic embedding ai — required for flyvis_general_form, where
         g_phi(vi=0, vj, ai, aj) depends on both endpoints. Should be a real
         partner embedding (see `_avg_postsynaptic_embedding`), not aj again.
     """
-    if is_conductance_gnn(signal_model_name):
+    if is_general_form_gnn(signal_model_name):
         if emb_i_flat is None:
             raise ValueError(
-                "_build_g_phi_features: flyvis_conductance requires emb_i_flat (postsynaptic embedding)"
+                "_build_g_phi_features: flyvis_general_form requires emb_i_flat (postsynaptic embedding)"
             )
         return torch.cat([rr_flat, emb_flat, rr_flat * 0, emb_i_flat], dim=1)
     else:
@@ -630,7 +630,7 @@ def _avg_postsynaptic_embedding(model_a, edges, n_neurons):
 
     ai_avg[j] = mean(model_a[dst]) over edges with src == j. Used to build a
     representative ai for g_phi(vi=0, vj, ai, aj) when g_phi depends on both
-    endpoints (flyvis_conductance) — real partners, not aj=ai. Neurons with no outgoing
+    endpoints (flyvis_general_form) — real partners, not aj=ai. Neurons with no outgoing
     edges fall back to their own embedding.
     """
     src, dst = edges[0], edges[1]
@@ -700,12 +700,12 @@ def eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=None):
     Shared core of `evaluate_g_phi_curves` — factored out so callers that
     need a non-default domain (e.g. a wider range for plotting, vs. the
     activity-range domain used for slope fitting) can reuse the same
-    flyvis_conductance-aware feature construction instead of duplicating it.
+    flyvis_general_form-aware feature construction instead of duplicating it.
 
     Args:
         rr: (N, n_pts) tensor of per-neuron voltage values to sweep (vj).
 
-    For flyvis_conductance, g_phi depends on both endpoints (vi, vj, ai, aj);
+    For flyvis_general_form, g_phi depends on both endpoints (vi, vj, ai, aj);
     ai is built as each neuron's real average postsynaptic-partner embedding
     via `edges` (see `_avg_postsynaptic_embedding`), not a self-pair ai=aj.
     `edges` is required in that case.
@@ -718,10 +718,10 @@ def eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=None):
     post_fn = (lambda x: x ** 2) if g_phi_positive else None
     model_a = model.a[:n_neurons]
 
-    if is_conductance_gnn(signal_model_name):
+    if is_general_form_gnn(signal_model_name):
         if edges is None:
             raise ValueError(
-                "eval_g_phi_over_domain: flyvis_conductance requires `edges` to build the postsynaptic embedding ai"
+                "eval_g_phi_over_domain: flyvis_general_form requires `edges` to build the postsynaptic embedding ai"
             )
         model_a_i = _avg_postsynaptic_embedding(model_a, edges, n_neurons)
         build_fn = lambda rr_f, emb_f, emb_i_f: _build_g_phi_features(
@@ -737,7 +737,7 @@ def eval_g_phi_over_domain(model, config, n_neurons, rr, device, edges=None):
 def evaluate_g_phi_curves(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
     """Evaluate learned g_phi curves over each neuron's activity range.
 
-    See `eval_g_phi_over_domain` for the flyvis_conductance / `edges` note.
+    See `eval_g_phi_over_domain` for the flyvis_general_form / `edges` note.
 
     Returns:
         v_ranges: (N, n_pts) numpy array of voltage grids per neuron.
@@ -831,7 +831,7 @@ def sample_g_phi_vi_vj_observed(model, config, edges, x_ts, n_edges=16, n_frames
     """Evaluate learned g_phi at REAL, co-occurring (vi(t), vj(t)) pairs for a
     sample of real edges — not an independent (vi, vj) grid.
 
-    Diagnostic for whether flyvis_conductance's MLP(ai, aj, vi, vj) actually
+    Diagnostic for whether flyvis_general_form's MLP(ai, aj, vi, vj) actually
     learned a vi-dependent (conductance-like, e.g. ReLU(vi-vj-threshold))
     function that matters where real activity lives, or collapsed to a
     vj-only function matching the true flyvis synapse ReLU(vj). Connected
@@ -949,7 +949,7 @@ def _g_phi_on_edges(model, config, src, dst, volt_f):
         outs = []
         for _lo in range(0, vj_flat.shape[0], G_PHI_EVAL_CHUNK):
             _hi = _lo + G_PHI_EVAL_CHUNK
-            if is_conductance_gnn(signal_model_name):
+            if is_general_form_gnn(signal_model_name):
                 _in = torch.cat([vj_flat[_lo:_hi], aj_flat[_lo:_hi],
                                  vi_flat[_lo:_hi], ai_flat[_lo:_hi]], dim=1)
             else:
@@ -1011,7 +1011,7 @@ def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
         vj_k = voltage[k, src].clone().detach().requires_grad_(True)   # (E,)
         vi_k = voltage[k, dst].clone().detach()
 
-        if is_conductance_gnn(signal_model_name):
+        if is_general_form_gnn(signal_model_name):
             in_features = torch.cat([vj_k.unsqueeze(1), aj, vi_k.unsqueeze(1), ai], dim=1)
         else:
             in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
@@ -1079,7 +1079,7 @@ def compute_g_phi_fd_slope(model, config, edges, x_ts, n_frames=32, seed=0):
 
 
 def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, n_frames=32, seed=0):
-    """Per-neuron g_phi correction factor eta_j for flyvis_conductance,
+    """Per-neuron g_phi correction factor eta_j for flyvis_general_form,
     replacing the single global 1D-sweep affine fit (`evaluate_g_phi_curves`)
     used by other flyvis variants — g_phi depends on both endpoints here, so
     a synthetic vi=0 sweep with an averaged ai isn't representative.
@@ -1302,7 +1302,7 @@ def g_phi_first_layer_discard_score(model, emb_dim):
     product of the per-group L1 norms against the discard mask [1,0,1,0],
     normalized. Pure weight inspection, no forward pass or data needed.
 
-    No-op (returns nan) unless g_phi's first layer has the flyvis_conductance
+    No-op (returns nan) unless g_phi's first layer has the flyvis_general_form
     2+2*emb_dim input width -- matched structurally, not by model name.
     """
     first_layer = model.g_phi.layers[0]
@@ -1322,7 +1322,7 @@ def g_phi_column_layout(model, emb_dim):
 
     g_phi's input is built in two shapes (neural_gnn.py NeuralGNN.message):
 
-        flyvis_conductance : [v_j, a_j, v_i, a_i] + noise   width 2 + 2*emb + n
+        flyvis_general_form : [v_j, a_j, v_i, a_i] + noise   width 2 + 2*emb + n
         everything else    : [v_j, a_j]           + noise   width 1 + emb   + n
 
     The conductance layout is a PREFIX-EXTENSION of the other one: columns
@@ -1340,7 +1340,7 @@ def g_phi_column_layout(model, emb_dim):
     stay no-ops on models this was never designed for.
     """
     width = model.g_phi.layers[0].weight.shape[1]
-    if getattr(model, "model", None) == "flyvis_conductance":
+    if is_general_form_gnn(getattr(model, "model", None) or ""):
         base = 2 + 2 * emb_dim
         if width < base:
             return None, 0
@@ -1368,7 +1368,7 @@ def g_phi_first_layer_cosine_to_keep(model, emb_dim):
     pulls it down. 1 = fully aligned (vi=ai=0); 0 = all mass on vi/ai.
 
     Defined for both g_phi layouts (see g_phi_column_layout). On
-    flyvis_conductance the discard side is {vi, ai, noise}; on flyvis_A, whose
+    flyvis_general_form the discard side is {vi, ai, noise}; on flyvis_A, whose
     g_phi already takes only (vj, aj), it is {noise} alone -- which is exactly
     the positive control: flyvis_A is the correctly-specified family, so any
     weight it keeps on the noise columns is a failure of credit assignment that
@@ -2321,7 +2321,7 @@ def compute_all_corrected_weights(model, config, edges, x_ts, device,
     mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
 
     # 2. g_phi correction factor per presynaptic neuron j
-    if is_conductance_gnn(config.graph_model.signal_model_name):
+    if is_general_form_gnn(config.graph_model.signal_model_name):
         # g_phi depends on both endpoints here (vi, vj, ai, aj) — a
         # synthetic vi=0 domain sweep isn't representative, so this uses
         # real (edge, frame) local slopes instead. See
