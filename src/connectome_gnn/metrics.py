@@ -2771,6 +2771,20 @@ def resolve_W_estimator(model, ode_params, config) -> str:
     return "edge_line_fit" if _is_conductance_data(ode_params) else "gain_corrected"
 
 
+class _Pair(tuple):
+    """(gt, learned), as `_pair` returns it, plus WHERE the entries came from:
+    `idx`, their positions in the full arrays `_pair` was given (after trimming
+    to a common length), and `n_full`, that length. A plain tuple to every
+    caller -- `gt, learned = pair` and `pair[0]` are unchanged -- so the only
+    reader of the two attributes is `restrict_recovered`, which needs them to
+    apply a per-edge or per-neuron mask after the non-finite entries are gone."""
+
+    def __new__(cls, items, idx=None, n_full=None):
+        t = super().__new__(cls, items)
+        t.idx, t.n_full = idx, n_full
+        return t
+
+
 def _pair(gt, learned):
     """Trim two arrays to a common length and drop non-finite entries.
 
@@ -2792,7 +2806,102 @@ def _pair(gt, learned):
     ok = np.isfinite(gt) & np.isfinite(learned)
     if ok.sum() < 2:
         return None
-    return gt[ok], learned[ok]
+    return _Pair((gt[ok], learned[ok]), idx=np.flatnonzero(ok), n_full=n)
+
+
+# --------------------------------------------------------------------------- #
+#  SCORING ON A SUBSET: the score mask (config.recovery.score_mask)
+#
+#  A mask says which edges and which neurons a score is about -- e.g. the edges
+#  and neurons that carry signal on the optic-flow task (experiment 17), the
+#  silent ones being free to take any value without changing the circuit's
+#  output. It restricts SCORING only: the readout (the per-edge template fit,
+#  the per-neuron update fit) runs on the whole network exactly as without it,
+#  so a masked number differs from the unmasked one by which entries it
+#  averages over, never by how they were estimated.
+# --------------------------------------------------------------------------- #
+
+# Which domain each pair lives on: per edge or per neuron. msg_i is per neuron
+# x frame and is NOT restricted: it is the neuron's incoming total, defined
+# whatever the neuron sends; a quantity not listed here is left as it is.
+EDGE_QUANTITIES = ("W", "W_uncorrected", "E_ij")
+NEURON_QUANTITIES = ("tau", "V_rest", "V_rest_uncorrected", "gain", "bias")
+
+
+def resolve_score_mask_path(path):
+    """An absolute path as given; a relative one under the data root (the
+    folder holding graphs_data/ and log/, GNN_OUTPUT_ROOT when set)."""
+    if os.path.isabs(path):
+        return path
+    from connectome_gnn.utils import get_data_root
+    return os.path.join(get_data_root(), path)
+
+
+def load_score_mask(path, n_edges, n_neurons):
+    """(keep_edges, keep_neurons): bool arrays of the run's edge and neuron
+    counts, True = scored. Read from the .npz at `path` (see
+    resolve_score_mask_path): the key `keep_edges` / `keep_neurons`, or else the
+    one key starting with that name whose length is the run's count -- so one
+    file can carry the same mask on several lattices (keep_edges_217,
+    keep_edges_721) and each run picks its own. Either may be absent (None);
+    a length that matches nothing raises rather than scoring the wrong set."""
+    full = resolve_score_mask_path(path)
+    if not os.path.isfile(full):
+        raise FileNotFoundError(f"recovery.score_mask: no file {full}")
+    z = np.load(full, allow_pickle=False)
+
+    def _pick(stem, n):
+        keys = [k for k in z.files if k == stem or k.startswith(stem + "_")]
+        if not keys:
+            return None
+        fits = [k for k in keys if z[k].ndim == 1 and z[k].shape[0] == n]
+        if len(fits) != 1:
+            raise ValueError(f"recovery.score_mask {full}: {len(fits)} of the keys "
+                             f"{keys} have length {n}, expected exactly one")
+        return np.asarray(z[fits[0]]).astype(bool)
+
+    keep_e, keep_n = _pick("keep_edges", int(n_edges)), _pick("keep_neurons", int(n_neurons))
+    if keep_e is None and keep_n is None:
+        raise ValueError(f"recovery.score_mask {full}: no keep_edges* / keep_neurons* key")
+    return keep_e, keep_n
+
+
+def restrict_recovered(rec, keep_edges=None, keep_neurons=None):
+    """A copy of `rec` whose per-edge pairs keep only the edges with
+    keep_edges True and whose per-neuron pairs keep only the neurons with
+    keep_neurons True (None = that domain unrestricted).
+
+    The scalar diagnostics are DROPPED: they are medians and percentages over
+    every edge (tmpl_pct_unfitted, msg_form_r2_median, ...), and carried over
+    they would sit in a masked file describing the unmasked network. The
+    underscore arrays stay, full length, for the figures, and so does
+    `readout`, which names the estimator rather than measuring anything.
+
+    A pair whose positions cannot be recovered -- built from already-compacted
+    arrays, so its length is not the domain's -- raises: scoring it unmasked
+    under a masked file's name is the one outcome worse than not scoring it.
+    """
+    out = RecoveredParams(pairs={}, estimator=dict(rec.estimator),
+                          correction=dict(rec.correction), valid=dict(rec.valid),
+                          diagnostics={k: v for k, v in rec.diagnostics.items()
+                                       if k.startswith("_") or k == "readout"})
+    for q, pair in rec.pairs.items():
+        keep = (keep_edges if q in EDGE_QUANTITIES
+                else keep_neurons if q in NEURON_QUANTITIES else None)
+        if pair is None or keep is None:
+            out.pairs[q] = pair
+            continue
+        gt, learned = np.asarray(pair[0]), np.asarray(pair[1])
+        idx, n_full = getattr(pair, "idx", None), getattr(pair, "n_full", None)
+        if idx is None:
+            # a plain tuple: positional only when it covers the whole domain
+            idx, n_full = np.arange(gt.size), gt.size
+        if n_full != keep.size:
+            raise ValueError(f"score mask: {q} has {n_full} entries, the mask {keep.size}")
+        sel = keep[idx]
+        out.pairs[q] = (_Pair((gt[sel], learned[sel]), idx=idx[sel], n_full=n_full)
+                        if sel.sum() >= 2 else None)
+    return out
 
 
 def _extract_direct(rec, model, ode_params, edges, n_neurons):
@@ -4418,7 +4527,7 @@ def _connectivity_stats(w, src, dst, n):
 
 def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
                      learned_tau=None, learned_vrest=None, n_components=None,
-                     return_features=False):
+                     return_features=False, keep_edges=None, keep_neurons=None):
     """Cell-type clustering accuracy from what the model learned -- ONE function
     for the trainer's cluster.log and test_plot's `clustering_accuracy`.
 
@@ -4433,6 +4542,11 @@ def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
     Returns {clustering_accuracy, clustering_ari, clustering_nmi, clustering_n_components,
     clustering_n_features} (+ `_X`, the feature stack, when return_features), or
     None when there is nothing to cluster.
+
+    keep_edges / keep_neurons (bool, None = all): the score mask. The weight
+    statistics are taken over the kept edges only, and only the kept neurons are
+    clustered and scored (their rows of the stack, their true types); a neuron
+    left with no kept edge reads its statistics as 0, as one with no edge does.
     """
     from connectome_gnn.sparsify import clustering_gmm
 
@@ -4464,16 +4578,24 @@ def cluster_recovery(type_list, edges, learned_W, n_neurons, embedding=None,
         w = np.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0)
         m = min(w.size, e.shape[1])
         if m > 0:
-            feats.append(_connectivity_stats(w[:m], e[0, :m], e[1, :m], n))
+            if keep_edges is None:
+                feats.append(_connectivity_stats(w[:m], e[0, :m], e[1, :m], n))
+            else:
+                ke = np.asarray(keep_edges, bool)[:m]
+                feats.append(_connectivity_stats(w[:m][ke], e[0, :m][ke], e[1, :m][ke], n))
     if not feats:
         return None
     X = np.column_stack(feats)
+    labels = np.asarray(type_list).ravel()[:n]
+    if keep_neurons is not None:
+        kn = np.asarray(keep_neurons, bool)[:n]
+        X, labels = X[kn], labels[kn]
     X = X[:, np.isfinite(X).all(axis=0)]      # drop any column a nan still reached
     if X.shape[1] == 0:
         return None
     if n_components is None:
-        n_components = min(100, n - 1)
-    res = clustering_gmm(X, np.asarray(type_list).ravel()[:n], n_components=n_components)
+        n_components = min(100, X.shape[0] - 1)
+    res = clustering_gmm(X, labels, n_components=n_components)
     out = {
         "clustering_accuracy": float(res["accuracy"]),
         "clustering_ari": float(res["ari"]),
@@ -4498,7 +4620,8 @@ CLUSTERING_VARIANTS = ("gt", "params", "emb")
 
 def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learned_tau=None,
                               learned_vrest=None, embedding=None, gt_W=None, gt_tau=None,
-                              gt_vrest=None, n_components=None, return_features=False):
+                              gt_vrest=None, n_components=None, return_features=False,
+                              keep_edges=None, keep_neurons=None):
     """{clustering_<variant>_<stat>: value} for each CLUSTERING_VARIANTS entry
     whose inputs are given; a variant with nothing to cluster is left out. With
     return_features, also `_X_<variant>`: the stack that variant was clustered on
@@ -4516,7 +4639,8 @@ def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learn
         res = cluster_recovery(type_list, edges, kw.get("learned_W"), n_neurons,
                                embedding=kw.get("embedding"), learned_tau=kw.get("learned_tau"),
                                learned_vrest=kw.get("learned_vrest"), n_components=n_components,
-                               return_features=return_features)
+                               return_features=return_features, keep_edges=keep_edges,
+                               keep_neurons=keep_neurons)
         if res is None:
             continue
         if return_features:

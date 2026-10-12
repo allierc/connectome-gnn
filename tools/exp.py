@@ -911,7 +911,10 @@ _FIGURES = {"derivative_target":
             "known_ode_217_reanalysis":
             [("Fig/exp15_errors.png", "recovery errors, five folds pooled", 0.68)]
             + [(f"Fig/exp15_errors_cv{i:02d}.png", f"recovery errors, fold cv{i:02d}", 0.68)
-               for i in range(5)]}
+               for i in range(5)],
+            # written by tools/task_pruning.py --report from the six pruning.json files
+            "task_pruning_epe":
+            [("Fig/exp17_pruning.png", "task gain kept against fraction removed", 0.55)]}
 _GREEN = 0.9
 
 

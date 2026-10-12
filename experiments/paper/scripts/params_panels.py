@@ -32,7 +32,7 @@ import os
 import numpy as np
 import torch
 
-from paper_style import (COLOR_OUTLIER, LOG_ROOT, annotate, identity, read_metrics, ticks3,
+from paper_style import (COLOR_OUTLIER, LOG_ROOT, annotate, count_label, identity, read_metrics, ticks3,
                          type_cmap)
 
 W_RANGE, V_RANGE, TAU_RANGE = (-1.0, 2.0), (0.0, 1.0), (0.0, 0.5)
@@ -43,13 +43,31 @@ def _arr(x):
     return x.detach().cpu().numpy().ravel() if torch.is_tensor(x) else np.asarray(x).ravel()
 
 
-def load_run(run):
+def _read_metrics_file(path):
+    out = {}
+    for line in open(path):
+        if ":" in line:
+            k, v = line.split(":", 1)
+            try:
+                out[k.strip()] = float(v)
+            except ValueError:
+                pass
+    return out
+
+
+def load_run(run, masked=False):
+    """masked: the -o test_plot pass run with recovery.score_mask (results/masked/): the silent
+    edges dropped from W and the per-edge messages, the silent neurons from the embedding, tau
+    and V_rest; every annotation read from results/masked/metrics_masked.txt."""
     d = os.path.join(LOG_ROOT, run)
-    npz = glob.glob(os.path.join(d, "results", "panels_*.npz"))
+    sub = os.path.join("results", "masked") if masked else "results"
+    npz = glob.glob(os.path.join(d, sub, "panels_*.npz"))
     if not npz:
-        raise FileNotFoundError(f"no panels_*.npz under {d}/results")
+        raise FileNotFoundError(f"no panels_*.npz under {d}/{sub}")
     p = dict(np.load(npz[0], allow_pickle=True))
-    m = read_metrics(d)
+    m = _read_metrics_file(os.path.join(d, sub, "metrics_masked.txt")) if masked else read_metrics(d)
+    keep_e = np.asarray(p["keep_edges"], bool) if masked else None
+    keep_n = np.asarray(p["keep_neurons"], bool) if masked else None
     W_true = _arr(torch.load(os.path.join(d, "gt_weights.pt"), map_location="cpu", weights_only=False))
     sd = torch.load(os.path.join(d, "models", "template_fit_alt.pt"), map_location="cpu",
                     weights_only=False)["model_state_dict"]
@@ -58,10 +76,16 @@ def load_run(run):
     V = _arr(sd["V_rest"]).astype(np.float64)
     edges = np.asarray(torch.load(os.path.join(d, "training_edges.pt"), map_location="cpu", weights_only=False))
     fitted = np.isfinite(W_fit) & (W_fit != 0)
+    if masked:
+        fitted &= keep_e
     r2w = 1 - np.mean((W_fit[fitted] - W_true[fitted]) ** 2) / np.var(W_true[fitted])
     if abs(fitted.sum() - m["Wij_n"]) > 0.01 * m["Wij_n"] or abs(r2w - m["Wij_R2"]) > 0.02:
         print(f"WARNING {run}: fitted {fitted.sum()} vs Wij_n {m['Wij_n']:.0f}, R2 {r2w:.3f} vs {m['Wij_R2']:.3f}")
     tau_true, V_true = np.asarray(p["tau_true"], np.float64), np.asarray(p["V_rest_true"], np.float64)
+    n_neurons_all = len(tau_true)
+    if masked:
+        tau_true, V_true, tau, V = tau_true[keep_n], V_true[keep_n], tau[keep_n], V[keep_n]
+        p["a"], p["type_ids"] = np.asarray(p["a"])[keep_n], np.asarray(p["type_ids"])[keep_n]
     for name, t, l in (("tau", tau_true, tau), ("V_rest", V_true, V)):
         ok = np.abs(l - t) <= THR[name]
         r2n = 1 - np.mean((l[ok] - t[ok]) ** 2) / np.var(t[ok])
@@ -69,9 +93,11 @@ def load_run(run):
             (run, name, r2n, m[f"{name}_R2"], 100 * (~ok).mean(), m[f"{name}_pct_outliers"])
     out = dict(panels=p, metrics=m, W_true=W_true[fitted], W_learned=W_fit[fitted],
                W_post=edges[1][fitted], pct_fitted=100.0 * fitted.mean(),
-               tau_true=tau_true, tau=tau, V_true=V_true, V=V)
+               tau_true=tau_true, tau=tau, V_true=V_true, V=V, n_neurons_all=n_neurons_all)
     rp = os.path.join(d, "results", "extras", "recovered_pairs.npz")      # results_layout puts it under extras/
-    if not os.path.exists(rp):
+    if masked:
+        rp = os.path.join(d, sub, "recovered_pairs_masked.npz")
+    elif not os.path.exists(rp):
         rp = os.path.join(d, "results", "recovered_pairs.npz")
     if os.path.exists(rp):
         r = np.load(rp)
@@ -106,7 +132,8 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
                  rasterized=True, zorder=2)
     ticks3(ax_W, lo, hi)
     ax_W.set_aspect("equal", adjustable="box")
-    annotate(ax_W, f"R²: {m['Wij_R2']:.2f}\nslope: {m['Wij_slope']:.2f}")   # the fitted fraction is in the caption
+    annotate(ax_W, f"R²: {m['Wij_R2']:.2f}\nslope: {m['Wij_slope']:.2f}")
+    count_label(ax_W, f"n = {n:,} edges")   # the fitted fraction is in the caption
     ax_W.set_xlabel("true $W_{ij}$")
     if show_ylabels:
         ax_W.set_ylabel("learned $\\hat W_{ij}$")
@@ -114,8 +141,11 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
     # embedding
     a = np.asarray(p["a"])
     ax_a.scatter(a[:, 0], a[:, 1], c=types, cmap=cmap, s=0.5, alpha=0.5, lw=0, rasterized=True)
+    count_label(ax_a, f"n = {len(a):,} neurons")
     for axis, v in (("x", a[:, 0]), ("y", a[:, 1])):
-        lo_, hi_ = np.percentile(v, [0.2, 99.8]); d = 0.05 * (hi_ - lo_)
+        # the central 90 % of the neurons on each axis: the long tails of a few types (e.g. a_i1
+        # down to -27 at sigma 0.05) otherwise squeeze the clusters into a corner
+        lo_, hi_ = np.percentile(v, [5, 95]); d = 0.05 * (hi_ - lo_)
         ticks3(ax_a, round(lo_ - d, 1), round(hi_ + d, 1), axis, mid_decimals=1)
     ax_a.set_xlabel("$a_{i0}$")
     if show_ylabels:
@@ -134,7 +164,8 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         ticks3(ax, lo, hi)
         ax.set_aspect("equal", adjustable="box")
         annotate(ax, f"R²: {m[key + '_R2']:.2f}{_r2_all(m[key + '_R2_all'])}\nslope: {m[key + '_slope']:.2f}\n"
-                     f"Outliers: {m[key + '_pct_outliers']:.1f}%")
+                     f"outliers: {m[key + '_pct_outliers']:.1f}%")
+        count_label(ax, f"n = {len(t):,} neurons")
         ax.set_xlabel(xl)
         if show_ylabels:
             ax.set_ylabel(yl)
@@ -175,7 +206,13 @@ def draw_message_row(axes, run_data, show_ylabels=True, seed=0):
         # write_recovered_pairs, on these same pairs
         r2 = m["msg_i_R2"] if key else m["msg_ij_R2"]
         slope = m["msg_i_slope"] if key else m["msg_ij_slope"]
+        if key:
+            nn = run_data["n_neurons_all"]
+            count = f"{nn:,} neurons"            # x the scored frames, given in the caption
+        else:
+            count = f"{mp['edge_msg_true'].shape[0]:,} edges"   # x 64 frames, given in the caption
         annotate(ax, f"R²: {r2:.2f}\nslope: {slope:.2f}")
+        count_label(ax, f"n = {count}")
         ax.set_xlabel(xl)
         if show_ylabels:
             ax.set_ylabel(yl)

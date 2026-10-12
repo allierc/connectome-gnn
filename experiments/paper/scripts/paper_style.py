@@ -78,6 +78,14 @@ def annotate(ax, text):
             linespacing=1.15)
 
 
+def count_label(ax, text, dy_pt=4.0):
+    """The panel's sample size above its top-right corner, on the baseline of the panel letter
+    (panel_labels with y_from="axes" puts the letter dy_pt above the frame)."""
+    import matplotlib.transforms as mtrans
+    ax.text(1.0, 1.0, text, ha="right", va="bottom", fontsize=FS_ANNOT,
+            transform=mtrans.offset_copy(ax.transAxes, fig=ax.figure, y=dy_pt, units="points"))
+
+
 def identity(ax, lo, hi, thr=None):
     """The y = x line, and the +-thr outlier band of the published V_rest / tau panels."""
     ax.plot([lo, hi], [lo, hi], color=COLOR_IDENT, lw=0.5, zorder=1)

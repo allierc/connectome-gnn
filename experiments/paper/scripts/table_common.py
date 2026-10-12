@@ -42,7 +42,7 @@ def aggregate(pattern, folds=FOLDS):
         log = os.path.join(LOG_ROOT, pattern.format(fold=f), "results_rollout.log")
         if os.path.exists(log):
             frames.add(tester_rollout_frames(log))
-        for k in ("one_step_r", "rollout_r", "Wij_R2", "tau_R2", "tau_pct_outliers",
+        for k in ("one_step_r", "rollout_r", "Wij_R2", "Wij_pct_outliers", "tau_R2", "tau_pct_outliers",
                   "V_rest_R2", "V_rest_pct_outliers", "clustering_accuracy"):
             acc.setdefault(k, []).append(float(m.get(k, np.nan)))
     out = {k: (float(np.nanmean(v)), float(np.nanstd(v))) for k, v in acc.items()}
@@ -54,12 +54,22 @@ def aggregate(pattern, folds=FOLDS):
     return out
 
 
+def sd_tex(s):
+    """The SD with two decimals, or as 1E-4 when it would print 0.00 (an exact 0 stays 0)."""
+    if s == 0:
+        return "0"
+    if s >= 0.005:
+        return f"{s:.2f}"
+    e = int(np.floor(np.log10(s)))
+    return f"{round(s / 10 ** e):d}\\mathrm{{E}}{{{e}}}"
+
+
 def cell(ms, red=False):
     """$m{\\pm}s$, green above 0.9, orange below 0.3; red overrides."""
     m, s = ms
     if np.isnan(m):
         return "$\\cdot$"
-    body = f"${m:.2f}{{\\pm}}{s:.2f}$"
+    body = f"${m:.2f}{{\\pm}}{sd_tex(s)}$"
     if red:
         return f"\\textcolor{{red}}{{{body}}}"
     if m > GOOD:
@@ -72,7 +82,7 @@ def cell(ms, red=False):
 def pct(ms, red=False, like=None):
     """$\\,(x.x)$ outlier percentage, coloured like its R^2 cell."""
     m, _ = ms
-    body = f"$\\,({m:.1f})$"
+    body = f"$\\,({m:.0f})$"
     if red:
         return f"\\textcolor{{red}}{{{body}}}"
     if like is not None and like > GOOD:
@@ -82,10 +92,12 @@ def pct(ms, red=False, like=None):
     return body
 
 
-def metric_cells(a, red=False):
-    """The seven metric cells of a GNN / Known-ODE row (split tau / V_rest)."""
-    return (f"  & {cell(a['one_step_r'], red)} & {cell(a['rollout_r'], red)}\n"
-            f"  & {cell(a['Wij_R2'], red)}\n"
+def metric_cells(a, red=False, w_outliers=False):
+    """The seven metric cells of a GNN / Known-ODE row (split tau / V_rest); with
+    `w_outliers` an eighth, R^2_W's outlier percentage beside it (Table 1)."""
+    w = (f"  & {cell(a['Wij_R2'], red)} & {pct(a['Wij_pct_outliers'], red, a['Wij_R2'][0])}\n" if w_outliers
+         else f"  & {cell(a['Wij_R2'], red)}\n")
+    return (f"  & {cell(a['one_step_r'], red)} & {cell(a['rollout_r'], red)}\n" + w +
             f"  & {cell(a['tau_R2'], red)} & {pct(a['tau_pct_outliers'], red, a['tau_R2'][0])}\n"
             f"  & {cell(a['V_rest_R2'], red)} & {pct(a['V_rest_pct_outliers'], red, a['V_rest_R2'][0])}\n")
 

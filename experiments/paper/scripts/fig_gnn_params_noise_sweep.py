@@ -1,7 +1,8 @@
-"""Fig. 1: circuit-parameter extraction of the general-form GNN (group lasso
-25) on Flyvis-217 at the three model-noise levels, fold cv00 (experiment 2).
+"""Noise sweep (Fig. 1 until 2026-10-12): circuit-parameter extraction of the general-form GNN
+(group lasso 25) on Flyvis-217 at the three model-noise levels, fold cv00 (experiment 2).
+Fig. 1 is now the sigma = 0.05 block alone (fig_gnn_params_noise_005.py).
 
-    python scripts/fig_gnn_params_3col.py
+    python scripts/fig_gnn_params_noise_sweep.py
 
 Three blocks (noise-free, sigma 0.05, sigma 0.5), each 3 x 2 as the published
 figure: W | embedding, then the aggregated message m_i | the per-edge message
@@ -10,7 +11,7 @@ letters row-major (a-f, g-l, m-r).
 Data: <GNN_OUTPUT_ROOT>/log/fly/flyvis_noise_{free,005,05}_blank50_condl25_cv00/
 (results/panels_*.npz, models/template_fit_alt.pt, results/metrics.txt).
 
-Output: figures/fig_gnn_params_3col_noise_comparison.{pdf,png}
+Output: figures/fig_gnn_params_noise_sweep.{pdf,png}
 """
 import os
 import sys
@@ -54,7 +55,7 @@ def main():
         blocks_axes.append(axes)
     column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=16, fontsize=9)
     panel_labels(fig, rows[0] + rows[1] + rows[2], dy_pt=4)
-    save(fig, os.path.join(FIG_DIR, "fig_gnn_params_3col_noise_comparison"))
+    save(fig, os.path.join(FIG_DIR, "fig_gnn_params_noise_sweep"))
 
 
 if __name__ == "__main__":

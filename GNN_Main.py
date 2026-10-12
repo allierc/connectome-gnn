@@ -252,6 +252,19 @@ if __name__ == "__main__":
         if device == []:
             device = set_device(config.training.device)
 
+        # A SCORE MASK IS AN ANALYSIS OF A FINISHED RUN, written beside it: the
+        # masked pass (GNN_PlotFigure.data_plot_masked) writes only under
+        # <run>/results/masked/, and nothing below runs -- no config snapshot
+        # over the run's config.yaml, no rollout test (it does not depend on the
+        # mask), no completion markers, no neuron panels.
+        if getattr(config.recovery, 'score_mask', None):
+            if any(t in task for t in ('generate', 'train')) or not any(t in task for t in ('test', 'plot')):
+                raise SystemExit(f"recovery.score_mask is set: only -o test_plot / plot / test "
+                                 f"run the masked analysis, not -o {task}")
+            from GNN_PlotFigure import data_plot_masked
+            data_plot_masked(config, device, argv=sys.argv)
+            continue
+
         run_log_dir = log_path(config.config_file)
         sha = git_sha()
         dirty = git_dirty_files()

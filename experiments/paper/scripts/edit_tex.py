@@ -64,7 +64,7 @@ _si = sidecar("fig_stim_rollout_inr")
 FOLD_FRAMES = sorted({tester_rollout_frames(os.path.join(LOG_ROOT, f"flyvis_noise_005_blank50_condl25_cv0{k}",
                                                          "results_rollout.log")) for k in range(5)})
 PH = {
-    "@@FIG1_FITTED@@": and_list([fitted_pct(r) for r in GNN217]),
+    "@@FIG1_FITTED@@": fitted_pct(GNN217[1]),
     "@@S10_FITTED@@": and_list([fitted_pct(r) for r in FLYWIRE]),
     "@@KP_OUTSIDE@@": f"${n_tex(_kp['n_outside'])}$ edges (${100 * _kp['n_outside'] / _kp['n_edges']:.2f}\\%$)",
     "@@ROLL_FRAMES@@": frames_of(GNN217[0]),
@@ -120,25 +120,25 @@ def replace_figure(label, new_block):
 replace_figure("fig:gnn_params_3col_noise_comparison", r"""
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\textwidth]{figures/fig_gnn_params_3col_noise_comparison.pdf}
+  \includegraphics[width=0.5\textwidth]{figures/fig_gnn_params_noise_005.pdf}
   \caption{%
     {\color{revised}\textbf{Circuit parameter extraction} from the general-form GNN
-    ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 under
-    three model-noise regimes ($\sigma = 0$, $0.05$, $0.5$; fold cv00 of experiment 2).
-    \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
-    the template readout (@@FIG1_FITTED@@ of the $434{,}112$ edges at $\sigma = 0$, $0.05$, $0.5$; the rest have a
+    ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 at
+    model noise $\sigma = 0.05$ (fold cv00 of experiment 2).
+    \textbf{(a)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
+    the template readout (@@FIG1_FITTED@@ of the $434{,}112$ edges; the rest have a
     presynaptic neuron that never rises above the activity floor).
-    \textbf{(b, d, f)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
+    \textbf{(b)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
     by ground-truth cell type.
-    \textbf{(g, i, k)}~The aggregated message $m_i = \sum_j \hat W_{ij}\, g_\phi(\cdot)$ each neuron
+    \textbf{(c)}~The aggregated message $m_i = \sum_j \hat W_{ij}\, g_\phi(\cdot)$ each neuron
     receives, learned against the generator's $\sum_j W_{ij}\,\mathrm{ReLU}(v_j)$, on the frames the
     metric $R^2_{m}$ is scored on (the general-form counterpart of the published $f_\theta$ panel).
-    \textbf{(h, j, l)}~The per-edge message at observed $(v_i, v_j)$: learned
+    \textbf{(d)}~The per-edge message at observed $(v_i, v_j)$: learned
     $k_i \hat W_{ij}\, g_\phi(\mathbf{a}_i, \mathbf{a}_j, v_i, v_j)$ against the generator's
     $W_{ij}\,\mathrm{ReLU}(v_j)$ on $1{,}024$ random edges $\times$ $64$ random frames, $k_i$ the template
     readout's per-neuron gauge (the counterpart of the published $g_\phi$ panel).
-    \textbf{(m, o, q)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(n, p, r)}~Time constants $\tau_i$.
+    \textbf{(e)}~Resting potentials $V_i^{\mathrm{rest}}$.
+    \textbf{(f)}~Time constants $\tau_i$.
     Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
     \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
     $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$

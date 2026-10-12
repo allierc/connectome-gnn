@@ -2628,6 +2628,21 @@ class RecoveryConfig(BaseModel):
     template_n_frames: Optional[int] = None
     report_scaled: bool = True
 
+    # SCORE ON A SUBSET OF THE CIRCUIT. Filename of an .npz holding bool masks,
+    # True = scored: `keep_edges*` over the run's edges (in its edge order) and
+    # `keep_neurons*` over its neurons, e.g. GraphData/flyvis/
+    # silent_mask_000_epe5.3.npz, the edges and neurons that carry signal on
+    # the optic-flow task (experiment 17). Absolute, or relative to the data
+    # root (GNN_OUTPUT_ROOT). None = every edge and neuron, as before.
+    #
+    # Set, `-o test_plot` / `-o plot` runs the masked analysis INSTEAD of the
+    # usual one, the rollout test included: the readout is unchanged and scored
+    # on the kept set only (W_ij, E_ij and the per-edge message on the kept
+    # edges; tau, V_rest and the clustering on the kept neurons), written to
+    # results/masked/ with a `_masked` suffix. Nothing the unmasked pass wrote
+    # is touched.
+    score_mask: Optional[str] = None
+
 
 class AnalysisConfig(BaseModel):
     """Per-neuron readout: which neurons to open up, and how hard to search.

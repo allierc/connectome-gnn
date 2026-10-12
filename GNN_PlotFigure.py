@@ -386,6 +386,59 @@ from connectome_gnn.recovery_figures import (  # noqa: E402
     _KEY_FOR, _LABEL_FOR, _TEX_FOR, _SCATTER_SPEC,
 )
 
+def _extract_recovery(model, ode_params, config, edges, x_ts, device, n_neurons, logger):
+    """The RecoveredParams `_write_recovery_metrics` scores: the chain's object,
+    superseded by the template readout where the config asks for it. Shared
+    with the masked pass (`data_plot_masked`) so the two read the SAME
+    estimates and differ only in which entries are scored."""
+    rec = extract_recovered_params(model, ode_params, config, edges=edges,
+                                   x_ts=x_ts, device=device, n_neurons=n_neurons)
+    # ONE EXTRACTION FEEDS EVERY FIGURE IN results/. The template readout --
+    # the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
+    # * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i
+    # -- supersedes the correction chain for W, E_ij, tau and V_rest, and the
+    # neuron panels have been drawing it since it existed. Leaving the rest
+    # of results/ on the chain meant weights_comparison_*.png and
+    # metrics.txt described a different readout than neuron*_panels.png in
+    # the same directory. It extends the chain's object rather than
+    # replacing it, because msg_i and the f_theta diagnostics the panels draw
+    # come only from there.
+    # INSIDE its own try, gate included. The gate raised an ImportError on its
+    # first run -- model_family lives in models.utils, not metrics -- and
+    # because the call sat outside this handler it reached the outer one,
+    # which drops `rec` entirely: ten runs wrote a metrics.txt with the
+    # rollout and clustering lines and not one recovered parameter. A new
+    # readout must not be able to delete the old one's numbers.
+    # FALLING BACK TO THE OTHER ESTIMATOR IS LOUD. The correction chain and
+    # the template readout produce different numbers under the same names,
+    # and a run that quietly shipped the chain's looked exactly like one that
+    # used the template. Both ways of ending up there -- the gate off, or
+    # the call raising -- say so in red, on the terminal, once.
+    try:
+        if template_readout_enabled(config, model):
+            rec = extract_template_params(
+                model, ode_params, config=config, edges=edges, x_ts=x_ts,
+                device=device, n_neurons=n_neurons, base=rec)
+        else:
+            _readout = getattr(getattr(config, "recovery", None), "readout", "template")
+            print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. "
+                  f"This run falls back to the gain-correction chain "
+                  f"(recovery.readout={_readout}, model_family="
+                  f"{model_family(model)}). W, E_ij, tau and V_rest below "
+                  f"come from that estimator.{_ANSI_RESET}")
+            logger.warning("template readout disabled: numbers come from "
+                           "the gain-correction chain, not the PySR template")
+    except Exception as _exc:
+        # FATAL unless the config asked for the chain. This handler used to
+        # print in red and carry on, which left results/metrics.txt holding
+        # chain numbers under the template's names -- the tmp_training rows
+        # this run is compared against came from the other estimator.
+        print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
+              f"{type(_exc).__name__}: {_exc}{_ANSI_RESET}")
+        require_template_readout(config, _exc, "results/metrics.txt")
+    return rec
+
+
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
                             log_dir, logger, log_file, n_neurons=None, extra=None,
                             template_rollout=False):
@@ -426,51 +479,8 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
           f"the generator's own form, constants by least squares "
           f"(no PySR search, no Julia) ...{_ANSI_RESET}")
     try:
-        rec = extract_recovered_params(model, ode_params, config, edges=edges,
-                                       x_ts=x_ts, device=device, n_neurons=n_neurons)
-        # ONE EXTRACTION FEEDS EVERY FIGURE IN results/. The template readout --
-        # the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
-        # * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i
-        # -- supersedes the correction chain for W, E_ij, tau and V_rest, and the
-        # neuron panels have been drawing it since it existed. Leaving the rest
-        # of results/ on the chain meant weights_comparison_*.png and
-        # metrics.txt described a different readout than neuron*_panels.png in
-        # the same directory. It extends the chain's object rather than
-        # replacing it, because msg_i and the f_theta diagnostics the panels draw
-        # come only from there.
-        # INSIDE its own try, gate included. The gate raised an ImportError on its
-        # first run -- model_family lives in models.utils, not metrics -- and
-        # because the call sat outside this handler it reached the outer one,
-        # which drops `rec` entirely: ten runs wrote a metrics.txt with the
-        # rollout and clustering lines and not one recovered parameter. A new
-        # readout must not be able to delete the old one's numbers.
-        # FALLING BACK TO THE OTHER ESTIMATOR IS LOUD. The correction chain and
-        # the template readout produce different numbers under the same names,
-        # and a run that quietly shipped the chain's looked exactly like one that
-        # used the template. Both ways of ending up there -- the gate off, or
-        # the call raising -- say so in red, on the terminal, once.
-        try:
-            if template_readout_enabled(config, model):
-                rec = extract_template_params(
-                    model, ode_params, config=config, edges=edges, x_ts=x_ts,
-                    device=device, n_neurons=n_neurons, base=rec)
-            else:
-                _readout = getattr(getattr(config, "recovery", None), "readout", "template")
-                print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. "
-                      f"This run falls back to the gain-correction chain "
-                      f"(recovery.readout={_readout}, model_family="
-                      f"{model_family(model)}). W, E_ij, tau and V_rest below "
-                      f"come from that estimator.{_ANSI_RESET}")
-                logger.warning("template readout disabled: numbers come from "
-                               "the gain-correction chain, not the PySR template")
-        except Exception as _exc:
-            # FATAL unless the config asked for the chain. This handler used to
-            # print in red and carry on, which left results/metrics.txt holding
-            # chain numbers under the template's names -- the tmp_training rows
-            # this run is compared against came from the other estimator.
-            print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
-                  f"{type(_exc).__name__}: {_exc}{_ANSI_RESET}")
-            require_template_readout(config, _exc, "results/metrics.txt")
+        rec = _extract_recovery(model, ode_params, config, edges, x_ts, device,
+                                n_neurons, logger)
         scored = score_recovery(rec, config)
     except ReadoutError:
         # Through, not swallowed: the handler below exists so a failed
@@ -3939,7 +3949,261 @@ def plot_ground_truth_distributions(edges, true_weights, gt_taus, gt_V_Rest, typ
     plt.close()
 
 
+# --------------------------------------------------------------------------- #
+#  THE MASKED PASS (config.recovery.score_mask)
+#
+#  Same readout as plot_synaptic, scored on the kept edges and neurons only, and
+#  written where nothing of the unmasked pass lives: results/masked/, every name
+#  carrying MASK_SUFFIX. A subfolder rather than a suffix alone, because readers
+#  glob results/ (results/panels_*.npz is read as "the" panels file) and
+#  plot_synaptic clears every file of results/ it does not own -- folders other
+#  than extras/ are left alone by both.
+# --------------------------------------------------------------------------- #
+MASK_DIR = "masked"
+MASK_SUFFIX = "_masked"
+
+
+def masked_out(log_dir, name):
+    """results/masked/<stem>_masked<ext> for a results/ file name."""
+    stem, ext = os.path.splitext(os.path.basename(name))
+    out_dir = os.path.join(str(log_dir), "results", MASK_DIR)
+    os.makedirs(out_dir, exist_ok=True)
+    return os.path.join(out_dir, f"{stem}{MASK_SUFFIX}{ext}")
+
+
+def _full_from_pair(pair, n):
+    """The learned side of a (possibly compacted) pair back at full length n,
+    NaN where the pair has no entry."""
+    out = np.full(n, np.nan)
+    if pair is None:
+        return out
+    idx = getattr(pair, "idx", None)
+    learned = np.asarray(pair[1], dtype=float)
+    if idx is None:
+        idx = np.arange(learned.size)
+    if getattr(pair, "n_full", n) == n:
+        out[idx] = learned
+    return out
+
+
+def data_plot_masked(config, device, argv=None):
+    """`-o test_plot` / `-o plot` with config.recovery.score_mask set.
+
+    WHAT IS MASKED, AND WHAT IS NOT. The readout runs on the whole network
+    exactly as in plot_synaptic (`_extract_recovery`, the same call); the mask
+    then restricts which entries are SCORED:
+      kept edges    Wij_*, Eij_*, the per-edge message msg_ij_* (its sample of
+                    edges x frames drawn from the kept edges), the W statistics
+                    in the clustering features, the W scatter
+      kept neurons  tau_*, V_rest_*, the clustering (only kept neurons are
+                    clustered and scored), their scatters
+      unrestricted  msg_i_* (a neuron's incoming total, defined whatever it sends)
+    Scalar diagnostics of the readout (medians over every edge) are not written:
+    in a masked file they would describe the unmasked network.
+
+    WHAT IS WRITTEN, all under results/masked/ (see masked_out):
+      metrics_masked.txt          the `<key>_<stat>` lines, score_recovery names,
+                                  plus score_mask* (which file, how many kept)
+      panels_<dataset>_masked.npz type_ids, a, tau_true, V_rest_true (full
+                                  length, as panels_<dataset>.npz), keep_edges,
+                                  keep_neurons, the masked pairs and their R2
+      recovered_pairs_masked.npz  the scored (true, learned) pairs + msg_ij sample
+      clustering_features_masked.npz, *_comparison_masked.png,
+      parameter_error_masked.png, results_masked.log, config_masked.yaml
+    Nothing else: no rollout (independent of the mask), no template rollout, no
+    neuron panels, no marker or snapshot in the run folder.
+    """
+    import logging as _logging
+    import yaml as _yaml
+    from connectome_gnn.metrics import (load_score_mask, resolve_score_mask_path,
+                                        restrict_recovered)
+    from connectome_gnn.recovery_figures import write_recovered_pairs
+    from connectome_gnn.generators.ode_params import load_ode_params_for_run
+
+    log_dir = log_path(config.config_file)
+    mask_path = config.recovery.score_mask
+    metrics_name = os.path.join(MASK_DIR, f"metrics{MASK_SUFFIX}.txt")
+    _mpath = os.path.join(log_dir, "results", metrics_name)
+    os.makedirs(os.path.dirname(_mpath), exist_ok=True)
+    if os.path.exists(_mpath):                 # appended to below: start clean
+        os.remove(_mpath)
+    with open(masked_out(log_dir, "config.yaml"), "w") as f:
+        _yaml.safe_dump(config.model_dump(mode="json"), f, sort_keys=False)
+
+    logger = _logging.getLogger("data_plot_masked")
+    logger.setLevel(_logging.INFO)
+    logger.propagate = False
+    for h in logger.handlers[:]:
+        logger.removeHandler(h)
+    _fh = _logging.FileHandler(masked_out(log_dir, "results.log"), mode="w")
+    _fh.setFormatter(_logging.Formatter("%(asctime)s %(message)s"))
+    logger.addHandler(_fh)
+    logger.info(f"argv: {argv}")
+    print(f"\033[93mmasked analysis: score mask {resolve_score_mask_path(mask_path)}"
+          f" -> {os.path.join(log_dir, 'results', MASK_DIR)}\033[0m")
+
+    # THE INPUTS plot_synaptic reads, the same way: trajectory (capped), ground
+    # truth, edges, last best checkpoint.
+    x_path = graphs_data_path(config.dataset, "x_list_train")
+    if not os.path.exists(x_path):
+        x_path = graphs_data_path(config.dataset, "x_list_0")
+    x_ts = load_simulation_data(x_path, fields=["index", "voltage", "stimulus",
+                                                "neuron_type", "group_type"])
+    if x_ts.n_frames > 64000:
+        x_ts = x_ts.truncate_frames(64000)
+    n_neurons = x_ts.n_neurons
+    type_list = to_numpy(x_ts.neuron_type).astype(int).ravel()
+    ode_params = load_ode_params_for_run(config, device="cpu")
+    edges = torch.load(os.path.join(log_dir, "training_edges.pt"), map_location=device,
+                       weights_only=False)
+    gt_weights = torch.load(os.path.join(log_dir, "gt_weights.pt"), map_location=device,
+                            weights_only=False)
+    keep_e, keep_n = load_score_mask(mask_path, int(edges.shape[1]), n_neurons)
+
+    files = sorted(glob.glob(f"{log_dir}/models/best_model_with_*"), key=sort_key)
+    if not files:
+        raise FileNotFoundError(f"no best_model_with_* checkpoint in {log_dir}/models")
+    state_dict = torch.load(files[-1], map_location=device, weights_only=False)
+    migrate_state_dict(state_dict)
+    if "W" in state_dict.get("model_state_dict", {}):
+        config.simulation.n_edges = state_dict["model_state_dict"]["W"].shape[0]
+        config.simulation.n_extra_null_edges = 0
+    model = create_model(config.graph_model.signal_model_name,
+                         aggr_type=config.graph_model.aggr_type, config=config, device=device)
+    model.load_state_dict(state_dict["model_state_dict"], strict=False)
+    model.edges = edges
+    restore_edge_sign_lock(model, gt_weights)
+    logger.info(f"net: {files[-1]}")
+
+    rec = _extract_recovery(model, ode_params, config, edges, x_ts, device, n_neurons, logger)
+    rec_m = restrict_recovered(rec, keep_edges=keep_e, keep_neurons=keep_n)
+    scored = score_recovery(rec_m, config)
+    scored.update({
+        "score_mask": resolve_score_mask_path(mask_path),
+        "score_mask_n_edges": int(edges.shape[1]),
+        "score_mask_n_edges_kept": int(edges.shape[1] if keep_e is None else keep_e.sum()),
+        "score_mask_n_neurons": int(n_neurons),
+        "score_mask_n_neurons_kept": int(n_neurons if keep_n is None else keep_n.sum()),
+    })
+    write_recovery_metrics(scored, log_dir, logger=logger, name=metrics_name)
+    for key in RECOVERY_KEYS:
+        if f"{key}_R2" in scored:
+            print(f"masked {key} R²: {scored[f'{key}_R2']:.3f}  (all "
+                  f"{scored.get(f'{key}_R2_all', float('nan')):.3f}, outliers "
+                  f"{scored.get(f'{key}_pct_outliers', 0.0):.2f}%, n {scored[f'{key}_n']})")
+
+    for q in ("W", "E_ij", "tau", "V_rest"):
+        spec = _SCATTER_SPEC.get(q)
+        if spec is not None:
+            _plot_recovered_scatter(rec_m, scored, q, log_dir, "k", config=config,
+                                    out_path=masked_out(log_dir, spec["out"]))
+    _plot_parameter_error(rec_m, scored, log_dir,
+                          out_path=masked_out(log_dir, "parameter_error.png"))
+    write_recovered_pairs(rec_m, log_dir, model=model, config=config, edges=edges, x_ts=x_ts,
+                          out_path=masked_out(log_dir, "recovered_pairs.npz"),
+                          keep_edges=keep_e, metrics_name=metrics_name)
+
+    # THE CLUSTERING, on plot_synaptic's features: the chain's tau, V_rest and
+    # corrected W (f_theta slopes over each neuron's activity range), and a_i.
+    # THE SAME FEATURES AS THE UNMASKED CLUSTERING, read from the
+    # results/learned_ode_params.pt that pass wrote from exactly the arrays it
+    # clustered, when it is there and belongs to this checkpoint (same a_i). The
+    # GMM is sensitive: recomputing the chain's W on another day moved it by
+    # 1.7e-3 at most and clustering_accuracy by 0.011 (cv00, 0.895 -> 0.884),
+    # as much as some masks would. Recomputed only when the file is absent.
+    cl = {}
+    _has_emb = hasattr(model, "a") and hasattr(model, "f_theta")
+    if _has_emb:
+        _lp_path = os.path.join(log_dir, "results", "learned_ode_params.pt")
+        _lp = (torch.load(_lp_path, map_location="cpu", weights_only=False)
+               if os.path.exists(_lp_path) else None)
+        if (_lp is not None and all(k in _lp for k in ("tau_i", "V_i_rest", "W", "a"))
+                and _lp["W"].numel() == int(edges.shape[1])
+                and np.array_equal(_lp["a"].numpy(), to_numpy(model.a).astype(np.float32))):
+            learned_tau = _lp["tau_i"].numpy().astype(np.float64)
+            learned_V_rest = _lp["V_i_rest"].numpy().astype(np.float64)
+            learned_weights = _lp["W"].numpy().astype(np.float64).ravel()
+            _src = "results/learned_ode_params.pt"
+        else:
+            mu, sigma = compute_activity_stats(x_ts, device)
+            slopes_f, offsets_f = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
+            learned_tau = ode_params.derive_tau(np.asarray(slopes_f), n_neurons)
+            learned_V_rest = ode_params.derive_vrest(np.asarray(slopes_f), np.asarray(offsets_f), n_neurons)
+            corrected_W = compute_all_corrected_weights(model, config, edges, x_ts, device,
+                                                        n_grad_frames=8, ode_params=ode_params)[0]
+            learned_weights = to_numpy(corrected_W.squeeze())
+            _src = "recomputed"
+        print(f"clustering features: {_src}")
+        logger.info(f"clustering features: {_src}")
+        has_v = ode_params.has_vrest()
+        edges_np = to_numpy(edges)
+        cl = cluster_recovery(type_list, edges_np, learned_weights, n_neurons,
+                              embedding=to_numpy(model.a), learned_tau=learned_tau,
+                              learned_vrest=learned_V_rest if has_v else None,
+                              return_features=True, keep_edges=keep_e, keep_neurons=keep_n)
+        X_full = cl.pop("_X")
+        cv = cluster_recovery_variants(
+            type_list, edges_np, n_neurons, learned_W=learned_weights,
+            learned_tau=learned_tau, learned_vrest=learned_V_rest if has_v else None,
+            embedding=to_numpy(model.a), gt_W=to_numpy(gt_weights).ravel(),
+            gt_tau=ode_params.gt_tau(n_neurons),
+            gt_vrest=ode_params.gt_vrest(n_neurons) if has_v else None,
+            return_features=True, keep_edges=keep_e, keep_neurons=keep_n)
+        kn = np.ones(n_neurons, bool) if keep_n is None else keep_n
+        np.savez_compressed(masked_out(log_dir, "clustering_features.npz"),
+                            type_ids=type_list[kn].astype(np.int64), keep_neurons=kn,
+                            X_full=X_full, **{k[1:]: v for k, v in cv.items() if k.startswith("_X_")})
+        cl.update({k: v for k, v in cv.items() if not k.startswith("_")})
+        cl["clustering_features_source"] = _src
+        write_recovery_metrics(cl, log_dir, logger=logger, name=metrics_name)
+        print(f"masked cluster accuracy: {cl['clustering_accuracy']:.3f}  "
+              f"ARI {cl['clustering_ari']:.3f}  NMI {cl['clustering_nmi']:.3f}  "
+              f"({cl['clustering_n_components']} components, {int(kn.sum())} neurons)")
+
+    # THE PANELS FILE, keyed as panels_<dataset>.npz where the meaning is the
+    # same (type_ids, a, tau_true, V_rest_true: full length), plus the masks and
+    # the masked readout pairs the metrics above were scored on.
+    config_indices = (os.path.basename(config.dataset).split("flyvis_")[1]
+                      if "flyvis_" in config.dataset
+                      else re.sub(r"_\d{2}$", "", os.path.basename(config.dataset)))
+    panel = dict(config_indices=np.asarray(config_indices), n_neurons=np.int64(n_neurons),
+                 type_ids=type_list.astype(np.int32),
+                 keep_edges=(np.ones(int(edges.shape[1]), bool) if keep_e is None else keep_e),
+                 keep_neurons=(np.ones(n_neurons, bool) if keep_n is None else keep_n),
+                 score_mask=np.asarray(scored["score_mask"]))
+    if hasattr(model, "a"):
+        panel["a"] = to_numpy(model.a).astype(np.float32)
+    for q, gt in (("tau", ode_params.gt_tau(n_neurons)), ("V_rest", ode_params.gt_vrest(n_neurons))):
+        if gt is not None:
+            panel[f"{q}_true"] = np.asarray(gt, dtype=np.float32)
+            panel[f"{q}_learned"] = _full_from_pair(rec.pairs.get(q), n_neurons).astype(np.float32)
+    for q, key in (("W", "Wij"), ("tau", "tau"), ("V_rest", "V_rest")):
+        pair = rec_m.pairs.get(q)
+        if pair is not None:
+            panel[f"{key}_pair_true"] = np.asarray(pair[0], dtype=np.float32)
+            panel[f"{key}_pair_learned"] = np.asarray(pair[1], dtype=np.float32)
+            panel[f"{key}_pair_idx"] = np.asarray(getattr(pair, "idx", np.arange(len(pair[0]))), np.int64)
+        for st in ("R2", "R2_all", "slope", "pct_outliers"):
+            if f"{key}_{st}" in scored:
+                panel[f"{key}_{st}"] = np.float32(scored[f"{key}_{st}"])
+    if "clustering_accuracy" in cl:
+        panel["cluster_accuracy"] = np.float32(cl["clustering_accuracy"])
+    np.savez_compressed(masked_out(log_dir, f"panels_{config_indices}.npz"), **panel)
+    for h in logger.handlers[:]:
+        try:
+            h.close()
+        except OSError:
+            pass
+        logger.removeHandler(h)
+    print(f"masked analysis written to {os.path.join(log_dir, 'results', MASK_DIR)}")
+    return scored, cl
+
+
 def data_plot(config, epoch_list, style, extended, device, apply_weight_correction=False, log_file=None, skip_svd=False):
+    # A score mask turns this into the masked pass, which writes only under
+    # results/masked/ and leaves every unmasked output where it is.
+    if getattr(getattr(config, 'recovery', None), 'score_mask', None):
+        return data_plot_masked(config, device)
     if 'black' in style:
         plt.style.use('dark_background')
         mc = 'w'

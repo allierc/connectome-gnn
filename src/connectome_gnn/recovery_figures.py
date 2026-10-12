@@ -450,7 +450,8 @@ def write_form_arrays(rec, log_dir, out_path=None):
 
 
 def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_ts=None,
-                          n_edges=1024, n_frames=64, seed=0, out_path=None):
+                          n_edges=1024, n_frames=64, seed=0, out_path=None,
+                          keep_edges=None, metrics_name="metrics.txt"):
     """results/recovered_pairs.npz: the (true, learned) arrays behind every scored
     quantity, so a figure can draw what the tables score without a checkpoint.
 
@@ -467,6 +468,10 @@ def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_t
     counterpart of the published g_phi(a_j, v_j) panel. About 1-2 MB per run.
     Conductance generators (a driving force on the true side) are not handled:
     the edge arrays are then left out, the rest is still written.
+
+    keep_edges (bool over the edges, None = all): the score mask. The per-edge
+    sample is drawn from the kept edges only, `edge_idx` still indexing the full
+    edge array, and msg_ij_* goes to results/<metrics_name>.
     """
     import torch
     from connectome_gnn.metrics import get_model_W, sample_g_phi_vi_vj_observed
@@ -483,8 +488,15 @@ def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_t
     if (model is not None and config is not None and edges is not None and x_ts is not None
             and k is not None and os.path.exists(gt_path)):
         core = getattr(model, "_orig_mod", model)
-        s = sample_g_phi_vi_vj_observed(core, config, edges, x_ts, n_edges=n_edges,
-                                        n_frames=n_frames, seed=seed)
+        if keep_edges is None:
+            s = sample_g_phi_vi_vj_observed(core, config, edges, x_ts, n_edges=n_edges,
+                                            n_frames=n_frames, seed=seed)
+        else:
+            kept = np.flatnonzero(np.asarray(keep_edges, bool))
+            s = sample_g_phi_vi_vj_observed(
+                core, config, edges[:, torch.as_tensor(kept, device=edges.device)], x_ts,
+                n_edges=n_edges, n_frames=n_frames, seed=seed)
+            s["edge_idx"] = kept[s["edge_idx"]]          # back into the full edge order
         gt_W = torch.load(gt_path, map_location="cpu", weights_only=False)
         gt_W = (gt_W.detach().cpu().numpy() if torch.is_tensor(gt_W) else np.asarray(gt_W)).ravel()
         W_hat = get_model_W(core).detach().cpu().numpy().ravel()
@@ -503,6 +515,6 @@ def write_recovered_pairs(rec, log_dir, model=None, config=None, edges=None, x_t
         m = recovery_param_metrics(arrays["edge_msg_true"].astype(np.float64).ravel(),
                                    arrays["edge_msg_learned"].astype(np.float64).ravel(), None)
         write_recovery_metrics({"msg_ij_R2": float(m["r2"]), "msg_ij_slope": float(m["slope"]),
-                                "msg_ij_n": int(m["n_total"])}, str(log_dir))
+                                "msg_ij_n": int(m["n_total"])}, str(log_dir), name=metrics_name)
     np.savez_compressed(out, **arrays)
     return out
