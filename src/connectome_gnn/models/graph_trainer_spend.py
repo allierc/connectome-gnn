@@ -55,7 +55,7 @@ from connectome_gnn.log import get_logger
 from connectome_gnn.metrics import compute_dynamics_r2
 from connectome_gnn.models.training_utils import (
     build_lr_scheduler,
-    build_model,
+    setup_model,
     determine_load_fields,
     load_flyvis_data,
 )
@@ -290,7 +290,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
     elif tc.pretrained_model:
         checkpoint_path = os.path.expandvars(tc.pretrained_model)   # may be $GNN_OUTPUT_ROOT/...
     reset_epoch = (tc.pretrained_model != '' and not best_model)
-    model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
+    model, start_epoch = setup_model(config, device, checkpoint_path=checkpoint_path, reset_epoch=reset_epoch)
 
     # --- SPEND setup: smoother, typed pairs, synthesised noise ---
     smoother = None

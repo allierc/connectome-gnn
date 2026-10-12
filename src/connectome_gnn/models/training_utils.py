@@ -847,8 +847,8 @@ def observed_derivative_target(x_ts, measurement_noise_level, delta_t):
     return y_ts[..., None]
 
 
-def build_model(config, device, checkpoint_path=None, reset_epoch=False):
-    """Create a NeuralGNN model and optionally load a checkpoint.
+def setup_model(config, device, checkpoint_path=None, reset_epoch=False):
+    """Create the model (create_model), load a checkpoint if given; returns (model, start_epoch).
 
     Args:
         config: NeuralGraphConfig
@@ -1605,7 +1605,7 @@ def init_training_model(
     """
 
     from connectome_gnn.models.training_utils import (
-        build_model,
+        setup_model,
         find_latest_epoch_checkpoint,
     )
 
@@ -1634,7 +1634,7 @@ def init_training_model(
         and not resume
     )
 
-    model, start_epoch = build_model(
+    model, start_epoch = setup_model(
         config,
         device,
         checkpoint_path=checkpoint_path,

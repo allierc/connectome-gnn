@@ -65,7 +65,7 @@ from connectome_gnn.models.training_utils import (
     HiddenNeuronHandler,
     apply_lr_damping,
     build_lr_scheduler,
-    build_model,
+    setup_model,
     dale_law_score,
     determine_load_fields,
     enforce_dale_law,

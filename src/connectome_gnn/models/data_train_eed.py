@@ -21,7 +21,7 @@ from tqdm import trange
 
 from connectome_gnn.log import get_logger
 from connectome_gnn.models.data_train_rollout import val_rollout_latent, plot_rollout_mse
-from connectome_gnn.models.training_utils import build_model, load_flyvis_data, determine_load_fields
+from connectome_gnn.models.training_utils import setup_model, load_flyvis_data, determine_load_fields
 from connectome_gnn.utils import create_log_dir
 
 _logger = get_logger(__name__)
@@ -123,7 +123,7 @@ def data_train_eed(config, erase, best_model, device, log_file=None):
     checkpoint_path = None
     if tc.pretrained_model != '':
         checkpoint_path = os.path.expandvars(tc.pretrained_model)   # may be $GNN_OUTPUT_ROOT/...
-    model, start_epoch = build_model(config, device, checkpoint_path=checkpoint_path)
+    model, start_epoch = setup_model(config, device, checkpoint_path=checkpoint_path)
     assert hasattr(model, 'encoder') and hasattr(model, 'evolver'), (
         f"{type(model).__name__} must have encoder/decoder/evolver/stimulus_encoder "
         "sub-networks to be used with data_train_eed"
