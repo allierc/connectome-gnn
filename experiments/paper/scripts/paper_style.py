@@ -78,9 +78,16 @@ def annotate(ax, text):
             linespacing=1.15)
 
 
+# Sample sizes above the panels: off for the paper's figures, on for the slides (--counts).
+SHOW_COUNTS = {"on": False}
+
+
 def count_label(ax, text, dy_pt=4.0):
     """The panel's sample size above its top-right corner, on the baseline of the panel letter
-    (panel_labels with y_from="axes" puts the letter dy_pt above the frame)."""
+    (panel_labels with y_from="axes" puts the letter dy_pt above the frame); only when
+    SHOW_COUNTS["on"] is set."""
+    if not SHOW_COUNTS["on"]:
+        return
     import matplotlib.transforms as mtrans
     ax.text(1.0, 1.0, text, ha="right", va="bottom", fontsize=FS_ANNOT,
             transform=mtrans.offset_copy(ax.transAxes, fig=ax.figure, y=dy_pt, units="points"))

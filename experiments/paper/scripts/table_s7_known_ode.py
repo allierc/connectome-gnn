@@ -37,7 +37,7 @@ def table_known_ode(numbers):
     numbers["table_known_ode"] = agg
     caption = (r"{\color{revised}\textbf{Known-ODE evaluation across degraded versions} of the Flyvis training "
                r"data: model and measurement noise, added/removed connectivity edges. The published Known-ODE "
-               r"runs, re-analysed with the paper's current analysis code (experiment 15). Five-fold "
+               r"runs, re-analysed with the paper's current analysis code. Five-fold "
                r"cross-validation (mean~$\pm$~SD). Prediction: metrics computed on noise-free data with "
                r"held-out stimuli (" + frames_tex(*agg.values()) + r" frames by fold). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the "
                r"fitted edges, as for the GNN rows; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over "

@@ -42,6 +42,54 @@ arms:
     graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
+- id: cond_l25_emb3
+  label: general form, group lasso 25, embedding dimension 3
+  spec_pattern: flyvis_{noise}_blank50_condl25_emb3_{fold}
+  axes_only:
+    noise:
+    - noise_005
+    fold:
+    - cv00
+    - cv01
+    - cv02
+  differs_by:
+    graph_model.signal_model_name: flyvis_general_form
+    graph_model.input_size: 8
+    graph_model.input_size_update: 6
+    graph_model.embedding_dim: 3
+    training.coeff_g_phi_input_group_L1: 25.0
+- id: cond_l25_emb4
+  label: general form, group lasso 25, embedding dimension 4
+  spec_pattern: flyvis_{noise}_blank50_condl25_emb4_{fold}
+  axes_only:
+    noise:
+    - noise_005
+    fold:
+    - cv00
+    - cv01
+    - cv02
+  differs_by:
+    graph_model.signal_model_name: flyvis_general_form
+    graph_model.input_size: 10
+    graph_model.input_size_update: 7
+    graph_model.embedding_dim: 4
+    training.coeff_g_phi_input_group_L1: 25.0
+- id: cond_l25_emb5
+  label: general form, group lasso 25, embedding dimension 5
+  spec_pattern: flyvis_{noise}_blank50_condl25_emb5_{fold}
+  axes_only:
+    noise:
+    - noise_005
+    fold:
+    - cv00
+    - cv01
+    - cv02
+  differs_by:
+    graph_model.signal_model_name: flyvis_general_form
+    graph_model.input_size: 12
+    graph_model.input_size_update: 8
+    graph_model.embedding_dim: 5
+    training.coeff_g_phi_input_group_L1: 25.0
 job_ids:
   flyvis_noise_free_blank50_condl100_cv00: '154396165'
   flyvis_noise_free_blank50_condl100_cv01: '154396166'
@@ -73,6 +121,15 @@ job_ids:
   flyvis_noise_05_blank50_condl25_cv02: '154399869'
   flyvis_noise_05_blank50_condl25_cv03: '154399870'
   flyvis_noise_05_blank50_condl25_cv04: '154399871'
+  flyvis_noise_005_blank50_condl25_emb3_cv00: '154728906'
+  flyvis_noise_005_blank50_condl25_emb3_cv01: '154728907'
+  flyvis_noise_005_blank50_condl25_emb3_cv02: '154728908'
+  flyvis_noise_005_blank50_condl25_emb4_cv00: '154728916'
+  flyvis_noise_005_blank50_condl25_emb4_cv01: '154728917'
+  flyvis_noise_005_blank50_condl25_emb4_cv02: '154728919'
+  flyvis_noise_005_blank50_condl25_emb5_cv00: '154728925'
+  flyvis_noise_005_blank50_condl25_emb5_cv01: '154728926'
+  flyvis_noise_005_blank50_condl25_emb5_cv02: '154728927'
 analyse_job_ids:
   flyvis_noise_free_blank50_dtfd_cv00: '154399734'
   flyvis_noise_free_blank50_dtfd_cv01: '154399735'
@@ -120,7 +177,7 @@ analyse_job_ids:
   flyvis_noise_05_blank50_condl25_cv03: '154565236'
   flyvis_noise_05_blank50_condl25_cv04: '154565237'
 report:
-  slide_title: 'GNN MLP(ai,aj,vi,vj), group lasso, model noise'
+  slide_title: GNN MLP(ai,aj,vi,vj), group lasso, model noise
   arm_order:
   - current
   - cond_l25
@@ -357,11 +414,22 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 **What changes:** the current form and the conductance form under a lasso of 25 are now tied at every noise level (`R2_W` 0.936 / 0.934, 0.989 / 0.989, 0.990 / 0.991). Without the lasso the conductance form still fails at noise_free (0.535). The fit roll of the conductance form stays diverged in every arm.
 
 
+## Embedding dimension 3, 4, 5 at noise_005 (launched 2026-10-13)
+
+Arms `cond_l25_emb3`, `cond_l25_emb4`, `cond_l25_emb5`: the `cond_l25` runs at `noise_005`, three
+folds (cv00-cv02), with `graph_model.embedding_dim` E = 3, 4, 5 instead of 2 and the two input sizes that follow
+from it (g_phi 2 + 2E, f_theta E + 3); nothing else changes (checked against each fold's
+`cond_l25` spec). Question: on the 2-D run, a_i1 encodes V_rest and a_i0 encodes tau only as a
+step between the 0.020 s types and the rest (meeting deck slide 6 of 2026-10-12): does a third
+dimension carry tau, and do R2_tau and the clustering accuracy rise. gpu_rtx6000, jobs
+154728906-154728929; the cv03 and cv04 jobs (154728909/10, 154728920/21, 154728928/29) were killed
+while running on 2026-10-13, three folds being enough for this question.
+
 <!-- STATUS:BEGIN -->
 
 ## Status
 
-**45/45 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
+**45/54 landed**, 0 trained (awaiting `-o test_plot`), 9 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -376,12 +444,17 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 | cond_l25 | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.971 ± 0.002 (0.2) | 0.707 ± 0.052 (2.1) | 0.934 ± 0.010 (0.0) | 0.902 ± 0.044 (4.1) | 0.825 ± 0.018 (19.3) | 0.774 ± 0.027 | 0.940 ± 0.012 (0.2) | 0.029 ± 0.006 | 0.387 ± 0.010 | 0.771 ± 0.039 |
 | cond_l25 | noise_005 | 5 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.654 ± 0.055 (2.0) | 0.989 ± 0.004 (0.0) | 0.980 ± 0.004 (0.0) | 0.903 ± 0.017 (3.1) | 0.903 ± 0.017 | 0.990 ± 0.002 (0.0) | 0.006 ± 0.001 | 0.340 ± 0.003 | 0.895 ± 0.013 |
 | cond_l25 | noise_05 | 5 | 0.995 ± 0.000 | 0.878 ± 0.229 | 0.995 ± 0.001 (0.0) | 0.748 ± 0.014 (1.1) | 0.991 ± 0.001 (0.0) | 0.997 ± 0.001 (0.0) | 0.887 ± 0.022 (2.1) | 0.924 ± 0.016 | 0.995 ± 0.001 (0.0) | 0.011 ± 0.006 | 0.173 ± 0.226 | 0.886 ± 0.004 |
+| cond_l25_emb3 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| cond_l25_emb4 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| cond_l25_emb5 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | noise | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| — | | | | | | | | | | | | | | |
+| cond_l25_emb3 | noise_005 | 32,001 |  | 0.997 ± 0.001 |  |  | 0.971 ± 0.021 | 0.937 ± 0.036 | 0.808 ± 0.031 | 0.712 ± 0.018 | 0.970 ± 0.008 |  |  |  |
+| cond_l25_emb4 | noise_005 | 16,001 |  | 0.996 ± 0.000 |  |  | 0.968 ± 0.006 | 0.944 ± 0.024 | 0.795 ± 0.016 | 0.669 ± 0.022 | 0.948 ± 0.018 |  |  |  |
+| cond_l25_emb5 | noise_005 | 16,001 |  | 0.996 ± 0.001 |  |  | 0.970 ± 0.009 | 0.936 ± 0.007 | 0.798 ± 0.031 | 0.588 ± 0.017 | 0.945 ± 0.005 |  |  |  |
 
 ### Per run
 
@@ -432,6 +505,15 @@ Every landed run was re-analysed after the second-pass fix and the switch to one
 | `flyvis_noise_05_blank50_condl25_cv02` | landed | 1,520,001 | `7278aa10679f` |  |
 | `flyvis_noise_05_blank50_condl25_cv03` | landed | 1,520,001 | `7278aa10679f` |  |
 | `flyvis_noise_05_blank50_condl25_cv04` | landed | 1,520,001 | `7278aa10679f` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv00` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv01` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv02` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv00` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv01` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv02` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv00` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv01` | running | 32,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv02` | running | 16,001 | `` |  |
 
 <!-- STATUS:END -->
 

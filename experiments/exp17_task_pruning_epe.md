@@ -30,7 +30,7 @@ arms:
   submit: false
   differs_by: {}
 report:
-  slide_title: Pruning silent edges and neurons at constant optic-flow EPE
+  slide_title: Pruning silent edges and neurons at constant EPE
   arm_labels:
     cond_l25: GNN MLP(ai,aj,vi,vj), lasso 25
 ---

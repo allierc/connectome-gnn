@@ -33,28 +33,21 @@ MARGIN_L_CM, MARGIN_B_CM = 0.9, 0.75
 
 
 def main():
-    n_blocks = len(BLOCKS)
-    width = MARGIN_L_CM + n_blocks * (2 * PANEL_CM + GAP_IN_CM) + (n_blocks - 1) * GAP_BLOCK_CM + 0.3
-    height = MARGIN_B_CM + 3 * PANEL_CM + 2 * GAP_ROW_CM + 1.0
+    # one row per noise level: W, tau, V_rest, the embedding
+    n = len(BLOCKS)
+    width = MARGIN_L_CM + 0.6 + 4 * PANEL_CM + 3 * GAP_IN_CM + 0.3
+    height = MARGIN_B_CM + n * PANEL_CM + (n - 1) * GAP_ROW_CM + 0.6
     fig = plt.figure(figsize=(width * CM, height * CM))
+    gs = mgs.GridSpec(n, 4, figure=fig, left=(MARGIN_L_CM + 0.6) / width, right=1 - 0.3 / width,
+                      bottom=MARGIN_B_CM / height, top=1 - 0.6 / height,
+                      wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
     cmap = type_cmap()
-    rows = [[], [], []]
-    blocks_axes = []
-    for k, (title, run) in enumerate(BLOCKS):
-        x0 = (MARGIN_L_CM + k * (2 * PANEL_CM + GAP_IN_CM + GAP_BLOCK_CM)) / width
-        y0 = MARGIN_B_CM / height
-        gs = mgs.GridSpec(3, 2, figure=fig, left=x0, right=x0 + (2 * PANEL_CM + GAP_IN_CM) / width,
-                          bottom=y0, top=y0 + (3 * PANEL_CM + 2 * GAP_ROW_CM) / height,
-                          wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
-        axes = [fig.add_subplot(gs[r, c]) for r in range(3) for c in range(2)]
-        data = load_run(run)
-        draw_block((axes[0], axes[1], axes[4], axes[5]), data, cmap=cmap)
-        draw_message_row((axes[2], axes[3]), data)
-        for r in range(3):
-            rows[r] += axes[2 * r:2 * r + 2]
-        blocks_axes.append(axes)
-    column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=16, fontsize=9)
-    panel_labels(fig, rows[0] + rows[1] + rows[2], dy_pt=4)
+    axes = [[fig.add_subplot(gs[r, c]) for c in range(4)] for r in range(n)]
+    for r, (title, run) in enumerate(BLOCKS):
+        draw_block((axes[r][0], axes[r][3], axes[r][2], axes[r][1]), load_run(run), cmap=cmap)
+        axes[r][0].text(-0.75, 0.5, title, transform=axes[r][0].transAxes, rotation=90,
+                        ha="center", va="center", fontsize=8)
+    panel_labels(fig, [a for row in axes for a in row], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_noise_sweep"))
 
 

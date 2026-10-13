@@ -380,17 +380,19 @@ class LossRegularizer:
                 total_regul = total_regul + regul_term
                 self._add('f_theta_weight', regul_term)
 
-        # --- g_phi input-group lasso (structured sparsity over vi/vj/ai/aj) ---
-        # Unlike g_phi_weight_L1/L2 (elementwise, diffuse), this penalizes each input's whole
-        # first-layer column jointly (L2 per group, summed) so the optimizer can drop an entire
-        # input pathway to ~0 instead of shrinking everything a little. Applied symmetrically to
-        # all four inputs — it does not single out vi/ai, since presupposing which inputs are
-        # spurious would beg the question this regularizer is meant to test. Only meaningful when
-        # Groups are taken from the model's ACTUAL g_phi column layout rather than
-        # inferred from the first layer's width. A width test cannot tell
-        # [v_j, a_j] + 4 noise columns (width 7) from [v_j, a_j, v_i, a_i] + 1
-        # (also width 7), and would silently apply conductance groupings to a
-        # flyvis_A model -- penalising a_j as though it were a_i.
+        # --- group lasso on the inputs of g_phi: nu * sum_k ||phi^(1)_k||_2 (main.tex eq. loss_full) ---
+        # g_phi(v_j, a_j, v_i, a_i) has four inputs k: the presynaptic voltage v_j, the
+        # presynaptic embedding a_j (embedding_dim columns), the postsynaptic voltage v_i and
+        # the postsynaptic embedding a_i. phi^(1)_k is the block of columns of g_phi's first
+        # weight matrix W0 that reads input k. Its L2 norm is taken over the whole block, then
+        # summed over k, so the optimizer can set an input g_phi does not need to zero as a
+        # whole, instead of shrinking every weight a little as the elementwise lambda_1 ||phi||_1
+        # does. All four inputs are penalised alike: singling out v_i/a_i would presuppose the
+        # answer this term is meant to test. nu = coeff_g_phi_input_group_L1.
+        # Beyond the paper: each extra noise input column is its own group too.
+        # The blocks come from the model's actual column layout (g_phi_column_layout), not from
+        # the width of W0: width 7 is both [v_j, a_j] + 4 noise columns and
+        # [v_j, a_j, v_i, a_i] + 1, so a width test would penalise a_j as though it were a_i.
         if self._coeffs['g_phi_input_group_L1'] > 0 and hasattr(model, 'g_phi'):
             from connectome_gnn.metrics import g_phi_column_layout
             emb_dim = mc.embedding_dim
@@ -398,8 +400,8 @@ class LossRegularizer:
             if layout is not None:
                 W0 = model.g_phi.layers[0].weight
                 base_width = W0.shape[1] - _n_noise
-                # one group per named input; absent groups (v_i/a_i on flyvis_A)
-                # simply contribute nothing
+                # sum_k ||phi^(1)_k||_2 over k in {v_j, a_j, v_i, a_i}; an input the
+                # model lacks (v_i, a_i on flyvis_A) contributes nothing
                 group_norm = None
                 for _k in ('vj', 'aj', 'vi', 'ai'):
                     _sl = layout[_k]
@@ -407,11 +409,11 @@ class LossRegularizer:
                         continue
                     _t = W0[:, _sl].norm(2)
                     group_norm = _t if group_norm is None else group_norm + _t
-                # each noise column is its own group, so the lasso can kill them
-                # individually exactly as it can kill vi or ai
+                # one group per noise column, so each can be zeroed on its own,
+                # as v_i or a_i can
                 for _c in range(base_width, W0.shape[1]):
                     group_norm = group_norm + W0[:, _c:_c + 1].norm(2)
-                regul_term = group_norm * _ct['g_phi_input_group_L1']
+                regul_term = group_norm * _ct['g_phi_input_group_L1']  # times nu
                 total_regul = total_regul + regul_term
                 self._add('g_phi_input_group', regul_term)
 
@@ -684,6 +686,8 @@ class LossRegularizer:
         n_neurons = self.n_neurons
         total_regul = torch.zeros((), device=device)
         _ct = self._coeff_tensors
+        # dictionary that holds every regularizer coefficient as a one-number tensor on the GPU, 
+        # for example _ct['g_phi_diff'] = 375. The rest of compute then writes _ct['W_L1'] instead of self._coeff_tensors['W_L1'].
 
         if in_features is None:
             return total_regul

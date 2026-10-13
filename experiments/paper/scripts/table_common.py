@@ -79,10 +79,10 @@ def cell(ms, red=False):
     return body
 
 
-def pct(ms, red=False, like=None):
-    """$\\,(x.x)$ outlier percentage, coloured like its R^2 cell."""
+def pct(ms, red=False, like=None, sign=False):
+    """$\\,(x)$ outlier percentage, coloured like its R^2 cell; `sign` writes it as (x\\%)."""
     m, _ = ms
-    body = f"$\\,({m:.0f})$"
+    body = f"$\\,({m:.0f}" + ("\\%" if sign else "") + ")$"
     if red:
         return f"\\textcolor{{red}}{{{body}}}"
     if like is not None and like > GOOD:
@@ -95,11 +95,11 @@ def pct(ms, red=False, like=None):
 def metric_cells(a, red=False, w_outliers=False):
     """The seven metric cells of a GNN / Known-ODE row (split tau / V_rest); with
     `w_outliers` an eighth, R^2_W's outlier percentage beside it (Table 1)."""
-    w = (f"  & {cell(a['Wij_R2'], red)} & {pct(a['Wij_pct_outliers'], red, a['Wij_R2'][0])}\n" if w_outliers
+    w = (f"  & {cell(a['Wij_R2'], red)} & {pct(a['Wij_pct_outliers'], red, a['Wij_R2'][0], sign=True)}\n" if w_outliers
          else f"  & {cell(a['Wij_R2'], red)}\n")
     return (f"  & {cell(a['one_step_r'], red)} & {cell(a['rollout_r'], red)}\n" + w +
-            f"  & {cell(a['tau_R2'], red)} & {pct(a['tau_pct_outliers'], red, a['tau_R2'][0])}\n"
-            f"  & {cell(a['V_rest_R2'], red)} & {pct(a['V_rest_pct_outliers'], red, a['V_rest_R2'][0])}\n")
+            f"  & {cell(a['tau_R2'], red)} & {pct(a['tau_pct_outliers'], red, a['tau_R2'][0], sign=w_outliers)}\n"
+            f"  & {cell(a['V_rest_R2'], red)} & {pct(a['V_rest_pct_outliers'], red, a['V_rest_R2'][0], sign=w_outliers)}\n")
 
 
 def frames_tex(*aggs):

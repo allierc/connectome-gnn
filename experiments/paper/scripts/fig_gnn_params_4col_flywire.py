@@ -30,18 +30,20 @@ MARGIN_L_CM, MARGIN_B_CM = 1.1, 0.8
 
 
 def main():
+    # one row per variant: W, tau, V_rest, the embedding
     n = len(COLS)
-    width = MARGIN_L_CM + n * PANEL_CM + (n - 1) * GAP_CM + 0.3
-    height = MARGIN_B_CM + 4 * PANEL_CM + 3 * GAP_CM + 0.6
+    width = MARGIN_L_CM + 4 * PANEL_CM + 3 * GAP_CM + 0.3
+    height = MARGIN_B_CM + n * PANEL_CM + (n - 1) * GAP_CM + 0.3
     fig = plt.figure(figsize=(width * CM, height * CM))
-    gs = mgs.GridSpec(4, n, figure=fig, left=MARGIN_L_CM / width, right=1 - 0.3 / width,
-                      bottom=MARGIN_B_CM / height, top=1 - 0.6 / height,
+    gs = mgs.GridSpec(n, 4, figure=fig, left=MARGIN_L_CM / width, right=1 - 0.3 / width,
+                      bottom=MARGIN_B_CM / height, top=1 - 0.3 / height,
                       wspace=GAP_CM / PANEL_CM, hspace=GAP_CM / PANEL_CM)
     cmap = type_cmap()
-    axes = [[fig.add_subplot(gs[r, c]) for c in range(n)] for r in range(4)]
-    for c, (title, run) in enumerate(COLS):
-        draw_block((axes[0][c], axes[1][c], axes[2][c], axes[3][c]), load_run(run), cmap=cmap)
-    column_titles(fig, [[axes[0][c]] for c in range(n)], [t for t, _ in COLS], dy_pt=16, fontsize=9)
+    axes = [[fig.add_subplot(gs[r, c]) for c in range(4)] for r in range(n)]
+    for r, (title, run) in enumerate(COLS):
+        draw_block((axes[r][0], axes[r][3], axes[r][2], axes[r][1]), load_run(run), cmap=cmap)
+        axes[r][0].text(-0.62, 0.5, title, transform=axes[r][0].transAxes, rotation=90,
+                        ha="center", va="center", fontsize=9)
     panel_labels(fig, [a for row in axes for a in row], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_gnn_params_4col_flywire_comparison"))
 

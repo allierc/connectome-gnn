@@ -48,17 +48,14 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
  & low-noise & $0.05$ & $0.90{\pm}0.10$ & \good{$0.97{\pm}0.04$} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
  & high-noise & $0.5$ & $0.60{\pm}0.20$ & $0.77{\pm}0.25$ & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
 """
-    caption = (r"{\color{revised}\textbf{GNN and baselines on Flyvis-217} across three training-noise levels "
-               r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). GNN rows: the general-form GNN, "
-               r"$g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$ on its "
-               r"input groups, one-step training (experiment 2 of the campaign, runs "
-               r"\texttt{flyvis\_noise\_*\_blank50\_condl25\_cv0N}). Known-ODE rows: the published "
-               r"Known-ODE runs re-analysed with the current analysis code (experiment 15). ML-baseline rows are "
-               r"the published ones. Prediction metrics on noise-free held-out stimuli (" + frames_tex(*gnn.values(), *kode.values()) + r" frames by fold for the GNN and Known-ODE rows). "
-               r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ by the per-edge "
-               r"template readout over the fitted edges of the $434{,}112$, outlier-corrected; $R^2_{\hat{\tau}}$ and "
-               r"$R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
-               r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.}")
+    # the published caption (overleaf/tables/cv_table_gnn_vs_baselines.tex); green = the words that changed
+    caption = (r"\textbf{GNN and baselines on Flyvis-217} across three training-noise levels "
+               r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out "
+               r"stimuli. "
+               r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over "
+               r"{\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges, outlier-corrected}; "
+               r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
+               r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.")
     tex = (r"""% Tab. 1 -- written by scripts/make_tables.py; GNN rows = conductance lasso 25 (experiment 2)
 \begin{table}[t]
 \centering

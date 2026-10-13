@@ -120,30 +120,15 @@ def replace_figure(label, new_block):
 replace_figure("fig:gnn_params_3col_noise_comparison", r"""
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.5\textwidth]{figures/fig_gnn_params_noise_005.pdf}
+  \includegraphics[width=\textwidth]{figures/fig_gnn_params_noise_005.pdf}
   \caption{%
-    {\color{revised}\textbf{Circuit parameter extraction} from the general-form GNN
-    ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$) on Flyvis-217 at
-    model noise $\sigma = 0.05$ (fold cv00 of experiment 2).
-    \textbf{(a)}~Learned against true synaptic weight $\hat{W}_{ij}$, one point per edge fitted by
-    the template readout (@@FIG1_FITTED@@ of the $434{,}112$ edges; the rest have a
-    presynaptic neuron that never rises above the activity floor).
-    \textbf{(b)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured
-    by ground-truth cell type.
-    \textbf{(c)}~The aggregated message $m_i = \sum_j \hat W_{ij}\, g_\phi(\cdot)$ each neuron
-    receives, learned against the generator's $\sum_j W_{ij}\,\mathrm{ReLU}(v_j)$, on the frames the
-    metric $R^2_{m}$ is scored on (the general-form counterpart of the published $f_\theta$ panel).
-    \textbf{(d)}~The per-edge message at observed $(v_i, v_j)$: learned
-    $k_i \hat W_{ij}\, g_\phi(\mathbf{a}_i, \mathbf{a}_j, v_i, v_j)$ against the generator's
-    $W_{ij}\,\mathrm{ReLU}(v_j)$ on $1{,}024$ random edges $\times$ $64$ random frames, $k_i$ the template
-    readout's per-neuron gauge (the counterpart of the published $g_\phi$ panel).
-    \textbf{(e)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(f)}~Time constants $\tau_i$.
-    Each scatter is annotated with the $R^2$ and slope of learned against true quoted in
-    \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and $V^{\mathrm{rest}}$ the inlier
-    $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
-    bands in red and their fraction printed); the per-neuron $\tau$, $V^{\mathrm{rest}}$ and per-edge
-    $\hat W_{ij}$ are the template readout's (Appendix~\ref{app:extraction}).}
+    \textbf{Circuit parameter extraction} from {\color{revised}the general-form} GNN evaluated on Flyvis-217
+    {\color{revised}at model noise $\sigma = 0.05$}. \textbf{(a)}~Connectivity weights $\hat{W}_{ij}$
+    over {\color{revised}the fitted} edges.
+    {\color{revised}\textbf{(b)}}~Time constants $\tau_i$.
+    {\color{revised}\textbf{(c)}}~Resting potentials $V_i^{\mathrm{rest}}$.
+    {\color{revised}\textbf{(d)}}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
+    Each scatter is annotated with $R^2$ and slope of learned vs.\ true; colours indicate ground-truth cell types.
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -155,7 +140,7 @@ replace_figure("fig:rollout_3col_noise_comparison", r"""
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison.pdf}
 \caption{{\color{revised}\textbf{Rollout prediction.} General-form GNN (group lasso $25$) evaluated on
     central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$, $\sigma = 0.05$,
-    $\sigma = 0.5$; fold cv00 of experiment 2), tested on held-out stimuli, and compared against the
+    $\sigma = 0.5$; fold cv00), tested on held-out stimuli, and compared against the
     noise-free Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): GNN
     rollout traces for $12$ representative cell types over a $20$~s window ($1{,}000$ frames at
     $\Delta t = 20$~ms). Green: noise-free ground-truth voltage; black: GNN rollout prediction; red: the
@@ -173,7 +158,7 @@ replace_figure("fig:clustering_appendix", r"""
     \centering
     \includegraphics[width=0.8\linewidth]{figures/fig_clustering_appendix.pdf}
 \caption{{\color{revised}\textbf{Cell-type clusterability across feature spaces} of the general-form GNN
-    (group lasso $25$, $\sigma = 0.05$, fold cv00 of experiment 2).
+    (group lasso $25$, $\sigma = 0.05$, fold cv00).
     Each panel scatters the $13{,}741$ neurons of the central $217$-column Flyvis model coloured by
     ground-truth cell type ($65$ classes). Gaussian Mixture Model (GMM, $100$ components) accuracy,
     Adjusted Rand Index (ARI) and Normalized Mutual Information (NMI), quoted top-left of each panel, are
@@ -198,7 +183,7 @@ replace_figure("fig:stim_rollout_inr", r"""
 \includegraphics[width=\textwidth]{figures/fig_stim_rollout_inr.pdf}
 \caption{{\color{revised}\textbf{Joint GNN+INR (visual SIREN)}: the general-form GNN (group lasso $25$,
     one-step training) evaluated on central $217$-column Flyvis data with low model noise
-    ($\sigma = 0.05$), $64\,000$ training frames (fold cv00 of experiment 11); rollout evaluated on the
+    ($\sigma = 0.05$), $64\,000$ training frames (fold cv00); rollout evaluated on the
     first $@@SIREN_FRAMES@@$ training frames since the SIREN cannot extrapolate to test-time indices. The SIREN
     output is shown with its mean and SD matched to the true stimulus, sign from the correlation (its raw
     output is defined up to the sign and scale the GNN's input weights absorb; the tester's least-squares
@@ -229,17 +214,17 @@ replace_figure("fig:gnn_params_4col_flywire_comparison", r"""
   \includegraphics[width=0.95\textwidth]{figures/fig_gnn_params_4col_flywire_comparison.pdf}
   \caption{%
     {\color{revised}\textbf{Circuit parameter extraction from the general-form GNN} (group lasso $25$)
-    \textbf{on the four FlyWire connectome variants} with low model noise ($\sigma = 0.05$; fold cv00
-    of experiment 7): e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
-    with proximal null edges.
-    \textbf{(a--d)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
+    \textbf{on the four FlyWire connectome variants} with low model noise ($\sigma = 0.05$; fold cv00):
+    e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
+    with proximal null edges, one row each.
+    \textbf{(a, e, i, m)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
     template readout (@@S10_FITTED@@ of the edges).
-    \textbf{(e--h)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
-    ground-truth cell type.
-    \textbf{(i--l)}~Resting potentials $V_i^{\mathrm{rest}}$ and \textbf{(m--p)}~time constants
-    $\tau_i$ of the template readout, outliers beyond the dotted $\pm 0.2$ / $\pm 0.1$~s bands in red;
-    $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
-    \cref{tab:zero_edge_inliers}.}
+    \textbf{(b, f, j, n)}~Time constants $\tau_i$ and \textbf{(c, g, k, o)}~resting potentials
+    $V_i^{\mathrm{rest}}$ of the template readout, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
+    bands in red; $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
+    \cref{tab:zero_edge_inliers}.
+    \textbf{(d, h, l, p)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
+    ground-truth cell type.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}
@@ -254,7 +239,7 @@ _ko_new = r"""\begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_known_ode.pdf}
 \caption{{\color{revised}\textbf{Known-ODE rollout prediction.} Known-ODE models (the published checkpoints,
-    fold cv00, re-analysed with the current analysis code, experiment 15) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
+    fold cv00, re-analysed with the current analysis code) evaluated on central $217$-column Flyvis data under three model noise regimes ($\sigma = 0$,
     $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli, and compared against the noise-free
     Flyvis simulation of the same stimuli. Top row (\textbf{a}, \textbf{b}, \textbf{c}): Known-ODE rollout
     traces for $12$ representative cell types over a $20$~s window ($1{,}000$ frames at
@@ -279,7 +264,7 @@ _kp_new = r"""\begin{figure}[ht!]
   \centering
   \includegraphics[width=\textwidth]{figures/fig_known_ode_params_3col_noise_comparison_new.pdf}
 \caption{{\color{revised}\textbf{Known-ODE parameter recovery}. Known-ODE models (the published runs, fold cv00,
-    re-analysed with the current analysis code, experiment 15) on Flyvis-217 under three model noise regimes
+    re-analysed with the current analysis code) on Flyvis-217 under three model noise regimes
     ($\sigma = 0$, $0.05$, $0.5$). \textbf{(a, c, e)}~Learned against true synaptic weight $\hat{W}_{ij}$,
     one point per edge, all $434{,}112$ edges (the Known-ODE learns $W$ directly); @@KP_OUTSIDE@@
     lie outside the $[-1, 2]$ axes. \textbf{(b, d, f)}~UMAP projection of the per-neuron feature vector the
@@ -307,7 +292,7 @@ tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAV
                   r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAVIS stimuli. \textbf{(d)} Rollouts of "
                   r"FlyWire eye model (teal) vs. Flyvis rollout (orange). {\color{revised}\textbf{(e)} Rollouts of the "
                   r"general-form GNN ($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; "
-                  r"black) vs. FlyWire eye simulations (green), fold cv00 of experiment 7, with the Fisher-$z$ pooled "
+                  r"black) vs. FlyWire eye simulations (green), fold cv00, with the Fisher-$z$ pooled "
                   r"Pearson $r$ over all $50{,}412$ neurons and $@@FIG2_FRAMES@@$ frames. \textbf{(f)} The same GNN trained "
                   r"with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}")
 once(tex, r"\label{fig:flywire}" + "\n\\end{figure}")
@@ -326,7 +311,7 @@ if os.path.exists(os.path.join(HERE, "figures", "fig_rollout_3col_noise_comparis
   \centering
   \includegraphics[width=\textwidth]{figures/fig_rollout_3col_noise_comparison_ablation50.pdf}
 \caption{{\color{revised}\textbf{Rollout prediction under $50\%$ edge ablation.} General-form GNN (group
-    lasso $25$; fold cv00 of experiment 2) evaluated on central $217$-column Flyvis data under three model
+    lasso $25$; fold cv00) evaluated on central $217$-column Flyvis data under three model
     noise regimes (noise-free $\sigma = 0$, $\sigma = 0.05$, $\sigma = 0.5$), tested on held-out stimuli,
     and compared against the noise-free ablated Flyvis simulation. For each test the simulator
     regenerates voltage traces with $50\%$ of the synaptic edges zeroed, and the same edge mask is applied
@@ -464,7 +449,90 @@ def green_replace(old, new):
     tex = tex.replace(old, r"{\color{revised}" + new + "}")
 
 
-green_replace(r"$8{,}000$-frame auto-regressive rollout", r"held-out auto-regressive rollout (@@FOLD_FRAMES@@ frames by fold)")
+# THE LOSS AS TRAINED (eq:loss_full): the general-form GNN runs of Tab. 1 / Fig. 1 have
+# coeff_g_phi_weight_L2 = 0 (lambda_3) and coeff_f_theta_msg_diff = 0 (mu_0), and a group lasso
+# coeff_g_phi_input_group_L1 = 25 (nu) the published equation did not have; g_phi takes both endpoints.
+_old_eq = tex[tex.index(r"\begin{eqnarray}" + "\n" + r"\mathcal{L} &=& \mathcal{L}_{\mathrm{pred}}"):]
+_old_eq = _old_eq[:_old_eq.index(r"\end{eqnarray}") + len(r"\end{eqnarray}")]
+once(tex, _old_eq)
+tex = tex.replace(_old_eq, r"""\begin{equation}
+\color{revised}
+\begin{aligned}
+\mathcal{L} = {}& \mathcal{L}_{\mathrm{pred}}
++ \lambda_0\|\theta\|_1 + \lambda_1\|\phi\|_1 + \lambda_2\|\theta\|_2
++ \gamma_0\|\hat{\mathbf{W}}\|_1 + \gamma_1\|\hat{\mathbf{W}}\|_2 \\
+& + \mu_1\!\left\|\mathrm{ReLU}\!\left(-\tfrac{\partial\,g_\phi(v_j,\mathbf{a}_j,v_i,\mathbf{a}_i)}{\partial v_j}\right)\right\|_2
++ \mu_2\|g_\phi(v_\star,\mathbf{a}_j,v_\star,\mathbf{a}_i)-v_\star\|_2
++ \nu \textstyle\sum_{k} \|\phi^{(1)}_{k}\|_2 .
+\end{aligned}
+\label{eq:loss_full}
+\end{equation}""")
+for _a, _b in [
+    (r"the $\ell_2$ penalties $\lambda_2,\lambda_3$ prevent weight explosion and stabilize training.",
+     r"{\color{revised}the $\ell_2$ penalty $\lambda_2$ on $\theta$ prevents weight explosion and stabilizes training.}"),
+    (r"The monotonicity term $\mu_0$ penalizes negative slopes of $f_\theta$ with respect to its aggregated synaptic "
+     r"input $m=\sum_{j\in\mathcal{N}_i}\hat{W}_{ij}\,g_\phi(v_j,\mathbf{a}_j)$, encoding the prior that the "
+     r"postsynaptic derivative increases with net excitatory drive. ",
+     r"{\color{revised}[The published monotonicity term $\mu_0$ on $f_\theta$ and the $\ell_2$ term $\lambda_3$ on"
+     r" $\phi$ are zero in the general-form GNN runs and are left out of \cref{eq:loss_full}.]} "),
+    (r"penalizes negative slopes of $g_\phi$ with respect to $v$, encoding",
+     r"penalizes negative slopes of $g_\phi$ with respect to {\color{revised}the presynaptic voltage $v_j$}, encoding"),
+    (r"We tuned all the hyperparameters $\lambda_0,\lambda_1,\lambda_2,\lambda_3,\gamma_0,\gamma_1,\mu_0,\mu_1,\mu_2$ and",
+     r"{\color{revised}The group lasso $\nu$ sums, over the four inputs of $g_\phi$, the $\ell_2$ norm of the columns"
+     r" $\phi^{(1)}_{k}$ of its first layer that read input $k$, so that an input $g_\phi$ does not need is removed"
+     r" as a whole.} We tuned all the hyperparameters"
+     r" {\color{revised}$\lambda_0,\lambda_1,\lambda_2,\gamma_0,\gamma_1,\mu_1,\mu_2,\nu$} and"),
+    (r"and the MLPs' structure with an agentic optimization procedure (\cref{app:agent}).",
+     r"and the MLPs' structure with an agentic optimization procedure (\cref{app:agent})"
+     r" {\color{revised}[HPO not run on the general-form GNN]}."),
+]:
+    once(tex, _a)
+    tex = tex.replace(_a, _b)
+# THE KNOWN-ODE LOSS AS TRAINED (eq:known_ode_loss): every kode run's config has coeff_W_L1 1e-5,
+# coeff_tau_L2 3e-3, coeff_V_rest_L2 1e-3 and the other three (W_L2, tau_L1, V_rest_L1) at 0;
+# models/regularizer.py applies each norm to model.W, model.raw_tau and model.V_rest.
+for _a, _b in [
+    (r"""+ \gamma_0\|\hat{\mathbf{W}}\|_1 + \gamma_1\|\hat{\mathbf{W}}\|_2
++ \eta_0\|\tilde{\boldsymbol{\tau}}\|_1 + \eta_1\|\tilde{\boldsymbol{\tau}}\|_2
++ \eta_2\|\hat{\mathbf{V}}^{\mathrm{rest}}\|_1 + \eta_3\|\hat{\mathbf{V}}^{\mathrm{rest}}\|_2.
+\label{eq:known_ode_loss}""",
+     r"""+ {\color{revised}\gamma_0\|\hat{\mathbf{W}}\|_1 + \eta_1\|\tilde{\boldsymbol{\tau}}\|_2
++ \eta_3\|\hat{\mathbf{V}}^{\mathrm{rest}}\|_2.}
+\label{eq:known_ode_loss}"""),
+    (r"The $\ell_1$ term $\gamma_0$ on $\hat{\mathbf{W}}$ promotes sparse effective connectivity, while the $\ell_2$ term "
+     r"$\gamma_1$ penalizes large synaptic weights. The $\ell_1$ penalty $\eta_0$ on $\tilde{\boldsymbol{\tau}}$ shrinks "
+     r"the time constants toward the softplus origin, while the $\ell_2$ penalty $\eta_1$ prevents drift. The $\ell_1$ "
+     r"penalty $\eta_2$ on $\hat{\mathbf{V}}^{\mathrm{rest}}$ promotes sparse resting potentials, while the $\ell_2$ "
+     r"penalty $\eta_3$ penalizes large biases. \cref{eq:known_ode_loss} is a general form: the coefficients "
+     r"$\gamma_0,\gamma_1,\eta_0,\eta_1,\eta_2,\eta_3$ are hyperparameters tuned via the agentic optimization "
+     r"procedure described in \cref{app:agent} , which can set a subset of them to zero.",
+     r"{\color{revised}The $\ell_1$ term $\gamma_0$ on $\hat{\mathbf{W}}$ promotes sparse effective connectivity, the "
+     r"$\ell_2$ penalty $\eta_1$ on $\tilde{\boldsymbol{\tau}}$ prevents drift of the time constants, and the $\ell_2$ "
+     r"penalty $\eta_3$ on $\hat{\mathbf{V}}^{\mathrm{rest}}$ penalizes large biases. The coefficients were tuned via "
+     r"the agentic optimization procedure described in \cref{app:agent}, which set the $\ell_2$ term on "
+     r"$\hat{\mathbf{W}}$ and the $\ell_1$ terms on $\tilde{\boldsymbol{\tau}}$ and $\hat{\mathbf{V}}^{\mathrm{rest}}$ "
+     r"to zero; they are left out of \cref{eq:known_ode_loss}.}"),
+    (r"""$\eta_3=10^{-3}$ ($\ell_2$ on $\hat{\mathbf V}^{\mathrm{rest}}$), with
+the remaining three coefficients pinned to zero.""",
+     r"""$\eta_3=10^{-3}$ ($\ell_2$ on $\hat{\mathbf V}^{\mathrm{rest}}$) {\color{revised}[the remaining three"""
+     r""" coefficients, zero, are left out of \cref{eq:known_ode_loss}]}.""")]:
+    once(tex, _a)
+    tex = tex.replace(_a, _b)
+# the g_phi priors mu_1 (g_phi_diff) and mu_2 (g_phi_norm) of the general-form GNN are evaluated on
+# random neuron pairings (models/utils.get_in_features_g_phi, regularizer.sample_g_phi_perm), not on edges
+_mu = (r"removing the scale degeneracy between $g_\phi$ and $\hat{\mathbf{W}}$ in \cref{eq:gnn_ct}.")
+once(tex, _mu)
+tex = tex.replace(_mu, _mu + r" {\color{revised}[For the general-form GNN, $g_\phi(v_j,\mathbf{a}_j,v_i,\mathbf{a}_i)$"
+                  r" is evaluated for $\mu_1$ and $\mu_2$ at randomly sampled inputs: each neuron $i$ is paired"
+                  r" with a random partner $j$, redrawn at every iteration, irrespective of the connectome, so"
+                  r" $(\mathbf{a}_i,\mathbf{a}_j)$ is not an edge of the graph; $v_i = v_j$ is neuron $i$'s"
+                  r" observed voltage.]}")
+green_replace(r"$8{,}000$-frame auto-regressive rollout", r"held-out auto-regressive rollout (@@FOLD_FRAMES@@ frames by fold)"
+              # what a fold is: graphs_data/fly/<dataset>_cv0k/generation_log.txt (48 train / 13 test videos,
+              # n_frames_test 7,208-8,000) and the runs' config.yaml (simulation.seed 42+k, training.seed 1042+k)
+              r" [5-fold cross-validation: each fold simulates its training data ($64{,}000$ frames) from 48 of the"
+              r" 61 DAVIS videos and its held-out test data from the other 13, and uses its own simulation and"
+              r" training seeds]")
 green_replace(r"rollout $r$ are close to $1.00$ over $8{,}000$ frames.", r"rollout $r$ are close to $1.00$ over the held-out @@FOLD_FRAMES@@ frames.")
 green_replace(r"The trajectory length is $T = 8{,}000$ frames" + "\n" + r"($160$~s at $\Delta t = 20$~ms) for every Flyvis evaluation.",
               r"The trajectory length $T$ is the length of the fold's held-out stretch, @@FOLD_FRAMES@@ frames" + "\n"
