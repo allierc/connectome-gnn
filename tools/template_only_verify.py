@@ -96,10 +96,16 @@ def stage():
 
 
 def submit(dry):
+    # one job per run, ever: the ids go to SANDBOX/submitted.txt and a run listed
+    # there is not submitted again (delete its line to resubmit it)
+    book = os.path.join(SANDBOX, "submitted.txt")
+    seen = {line.split()[-1] for line in open(book)} if os.path.exists(book) else set()
     for r in runs():
         d = os.path.join(SANDBOX, "log", "fly", r)
-        if os.path.exists(os.path.join(d, "results", "metrics.txt")):
+        if r in seen or os.path.exists(os.path.join(d, "results", "metrics.txt")):
             continue
+        if not os.path.exists(os.path.join(SANDBOX, "config", "fly", r + ".yaml")):
+            continue                                  # not staged yet
         q, ncpu = queue(r)
         payload = (f"conda run -n connectome-gnn python GNN_Main.py -o plot "
                    f"{SANDBOX}/config/fly/{r}.yaml --output_root {SANDBOX}")
@@ -114,6 +120,9 @@ def submit(dry):
                              stdin=subprocess.DEVNULL)
         m = re.search(r"Job <(\d+)>", res.stdout)
         print(f"{m.group(1) if m else 'FAILED'}  gpu_{q}  {r}" + ("" if m else f"  {res.stderr.strip()[:160]}"))
+        if m:
+            with open(book, "a") as f:
+                f.write(f"{m.group(1)} gpu_{q} {r}\n")
 
 
 def status():
