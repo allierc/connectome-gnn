@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from connectome_gnn.metrics import extract_template_params      # noqa: E402
 from connectome_gnn.utils import to_numpy                       # noqa: E402
 
-from run_loader import load_run                              # noqa: E402
+from checkpoint_loader import load_run                              # noqa: E402
 
 
 def _per_neuron_ratio(w_true, w_learn, dst, n_neurons, floor):

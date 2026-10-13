@@ -1,6 +1,6 @@
 """Load one run -- its config, its training data and its best checkpoint -- for the tools.
 
-    from run_loader import load_run
+    from checkpoint_loader import load_run
     cfg, data, model, log_dir = load_run(config_name, device)
 
 Shared by tools/eij_by_weight.py, gain_probe.py and wij_scatter.py (it lived in
