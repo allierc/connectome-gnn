@@ -179,9 +179,18 @@ if __name__ == "__main__":
             else:
                 test_config_name = None
     else:
+        # NO ARGUMENTS = THE DEBUG ENTRY (F5 on this file). Steps through the
+        # template readout on the exp02 general-form run, lasso 25, noise 0.05,
+        # fold cv00: -o plot, because extract_template_params runs in the plot
+        # pass and -o test only adds the rollout. The run is read from a sandbox
+        # copy under /tmp/gnn_debug (graphs_data a symlink to the real data), so
+        # the plot pass never writes over the real run's results/.
+        set_data_root('/tmp/gnn_debug')
+        explicit_output_root = True
         best_model = ''
-        task = task = 'train'
-        config_list = ['flyvis_noise_005_nominal'] 
+        task = 'plot'
+        config_list = [os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    'experiments/specs/exp02/fly/flyvis_noise_005_blank50_condl25_cv00.yaml')]
         test_config_name = None
 
     if task == 'cv':
