@@ -33,15 +33,12 @@ from connectome_gnn.metrics import (  # noqa: F401
     _vectorized_linear_fit,
     _vectorized_linspace,
     compute_activity_stats,
-    compute_all_corrected_weights,
-    compute_corrected_weights,
     compute_dynamics_r2,
     compute_grad_msg,
     derive_tau,
     derive_vrest,
     eval_g_phi_over_domain,
     extract_f_theta_slopes,
-    extract_g_phi_slopes,
     get_model_W,
     compute_msg_i_recovery,
     recovery_param_metrics,
@@ -2734,8 +2731,12 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
     # RecoveredParams the caller already built; this function draws it. It used to
     # do the extraction itself and RETURN the R2 -- which meant the trainer's
     # headline connectivity_r2 was a return value of a panel drawer, and test_plot
-    # re-derived the same number independently down a different path. `rec=None`
-    # keeps the old self-contained behaviour for callers that have not moved.
+    # re-derived the same number independently down a different path. A caller
+    # that passes no `rec` (graph_trainer_spend) gets the same readout run here.
+    if rec is None and ode_params is not None:
+        from connectome_gnn.metrics import extract_recovered_params
+        rec = extract_recovered_params(model, ode_params, config, edges=edges, x_ts=x_ts,
+                                       device=device, n_neurons=n_neurons, need=("W",))
     _rec_W = rec.get("W") if rec is not None else None
     _rec_W_unc = rec.pairs.get("W_uncorrected") if rec is not None else None
 
@@ -2757,31 +2758,17 @@ def plot_training_gnn(x_ts, model, config, epoch, N, log_dir, device, type_list,
         draw=save_panels,
     )
 
-    # Compute corrected weights. Forward ode_params so each model uses its own
-    # g_phi fit (cx softplus/sigmoid vs flyvis ReLU) instead of the generic
-    # linear slope; without it the per-neuron g_phi correction is mis-scaled.
-    corrected_W = None
+    # THE READOUT'S W, gated or not. Below the template's own fit-R2 gate
+    # rec.get("W") is None; the pair is still drawn, named and labelled as gated
+    # below, so the R2 it shows is read as "no affine message yet", not as a
+    # recovery number.
     if _rec_W is not None:
         _gt_w_full, _corr_w_full = _rec_W
     else:
-        corrected_W, _, _, _, _ = compute_all_corrected_weights(
-            model, config, edges, x_ts, device, ode_params=ode_params)
-        # GT side: apply the model's effective-true-weight adjustment (g_phi gain
-        # for gain-entangled models; identity for flyvis / cx-voltage) so this
-        # matches plot_synaptic's corrected comparison exactly.
-        if ode_params is not None:
-            _gt_w_full = np.asarray(
-                ode_params.effective_true_weights(to_numpy(gt_weights), to_numpy(edges), n_neurons))
-        else:
-            _gt_w_full = to_numpy(gt_weights)
-        _corr_w_full = to_numpy(corrected_W.squeeze())
+        _gt_w_full, _corr_w_full = rec.pairs["W"]
     # The [-1, 2] axis box the bare scatter used is gone: the 2x2 bounds the
     # scatter by outlier_threshold instead, which removes the same extreme points
     # from the R2 rather than only from view, and reports how many.
-    # Below the line-fit gate the extractor produced no W; the gain-corrected
-    # W above is still drawn, but named and labelled as gated (like the E_ij
-    # panel) so the -126 R2 it shows is read as "no affine message yet", not
-    # as a recovery number.
     _w_gate = None
     if rec is not None and _rec_W is None and not rec.valid.get("W", True):
         _w_gate = rec.diagnostics.get("msg_form_r2_median")

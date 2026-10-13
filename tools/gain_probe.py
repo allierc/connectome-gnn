@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from connectome_gnn.metrics import _update_template_fit, compute_grad_msg   # noqa: E402
 from connectome_gnn.utils import to_numpy                                   # noqa: E402
 
-from pysr_recovery import load_run                                          # noqa: E402
+from run_loader import load_run                                          # noqa: E402
 
 
 def main(name, device):

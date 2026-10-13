@@ -592,7 +592,7 @@ def data_train_spend(config, erase=False, best_model=None, device=None, log_file
                     n_neuron_types=sim.n_neuron_types, ode_params=ode_params,
                     hidden_ids=None, anchor_ids=None,
                 )
-                _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons)
+                _dyn = compute_dynamics_r2(model, x_ts, config, device, n_neurons, edges=edges)
                 last_vrest_r2 = _dyn['vrest_r2']
                 last_tau_r2   = _dyn['tau_r2']
                 # Schema matches graph_trainer.py extended layout; SPEND has no

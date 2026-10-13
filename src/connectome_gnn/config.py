@@ -2556,42 +2556,25 @@ class CircuitConfig(BaseModel):
     name: Optional[str] = None
 
 
-class WMode(StrEnum):
-    AUTO = "auto"
-    DIRECT = "direct"
-    GAIN_CORRECTED = "gain_corrected"
-    EDGE_LINE_FIT = "edge_line_fit"
-    JACOBIAN = "jacobian"
-
-
 class RecoveryConfig(BaseModel):
     """How the learned circuit parameters are read back out of a trained model.
 
-    WHICH ESTIMATOR RAN IS A PROPERTY OF THE RUN, so it belongs in the config
-    rather than being re-derived at each call site. Four ways exist to obtain a
-    learned W -- read it off a named parameter, divide out the gains of g_phi and
-    f_theta, fit a line per edge, or take the Jacobian -- and until now nothing
-    recorded which one produced a number.
-
-    ``auto`` resolves from the model's MODEL_FAMILY tag and the dataset's own
-    ``ground_truth_model`` key, which is the correct default; the explicit values
-    exist so a run can be pinned when the default is not what you want to measure.
+    The estimator is not configurable: it follows from the model
+    (metrics.resolve_W_estimator) -- the template readout for a GNN, the named
+    parameters for a known-ODE, the Jacobian for the MLP baseline.
 
     Optional with a default because ~200 existing yamls have no ``recovery:``
     block and NeuralGraphConfig forbids extra keys.
     """
     model_config = ConfigDict(extra="forbid")
 
-    # WHICH READOUT PRODUCES W, E_ij, tau AND V_rest on a GNN. "template" fits
-    # the generator's own closed form to the model's per-edge message,
-    # msg_ij = W * act(v_j) * (E - v_i) + C, and scales each neuron's
-    # conductances by k_i = tau_i * dftheta_dmsg_i; "chain" is the older route
-    # through the g_phi and f_theta corrections. The template is the default
-    # because the neuron panels draw it, and a results/ directory whose figures
-    # disagree about which readout produced them is worse than either.
-    readout: str = "template"
-
-    W_mode: WMode = WMode.AUTO
+    # KEPT ONLY SO EXISTING RUN CONFIGS LOAD. Every config.yaml a run wrote
+    # before 2026-10-13 carries `readout: template` and `W_mode: auto`, and this
+    # model forbids unknown keys. They select nothing: the gain-correction chain
+    # ("chain", "gain_corrected", "edge_line_fit") was removed, and any other
+    # value is a validation error rather than a silent change of estimator.
+    readout: Literal["template"] = "template"
+    W_mode: Literal["auto"] = "auto"
     # Outlier bands from neurips.tex eq:outlier_threshold. Owned here so the
     # trainer and test_plot cannot filter the same quantity differently -- which
     # they did: the same checkpoint read -1.22 outlier-free in metrics.log and

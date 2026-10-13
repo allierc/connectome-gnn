@@ -21,8 +21,10 @@ class _Cfg:
 
 
 class _Model:
-    def __init__(self, family):
+    def __init__(self, family, g_phi=False):
         self.MODEL_FAMILY = family
+        if g_phi:
+            self.g_phi = object()
 
 
 class _Ode:
@@ -30,25 +32,30 @@ class _Ode:
         self.E_exc = np.zeros(3) if conductance else None
 
 
-@pytest.mark.parametrize("family,conductance,expected", [
-    ("linear", False, "direct"),
-    ("linear", True, "direct"),
-    ("mlp", False, "jacobian"),
-    ("gnn", False, "gain_corrected"),
-    # A GNN on conductance data takes the line fit: it matches the generative
-    # form, where the gain correction collapses a postsynaptic quantity onto the
-    # presynaptic neuron.
-    ("gnn", True, "edge_line_fit"),
+@pytest.mark.parametrize("family,g_phi,conductance,expected", [
+    ("linear", False, False, "direct"),
+    ("linear", False, True, "direct"),
+    ("mlp", False, False, "jacobian"),
+    # A GNN is read by the template readout on either data family.
+    ("gnn", True, False, "template"),
+    ("gnn", True, True, "template"),
+    # A known-ODE trained on a teacher is tagged "gnn" but has no g_phi: its W,
+    # tau and V_rest are named parameters.
+    ("gnn", False, False, "direct"),
 ])
-def test_auto_resolves_on_family_and_data(family, conductance, expected):
-    assert resolve_W_estimator(_Model(family), _Ode(conductance), _Cfg) == expected
+def test_estimator_follows_the_model(family, g_phi, conductance, expected):
+    assert resolve_W_estimator(_Model(family, g_phi), _Ode(conductance), _Cfg) == expected
 
 
-def test_explicit_mode_overrides_auto():
-    class Pinned(_Cfg):
-        class recovery(_Cfg.recovery):
-            W_mode = "direct"
-    assert resolve_W_estimator(_Model("gnn"), _Ode(True), Pinned) == "direct"
+def test_chain_cannot_be_requested():
+    """The gain-correction chain was removed; the two config keys that selected it
+    survive only so old run configs load, and accept nothing else."""
+    import pydantic
+    from connectome_gnn.config import RecoveryConfig
+    assert RecoveryConfig(readout="template", W_mode="auto").readout == "template"
+    for bad in ({"readout": "chain"}, {"W_mode": "gain_corrected"}):
+        with pytest.raises(pydantic.ValidationError):
+            RecoveryConfig(**bad)
 
 
 def test_absent_quantity_is_absent_not_zeros():

@@ -61,24 +61,18 @@ from connectome_gnn.metrics import (
     recovery_mae,
     recovery_param_metrics,
     r2_scatter_text,
-    compute_all_corrected_weights,
     W_OUTLIER_THRESH,
     TAU_OUTLIER_THRESH,
     VREST_OUTLIER_THRESH,
     compute_activity_stats,
     eval_g_phi_over_domain,
     evaluate_g_phi_curves,
-    extract_g_phi_slopes,
     extract_f_theta_slopes,
     derive_tau,
     derive_vrest,
-    compute_reversal_metrics,
     compute_msg_i_recovery,
     ReadoutError,
     extract_recovered_params,
-    extract_template_params,
-    require_template_readout,
-    template_readout_enabled,
     score_recovery,
     INDEX_TO_NAME,
     _vectorized_linspace,
@@ -387,61 +381,28 @@ from connectome_gnn.recovery_figures import (  # noqa: E402
 )
 
 def _extract_recovery(model, ode_params, config, edges, x_ts, device, n_neurons, logger):
-    """The RecoveredParams `_write_recovery_metrics` scores: the chain's object,
-    superseded by the template readout where the config asks for it. Shared
-    with the masked pass (`data_plot_masked`) so the two read the SAME
-    estimates and differ only in which entries are scored."""
-    rec = extract_recovered_params(model, ode_params, config, edges=edges,
-                                   x_ts=x_ts, device=device, n_neurons=n_neurons)
-    # ONE EXTRACTION FEEDS EVERY FIGURE IN results/. The template readout --
-    # the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
-    # * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i
-    # -- supersedes the correction chain for W, E_ij, tau and V_rest, and the
-    # neuron panels have been drawing it since it existed. Leaving the rest
-    # of results/ on the chain meant weights_comparison_*.png and
-    # metrics.txt described a different readout than neuron*_panels.png in
-    # the same directory. It extends the chain's object rather than
-    # replacing it, because msg_i and the f_theta diagnostics the panels draw
-    # come only from there.
-    # INSIDE its own try, gate included. The gate raised an ImportError on its
-    # first run -- model_family lives in models.utils, not metrics -- and
-    # because the call sat outside this handler it reached the outer one,
-    # which drops `rec` entirely: ten runs wrote a metrics.txt with the
-    # rollout and clustering lines and not one recovered parameter. A new
-    # readout must not be able to delete the old one's numbers.
-    # FALLING BACK TO THE OTHER ESTIMATOR IS LOUD. The correction chain and
-    # the template readout produce different numbers under the same names,
-    # and a run that quietly shipped the chain's looked exactly like one that
-    # used the template. Both ways of ending up there -- the gate off, or
-    # the call raising -- say so in red, on the terminal, once.
+    """The RecoveredParams `_write_recovery_metrics` scores: the template readout on
+    a GNN -- the generator's own closed form fitted per edge, msg_ij = W * act(v_j)
+    * (E - v_i) + C, with the per-neuron gauge k_i = tau_i * dftheta_dmsg_i -- and
+    the named parameters on a known-ODE (metrics.resolve_W_estimator). Shared with
+    the masked pass (`data_plot_masked`) so the two read the SAME estimates and
+    differ only in which entries are scored.
+
+    FATAL ON FAILURE. There is no second estimator to fall back to, and a
+    metrics.txt with the rollout and clustering lines but no recovered parameter
+    reads as a run that recovered nothing.
+    """
     try:
-        if template_readout_enabled(config, model):
-            rec = extract_template_params(
-                model, ode_params, config=config, edges=edges, x_ts=x_ts,
-                device=device, n_neurons=n_neurons, base=rec)
-        else:
-            _readout = getattr(getattr(config, "recovery", None), "readout", "template")
-            print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. "
-                  f"This run falls back to the gain-correction chain "
-                  f"(recovery.readout={_readout}, model_family="
-                  f"{model_family(model)}). W, E_ij, tau and V_rest below "
-                  f"come from that estimator.{_ANSI_RESET}")
-            logger.warning("template readout disabled: numbers come from "
-                           "the gain-correction chain, not the PySR template")
+        return extract_recovered_params(model, ode_params, config, edges=edges,
+                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
     except Exception as _exc:
-        # FATAL unless the config asked for the chain. This handler used to
-        # print in red and carry on, which left results/metrics.txt holding
-        # chain numbers under the template's names -- the tmp_training rows
-        # this run is compared against came from the other estimator.
-        print(f"{_ANSI_RED}WARNING: NOT the PySR template readout. It raised "
-              f"{type(_exc).__name__}: {_exc}{_ANSI_RESET}")
-        require_template_readout(config, _exc, "results/metrics.txt")
-    return rec
+        raise ReadoutError(f"template readout failed at results/metrics.txt: "
+                           f"{type(_exc).__name__}: {_exc}") from _exc
 
 
 def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
                             log_dir, logger, log_file, n_neurons=None, extra=None,
-                            template_rollout=False):
+                            template_rollout=False, rec=None):
     """THE ONE WRITE of recovered-parameter metrics for `-o test_plot`.
 
     Extracts every quantity the run can recover (W, tau, V_rest, E_ij, msg_i,
@@ -452,14 +413,13 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
     a number can be followed from the last checkpoint into the final file.
 
     `extra` is a dict of non-recovery numbers to write in the same pass
-    (clustering_*, rollout_*). Returns (rec, scored) so the panels that need
-    the arrays can draw the same ones.
+    (clustering_*, rollout_*). `rec`, when the caller already ran the readout
+    (plot_synaptic does, before its figures), is scored as given rather than
+    extracted a second time. Returns (rec, scored) so the panels that need the
+    arrays can draw the same ones.
 
-    The panels above draw what they draw; W in particular is drawn gain-
-    corrected on every GNN, while `Wij_*` here is whatever `Wij_estimator`
-    says -- on a conductance GNN the per-edge line fit, which is absent when
-    the message is not affine in v_i (Eij_gate below the threshold). Absence
-    is the signal; nothing is written that nothing stands behind.
+    A quantity the readout gated out (W and E_ij below recovery.gate_fit_r2) is
+    absent; absence is the signal, nothing is written that nothing stands behind.
 
     msg_i is scored on MSG_N_FRAMES frames evenly spaced over `x_ts`, which
     may have been strided for plotting, so it is comparable across slots but
@@ -479,8 +439,9 @@ def _write_recovery_metrics(model, ode_params, config, edges, x_ts, device,
           f"the generator's own form, constants by least squares "
           f"(no PySR search, no Julia) ...{_ANSI_RESET}")
     try:
-        rec = _extract_recovery(model, ode_params, config, edges, x_ts, device,
-                                n_neurons, logger)
+        if rec is None:
+            rec = _extract_recovery(model, ode_params, config, edges, x_ts, device,
+                                    n_neurons, logger)
         scored = score_recovery(rec, config)
     except ReadoutError:
         # Through, not swallowed: the handler below exists so a failed
@@ -1877,15 +1838,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             n_pts = 1000
             type_np = to_numpy(type_list).astype(int).ravel()
 
-            # g_phi domain range: evaluate + slope extraction (vectorized). Reuses
+            # g_phi over each neuron's activity range, for the curve figures. Reuses
             # the same flyvis_general_form-aware domain/feature logic as
             # plot_training_gnn (ai = real average postsynaptic-partner embedding
-            # via `edges` for flyvis_general_form, not a self-pair ai=aj).
-            rr_domain_edge_slope, func_domain_edge_slope, valid_edge = evaluate_g_phi_curves(
+            # via `edges` for flyvis_general_form, not a self-pair ai=aj);
+            # `valid_edge` marks the neurons whose range is usable.
+            _, _, valid_edge = evaluate_g_phi_curves(
                 model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
-            slopes_edge, _ = _vectorized_linear_fit(rr_domain_edge_slope, func_domain_edge_slope)
-            slopes_edge[~valid_edge] = 1.0
-            slopes_g_phi_list = slopes_edge  # (N,) numpy array
 
             # Domain plot includes negative values to show g_phi → 0 for v < 0 —
             # a wider domain than the slope fit, so evaluated separately.
@@ -1990,32 +1949,13 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r2_g_phi_mean = 0.0
                 r2_g_phi_median = 0.0
 
-            fig = plt.figure(figsize=(10, 9))
-            ax = plt.gca()
-            for spine in ax.spines.values():
-                spine.set_alpha(0.75)
-            slopes_g_phi_array = np.array(slopes_g_phi_list)
-            plt.scatter(np.arange(n_neurons), slopes_g_phi_array,
-                        c=cmap.color(to_numpy(type_list).astype(int)), s=_dot_s, alpha=_dot_alpha)
-            plt.xlabel('neuron index', fontsize=48)
-            plt.ylabel(r'$r_j$', fontsize=48)
-            ax.xaxis.set_major_locator(ticker.MaxNLocator(nbins=5))
 
-            plt.xticks(fontsize=24)
-            plt.yticks(fontsize=24)
-            plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f"g_phi_slope.png"), dpi=300)
-            plt.close()
-
-            # f_theta domain range: evaluate + slope extraction (vectorized)
+            # f_theta over each neuron's activity range, for the curve figures
             starts_phi = mu - 2 * sigma
             ends_phi = mu + 2 * sigma
             rr_domain_phi = _vectorized_linspace(starts_phi, ends_phi, n_pts, device)
             func_domain_phi = _batched_mlp_eval(model.f_theta, model.a[:n_neurons], rr_domain_phi,
                                                 lambda rr_f, emb_f: _build_f_theta_features(rr_f, emb_f), device)
-            slopes_phi, offsets_phi = _vectorized_linear_fit(rr_domain_phi, func_domain_phi)
-            slopes_f_theta_list = slopes_phi  # (N,) numpy array
-            offsets_list = offsets_phi
 
             # Ground truth f_theta via ODE params registry
             gt_taus_np = to_numpy(gt_taus[:n_neurons])
@@ -2096,10 +2036,28 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r2_f_theta_mean = 0.0
                 r2_f_theta_median = 0.0
 
-            slopes_f_theta_array = np.array(slopes_f_theta_list)
-            offsets_array = np.array(offsets_list)
+            # THE TEMPLATE READOUT, ONCE, before the first figure that shows a
+            # recovered quantity. Every learned tau, V_rest and W below -- the
+            # comparison figures, learned_ode_params.pt, panels_*.npz, the
+            # clustering features, the connectivity matrices -- is its value, and
+            # _write_recovery_metrics scores this same object into metrics.txt.
+            # Until 2026-10-13 these figures and the clustering came from the
+            # gain-correction chain (tau and V_rest from the f_theta slope, W
+            # divided by the gains of g_phi and f_theta) while metrics.txt
+            # reported the template's, so one results/ described two estimators.
+            _rec_final = _extract_recovery(model, ode_params, config, edges, x_ts,
+                                           device, n_neurons, logger)
+
+            def _learned_full(quantity, n):
+                """The readout's learned array at full length, nan where it has none."""
+                out = np.full(n, np.nan)
+                pair = _rec_final.pairs.get(quantity)
+                if pair is not None:
+                    out[pair.idx] = pair[1]
+                return out
+
             gt_taus_np = ode_params.gt_tau(n_neurons)
-            learned_tau = ode_params.derive_tau(slopes_f_theta_array, n_neurons)
+            learned_tau = _learned_full("tau", n_neurons)
             r_squared_tau = 0.0
             slope_tau = 0.0
 
@@ -2108,22 +2066,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 # is the diagonal across the whole panel.
                 _tau_ylim_p = (-0.025, 0.5)
 
-                fig = plt.figure(figsize=(10, 9))
-                plt.scatter(gt_taus_np, learned_tau, c=mc, s=_dot_s, alpha=_dot_alpha)
                 # recovery_param_metrics is the single entry point for R² everywhere —
-                # full + outlier-filtered computed together so these 3 plots can't disagree.
+                # full + outlier-filtered computed together so these plots can't disagree.
                 _tau_m = recovery_param_metrics(gt_taus_np, learned_tau, DELTA_TAU)
                 r_squared_tau, slope_tau = _tau_m['r2'], _tau_m['slope']
-                plt.text(0.05, 0.95, r2_scatter_text(gt_taus_np, learned_tau),
-                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $\tau$', fontsize=56)
-                plt.ylabel(r'learned $\tau$', fontsize=56)
-                plt.xlim(-0.025, 0.5); plt.ylim(_tau_ylim_p)
-                plt.xticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
-                plt.yticks([0.0, 0.25, 0.5], ['0.0', '0.25', '0.5'], fontsize=51)
-                plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'tau_comparison_fslope.png'), dpi=300)
-                plt.close()
 
                 # Outlier mask on |learned - true| > 0.1, shared by both extra plots.
                 _gt_t   = np.asarray(gt_taus_np).ravel()
@@ -2204,7 +2150,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close()
 
             gt_vrest_np = ode_params.gt_vrest(n_neurons)
-            learned_V_rest = ode_params.derive_vrest(slopes_f_theta_array, offsets_array, n_neurons)
+            learned_V_rest = _learned_full("V_rest", n_neurons)
             r_squared_V_rest = 0.0
             slope_V_rest = 0.0
 
@@ -2213,22 +2159,10 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 # is the diagonal across the whole panel.
                 _v_ylim_p = (-0.025, 1.0)
 
-                fig = plt.figure(figsize=(10, 9))
-                plt.scatter(gt_vrest_np, learned_V_rest, c=mc, s=_dot_s, alpha=_dot_alpha)
                 # recovery_param_metrics is the single entry point for R² everywhere —
-                # full + outlier-filtered computed together so these 3 plots can't disagree.
+                # full + outlier-filtered computed together so these plots can't disagree.
                 _v_m = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
                 r_squared_V_rest, slope_V_rest = _v_m['r2'], _v_m['slope']
-                plt.text(0.05, 0.95, r2_scatter_text(gt_vrest_np, learned_V_rest),
-                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $V_{rest}$', fontsize=56)
-                plt.ylabel(r'learned $V_{rest}$', fontsize=56)
-                plt.xlim(-0.025, 1.0); plt.ylim(_v_ylim_p)
-                plt.xticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
-                plt.yticks([0.0, 0.5, 1.0], ['0.0', '0.5', '1.0'], fontsize=51)
-                plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'V_rest_comparison_fslope.png'), dpi=300)
-                plt.close()
 
                 # Outlier mask on |learned - true| > 0.2, shared by both extra plots.
                 _gt_v   = np.asarray(gt_vrest_np).ravel()
@@ -2389,32 +2323,36 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             raw_W_r2 = r_squared
             logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
-            # Corrected weights via metrics pipeline (replaces inline DataLoader +
-            # gradient computation + correction formula — see metrics.py)
-            corrected_W, ret_slopes_f, ret_slopes_g, ret_offsets, g_phi_fitted = compute_all_corrected_weights(
-                model, config, edges, x_ts, device, n_grad_frames=8, ode_params=ode_params)
-            torch.save(corrected_W, f'{log_dir}/results/corrected_W.pt')
-
-            learned_weights = to_numpy(corrected_W.squeeze())
+            # W FROM THE TEMPLATE READOUT, full length: nan on the edges it could
+            # not fit (a sender almost never above the activation floor). The
+            # matrices, eigen-analysis and clustering below read unfitted edges as
+            # zero conductance, as cluster_recovery does; the R2s here are over
+            # the fitted edges, as Wij_R2 in metrics.txt is.
+            learned_weights_full = np.asarray(
+                _rec_final.diagnostics["_W_learned_full"], dtype=np.float64).ravel()
+            _fit_e = np.isfinite(learned_weights_full)
+            learned_weights = np.nan_to_num(learned_weights_full, nan=0.0)
+            corrected_W = torch.tensor(learned_weights, dtype=torch.float32,
+                                       device=device).unsqueeze(1)
 
             # Mirror _plot_synaptic_linear's learned_ode_params.pt schema so
             # downstream tooling (e.g. fig_clustering_appendix.py) can load
             # (tau, V_rest, W, a) without re-running data_plot. `a` is the
             # GNN-only 2-D learned embedding; absent in the linear/known_ode
-            # save schema.
+            # save schema. W is full length, nan where the readout fitted nothing.
             torch.save({
                 'tau_i':    torch.from_numpy(np.asarray(learned_tau).astype(np.float32)),
                 'V_i_rest': torch.from_numpy(np.asarray(learned_V_rest).astype(np.float32)),
-                'W':        torch.from_numpy(learned_weights.astype(np.float32)),
+                'W':        torch.from_numpy(learned_weights_full.astype(np.float32)),
                 'a':        torch.from_numpy(to_numpy(model.a).astype(np.float32)),
             }, f'{log_dir}/results/learned_ode_params.pt')
             # Use effective true weights (includes g_phi gain for models like CX)
             true_weights = ode_params.effective_true_weights(
                 to_numpy(gt_weights), to_numpy(edges), n_neurons)
 
-            # Corrected R² over ALL edges (including those touching hidden neurons).
-            _tw_c = true_weights
-            _lw_c = learned_weights
+            # R² over the FITTED edges (including those touching hidden neurons).
+            _tw_c = np.asarray(true_weights, dtype=np.float64).ravel()[_fit_e]
+            _lw_c = learned_weights_full[_fit_e]
 
             # Full-sample + outlier-filtered R² together, so the plot, console
             # and metrics.txt can't disagree — same pattern as tau/V_rest below.
@@ -2424,116 +2362,20 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             n_w_outliers     = _wm['n_outliers']
             slope_corrected  = _wm['slope_clean']
             mask             = _wm['inlier_mask']
-            residuals = _lw_c - _tw_c
             true_in = _tw_c[mask]
             learned_in = _lw_c[mask]
 
             # R² over visible edges only (drops edges that touch any hidden
             # neuron). Matches the graph_trainer pbar's `conn=X(Y)` inner Y.
             r_squared_visible = None
-            if visible_edge_mask is not None and visible_edge_mask.shape[0] == _tw_c.shape[0]:
+            if visible_edge_mask is not None and visible_edge_mask.shape[0] == _fit_e.shape[0]:
                 try:
+                    _vis = np.asarray(visible_edge_mask, bool)[_fit_e]
                     r_squared_visible = recovery_param_metrics(
-                        _tw_c[visible_edge_mask], _lw_c[visible_edge_mask],
-                        W_OUTLIER_THRESH)['r2_clean']
+                        _tw_c[_vis], _lw_c[_vis], W_OUTLIER_THRESH)['r2_clean']
                 except Exception:
                     r_squared_visible = None
 
-            if extended:
-                # Partial correction (without g_phi factor) for diagnostic plot
-                n_w = model.n_edges + model.n_extra_null_edges
-                prior_ids = edges[0, :] % n_w
-                slopes_g_t = torch.tensor(ret_slopes_g, dtype=torch.float32, device=device)
-                corrected_W_ = corrected_W / slopes_g_t[prior_ids].unsqueeze(1)
-                corrected_W_ = torch.nan_to_num(corrected_W_, nan=0.0, posinf=0.0, neginf=0.0)
-
-                learned_in_ = to_numpy(corrected_W_.squeeze())
-                learned_in_ = learned_in_[mask]
-
-                fig = plt.figure(figsize=(10, 9))
-                plt.scatter(true_in, learned_in_, c=mc, s=_edge_s, alpha=_edge_alpha)
-                _rj_m = recovery_param_metrics(true_in, learned_in_)
-                r_squared_rj, slope_rj = _rj_m['r2'], _rj_m['slope']
-                plt.text(0.05, 0.95,
-                        f'R²: {r_squared_rj:.3f}\nslope: {slope_rj:.2f}',
-                        transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
-                plt.xlabel(r'true $W_{ij}$', fontsize=48)
-                plt.ylabel(r'learned $W_{ij}r_j$', fontsize=48)
-                plt.xticks(fontsize = 24)
-                plt.yticks(fontsize = 24)
-                plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'weights_comparison_rj.png'), dpi=300)
-                plt.close()
-
-            fig = plt.figure(figsize=(10, 9))
-            plt.scatter(true_in, learned_in, c=mc, s=2.0, alpha=0.3,
-                        edgecolors='none')
-            plt.text(0.05, 0.95,
-                     f'R²: {r_squared:.2f}\nslope: {slope_corrected:.2f}',
-                     transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-
-            plt.xlabel(r'true $W_{ij}$', fontsize=56)
-            plt.ylabel(r'learned $W_{ij}^*$', fontsize=56)
-            plt.xlim([-1, 2])
-            plt.ylim([-1, 2])
-            plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
-            plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
-            plt.tight_layout()
-            plt.savefig(_fig_out(log_dir, f'weights_comparison_corrected.png'), dpi=300)
-            plt.close()
-
-            # weights_comparison_corrected_true_tau — recompute corrected W
-            # using ground-truth τ instead of the f_theta-derived slope.
-            # Derivation: slopes_f_theta = -1/τ, and
-            #   corrected_W = -W / slopes_f_theta * grad_msg * slopes_g_phi
-            # So replacing learned slopes with -1/τ_true is equivalent to
-            # rescaling the existing corrected_W by (s_learned / s_true)
-            # = (τ_true / τ_learned_raw) per post-synaptic neuron.
-            if gt_taus_np is not None:
-                n_w_tt = model.n_edges + model.n_extra_null_edges
-                target_ids_tt = edges[1, :] % n_w_tt
-
-                gt_tau_arr = np.asarray(gt_taus_np, dtype=np.float32).ravel()
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    slopes_f_true = np.where(gt_tau_arr > 0, -1.0 / gt_tau_arr, 0.0)
-                slopes_f_learned = np.asarray(ret_slopes_f, dtype=np.float32).ravel()
-
-                slopes_f_true_t = torch.tensor(slopes_f_true, dtype=torch.float32, device=device)
-                slopes_f_learned_t = torch.tensor(slopes_f_learned, dtype=torch.float32, device=device)
-
-                s_learned_edge = slopes_f_learned_t[target_ids_tt]
-                s_true_edge = slopes_f_true_t[target_ids_tt]
-                # Avoid div-by-zero when gt_tau is 0/missing (factor → 0 there).
-                scale_edge = torch.where(
-                    s_true_edge != 0,
-                    s_learned_edge / s_true_edge,
-                    torch.zeros_like(s_true_edge))
-                corrected_W_true_tau = corrected_W * scale_edge.unsqueeze(1)
-                corrected_W_true_tau = torch.nan_to_num(
-                    corrected_W_true_tau, nan=0.0, posinf=0.0, neginf=0.0)
-
-                learned_weights_tt = to_numpy(corrected_W_true_tau.squeeze())
-                _wm_tt = recovery_param_metrics(_tw_c, learned_weights_tt, W_OUTLIER_THRESH)
-                r_squared_tt, slope_tt, mask_tt = _wm_tt['r2_clean'], _wm_tt['slope_clean'], _wm_tt['inlier_mask']
-                true_in_tt = _tw_c[mask_tt]
-                learned_in_tt = learned_weights_tt[mask_tt]
-
-                fig = plt.figure(figsize=(10, 9))
-                plt.scatter(true_in_tt, learned_in_tt, c=mc, s=2.0, alpha=0.3,
-                            edgecolors='none')
-                plt.text(0.05, 0.95,
-                         f'R²: {r_squared_tt:.2f}\nslope: {slope_tt:.2f}',
-                         transform=plt.gca().transAxes, verticalalignment='top', fontsize=42)
-                plt.xlabel(r'true $W_{ij}$', fontsize=56)
-                plt.ylabel(r'learned $W_{ij}^*$ (true $\tau$)', fontsize=56)
-                plt.xlim([-1, 2])
-                plt.ylim([-1, 2])
-                plt.xticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
-                plt.yticks([-1, 0.5, 2], ['-1', '0.5', '2'], fontsize=51)
-                plt.tight_layout()
-                plt.savefig(_fig_out(log_dir, f'weights_comparison_corrected_true_tau.png'), dpi=300)
-                plt.close()
-                logger.info(f"corrected W (true τ) R²: {r_squared_tt:.2f}  slope: {np.round(slope_tt, 4)}")
 
             # ── Consolidated panel-data dump (npz) ────────────────────────
             # Saved arrays let figure scripts re-render the six parameter
@@ -2588,158 +2430,25 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 np.savez_compressed(_panel_npz, **_panel_data)
                 logger.info(f'saved panel data → {_panel_npz} ({len(_panel_data)} arrays)')
 
-            # WHICH ESTIMATOR THIS BLOCK IS. Everything from here down to the
-            # template readout -- weights, tau, V_rest and their relative errors
-            # -- comes from the gain-correction chain: W divided by the
-            # per-neuron gain read off f_theta, tau and V_rest from the f_theta
-            # slope. The template readout supersedes all four below and
-            # metrics.txt reports ITS numbers, so the two blocks disagree by
-            # construction and the reader has to be told which is which.
-            # SKIPPED, NOT DELETED, when the template readout supersedes it.
-            # The chain still runs -- weights_comparison_*.png and the f_theta
-            # diagnostics are drawn from it -- but its W, tau and V_rest are the
-            # numbers the template readout replaces, and printing both put two
-            # answers for one quantity twenty lines apart in one log. `_cprint`
-            # is the chain's own print: silent while the readout below owns the
-            # terminal, and the full block again on any run without it.
-            _chain_reports = not template_readout_enabled(config, model)
-
-            def _cprint(*a, **k):
-                if _chain_reports:
-                    print(*a, **k)
-
-            if _chain_reports:
-                print(f"{_ANSI_YELLOW}extracting parameters with the "
-                      f"gain-correction chain ...{_ANSI_RESET}")
-            else:
-                print(f"{_ANSI_YELLOW}gain-correction chain: figures only, its "
-                      f"W / tau / V_rest are superseded below{_ANSI_RESET}")
-            _cprint(f"weights R²: {_r2_color(r_squared)}{r_squared:.4f}{_ANSI_RESET}  slope: {np.round(slope_corrected, 4)}")
-            logger.info(f"weights R²: {r_squared:.4f}  slope: {np.round(slope_corrected, 4)}")
-            # Structure (scale-free) Pearson r and z-scored NSE R² over all non-zero
-            # edges (same set as connectivity_scatter.png). High structure r with a
-            # low weights R² == wiring recovered but under-scaled (W<->g_phi scale
-            # degeneracy); low r == wiring genuinely wrong. Global z-score
-            # z(x)=(x-mean)/std removes the scale. Written to metrics.txt for the
-            # agentic exploration (Wij_pearson / Wij_zscored_R2 in metrics.txt).
-            _w_t = np.asarray(_tw_c).ravel(); _w_l = np.asarray(_lw_c).ravel()
-            _w_nz = _w_t != 0
-            _w_t, _w_l = _w_t[_w_nz], _w_l[_w_nz]
-            _w_struct_r = float(np.corrcoef(_w_t, _w_l)[0, 1]) if _w_t.size > 1 else float('nan')
-            _w_tz = (_w_t - _w_t.mean()) / (_w_t.std() + 1e-12)
-            _w_lz = (_w_l - _w_l.mean()) / (_w_l.std() + 1e-12)
-            _w_zscored_r2 = recovery_param_metrics(_w_tz, _w_lz)['r2']
-            _cprint(f"weights r (structure): {_r2_color(_w_struct_r)}{_w_struct_r:.4f}{_ANSI_RESET}"
-                  f"  (z-scored R²: {_r2_color(_w_zscored_r2)}{_w_zscored_r2:.4f}{_ANSI_RESET})")
-            logger.info(f"weights r (structure): {_w_struct_r:.4f}  (z-scored R²: {_w_zscored_r2:.4f})")
-            # Relative error |learned - true| / max(|true|, eps), full sample.
-            # Mean ± SD intentionally omitted (heavy tails dominate); median + IQR only.
-            _gt_w_arr  = np.asarray(_tw_c).ravel()
-            _lrn_w_arr = np.asarray(_lw_c).ravel()
-            _rel_err_w = np.abs(_lrn_w_arr - _gt_w_arr) / np.maximum(np.abs(_gt_w_arr), 1e-6)
-            _rel_err_w_med  = float(np.median(_rel_err_w))
-            _q1_w_re, _q3_w_re = np.percentile(_rel_err_w, [25.0, 75.0])
-            _rel_err_w_iqr  = float(_q3_w_re - _q1_w_re)
-            _cprint(f"W rel.err: {_ANSI_WHITE}median {100*_rel_err_w_med:.1f}%  IQR {100*_rel_err_w_iqr:.1f}%{_ANSI_RESET}")
-            logger.info(f"W rel.err: median {100*_rel_err_w_med:.2f}%  IQR {100*_rel_err_w_iqr:.2f}%")
-            _rel_err_tau_med = _rel_err_tau_iqr = None
-            _rel_err_v_med = _rel_err_v_iqr = None
-
-            # R² on only real (non-null) edges
+            # R² on only real (non-null) edges, fitted ones, for the analysis log
             connectivity_r2_real = None
             if hasattr(model, 'n_extra_null_edges') and model.n_extra_null_edges > 0:
                 n_real = model.n_edges
+                _real = np.zeros(_fit_e.size, bool)
+                _real[:n_real] = True
+                _real &= _fit_e
                 try:
-                    r2_real = recovery_param_metrics(true_weights[:n_real], learned_weights[:n_real])['r2']
-                    connectivity_r2_real = r2_real
-                    _cprint(f"connectivity R² (real edges only): {_r2_color(r2_real)}{r2_real:.4f}{_ANSI_RESET}")
-                    logger.info(f"connectivity R² (real edges only): {r2_real:.4f}")
+                    connectivity_r2_real = recovery_param_metrics(
+                        np.asarray(true_weights, dtype=np.float64).ravel()[_real],
+                        learned_weights_full[_real])['r2']
+                    logger.info(f"connectivity R² (real edges only): {connectivity_r2_real:.4f}")
                 except Exception:
                     pass
-            logger.info(f'median residuals: {np.median(residuals):.4f}')
-            inlier_residuals = residuals[mask]
-            logger.info(f'inliers: {len(inlier_residuals)}  mean residual: {np.mean(inlier_residuals):.4f}  std: {np.std(inlier_residuals):.4f}  min,max: {np.min(inlier_residuals):.4f}, {np.max(inlier_residuals):.4f}')
-            outlier_residuals = residuals[~mask]
-            if len(outlier_residuals) > 0:
-                logger.info(
-                    f'outliers: {len(outlier_residuals)}  mean residual: {np.mean(outlier_residuals):.4f}  std: {np.std(outlier_residuals):.4f}  min,max: {np.min(outlier_residuals):.4f}, {np.max(outlier_residuals):.4f}')
-            else:
-                logger.info('outliers: 0  (no outliers detected)')
-            if ode_params.has_tau():
-                _tm = recovery_param_metrics(gt_taus_np, learned_tau, DELTA_TAU)
-                _rel_err_tau_med, _rel_err_tau_iqr = _tm['rel_err_median'], _tm['rel_err_iqr']
-                if _tm['degenerate']:
-                    _cprint(f"tau R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_tm['mae']:.3g}")
-                    logger.info(f"tau R²: N/A (const GT)  MAE: {_tm['mae']:.4g}")
-                else:
-                    _cprint(f"tau R²: {_r2_color(_tm['r2'])}{_tm['r2']:.3f}{_ANSI_RESET}  slope: {_tm['slope']:.2f}")
-                    logger.info(f"tau R²: {_tm['r2']:.3f}  slope: {_tm['slope']:.2f}")
-                _cprint(f"tau rel.err: {_ANSI_WHITE}median {100*_rel_err_tau_med:.1f}%  IQR {100*_rel_err_tau_iqr:.1f}%{_ANSI_RESET}")
-                logger.info(f"tau rel.err: median {100*_rel_err_tau_med:.2f}%  IQR {100*_rel_err_tau_iqr:.2f}%")
-                if _tm['degenerate']:
-                    _cprint(f"tau (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
-                    logger.info("tau_wo_outliers R²: N/A (const GT)")
-                else:
-                    _cprint(f"tau (wo outliers) R²: {_r2_color(_tm['r2_clean'])}{_tm['r2_clean']:.3f}{_ANSI_RESET}  "
-                          f"slope: {_tm['slope_clean']:.2f}  "
-                          f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
-                    logger.info(f"tau_wo_outliers R²: {_tm['r2_clean']:.4f}  slope: {_tm['slope_clean']:.4f}  "
-                                f"outliers: {_tm['n_outliers']}/{_tm['n_total']} ({_tm['pct_outliers']:.1f}%)")
-            if ode_params.has_vrest():
-                _vm = recovery_param_metrics(gt_vrest_np, learned_V_rest, DELTA_VREST)
-                _rel_err_v_med, _rel_err_v_iqr = _vm['rel_err_median'], _vm['rel_err_iqr']
-                if _vm['degenerate']:
-                    _cprint(f"V_rest R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}  MAE: {_vm['mae']:.3g}")
-                    logger.info(f"V_rest R²: N/A (const GT)  MAE: {_vm['mae']:.4g}")
-                else:
-                    _cprint(f"V_rest R²: {_r2_color(_vm['r2'])}{_vm['r2']:.3f}{_ANSI_RESET}  slope: {_vm['slope']:.2f}")
-                    logger.info(f"V_rest R²: {_vm['r2']:.3f}  slope: {_vm['slope']:.2f}")
-                _cprint(f"V_rest rel.err: {_ANSI_WHITE}median {100*_rel_err_v_med:.1f}%  IQR {100*_rel_err_v_iqr:.1f}%{_ANSI_RESET}")
-                logger.info(f"V_rest rel.err: median {100*_rel_err_v_med:.2f}%  IQR {100*_rel_err_v_iqr:.2f}%")
-                if _vm['degenerate']:
-                    _cprint(f"V_rest (wo outliers) R²: {_ANSI_WHITE}N/A (const GT){_ANSI_RESET}")
-                    logger.info("V_rest_wo_outliers R²: N/A (const GT)")
-                else:
-                    _cprint(f"V_rest (wo outliers) R²: {_r2_color(_vm['r2_clean'])}{_vm['r2_clean']:.3f}{_ANSI_RESET}  "
-                          f"slope: {_vm['slope_clean']:.2f}  "
-                          f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
-                    logger.info(f"V_rest_wo_outliers R²: {_vm['r2_clean']:.4f}  slope: {_vm['slope_clean']:.4f}  "
-                                f"outliers: {_vm['n_outliers']}/{_vm['n_total']} ({_vm['pct_outliers']:.1f}%)")
-            _summary_parts = [f"W rel err {100*_rel_err_w_med:.1f}±{100*_rel_err_w_iqr:.1f}%"]
-            if _rel_err_tau_med is not None:
-                _summary_parts.append(f"tau rel err {100*_rel_err_tau_med:.1f}±{100*_rel_err_tau_iqr:.1f}%")
-            if _rel_err_v_med is not None:
-                _summary_parts.append(f"Vrest rel err {100*_rel_err_v_med:.1f}±{100*_rel_err_v_iqr:.1f}%")
-            logger.info(f"SUMMARY: {', '.join(_summary_parts)}")
             print(f"f_theta Pearson r²: {_r2_color(r2_f_theta_mean)}{r2_f_theta_mean:.3f}{_ANSI_RESET}  median={r2_f_theta_median:.3f}")
             print(f"g_phi Pearson r²: {_r2_color(r2_g_phi_mean)}{r2_g_phi_mean:.3f}{_ANSI_RESET}  median={r2_g_phi_median:.3f}")
             logger.info(f"f_theta Pearson r²: mean={r2_f_theta_mean:.3f}  median={r2_f_theta_median:.3f}")
             logger.info(f"g_phi Pearson r²: mean={r2_g_phi_mean:.3f}  median={r2_g_phi_median:.3f}")
 
-            # g_phi parameter R² (model-specific: gain/bias for CX, slope for flyvis)
-            gt_g_params = ode_params.gt_g_phi_params(n_neurons)
-            if gt_g_params is not None and g_phi_fitted is not None:
-                for pname in ode_params.g_phi_param_names():
-                    if pname in g_phi_fitted and pname in gt_g_params:
-                        gt_vals = gt_g_params[pname]
-                        learned_vals = g_phi_fitted[pname][:n_neurons]
-                        _gphi_m = recovery_param_metrics(gt_vals, learned_vals)
-                        r2_p, slope_p = _gphi_m['r2'], _gphi_m['slope']
-                        print(f"g_phi {pname} R²: {_r2_color(r2_p)}{r2_p:.3f}{_ANSI_RESET}  slope: {slope_p:.2f}")
-                        logger.info(f"g_phi {pname} R²: {r2_p:.3f}  slope: {slope_p:.2f}")
-
-                        # Scatter plot for each g_phi parameter
-                        fig = plt.figure(figsize=(10, 9))
-                        plt.scatter(gt_vals, learned_vals, c=mc, s=_dot_s, alpha=_dot_alpha)
-                        plt.text(0.05, 0.95, f'R²: {r2_p:.2f}\nslope: {slope_p:.2f}',
-                                 transform=plt.gca().transAxes, verticalalignment='top', fontsize=32)
-                        plt.xlabel(f'true {pname}', fontsize=48)
-                        plt.ylabel(f'learned {pname}', fontsize=48)
-                        plt.xticks(fontsize=24)
-                        plt.yticks(fontsize=24)
-                        plt.tight_layout()
-                        plt.savefig(_fig_out(log_dir, f'g_phi_{pname}_comparison.png'), dpi=300)
-                        plt.close()
 
             # Write to analysis log file for Claude
             if log_file:
@@ -2750,13 +2459,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     log_file.write(f"connectivity_R2_real: {connectivity_r2_real:.4f}\n")
                 log_file.write(f"f_theta_functional_R2: {r2_f_theta_mean:.4f}\n")
                 log_file.write(f"g_phi_functional_R2: {r2_g_phi_mean:.4f}\n")
-                if gt_g_params is not None and g_phi_fitted is not None:
-                    for pname in ode_params.g_phi_param_names():
-                        if pname in g_phi_fitted and pname in gt_g_params:
-                            gt_v = gt_g_params[pname]
-                            lr_v = g_phi_fitted[pname][:n_neurons]
-                            r2_p = recovery_param_metrics(gt_v, lr_v)['r2']
-                            log_file.write(f"g_phi_{pname}_R2: {r2_p:.4f}\n")
 
             # Every recovered quantity, scored once and written once. Outside
             # the `if log_file` above because the writer also feeds
@@ -2764,7 +2466,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             _rec_final, _scored_final = _write_recovery_metrics(
                 model, ode_params, config, edges, x_ts, device,
                 log_dir, logger, log_file, n_neurons=n_neurons,
-                template_rollout=True)
+                template_rollout=True, rec=_rec_final)
             # THE CLUSTERING IS A RECOVERED QUANTITY TOO, and belongs with the
             # others. It used to print at the far end of the pass, after the
             # stratified analysis and the connectivity statistics, so the one
@@ -4090,14 +3792,13 @@ def data_plot_masked(config, device, argv=None):
                           out_path=masked_out(log_dir, "recovered_pairs.npz"),
                           keep_edges=keep_e, metrics_name=metrics_name)
 
-    # THE CLUSTERING, on plot_synaptic's features: the chain's tau, V_rest and
-    # corrected W (f_theta slopes over each neuron's activity range), and a_i.
-    # THE SAME FEATURES AS THE UNMASKED CLUSTERING, read from the
-    # results/learned_ode_params.pt that pass wrote from exactly the arrays it
-    # clustered, when it is there and belongs to this checkpoint (same a_i). The
-    # GMM is sensitive: recomputing the chain's W on another day moved it by
-    # 1.7e-3 at most and clustering_accuracy by 0.011 (cv00, 0.895 -> 0.884),
-    # as much as some masks would. Recomputed only when the file is absent.
+    # THE CLUSTERING, on plot_synaptic's features: the template readout's tau,
+    # V_rest and W, and a_i. THE SAME FEATURES AS THE UNMASKED CLUSTERING, read
+    # from the results/learned_ode_params.pt that pass wrote from exactly the
+    # arrays it clustered, when it is there and belongs to this checkpoint (same
+    # a_i): the GMM is sensitive, and a feature recomputed on another day can move
+    # clustering_accuracy by as much as some masks would. Otherwise taken from
+    # `rec`, this pass's own template readout.
     cl = {}
     _has_emb = hasattr(model, "a") and hasattr(model, "f_theta")
     if _has_emb:
@@ -4112,14 +3813,17 @@ def data_plot_masked(config, device, argv=None):
             learned_weights = _lp["W"].numpy().astype(np.float64).ravel()
             _src = "results/learned_ode_params.pt"
         else:
-            mu, sigma = compute_activity_stats(x_ts, device)
-            slopes_f, offsets_f = extract_f_theta_slopes(model, config, n_neurons, mu, sigma, device)
-            learned_tau = ode_params.derive_tau(np.asarray(slopes_f), n_neurons)
-            learned_V_rest = ode_params.derive_vrest(np.asarray(slopes_f), np.asarray(offsets_f), n_neurons)
-            corrected_W = compute_all_corrected_weights(model, config, edges, x_ts, device,
-                                                        n_grad_frames=8, ode_params=ode_params)[0]
-            learned_weights = to_numpy(corrected_W.squeeze())
-            _src = "recomputed"
+            def _full(quantity, n):
+                out = np.full(n, np.nan)
+                pair = rec.pairs.get(quantity)
+                if pair is not None:
+                    out[pair.idx] = pair[1]
+                return out
+            learned_tau = _full("tau", n_neurons)
+            learned_V_rest = _full("V_rest", n_neurons)
+            learned_weights = np.asarray(rec.diagnostics["_W_learned_full"],
+                                         dtype=np.float64).ravel()
+            _src = "template readout of this pass"
         print(f"clustering features: {_src}")
         logger.info(f"clustering features: {_src}")
         has_v = ode_params.has_vrest()

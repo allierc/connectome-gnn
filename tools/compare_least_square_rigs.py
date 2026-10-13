@@ -19,7 +19,7 @@ three-column solve and reported W four times too large, because that copy omitte
 the gauge correction W <- k_i * W_fit which extract_template_params applies --
 numbers that disagreed with tmp_training/Wij for a reason having nothing to do
 with the rigs. Now the rig chooses the samples and everything after that is the
-production path: extract_recovered_params, extract_template_params,
+production path: extract_template_params,
 score_recovery, _plot_recovered_scatter and analyse_neurons, the same calls the
 trainer and `-o plot` make. The figures and the numbers are comparable to a run's
 own by construction.
@@ -235,12 +235,9 @@ def main(argv=None) -> int:
 
     for rig in RIGS:
         with rig_sampler(rig, x_ts, dev, config_ref=(cfg,), model_ref=(model,), op_ref=(op,)):
-            rec = M.extract_recovered_params(
-                model, op, cfg, edges=data.edges, x_ts=x_ts, device=dev,
-                n_neurons=n_neurons, need=("W", "tau", "V_rest", "E_ij", "msg_i"))
             rec = M.extract_template_params(
                 model, op, config=cfg, edges=data.edges, x_ts=x_ts, device=dev,
-                n_neurons=n_neurons, base=rec, n_frames=a.frames)
+                n_neurons=n_neurons, n_frames=a.frames)
             scored = M.score_recovery(rec, cfg)
             for q, key in (("W", "Wij"), ("E_ij", "Eij")):
                 try:

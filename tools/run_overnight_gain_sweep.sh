@@ -38,9 +38,10 @@
 # tests only that the term is harmless, not that it works.
 #
 # WHAT TO READ AFTERWARDS, in this order:
-#   tools/pysr_recovery.py <config>   Wij_gain near 1.0 and tmpl_k_median near
+#   results/metrics.txt               Wij_gain near 1.0 and tmpl_k_median near
 #                                     tau*1/tau = 1 is the term working
-#   tools/message_gauge.py <config>   a_median toward 1.0, b_median toward 0
+#                                     (tools/pysr_recovery.py and message_gauge.py,
+#                                     named here before, went with the chain)
 #   results/metrics.txt               rollout_r must NOT fall: the term is only
 #                                     worth having if the fit survives it
 #
