@@ -4,7 +4,7 @@ WHY A SEPARATE ENTRY POINT. The figure is written by `-o plot`, at the end of a
 pass that also runs the rollout, the scatters, the clustering and the embedding
 -- tens of minutes and a 1.3 GB rollout bundle for one panel. This does the only
 part the panel needs: load the checkpoint, run the same extraction the pass
-scores (`extract_recovered_params`, then the template readout on top of it), and
+scores (`extract_recovered_params`, which on a GNN is the template readout), and
 hand the resulting pairs to `_plot_parameter_error`.
 
 IT DOES NOT WRITE metrics.txt. The file already in results/ was written by the
@@ -58,8 +58,6 @@ def main():
     from connectome_gnn.models.registry import create_model
     from connectome_gnn.utils import migrate_state_dict
     from connectome_gnn.metrics import (extract_recovered_params,
-                                        extract_template_params,
-                                        template_readout_enabled,
                                         score_recovery)
     import glob
 
@@ -86,14 +84,10 @@ def main():
     print(f"weights : {os.path.basename(ckpts[-1])}")
 
     n_neurons = int(data.n_neurons)
+    # The plot pass's own readout: the template readout on a GNN, the named
+    # parameters on a known-ODE.
     rec = extract_recovered_params(model, data.ode_params, config, edges=data.edges,
                                    x_ts=data.x_ts, device=device, n_neurons=n_neurons)
-    if template_readout_enabled(config, model):
-        # The same precedence the plot pass uses: the template readout supersedes
-        # the correction chain for W, E_ij, tau and V_rest and extends its object.
-        rec = extract_template_params(model, data.ode_params, config=config,
-                                      edges=data.edges, x_ts=data.x_ts, device=device,
-                                      n_neurons=n_neurons, base=rec)
     scored = score_recovery(rec, config)
 
     gpf = _load_plotfigure()

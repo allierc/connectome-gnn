@@ -963,295 +963,6 @@ def _g_phi_on_edges(model, config, src, dst, volt_f):
     return vi, vj, out.reshape(n_e, n_frames)
 
 
-def compute_g_phi_edge_grad(model, config, edges, x_ts, n_frames=8, seed=0):
-    """Per-(edge, real frame) local gradient d(g_phi)/d(vj) at the actual
-    (vi, vj, ai, aj) the network visits — the per-edge, per-frame analogue of
-    `evaluate_g_phi_curves`'s single global 1D-sweep slope.
-
-    Mirrors `compute_grad_msg`'s real-frame sampling (autograd at sampled
-    real frames, not a synthetic domain), but for g_phi's own presynaptic
-    sensitivity, over ALL real edges at once per frame (cheap — one forward
-    through the small g_phi MLP per frame).
-
-    Args:
-        edges: (2, E) edge index — src (presynaptic, j) / dst (postsynaptic, i).
-        x_ts: NeuronTimeSeries with the real voltage recording.
-        n_frames: number of real frames to sample (autograd call each).
-        seed: RNG seed for frame sampling (reproducible).
-
-    Returns dict, each (E, n_frames) except j_ids/i_ids which are (E,):
-        j_ids, i_ids: int arrays — presynaptic / postsynaptic neuron per edge.
-        vj, vi: real voltage at the sampled frames.
-        g_phi: g_phi output at (vi, vj, ai, aj) — squared if g_phi_positive,
-            matching what actually enters the message.
-        grad_vj: d(g_phi)/d(vj) at that point (post-squaring if applicable).
-    """
-    signal_model_name = config.graph_model.signal_model_name
-    g_phi_positive = config.graph_model.g_phi_positive
-    device = model.a.device
-
-    src = edges[0].to(device)   # j — presynaptic
-    dst = edges[1].to(device)   # i — postsynaptic
-    n_edges = edges.shape[1]
-
-    rng = np.random.default_rng(seed)
-    n_frames = min(n_frames, x_ts.n_frames)
-    frame_idx = rng.choice(x_ts.n_frames, size=n_frames, replace=False)
-
-    voltage = x_ts.voltage.to(device)   # (T, N)
-    ai = model.a[dst]
-    aj = model.a[src]
-
-    vj_all = torch.zeros(n_edges, n_frames, device=device)
-    vi_all = torch.zeros(n_edges, n_frames, device=device)
-    g_phi_all = torch.zeros(n_edges, n_frames, device=device)
-    grad_all = torch.zeros(n_edges, n_frames, device=device)
-
-    for f_idx, k in enumerate(frame_idx):
-        vj_k = voltage[k, src].clone().detach().requires_grad_(True)   # (E,)
-        vi_k = voltage[k, dst].clone().detach()
-
-        if is_general_form_gnn(signal_model_name):
-            in_features = torch.cat([vj_k.unsqueeze(1), aj, vi_k.unsqueeze(1), ai], dim=1)
-        else:
-            in_features = torch.cat([vj_k.unsqueeze(1), aj], dim=1)
-
-        out = model.g_phi(pad_g_phi_input(in_features.float(), model))
-        if g_phi_positive:
-            out = out ** 2
-        grad = torch.autograd.grad(out.sum(), vj_k, retain_graph=False, create_graph=False)[0]
-
-        vj_all[:, f_idx] = vj_k.detach()
-        vi_all[:, f_idx] = vi_k
-        g_phi_all[:, f_idx] = out.detach().squeeze(-1)
-        grad_all[:, f_idx] = grad.detach()
-
-    return {
-        'j_ids': to_numpy(src),
-        'i_ids': to_numpy(dst),
-        'vj': to_numpy(vj_all),
-        'vi': to_numpy(vi_all),
-        'g_phi': to_numpy(g_phi_all),
-        'grad_vj': to_numpy(grad_all),
-    }
-
-
-def compute_g_phi_fd_slope(model, config, edges, x_ts, n_frames=32, seed=0):
-    """Per-edge local slope d(g_phi)/d(vj), estimated by finite differences
-    on real, co-occurring (vi, vj, g_phi) samples from
-    `sample_g_phi_vi_vj_observed` — the empirical counterpart to
-    `compute_g_phi_edge_grad`'s analytic autograd gradient.
-
-    For each edge, sorts its own sampled frames by vj and differences
-    consecutive points: slope = d(g_phi) / d(vj) between neighbors. Since
-    vi varies (uncontrolled) between the two differenced points, this is
-    noisier than the autograd version — large outliers appear whenever two
-    neighbors happen to be close in vj — so callers should filter/trim
-    before averaging (see `compute_g_phi_correction_conductance`).
-
-    Returns dict, each (E, n_frames-1) except j_ids/i_ids which are (E,):
-        j_ids, i_ids: int arrays — presynaptic / postsynaptic neuron per edge.
-        vj, vi, g_phi: midpoint values of each differenced pair.
-        grad_vj: the finite-difference slope.
-    """
-    res = sample_g_phi_vi_vj_observed(model, config, edges, x_ts,
-                                      n_edges=edges.shape[1], n_frames=n_frames, seed=seed)
-    vj, vi, g_phi = res['vj'], res['vi'], res['g_phi']
-
-    order = np.argsort(vj, axis=1)
-    vj_s = np.take_along_axis(vj, order, axis=1)
-    vi_s = np.take_along_axis(vi, order, axis=1)
-    g_s = np.take_along_axis(g_phi, order, axis=1)
-
-    d_vj = np.diff(vj_s, axis=1)
-    d_g = np.diff(g_s, axis=1)
-    eps = 1e-6
-    slope = d_g / np.where(np.abs(d_vj) < eps, eps, d_vj)
-
-    return {
-        'j_ids': res['edge_ij'][:, 1].astype(np.int64),   # j — presynaptic
-        'i_ids': res['edge_ij'][:, 0].astype(np.int64),   # i — postsynaptic
-        'vj': 0.5 * (vj_s[:, :-1] + vj_s[:, 1:]),
-        'vi': 0.5 * (vi_s[:, :-1] + vi_s[:, 1:]),
-        'g_phi': 0.5 * (g_s[:, :-1] + g_s[:, 1:]),
-        'grad_vj': slope,
-    }
-
-
-def compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons, n_frames=32, seed=0):
-    """Per-neuron g_phi correction factor eta_j for flyvis_general_form,
-    replacing the single global 1D-sweep affine fit (`evaluate_g_phi_curves`)
-    used by other flyvis variants — g_phi depends on both endpoints here, so
-    a synthetic vi=0 sweep with an averaged ai isn't representative.
-
-    Method (selected by a three-way comparison against the 1D-sweep and an
-    autograd-gradient method — see dev_g_phi_w_correction.py): finite-
-    difference d(g_phi)/d(vj) on real (edge, frame) pairs
-    (`compute_g_phi_fd_slope`), restricted to the physically active region
-    (vj>0) and to slopes consistent with the monotonicity prior (slope>0),
-    then a 10-90 percentile-trimmed mean per presynaptic neuron j — trimming
-    rejects the large local-slope outliers introduced by vi's uncontrolled
-    variation between the two finite-difference points. Validated against the
-    1D-sweep baseline and an independently derived autograd-gradient method.
-
-    Returns:
-        (n_neurons,) numpy array — one correction factor per neuron;
-        neurons with no surviving (edge, frame) samples default to 1.0.
-    """
-    raw = compute_g_phi_fd_slope(model, config, edges, x_ts, n_frames=n_frames, seed=seed)
-    j_ids, vj, grad = raw['j_ids'], raw['vj'], raw['grad_vj']
-
-    active_mask = (vj > 0) & (grad > 0)
-    j_flat = np.repeat(j_ids, vj.shape[1])[active_mask.ravel()]
-    grad_flat = grad.ravel()[active_mask.ravel()]
-
-    eta = np.ones(n_neurons, dtype=np.float32)
-    order = np.argsort(j_flat, kind='stable')
-    j_sorted = j_flat[order]
-    grad_sorted = grad_flat[order]
-    unique_js, start_idx = np.unique(j_sorted, return_index=True)
-    groups = np.split(grad_sorted, start_idx[1:])
-
-    for j, vals in zip(unique_js, groups):
-        lo, hi = np.percentile(vals, [10, 90])
-        trimmed = vals[(vals >= lo) & (vals <= hi)]
-        eta[j] = trimmed.mean() if trimmed.size else vals.mean()
-
-    return eta
-
-
-def extract_conductance_params_from_gnn(model, config, edges, x_ts, n_frames=64,
-                                        vj_quantile=0.25, min_points=8, seed=0):
-    """Read W_ij and E_ij back out of a trained conductance GNN, per edge.
-
-    THE PROBLEM. The known-ODE student stores W and E as named parameters, so
-    :func:`compute_reversal_metrics` just reads them. The GNN stores a per-edge
-    weight and an MLP, and its message is
-
-        msg_ij  =  W_gnn_ij * g_phi(v_j, a_j, v_i, a_i)^2
-
-    with nothing labelled "conductance" or "reversal potential" anywhere in it.
-    Both quantities are still in there, because the generator this is fitting is
-
-        msg_ij  =  W_ij * relu(v_j) * (E_i - v_i)
-
-    and they can be read out without any optimisation at all.
-
-    THE METHOD, and why it is a division rather than a fit. Divide the message by
-    v_j -- the same normalisation the current-data extraction applies through
-    `compute_g_phi_correction_conductance`, and for the same reason: it stops the
-    presynaptic drive from being absorbed into W and producing enormous W on the
-    edges whose v_j happened to be small. What is left,
-
-        y_ij(t)  =  msg_ij(t) / v_j(t)  =  W_ij * (E_i - v_i(t))
-
-    is a STRAIGHT LINE IN v_i with slope -W_ij and intercept W_ij * E_i. So one
-    ordinary least-squares line per edge, over the real co-occurring (v_i, v_j)
-    the network actually visits, gives
-
-        W_ij = -slope            E_ij = intercept / W_ij = -intercept / slope
-
-    THE STRAIGHT LINE IS ALSO THE TEST. `fit_r2` is the R2 of that line per edge.
-    If it is not near 1 the learned message is not affine in v_i, the model has
-    not found the conductance form, and the W and E read off it describe nothing.
-    Check it before reporting either.
-
-    WHAT IS AND IS NOT IDENTIFIABLE. W_gnn and the amplitude of g_phi^2 trade off
-    against one common scalar -- doubling one and halving the other leaves every
-    message unchanged -- so W_ij comes out UP TO A SINGLE GLOBAL FACTOR and its
-    absolute size means nothing. E_ij is a RATIO of the intercept to the slope, so
-    that factor cancels and E is recovered absolutely. Compare W with
-    :func:`r2_up_to_scale`, which fits the one factor and reports R2 with the
-    slope pinned to 1 by construction; compare E directly.
-
-    Only samples with v_j above `vj_quantile` OF THE POSITIVE v_j VALUES enter the
-    fit. Below that the division amplifies noise without adding information, and
-    v_j <= 0 carries none at all -- the true drive is relu(v_j), so those frames
-    say nothing about W_ij or E_ij.
-
-    Args:
-        n_frames: real frames sampled per edge.
-        vj_quantile: quantile OF THE POSITIVE SAMPLED v_j used as the floor.
-        min_points: an edge needs this many surviving samples, with a non-zero
-            spread in v_i, or its entry is nan.
-
-    Returns a dict of (E,) arrays unless noted:
-        W          extracted conductance, up to one global scale factor
-        E          extracted per-edge reversal potential, in voltage units
-        fit_r2     R2 of the per-edge straight line -- the validity check
-        n_used     samples that survived the v_j floor, per edge
-        E_pooled   per-edge reversal after pooling each postsynaptic neuron's
-                   incoming edges by SIGN of E, median within group: the
-                   generator gives every edge onto neuron i the same E_exc[i] or
-                   E_inh[i], so pooling is the estimator that uses that, and the
-                   split by sign is what keeps excitatory and inhibitory apart
-        E_exc, E_inh   (N,) the two pooled values per postsynaptic neuron, nan
-                   where that neuron received no edge of that sign
-        vj_floor   the floor actually used, in voltage units
-    """
-    res = sample_g_phi_vi_vj_observed(model, config, edges, x_ts,
-                                      n_edges=edges.shape[1], n_frames=n_frames,
-                                      seed=seed)
-    vi, vj, g_sq = res['vi'], res['vj'], res['g_phi']      # each (E, n_frames)
-    i_ids = res['edge_ij'][:, 0].astype(np.int64)          # postsynaptic
-
-    W_gnn = to_numpy(get_model_W(model)).ravel()[:vi.shape[0]].astype(np.float64)
-
-    pos = vj[vj > 0]
-    vj_floor = float(np.quantile(pos, vj_quantile)) if pos.size else 0.0
-    keep = vj > max(vj_floor, 1e-6)
-
-    # y = msg / v_j = W_ij * (E_i - v_i); masked entries contribute 0 to every sum.
-    y = np.where(keep, W_gnn[:, None] * g_sq / np.where(keep, vj, 1.0), 0.0)
-    x = np.where(keep, vi, 0.0)
-
-    n = keep.sum(axis=1).astype(np.float64)
-    Sx, Sy = x.sum(axis=1), y.sum(axis=1)
-    Sxx, Syy, Sxy = (x * x).sum(axis=1), (y * y).sum(axis=1), (x * y).sum(axis=1)
-
-    den_x = n * Sxx - Sx ** 2
-    den_y = n * Syy - Sy ** 2
-    cov = n * Sxy - Sx * Sy
-    ok = (n >= min_points) & (den_x > 0)
-
-    with np.errstate(divide='ignore', invalid='ignore'):
-        slope = np.where(ok, cov / den_x, np.nan)
-        intercept = np.where(ok, (Sy - slope * Sx) / n, np.nan)
-        fit_r2 = np.where(ok & (den_y > 0), cov ** 2 / (den_x * den_y), np.nan)
-        W = -slope
-        E = np.where(W != 0, -intercept / slope, np.nan)
-
-    # Pool by (postsynaptic neuron, sign of E). The generator hands every edge
-    # onto neuron i one of exactly two reversals, so the per-edge estimates of
-    # each sign are repeated measurements of the same number; the median is the
-    # estimator that says so, and it is taken separately per sign because mixing
-    # +24.8 with -14.5 would average to a value neither of them takes.
-    n_neurons = model.a.shape[0]
-    E_exc = np.full(n_neurons, np.nan)
-    E_inh = np.full(n_neurons, np.nan)
-    good = np.isfinite(E) & np.isfinite(fit_r2)
-    for arr, sign_mask in ((E_exc, E > 0), (E_inh, E < 0)):
-        m = good & sign_mask
-        if not m.any():
-            continue
-        order = np.argsort(i_ids[m], kind='stable')
-        ids_s, vals_s = i_ids[m][order], E[m][order]
-        uniq, start = np.unique(ids_s, return_index=True)
-        for _i, vals in zip(uniq, np.split(vals_s, start[1:])):
-            arr[_i] = np.median(vals)
-    E_pooled = np.where(E < 0, E_inh[i_ids], E_exc[i_ids])
-
-    # Edges whose fitted line RISES with v_i: the message grows as the
-    # postsynaptic cell depolarises, which no conductance does (the driving
-    # force E - v_i can only fall). Not a sign to repair -- W enters squared and
-    # the sign is g_phi's -- but the share of edges where the model has not
-    # found the conductance form, beside the fit R2 that says how far it is.
-    pct_wrong_slope = float(100.0 * np.mean(slope[ok] > 0)) if ok.any() else float('nan')
-    return {'W': W, 'E': E, 'fit_r2': fit_r2, 'n_used': n, 'pct_wrong_slope': pct_wrong_slope,
-            'E_pooled': E_pooled, 'E_exc': E_exc, 'E_inh': E_inh,
-            'vj_floor': vj_floor}
-
-
 def r2_up_to_scale(true, learned):
     """R2 of `learned` against `true` after dividing out ONE global gain.
 
@@ -1398,8 +1109,9 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     |d(g_phi)/d(vj)|, averaged over real (edge, frame) pairs via autograd.
     The weight-level score can disagree with this (a later layer can route
     around a large first-layer weight) -- this is the one to trust when they
-    do; see dev_g_phi_regularization_comparison.py for the comparison that
-    established this.
+    do (dev_g_phi_regularization_comparison.py, removed with the chain on
+    2026-10-13, ran the comparison that
+    established this).
 
     Returns (ratio_vi, ratio_ai, ratio_noise). ratio_noise is nan unless the
     noise-probe control is on (n_g_phi_noise_inputs > 0); it is the headline
@@ -1479,23 +1191,6 @@ def compute_g_phi_grad_ratios(model, config, edges, x_ts, n_frames=16, seed=0):
     if m_vj <= 0:
         return float('nan'), float('nan'), float('nan')
     return m_vi / m_vj, m_ai / m_vj, m_noise / m_vj
-
-
-def extract_g_phi_slopes(model, config, n_neurons, mu_activity, sigma_activity, device, edges=None):
-    """Extract linear slope of g_phi for each neuron j (vectorized).
-
-    Returns:
-        slopes: (n_neurons,) numpy array of g_phi slopes.
-    """
-    v_ranges, curves, valid = evaluate_g_phi_curves(
-        model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
-
-    rr_t = torch.tensor(v_ranges, dtype=torch.float32)
-    func_t = torch.tensor(curves, dtype=torch.float32)
-    slopes, _ = _vectorized_linear_fit(rr_t, func_t)
-
-    slopes[~valid] = 1.0
-    return slopes
 
 
 def extract_f_theta_slopes(model, config, n_neurons, mu_activity, sigma_activity, device):
@@ -1715,7 +1410,7 @@ _DYNAMICS_R2_EMPTY = {
 }
 
 
-def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
+def compute_dynamics_r2(model, x_ts, config, device, n_neurons, edges=None):
     """Compute V_rest R² and tau R² during training (lightweight, no plots).
 
     Uses the ODE params analysis interface: gt_tau(), gt_vrest(), derive_tau(),
@@ -1746,7 +1441,9 @@ def compute_dynamics_r2(model, x_ts, config, device, n_neurons):
     except (FileNotFoundError, TypeError):
         return dict(_DYNAMICS_R2_EMPTY)
 
-    rec = extract_recovered_params(model, ode_params, config, edges=None, x_ts=x_ts,
+    # `edges` is required on a GNN: its tau and V_rest come from the template
+    # readout's update fit, which runs the model's own forward pass.
+    rec = extract_recovered_params(model, ode_params, config, edges=edges, x_ts=x_ts,
                                    device=device, n_neurons=n_neurons,
                                    need=("tau", "V_rest"))
     return _dynamics_dict_from(rec, config)
@@ -1857,66 +1554,6 @@ def compute_jacobian_connectivity_r2(model, x_ts, ode_params, n_neurons, device,
 # ------------------------------------------------------------------ #
 #  Reversal potential recovery (conductance datasets only)
 # ------------------------------------------------------------------ #
-
-def _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts):
-    """The GNN branch of :func:`compute_reversal_metrics` -- same dict, read out
-    of the learned message rather than off a parameter.
-
-    Returns None when the extraction produced too few usable edges, which is the
-    same signal the parameter path uses: no panel, no bar entry, rather than a
-    number nothing stands behind.
-    """
-    import numpy as np
-
-    ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
-    true = to_numpy(ode_params.reversal_per_edge()).ravel()
-    learned = ext['E_pooled']
-
-    n = int(min(true.size, learned.size))
-    true, learned = true[:n], learned[:n]
-    ok = np.isfinite(true) & np.isfinite(learned)
-    if ok.sum() < 2:
-        return None
-    true_ok, learned_ok = true[ok], learned[ok]
-
-    m = recovery_param_metrics(true_ok, learned_ok)
-    w_true = to_numpy(ode_params.W).ravel()[:ext['W'].size]
-    w_fit = r2_up_to_scale(w_true, ext['W'])
-
-    # The per-neuron reversals the granularity-adaptive panel draws. The
-    # extraction already pools each postsynaptic neuron's incoming edges by the
-    # sign of E, so E_exc/E_inh are the same two numbers per cell the known-ODE
-    # student stores -- just estimated rather than parameterised.
-    type_index = (to_numpy(core.type_index).ravel()
-                  if getattr(core, "type_index", None) is not None else None)
-    _dst = to_numpy(ode_params.edge_index[1]).ravel()
-    per_neuron = dict(
-        true_exc=to_numpy(ode_params.E_exc).ravel(),
-        true_inh=to_numpy(ode_params.E_inh).ravel(),
-        learned_exc=ext['E_exc'],
-        learned_inh=ext['E_inh'],
-        type_index=type_index,
-    )
-    if type_index is not None:
-        per_neuron["edge_type"] = type_index[_dst % type_index.size]
-    _targeted = np.zeros(per_neuron["true_exc"].size, dtype=bool)
-    _targeted[np.unique(_dst) % _targeted.size] = True
-    per_neuron["targeted"] = _targeted
-
-    return {
-        "rmse": float(np.sqrt(np.mean((learned_ok - true_ok) ** 2))),
-        "r2": float(m["r2"]),
-        "slope": float(m["slope"]),
-        "n_edges": int(true_ok.size),
-        "true": true_ok,
-        "learned": learned_ok,
-        "fit_r2_median": float(np.nanmedian(ext['fit_r2'])),
-        "pct_wrong_slope": ext.get("pct_wrong_slope", float("nan")),
-        "w_r2_scaled": float(w_fit['r2']),
-        "w_scale": float(w_fit['scale']),
-        **per_neuron,
-    }
-
 
 # How many frames the msg_i panel is evaluated on. THE SAME FRAMES EVERY TIME --
 # evenly spaced over the recording by linspace, not sampled -- because the point
@@ -2118,24 +1755,9 @@ def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=No
       n_edges how many edges entered the comparison
       true, learned   the two (n_edges,) numpy arrays, for the scatter
 
-    TWO WAYS OF GETTING `learned`, chosen by what the model is. The known-ODE
-    student holds E as a named parameter and `get_learned_reversal_per_edge`
-    reads it. THE GNN HOLDS NO SUCH PARAMETER -- its message is
-    `W_gnn * g_phi(v_j, a_j, v_i, a_i)^2` and E is implicit in the shape of the
-    MLP -- so when `config`, `edges` and `x_ts` are supplied it falls back to
-    :func:`extract_conductance_params_from_gnn`, which reads E out as the
-    zero-crossing in v_i of the message divided by v_j. That path adds two keys:
-
-      fit_r2_median  median per-edge R2 of the straight line the extraction
-                     assumes. THIS IS THE PRECONDITION, not a detail: below
-                     roughly 0.9 the message is not affine in v_i, the GNN has
-                     not found the conductance form, and the E and W beside it
-                     describe nothing.
-      w_r2_scaled / w_scale   R2 of the extracted W against the true W after
-                     dividing out the one global gain the GNN cannot pin down
-                     (see :func:`r2_up_to_scale`), and the gain that was divided
-                     out. The slope after that is 1 by construction, so it is not
-                     reported.
+    ONLY MODELS THAT HOLD E AS A NAMED PARAMETER (the known-ODE student, read by
+    `get_learned_reversal_per_edge`). A GNN's E_ij comes from the template readout,
+    :func:`extract_template_params`; this returns None for it.
 
     Returns None when either side has no reversals.
     """
@@ -2146,10 +1768,10 @@ def compute_reversal_metrics(model, ode_params, config=None, edges=None, x_ts=No
         return None
     # Under torch.compile the parameters live on the wrapped module.
     core = getattr(model, "_orig_mod", model)
+    # A GNN holds no reversal parameter; its E_ij is the template readout's
+    # (extract_template_params), so there is nothing to read here.
     if not hasattr(core, "get_learned_reversal_per_edge"):
-        if config is None or edges is None or x_ts is None:
-            return None
-        return _reversal_metrics_from_gnn(core, ode_params, config, edges, x_ts)
+        return None
 
     with torch.no_grad():
         true = to_numpy(gt_rev()).ravel()
@@ -2238,153 +1860,6 @@ def compute_grad_msg(model, in_features, config):
     )[0]
 
     return grad.squeeze().detach()
-
-
-# ------------------------------------------------------------------ #
-#  Corrected weights
-# ------------------------------------------------------------------ #
-
-def compute_corrected_weights(model, edges, slopes_f_theta, slopes_g_phi, grad_msg):
-    """Compute corrected W_ij from raw W, slopes, and grad_msg.
-
-    Formula:
-        corrected_W_ij = -W_ij / slope_phi[i] * grad_msg[i] * slope_edge[j]
-
-    Args:
-        model: model with .W, .n_edges, .n_extra_null_edges attributes.
-        edges: (2, E) edge index tensor.
-        slopes_f_theta: (N,) array/tensor of f_theta slopes per neuron.
-        slopes_g_phi: (N,) array/tensor of g_phi slopes per neuron.
-        grad_msg: (N,) tensor of d(f_theta)/d(msg) per neuron.
-
-    Returns:
-        corrected_W: (E, 1) tensor of corrected weights.
-    """
-    device = get_model_W(model).device
-
-    # Convert to tensors if needed
-    if not isinstance(slopes_f_theta, torch.Tensor):
-        slopes_f_theta = torch.tensor(slopes_f_theta, dtype=torch.float32, device=device)
-    if not isinstance(slopes_g_phi, torch.Tensor):
-        slopes_g_phi = torch.tensor(slopes_g_phi, dtype=torch.float32, device=device)
-
-    n_w = model.n_edges + model.n_extra_null_edges
-
-    # Map edges to neuron indices (handles batched edges via modulo)
-    target_neuron_ids = edges[1, :] % n_w   # i — post-synaptic
-    prior_neuron_ids = edges[0, :] % n_w    # j — pre-synaptic
-
-    slopes_phi_per_edge = slopes_f_theta[target_neuron_ids]     # (E,)
-    slopes_edge_per_edge = slopes_g_phi[prior_neuron_ids]    # (E,)
-    grad_msg_per_edge = grad_msg[target_neuron_ids]             # (E,)
-
-    W = get_model_W(model)  # (E, 1)
-
-    corrected_W = (-W
-                   / slopes_phi_per_edge[:, None]
-                   * grad_msg_per_edge.unsqueeze(1)
-                   * slopes_edge_per_edge.unsqueeze(1))
-
-    # Sanitize: division by near-zero slopes can produce inf/nan
-    corrected_W = torch.nan_to_num(corrected_W, nan=0.0, posinf=0.0, neginf=0.0)
-
-    return corrected_W
-
-
-def compute_all_corrected_weights(model, config, edges, x_ts, device,
-                                   n_grad_frames=8, ode_params=None):
-    """High-level: compute corrected W from model state and training data.
-
-    Uses model-specific g_phi fitting via ode_params to extract the per-neuron
-    correction factor (ReLU slope for flyvis, softplus gain for CX, etc.).
-
-    Args:
-        model: NeuralGNN model.
-        config: full config object.
-        edges: (2, E) edge index tensor.
-        x_ts: NeuronTimeSeries (training data).
-        device: torch device.
-        n_grad_frames: number of frames to sample for grad_msg (default 8).
-        ode_params: ODEParamsBase instance for model-specific g_phi fitting.
-
-    Returns:
-        corrected_W: (E, 1) tensor of corrected weights.
-        slopes_f_theta: (N,) numpy array.
-        g_phi_correction: (N,) numpy array — per-neuron factor used for W correction.
-        offsets_f_theta: (N,) numpy array.
-        g_phi_fitted: dict — all fitted g_phi params (model-specific).
-    """
-    n_neurons = model.a.shape[0]
-    edges = edges.to(device)
-
-    # 1. Activity statistics
-    mu_activity, sigma_activity = compute_activity_stats(x_ts, device)
-
-    # 2. g_phi correction factor per presynaptic neuron j
-    if is_general_form_gnn(config.graph_model.signal_model_name):
-        # g_phi depends on both endpoints here (vi, vj, ai, aj) — a
-        # synthetic vi=0 domain sweep isn't representative, so this uses
-        # real (edge, frame) local slopes instead. See
-        # compute_g_phi_correction_conductance for the method and the
-        # comparison that selected it.
-        slopes = compute_g_phi_correction_conductance(model, config, edges, x_ts, n_neurons)
-        g_phi_fitted = {'correction': slopes, 'slopes': slopes}
-    else:
-        v_ranges, g_phi_curves, valid = evaluate_g_phi_curves(
-            model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
-
-        if ode_params is not None:
-            g_phi_fitted = ode_params.fit_g_phi_curves(v_ranges, g_phi_curves)
-        else:
-            # Fallback: linear slope (legacy behavior)
-            rr_t = torch.tensor(v_ranges, dtype=torch.float32)
-            func_t = torch.tensor(g_phi_curves, dtype=torch.float32)
-            slopes, _ = _vectorized_linear_fit(rr_t, func_t)
-            slopes[~valid] = 1.0
-            g_phi_fitted = {'correction': slopes, 'slopes': slopes}
-
-        g_phi_fitted['correction'][~valid] = 1.0
-
-    g_phi_correction = g_phi_fitted['correction']
-
-    # 3. f_theta slopes
-    slopes_f_theta, offsets_f_theta = extract_f_theta_slopes(
-        model, config, n_neurons, mu_activity, sigma_activity, device)
-
-    # 4. Compute grad_msg over multiple frames and take median
-    n_frames = x_ts.voltage.shape[0]
-    frame_indices = np.linspace(n_frames // 10, n_frames - 100, n_grad_frames, dtype=int)
-    data_id = torch.zeros((n_neurons, 1), dtype=torch.int, device=device)
-
-    was_training = model.training
-    model.eval()
-
-    grad_list = []
-    for k in frame_indices:
-        state = x_ts.frame(int(k)).to(device)
-        with torch.no_grad():
-            _, in_features, _ = model(state, edges, data_id=data_id, return_all=True)
-        grad_k = compute_grad_msg(model, in_features, config)
-        grad_list.append(grad_k)
-
-    if was_training:
-        model.train()
-
-    # Median on CPU: torch.median on CUDA also returns tie-break indices, which
-    # have no deterministic implementation, so under
-    # use_deterministic_algorithms(True) the GPU call raises. Only .values is
-    # used here and the values themselves are well-defined, so the reduction
-    # moves to CPU rather than being excused with warn_only. This is a
-    # diagnostic path (weight correction for the R^2 checkpoint), a few frames
-    # x n_neurons, so the transfer is not on the training hot path -- but it
-    # does feed W_corrected_R2, which is why it must not be left nondeterministic.
-    grad_msg = torch.stack(grad_list).cpu().median(dim=0).values.to(device)  # (N,)
-
-    # 5. Corrected weights using model-specific g_phi correction
-    corrected_W = compute_corrected_weights(
-        model, edges, slopes_f_theta, g_phi_correction, grad_msg)
-
-    return corrected_W, slopes_f_theta, g_phi_correction, offsets_f_theta, g_phi_fitted
 
 
 # ------------------------------------------------------------------ #
@@ -2635,66 +2110,30 @@ def best_observed_match(
 # Panels become consumers of the arrays rather than producers of the metric.
 #
 #
-# ESTIMATORS. What "the learned W" means depends on where W sits in the model.
+# ESTIMATORS. What "the learned W" means depends on where W sits in the model,
+# and so does tau, V_rest and E_ij: one route per model, chosen by
+# resolve_W_estimator.
 #
-#   direct          W is a named parameter. Known-ODE / linear. W**2 under
-#                   w_squared, since there the stored value is sqrt(conductance).
+#   direct          W, tau, V_rest (and E_ij on conductance data) are named
+#                   parameters. Known-ODE / linear. W**2 under w_squared, since
+#                   there the stored value is sqrt(conductance); tau =
+#                   softplus(raw_tau); E_ij = where(edge_is_inh, E_inh[dst],
+#                   E_exc[dst]) through get_learned_reversal_per_edge().
 #
-#   gain_corrected  W reaches dv/dt through two learned functions, so the gains
-#                   they apply must be divided out:
-#
-#                       msg_i    = sum_j W_ij * g_phi(v_j, ...)
-#                       dv_i/dt  = f_theta(v_i, a_i, msg_i, ...)
-#
-#                       corrected_W_ij = -W_ij / slope_f_theta[i]
-#                                               * grad_msg[i]
-#                                               * slope_g_phi[j]
-#
-#                   slope_g_phi[j]   = d g_phi / d v_j at the presynaptic neuron;
-#                   grad_msg[i]      = d f_theta / d msg_i;
-#                   slope_f_theta[i] = d f_theta / d v_i, the leak, ~ -1/tau_i.
-#                   The two f_theta terms form a RATIO, so tau cancels -- which is
-#                   why a W error under this estimator does not track tau_i
-#                   (measured on a conductance known-ODE: corr = +0.014).
-#
-#   edge_line_fit   Conductance data. The generator's message is affine in v_i,
-#                   so dividing it by v_j leaves a straight line per edge:
-#
-#                       msg_ij / v_j = W_ij * (E_i - v_i)
-#                       slope = -W_ij,   intercept = W_ij * E_i
-#
-#                   Gated: the median per-edge R2 of that line is the test that
-#                   the message has the conductance form at all. Below
-#                   recovery.gate_fit_r2 the W and E beside it describe nothing.
+#   template        A GNN (any model with a g_phi). The generator's own closed form
+#                   fitted to the model's message per edge, W_ij * act(v_j) *
+#                   (E_ij - v_i) + C_ij on conductance data and W_ij * act(v_j) +
+#                   C_ij on current data, and its update per neuron, a0 + a1 v_i +
+#                   a2 msg_i + a3 stim_i, which gives tau, V_rest and the gauge k_i
+#                   that carries W into the generator's units. See the block comment
+#                   above extract_template_params.
 #
 #   jacobian        MLP baseline, no explicit W. Effective connectivity from
 #                   dF/dv averaged over frames.
 #
-#
-# tau AND V_rest. Two estimators, and which one ran has never been recorded.
-#
-#   direct          Named parameters. tau = softplus(raw_tau), V_rest = V_rest.
-#
-#   f_theta_slope   A GNN buries both inside f_theta, but the local linearisation
-#                   dv_i/dt ~ slope_i * v_i + offset_i recovers them:
-#
-#                       tau_i    = -1 / slope_i          (clipped to [0, 1])
-#                       V_rest_i = -offset_i / slope_i
-#
-#                   slope_i and offset_i come from extract_f_theta_slopes. The
-#                   clip and the slope==0 guard are why a degenerate fit returns
-#                   tau = 1.0 rather than an infinity.
-#
-#
-# E_ij. Conductance-generated data only. None elsewhere, which is information --
-# a current generator has no reversal potential to recover -- not a failure.
-#
-#   direct          get_learned_reversal_per_edge(): a named parameter,
-#                   where(edge_is_inh, E_inh[dst], E_exc[dst]).
-#
-#   edge_line_fit   The same line as the W estimator above, read from the other
-#                   end: E_ij = -intercept / slope. W and E come from ONE fit and
-#                   so cannot disagree about it.
+# The GNN's former estimator, the gain-correction chain (W divided by the gains of
+# g_phi and f_theta, tau and V_rest from the f_theta slope, E_ij from a per-edge
+# line in v_i), was removed on 2026-10-13.
 #
 #
 # msg_i. One path, no estimator, no family branch -- the reason it is the model
@@ -2750,25 +2189,23 @@ def _is_conductance_data(ode_params) -> bool:
 
 
 def resolve_W_estimator(model, ode_params, config) -> str:
-    """Which W estimator this run uses. `auto` reads the model's family tag and
-    the dataset's generator; an explicit config value overrides."""
-    from connectome_gnn.models.utils import model_family
+    """Which readout this run uses, read off the model alone.
 
-    mode = getattr(getattr(config, "recovery", None), "W_mode", "auto")
-    mode = getattr(mode, "value", mode)
-    if mode != "auto":
-        return mode
+    "template" for a GNN with a g_phi (:func:`extract_template_params`), "direct"
+    for every model whose W, tau and V_rest are named parameters (the known-ODE,
+    also when it is trained on a teacher and tagged "gnn"), "jacobian" for the MLP
+    baseline. The gain-correction chain, the GNN's former estimator, was removed
+    on 2026-10-13: the template readout had superseded it for every reported
+    number, and only the plot pass's clustering features still came from it.
+    """
+    from connectome_gnn.models.utils import model_family
 
     family = model_family(model)
     if family == "mlp":
         return "jacobian"
-    if family in ("linear", "known_ode"):
-        return "direct"
-    # A GNN has no named W in the units of ode_params.W. On conductance data the
-    # per-edge line fit matches the generative form exactly and carries its own
-    # goodness-of-fit; on current data there is no (E - v_i) term to fit, so the
-    # gain correction is the only option.
-    return "edge_line_fit" if _is_conductance_data(ode_params) else "gain_corrected"
+    if family == "gnn" and hasattr(getattr(model, "_orig_mod", model), "g_phi"):
+        return "template"
+    return "direct"
 
 
 class _Pair(tuple):
@@ -3111,25 +2548,34 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
     `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
     `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
-    rec = RecoveredParams()
-    # THE RUN-LEVEL DESCRIPTOR, set here and overwritten by
-    # `extract_template_params` when it runs on top of this object. One word for
-    # the whole readout, beside the per-quantity `<key>_estimator` strings: those
-    # name the fit, this names which of the two routes the run took. It reaches
-    # metrics.txt and the `#` header of every tmp_training/<key>.log.
-    rec.diagnostics["readout"] = "chain"
     if ode_params is None:
-        return rec
+        return RecoveredParams()
     if n_neurons is None:
         n_neurons = int(getattr(model, "a", np.zeros((0, 0))).shape[0]) or None
 
     estimator = resolve_W_estimator(model, ode_params, config)
+    # A GNN IS READ BY THE TEMPLATE READOUT AND NOTHING ELSE. It needs the edges
+    # and real frames -- the per-edge fit evaluates g_phi on recorded voltages and
+    # the update fit runs the model's own forward pass -- so a caller without them
+    # gets an error, not a quieter estimator. A failure is NOT caught here: there
+    # is no second estimator left to fall back to, and the callers' handlers turn
+    # it into a ReadoutError.
+    if estimator == "template":
+        if edges is None or x_ts is None:
+            raise ValueError("extract_recovered_params: a GNN is read by the template "
+                             "readout, which needs `edges` and `x_ts`")
+        return extract_template_params(model, ode_params, config=config, edges=edges,
+                                       x_ts=x_ts, device=device, n_neurons=n_neurons)
+
+    rec = RecoveredParams()
+    # THE RUN-LEVEL DESCRIPTOR beside the per-quantity `<key>_estimator` strings:
+    # those name the fit, this names the route. It reaches metrics.txt and the `#`
+    # header of every tmp_training/<key>.log. "template" is set by
+    # extract_template_params; the direct and Jacobian routes are named here.
+    rec.diagnostics["readout"] = estimator
     try:
         if estimator == "direct":
             _extract_direct(rec, model, ode_params, edges, n_neurons)
-        elif estimator in ("gain_corrected", "edge_line_fit"):
-            _extract_gnn(rec, model, ode_params, config, edges, x_ts, device,
-                         n_neurons, estimator, need)
         else:
             # jacobian: the MLP baseline's effective connectivity. Left to its
             # existing caller rather than moved, because it compares a dense
@@ -3379,82 +2825,22 @@ def _template_gauge(model, config, ode_params, edges, x_ts, n_neurons, device,
     return dfdmsg * tau, dfdmsg, tau, autograd_dfdmsg
 
 
-def template_readout_enabled(config, model) -> bool:
-    """Whether the template readout supersedes the correction chain for this run.
-
-    ONE PREDICATE, not one per caller. The trainer reads it at every checkpoint
-    for the progress bar and tmp_training/<key>.log, and GNN_PlotFigure reads it
-    for results/; if the two ever disagreed, a run's trajectory and its final
-    numbers would describe different estimators and only the disagreement would
-    be visible.
-
-    GNNs with a g_phi only. `model_family` defaults to "gnn" for anything without
-    a MODEL_FAMILY tag, and the conductance known-ODE carries that tag while
-    having no g_phi at all -- there is no per-edge message to fit a template to,
-    and its parameters are direct. `recovery.readout: chain` opts a run out.
-    """
-    from connectome_gnn.models.utils import model_family
-    if chain_readout_requested(config):
-        return False
-    core = getattr(model, "_orig_mod", model)
-    return model_family(model) == "gnn" and hasattr(core, "g_phi")
-
-
-def chain_readout_requested(config) -> bool:
-    """Did this run ASK for the gain-correction chain, in writing?
-
-    The difference that matters is between a run configured for the chain and a
-    run that fell back to it. Both used to end with chain numbers under the
-    template's column names; only the first is a result. `recovery.readout:
-    chain` in the yaml is the only way to be in the first case.
-    """
-    return getattr(getattr(config, "recovery", None), "readout", "template") != "template"
-
-
 class ReadoutError(RuntimeError):
-    """The template readout failed on a run that did not ask for the chain.
+    """The template readout failed.
 
     Its own class so the broad `except Exception` handlers that wrap extraction
     -- there to keep a failed diagnostic from killing a training run -- can let
-    this one through. A diagnostic that fails is a missing number; a readout
-    that silently changes is a wrong one.
+    this one through. A diagnostic that fails is a missing number; a run whose
+    readout fails has no recovered parameters at all, and there is no second
+    estimator to fall back to.
     """
-
-
-def require_template_readout(config, exc, where: str):
-    """Re-raise unless the run opted into the chain. Called from the `except` of
-    every template-readout call site.
-
-    THE FALLBACK USED TO BE SILENT AND THE NUMBERS KEPT THEIR NAMES. A checkpoint
-    whose template fit raised wrote the chain's W, E_ij, tau and V_rest into the
-    same tmp_training/<key>.log columns, under a logger.warning nobody reads, and
-    the row was indistinguishable from the 60 template rows above it. A run may
-    not change estimator halfway through without saying so, and the only way to
-    guarantee a log describes one readout is to stop when it cannot.
-    """
-    if chain_readout_requested(config):
-        # This module prints rather than logging -- it is called from the
-        # training loop, from test_plot and from the tests, and the one place
-        # all three are read is the terminal.
-        print(f"\033[91mtemplate readout unavailable at {where}, and "
-              f"recovery.readout is not 'template' -- keeping the "
-              f"gain-correction chain: {type(exc).__name__}: {exc}\033[0m")
-        return
-    raise ReadoutError(
-        f"template readout failed at {where}: {type(exc).__name__}: {exc}. "
-        "Refusing to fall back to the gain-correction chain, which would write "
-        "different numbers under the same <key>_* names. Set recovery.readout: "
-        "chain in the config to ask for the chain deliberately."
-    ) from exc
-
 
 
 def extract_template_params(model, ode_params, config=None, edges=None, x_ts=None,
                             device=None, n_neurons=None, n_frames=1024, seed=0,
                             vj_quantile=0.5, min_points=8, gauge_tau="model",
                             gauge_frames=8, w_from="pooled_E",
-                            t_slope=3.0, update_frames=64,
-                            base: RecoveredParams = None) -> RecoveredParams:
+                            t_slope=3.0, update_frames=64) -> RecoveredParams:
     """W_ij and E_ij read out of the model by fitting the generator's own form.
 
     The twin of :func:`extract_recovered_params` for the two edge quantities; see
@@ -3496,30 +2882,15 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             clear before the edge reports a reversal at all.
         update_frames: frames for the per-neuron update fit that yields tau,
             V_rest and the gauge. Capped by n_frames.
-        base: a RecoveredParams from :func:`extract_recovered_params` to start
-            from. The template readout produces W, E_ij, tau and V_rest; msg_i,
-            the gain/bias of a linear model and the f_theta diagnostics the
-            panels draw come only from the chain, so handing the chain's result
-            in here returns ONE object carrying both rather than two that
-            disagree about which is authoritative. Everything the template
-            produces overrides.
     """
     core = getattr(model, "_orig_mod", model)
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)
     device = core.a.device if device is None else device
     cond = _is_conductance_data(ode_params)
-    if base is None:
-        rec = RecoveredParams()
-    else:
-        # A COPY, not the caller's object: the chain's result is still what
-        # results/metrics.txt is written from in some call sites, and silently
-        # mutating it would make the two files differ by call order.
-        rec = RecoveredParams(pairs=dict(base.pairs), estimator=dict(base.estimator),
-                              correction=dict(base.correction), valid=dict(base.valid),
-                              diagnostics=dict(base.diagnostics))
+    rec = RecoveredParams()
     # This function is the two-form readout; reaching its body IS the fact the
     # descriptor records. Set before anything can fail, because a partial
-    # template extraction that raises is caught by require_template_readout and
+    # template extraction that raises becomes a ReadoutError at the call site and
     # takes the run down -- it never leaves a half-labelled object behind.
     rec.diagnostics["readout"] = "template"
 
@@ -4433,9 +3804,9 @@ def recovery_log_append(log_dir, iteration, scored):
         cols = recovery_log_columns(key)
         # THE SAME DESCRIPTOR metrics.txt CARRIES, on the trajectory that led to
         # it: `<key>_estimator` and `<key>_correction`, plus the run's readout.
-        # Written on the first row only -- the readout cannot change mid-run now
-        # that require_template_readout raises rather than falling back, so one
-        # line describes every row beneath it.
+        # Written on the first row only -- the readout cannot change mid-run
+        # (a failed template readout raises; there is nothing to fall back to),
+        # so one line describes every row beneath it.
         _note = "; ".join(
             f"{c}={scored[c]}" for c in ("readout", f"{key}_estimator",
                                          f"{key}_correction") if c in scored)
@@ -4648,98 +4019,6 @@ def cluster_recovery_variants(type_list, edges, n_neurons, learned_W=None, learn
         for k, v in res.items():
             out[f"clustering_{variant}_{k[len('clustering_'):]}"] = v
     return out
-
-
-def _extract_gnn(rec, model, ode_params, config, edges, x_ts, device, n_neurons,
-                 estimator, need):
-    """A GNN keeps no parameter in the units of ode_params.W, so every quantity
-    here is inferred. See the block comment above for the two W estimators and the
-    f_theta-slope inversion that yields tau and V_rest."""
-    core = getattr(model, "_orig_mod", model)
-    gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
-
-    # Only when W is actually wanted: effective_true_weights needs the edge index,
-    # and a caller asking for tau alone (the trainer's per-checkpoint dynamics
-    # pass) legitimately has none to give.
-    want_W = "W" in need and edges is not None
-    gt_W = None
-    if want_W and getattr(ode_params, "W", None) is not None:
-        gt_W = np.asarray(ode_params.effective_true_weights(
-            to_numpy(ode_params.W), to_numpy(edges), n_neurons))
-
-    if want_W and estimator == "edge_line_fit":
-        ext = extract_conductance_params_from_gnn(core, config, edges, x_ts)
-        fit_r2 = float(np.nanmedian(ext["fit_r2"]))
-        rec.diagnostics["msg_form_r2_median"] = fit_r2
-        rec.diagnostics["Eij_pct_wrong_slope"] = ext.get("pct_wrong_slope", float("nan"))
-        # Below the gate the message is not affine in v_i, so the W and E the
-        # line produced describe nothing. Recorded as invalid rather than
-        # dropped: "we measured and it failed" is not "we did not measure".
-        ok = fit_r2 >= gate
-        rec.pairs["W"] = _pair(gt_W, ext["W"])
-        rec.estimator["W"] = "edge_line_fit"
-        rec.diagnostics["_W_learned_full"] = np.asarray(to_numpy(ext["W"])).ravel()
-        rec.correction["W"] = "msg_ij / v_j = W_ij * (E_i - v_i); W_ij = -slope"
-        rec.valid["W"] = ok
-        if "E_ij" in need and _is_conductance_data(ode_params):
-            rec.pairs["E_ij"] = _pair(ode_params.reversal_per_edge(), ext["E"])
-            rec.estimator["E_ij"] = "edge_line_fit"
-            rec.correction["E_ij"] = "E_ij = -intercept / slope, the same line as W"
-            rec.valid["E_ij"] = ok
-
-    elif want_W and estimator == "gain_corrected":
-        corrected_W, slopes_f, g_phi_corr, offsets_f, _ = compute_all_corrected_weights(
-            core, config, edges, x_ts, device, ode_params=ode_params)
-        rec.pairs["W"] = _pair(gt_W, to_numpy(corrected_W).squeeze())
-        rec.estimator["W"] = "gain_corrected"
-        rec.diagnostics["_W_learned_full"] = to_numpy(corrected_W).squeeze().ravel()
-        rec.correction["W"] = "g_phi[j] * dftheta_dmsg[i] / dftheta_dv[i]"
-        # The uncorrected parameter, for the comparison that says how much of the
-        # recovery the correction is responsible for.
-        rec.pairs["W_uncorrected"] = _pair(gt_W, to_numpy(get_model_W(core)).squeeze())
-        rec.diagnostics["_slopes_f_theta"] = slopes_f
-        rec.diagnostics["_offsets_f_theta"] = offsets_f
-        rec.diagnostics["_g_phi_correction"] = g_phi_corr
-
-    # tau and V_rest come out of the SAME f_theta linearisation, so they are
-    # derived together from one slope fit rather than two.
-    if ("tau" in need or "V_rest" in need) and x_ts is not None:
-        slopes = rec.diagnostics.get("_slopes_f_theta")
-        offsets = rec.diagnostics.get("_offsets_f_theta")
-        if slopes is None:
-            mu, sigma = compute_activity_stats(x_ts, device)
-            slopes, offsets = extract_f_theta_slopes(core, config, n_neurons,
-                                                    mu, sigma, device)
-        # ode_params.derive_tau, NOT the module-level derive_tau: the inversion is
-        # family-specific and the two disagree. CX's f_theta slope is -alpha/tau,
-        # so it divides by alpha and clips to [0, 10], where the module-level
-        # helper assumes -1/slope and clips to [0, 1]. Using the wrong one is
-        # silent -- it returns a plausible number.
-        if "tau" in need and ode_params.has_tau():
-            rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
-                                     ode_params.derive_tau(np.asarray(slopes), n_neurons))
-            rec.estimator["tau"] = "f_theta_slope"
-            rec.correction["tau"] = "tau_i from dftheta_dv[i], per ode_params.derive_tau"
-        if "V_rest" in need and ode_params.has_vrest():
-            rec.pairs["V_rest"] = _pair(
-                ode_params.gt_vrest(n_neurons),
-                ode_params.derive_vrest(np.asarray(slopes), np.asarray(offsets), n_neurons))
-            rec.estimator["V_rest"] = "f_theta_slope"
-            rec.correction["V_rest"] = "V_rest_i = -offset_i / dftheta_dv[i]"
-
-    # E_ij under gain_corrected still comes from the line fit, which is the only
-    # way to read a reversal out of a GNN; compute_reversal_metrics runs it.
-    if ("E_ij" in need and "E_ij" not in rec.pairs
-            and _is_conductance_data(ode_params)):
-        _rev = compute_reversal_metrics(core, ode_params, config=config,
-                                        edges=edges, x_ts=x_ts)
-        if _rev is not None:
-            rec.pairs["E_ij"] = _pair(_rev["true"], _rev["learned"])
-            rec.estimator["E_ij"] = "edge_line_fit"
-            if "fit_r2_median" in _rev:
-                rec.diagnostics["msg_form_r2_median"] = _rev["fit_r2_median"]
-                rec.diagnostics["Eij_pct_wrong_slope"] = _rev.get("pct_wrong_slope", float("nan"))
-                rec.valid["E_ij"] = _rev["fit_r2_median"] >= gate
 
 
 # --------------------------------------------------------------------------- #

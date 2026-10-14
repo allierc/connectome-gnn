@@ -130,10 +130,6 @@ def test_known_ode_models_route_to_the_linear_plotter():
     assert FlyvisKnownODE.MODEL_FAMILY == "linear"
 
 
-def _cfg(readout="template"):
-    return type("C", (), {"recovery": type("R", (), {"readout": readout})()})()
-
-
 def test_every_key_log_names_the_readout_that_wrote_it(tmp_path):
     """A `<key>.log` is the trajectory a sweep is read on, and `Wij_R2` means a
     different quantity under each readout -- per-edge least squares in the
@@ -157,14 +153,16 @@ def test_metrics_txt_leads_with_the_readout():
     assert metrics_lines({"readout": "template", "Wij_R2": 0.9})[0] == "readout: template"
 
 
-def test_template_readout_failure_is_fatal_unless_the_chain_was_requested():
-    """The fallback used to keep the chain's numbers under the template's column
-    names, mid-file, behind a logger.warning. A run may not change estimator
-    halfway through; only `recovery.readout: chain` may choose the chain."""
-    from connectome_gnn.metrics import ReadoutError, require_template_readout
-    with pytest.raises(ReadoutError):
-        require_template_readout(_cfg("template"), ValueError("boom"), "checkpoint 1")
-    require_template_readout(_cfg("chain"), ValueError("boom"), "checkpoint 1")
+def test_template_readout_needs_edges_and_frames():
+    """There is no second estimator: a GNN without the inputs the template readout
+    needs is an error, not a quieter answer."""
+    from connectome_gnn.metrics import extract_recovered_params
+
+    class _Gnn:
+        MODEL_FAMILY = "gnn"
+        g_phi = object()
+    with pytest.raises(ValueError):
+        extract_recovered_params(_Gnn(), object(), None, edges=None, x_ts=None)
 
 
 def test_w_squared_init_preserves_the_effective_weight(tmp_path):

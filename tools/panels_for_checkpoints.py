@@ -8,7 +8,7 @@ fills the second gap: for every checkpoint under models/, it runs the readout an
 writes the three panels under the checkpoint's own iteration, beside the ones
 training produced.
 
-Everything is the production path -- extract_recovered_params,
+Everything is the production path --
 extract_template_params, score_recovery, plot_recovery_panels,
 plot_reversal_scatter, analyse_neurons -- called the way graph_trainer calls it,
 so a panel written here and one written during training are the same figure.
@@ -91,12 +91,9 @@ def main(argv=None) -> int:
         model.eval()
         model.edges = edges
 
-        rec = M.extract_recovered_params(
-            model, op, cfg, edges=edges, x_ts=x_ts, device=dev, n_neurons=n_neurons,
-            need=("W", "tau", "V_rest", "E_ij", "msg_i"))
         rec = M.extract_template_params(
             model, op, config=cfg, edges=edges, x_ts=x_ts, device=dev,
-            n_neurons=n_neurons, base=rec)
+            n_neurons=n_neurons)
         scored = M.score_recovery(rec, cfg)
 
         # Wij, the corrected pair, grouped by the PRESYNAPTIC type as the

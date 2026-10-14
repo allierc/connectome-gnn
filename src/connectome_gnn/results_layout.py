@@ -182,7 +182,7 @@ EXTRAS_FIRST = ("neuron_type_reconstruction",)
 # metrics.txt is deliberately NOT here -- data_plot rewrites it from scratch and
 # appends as it goes, so leaving the previous run's copy would silently produce a
 # file holding two runs' numbers with nothing marking the boundary.
-KEEP_ALWAYS = ("corrected_W.pt", "learned_ode_params.pt", "test_metrics.npz")
+KEEP_ALWAYS = ("learned_ode_params.pt", "test_metrics.npz")
 
 
 def is_headline(name) -> bool:

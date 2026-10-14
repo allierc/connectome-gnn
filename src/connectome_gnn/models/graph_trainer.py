@@ -22,7 +22,7 @@ from tqdm import trange
 
 from connectome_gnn.figure_style import default_style
 from connectome_gnn.log import get_logger
-from connectome_gnn.metrics import compute_dynamics_r2, fmt_r2_bar
+from connectome_gnn.metrics import fmt_r2_bar, get_model_W
 from connectome_gnn.models.neural_ode_wrapper import (
     debug_check_gradients,
 )
@@ -915,41 +915,27 @@ def data_train_gnn(config, erase, best_model, device, log_file=None, resume=Fals
                 # produces the (gt, learned) pair once, score_recovery scores it,
                 # and the panels consume the same arrays.
                 from connectome_gnn.metrics import (
-                    extract_recovered_params, extract_template_params,
-                    require_template_readout, score_recovery,
-                    template_readout_enabled)
-                _rec = extract_recovered_params(
-                    model, ode_params, config, edges=edges, x_ts=x_ts,
-                    device=device, n_neurons=n_neurons,
-                    need=("W", "tau", "V_rest", "E_ij", "msg_i"))
-                # THE SAME READOUT THE FIGURES USE, at every checkpoint. The
-                # template fit -- the generator's own closed form per edge,
-                # msg_ij = W*act(v_j)*(E - v_i) + C, carried into the generator's
-                # units by k_i = tau_i * dftheta_dmsg_i -- supersedes the
-                # correction chain for W, E_ij, tau and V_rest, and it is what
-                # results/ has reported since GNN_PlotFigure switched. A
-                # progress bar and a tmp_training/<key>.log that disagree with
-                # the final metrics.txt of the same run are worse than either,
-                # because the trajectory in the log is what a sweep is read on.
-                # It EXTENDS the chain's object rather than replacing it: msg_i
-                # and the f_theta diagnostics the training panels draw come only
-                # from there.
-                if template_readout_enabled(config, model):
-                    try:
-                        _rec = extract_template_params(
-                            model, ode_params, config=config, edges=edges,
-                            x_ts=x_ts, device=device, n_neurons=n_neurons,
-                            base=_rec)
-                    except Exception as _exc:
-                        # FATAL unless the run asked for the chain. Falling back
-                        # here rewrote four quantities' meaning mid-file: the
-                        # rows above came from the per-edge template fit, the
-                        # rows below from the gain-correction chain, under the
-                        # same Wij_R2 / Eij_R2 / tau_R2 / V_rest_R2 names and
-                        # with only a logger.warning to say so.
-                        require_template_readout(
-                            config, _exc,
-                            f"training checkpoint {regularizer.iter_count}")
+                    ReadoutError, extract_recovered_params, score_recovery)
+                # THE SAME READOUT THE FIGURES USE, at every checkpoint: on a GNN
+                # with a g_phi, extract_recovered_params IS the template readout
+                # -- the generator's own closed form per edge, msg_ij =
+                # W*act(v_j)*(E - v_i) + C, carried into the generator's units by
+                # k_i = tau_i * dftheta_dmsg_i -- so the progress bar, the
+                # tmp_training/<key>.log rows and the final metrics.txt describe
+                # one estimator. A known-ODE trained on a teacher (tagged "gnn",
+                # no g_phi) is read off its named parameters.
+                # FATAL ON FAILURE. There is no second estimator to fall back to,
+                # and a checkpoint with no recovered parameters would leave a gap
+                # in every tmp_training/<key>.log that reads as a measurement.
+                try:
+                    _rec = extract_recovered_params(
+                        model, ode_params, config, edges=edges, x_ts=x_ts,
+                        device=device, n_neurons=n_neurons,
+                        need=("W", "tau", "V_rest", "E_ij", "msg_i"))
+                except Exception as _exc:
+                    raise ReadoutError(
+                        f"template readout failed at training checkpoint "
+                        f"{regularizer.iter_count}: {type(_exc).__name__}: {_exc}") from _exc
                 _scored = score_recovery(_rec, config)
                 _rec_last = _rec
                 _rec_op = ode_params
