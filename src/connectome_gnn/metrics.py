@@ -2460,6 +2460,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         update_frames: frames for the per-neuron update fit that yields tau,
             V_rest and the gauge. Capped by n_frames.
     """
+    # ---- 1. inputs -----------------------------------------------------------------------------
     core = getattr(model, "_orig_mod", model)                    # the model, unwrapped from torch.compile
     n_neurons = int(core.a.shape[0]) if n_neurons is None else int(n_neurons)   # from the embedding a
     device = core.a.device if device is None else device         # where the model is evaluated
@@ -2476,11 +2477,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     src_all, dst_all = _ends[0], _ends[1]                        # presynaptic j, postsynaptic i
     W_all = to_numpy(get_model_W(core)).ravel().astype(np.float64)   # learned W per edge (W**2 if w_squared)
 
+    # ---- 2. helpers: the per-edge least-squares sums -------------------------------------------
     def _gt(v_):
         return np.asarray(ode_params.gt_g_phi_func(v_), dtype=np.float64).reshape(v_.shape)
 
-    # the constant column is C_ij, the offset g_phi emits at silent input; it
-    # biases V_rest, and leaving it out would tilt the driving force and move E_ij.
+    # columns [u, u*v_i, 1] with u = act(v_j), target the model's message
+    # W_model*g_phi; the 1-column is the offset C_ij g_phi emits at silent input.
     def _sums(u_, vi_, msg_, floor_):
         """The ten per-edge sums (over frames) the normal equations are built from;
         sums add across samples, so frames and edges can be streamed."""
@@ -2516,10 +2518,10 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             return {k_: np.zeros(0) for k_ in _SUM_KEYS}
         return {k_: np.concatenate([p_[k_] for p_ in parts]) for k_ in _SUM_KEYS}
 
-    # the two global quantiles, exact without the (edges x frames) array: the
-    # v_j floor is the out-degree-weighted quantile of the (frames x neurons)
-    # activations, |v_i|'s 99th percentile the in-degree-weighted one.
-
+    # ---- 3. frames and the activity filter -----------------------------------------------------
+    # one draw of n_frames frames shared by every edge; the filter threshold
+    # (floor) is the median positive act(v_j) over (edge, frame) pairs
+    # (out-degree weighted); |v_i|'s 99th percentile is the voltage scale.
     _n_cells = int(x_ts.voltage.shape[1])
     out_deg = np.bincount(src_all, minlength=_n_cells)
     in_deg = np.bincount(dst_all, minlength=_n_cells)
@@ -2531,20 +2533,20 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     _vf = _frame_voltages(x_ts, _fidx, device)                  # (F, N)
     _vf_np = to_numpy(_vf)
 
-    # the activation is the generator's (ode_params), not fitted.
     floor = _pooled_quantile(_gt(_vf_np.astype(np.float64)), out_deg, vj_quantile,
                              positive=True)
     floor = 0.0 if floor is None else floor
     _vi_scale = _pooled_quantile(np.abs(_vf_np), in_deg, 99, percentile=True)
     _vi_scale = float("nan") if _vi_scale is None else _vi_scale
 
-    acc = _block_sums(eid, _vf, floor)
+    acc = _block_sums(eid, _vf, floor)                           # the slow step: g_phi on every edge
     n_used = acc["n"]
     S11, S12, S22 = acc["S11"], acc["S12"], acc["S22"]
     S13, S23, S33 = acc["S13"], acc["S23"], acc["n"]
     S1y, S2y, Syy = acc["S1y"], acc["S2y"], acc["Syy"]
     S3y = acc["S3y"]
 
+    # ---- 4. per-edge fit of the model's own family ---------------------------------------------
     def _solve(mats, rhs, good):
         """Per-edge least squares from stacked normal equations, nan where singular."""
         out = np.full(rhs.shape, np.nan)
@@ -2554,6 +2556,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
 
     with np.errstate(divide='ignore', invalid='ignore'):
         if cond:
+            # conductance data: W*u*(E - v_i) + C, three columns -> b1 = W*E, b2 = -W, b3 = C
             _M = np.stack([np.stack([S11, S12, S13], -1),
                            np.stack([S12, S22, S23], -1),
                            np.stack([S13, S23, S33], -1)], -2)      # (E, 3, 3)
@@ -2564,9 +2567,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             b1, b2, b3 = _b[:, 0], _b[:, 1], _b[:, 2]              # W*E, -W, offset
             W_fit = -b2
             ss_res = Syy - b1 * S1y - b2 * S2y - b3 * S3y
-            # E = b1 / W divides by b2, which is noise where v_i barely moved: an
-            # edge whose b2 is under `t_slope` standard errors (from the same 3x3
-            # normal matrix) reports no reversal.
+            # E only where b2 clears t_slope standard errors (else it is noise)
             sigma2 = np.where(n_used > 3, ss_res / np.maximum(n_used - 3, 1), np.nan)
             _v11 = np.full(n_e, np.nan)
             _v12 = np.full(n_e, np.nan)
@@ -2578,14 +2579,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             t_b2 = np.where(se_b2 > 0, np.abs(b2) / se_b2, np.nan)
             E_fit = np.where((np.abs(W_fit) > 1e-12) & (t_b2 >= t_slope),
                              b1 / W_fit, np.nan)
-            # se(E) by the delta method through b1 and b2, off the same (A'A)^-1:
-            #   var(E) = sigma^2/b2^2 * [V11 + (b1/b2)^2 V22 - 2 (b1/b2) V12].
-            # the t-gate removes the variance failure; a driving-force-free term
-            # D_ij * u lands in b1 and biases E without touching W, which one edge
-            # cannot identify, so |E - E_true| far above se(E) flags it.
-            # the generator's form has W >= 0: where the free fit wants W < 0 the
-            # constraint binds, b2 = 0, and the solution is the current-form fit
-            # on [u, 1] (c1, c3 below).
+            # the W >= 0 constrained solution, and se(E) by the delta method:
+            #   var(E) = sigma^2/b2^2 * [V11 + (b1/b2)^2 V22 - 2 (b1/b2) V12]
             _binds = ~(b2 < 0)                      # free fit wanted W <= 0
             W_nn = np.where(_binds, 0.0, -b2)
             E_nn = np.where(_binds, np.nan, b1 / np.where(_binds, 1.0, -b2))
@@ -2595,8 +2590,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
                 * (_v11 + _ratio ** 2 * _v22 - 2.0 * _ratio * _v12), 0.0))
             se_E = np.where(np.isfinite(E_fit), se_E, np.nan)
         else:
-            # The current family has no driving force, so the form is
-            # W * act(v_j) + offset: two columns, same constant.
+            # current data: W*u + C, two columns -> b1 = W, b3 = C (b2 = 0, kept for shared code)
             _den = S11 * S33 - S13 ** 2
             ok = (n_used >= min_points) & (_den > 0)
             b1 = np.where(ok, (S33 * S1y - S13 * S3y) / _den, np.nan)
@@ -2607,13 +2601,11 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             W_nn, E_nn = b1, np.full(n_e, np.nan)
             _binds = np.zeros(n_e, dtype=bool)
             ss_res = Syy - b1 * S1y - b3 * S3y
-        # uncentred R2 (against zero, not the edge's mean message): a synapse
-        # with no drive must send no message, so zero is the baseline to beat.
+        # per-edge fit R2, uncentred (against zero): no drive must mean no message
         fit_r2 = np.where(ok & (Syy > 0), 1.0 - ss_res / Syy, np.nan)
 
-        # both families' forms on the same message, whatever the model's family:
-        # the current form is the conductance form minus the u*v_i column, so a
-        # conductance model the current form fits as well shows no driving force.
+        # ---- 5. cross-check: both families' forms on the same message ------------------------------
+        # current form [u, 1] (on current data it repeats step 4)
         _den2 = S11 * S33 - S13 ** 2
         ok2 = (n_used >= min_points) & (_den2 > 0)
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -2621,16 +2613,14 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             c3 = np.where(ok2, (S11 * S3y - S13 * S1y) / _den2, np.nan)
         cur_r2 = np.where(ok2 & (Syy > 0), 1.0 - (Syy - c1 * S1y - c3 * S3y) / Syy,
                           np.nan)
-        # R2 of the constrained (W >= 0) conductance form: the free fit's where
-        # the constraint is slack, the current form's where it binds.
+        # constrained (W >= 0) conductance form: the free fit, or the current form where it binds
         cond_nn_r2 = np.where(_binds, cur_r2, fit_r2)
         if cond:
             cond_r2 = fit_r2
             cb1, cb2 = b1, b2
             t_cond = t_b2
         else:
-            # the three-column fit on a current model: does its message carry a
-            # driving force it was never given?
+            # conductance form [u, u*v_i, 1] on current data; t_cond = |slope in v_i| / its SE
             _M3 = np.stack([np.stack([S11, S12, S13], -1),
                             np.stack([S12, S22, S23], -1),
                             np.stack([S13, S23, S33], -1)], -2)
@@ -2651,16 +2641,15 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             _se = np.sqrt(np.maximum(_s2 * _v, 0.0))
             t_cond = np.where(_se > 0, np.abs(cb2) / _se, np.nan)
 
-        # the reversal the conductance form places, whatever the family: on a
-        # current model the form fits at R2 ~1 but puts E far outside the visited
-        # voltages, so |E| relative to |v_i| discriminates where R2 cannot.
-        # b2 -> 0 gives an infinite E, kept (and capped below), not dropped.
+        # the reversal potential E (the postsynaptic voltage where the synaptic current
+        # W*relu(v_j)*(E - v_i) changes sign) the conductance form needs, E = -cb1/cb2;
+        # on current data it lands far outside the visited voltages
         with np.errstate(divide='ignore', invalid='ignore'):
             E_cond_form = np.where(cb2 != 0, -cb1 / cb2, np.inf * np.sign(cb1))
 
-    # the generator gives neuron i one reversal per sender sign, so the per-edge
-    # E of each sign are pooled by median; W = b1 / E_pooled then uses the
-    # well-determined b1 instead of b2, which is noise where v_i barely moves.
+    # ---- 6. conductance data only: E pooled per neuron, W = (W*E) / E_pooled -------------------
+    # one reversal per neuron and sender sign in the generator, so the median of
+    # each sign; W from the well-determined b1 rather than the noisier b2
     E_pooled = np.full(n_e, np.nan)
     if cond:
         good = np.isfinite(E_fit)
@@ -2684,6 +2673,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         pct_slope = 100.0 if cond else float("nan")
         W_used = W_fit
 
+    # ---- 7. per-neuron update fit and the gauge: W into the generator's units ------------------
+    # f_theta ~ a0 + a1 v + a2 msg + a3 I per neuron -> T, V, G, a1 (slope_f), a0 (offset_f)
     T, V_fit, G_fit, update_r2, slope_f, offset_f = _update_template_fit(
         core, config, edges, x_ts, n_neurons, device,
         n_frames=min(n_frames, update_frames), seed=seed)
@@ -2691,9 +2682,10 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         core, config, ode_params, edges, x_ts, n_neurons, device,
         n_frames=gauge_frames, seed=seed, gauge_tau=gauge_tau, T=T, G=G_fit,
         slope_f=slope_f)
-    W_learned = k[i_ids] * W_used
+    W_learned = k[i_ids] * W_used                                # k_i = tau_i * d f_theta / d msg_i
 
-    # Back into the caller's edge order, so every array lines up with ode_params.W.
+    # ---- 8. the W pair and its gate ------------------------------------------------------------
+    # back into the caller's edge order (eid was a permutation), aligned with ode_params.W
     def _scatter(v, fill=np.nan):
         out = np.full(int(edges.shape[1]), fill, dtype=np.float64)
         out[eid] = v
@@ -2706,9 +2698,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
 
     gate = getattr(getattr(config, "recovery", None), "gate_fit_r2", 0.9)
     r2_med = float(np.nanmedian(fit_r2_full)) if np.isfinite(fit_r2_full).any() else float("nan")
-    # |W| on conductance data (the generator's W is non-negative), so a sign error
-    # is not scored as a size error (Wij_pct_W_negative counts those); current
-    # data stays signed, its sign living in W.
+    # |W| on conductance data (the generator's W >= 0); signed on current data
     if cond:
         W_learned = np.abs(W_learned)
     rec.pairs["W"] = _pair(gt_W, W_learned)
@@ -2719,12 +2709,10 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         + ("; |W| reported, the generator's conductance being non-negative"
            if cond else "; signed, the current generator's W carries the sign"))
     rec.diagnostics["_W_learned_full"] = W_learned
-    # W is gated on this fit's own median per-edge R2.
     rec.valid["W"] = r2_med >= gate
-    # median per-edge fit R2 for both families; only on conductance data does it
-    # also gate E_ij.
+    # ---- 9. fit diagnostics (metrics.txt) ------------------------------------------------------
     rec.diagnostics["msg_form_r2_median"] = r2_med
-    # counts as well as shares, so runs with different edge counts compare.
+    # fitted edges: at least min_points frames kept by the filter
     _n_fitted = int((n_used >= min_points).sum())
     rec.diagnostics["tmpl_n_edges"] = int(n_e)
     rec.diagnostics["tmpl_n_edges_fitted"] = _n_fitted
@@ -2733,12 +2721,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _n_E = int(np.isfinite(E_fit).sum())
         rec.diagnostics["tmpl_n_E_identified"] = _n_E
         rec.diagnostics["tmpl_pct_E_identified"] = float(100.0 * _n_E / max(n_e, 1))
-    # both families' forms on the same message, beside the model's own
-    # (msg_form_r2_median).
     rec.diagnostics["current_form_r2_median"] = (
         float(np.nanmedian(cur_r2)) if np.isfinite(cur_r2).any() else float("nan"))
-    # the constrained (W >= 0) form is the equation actually tested; its gap to
-    # conductance_form_r2_median is how much the fit leans on a forbidden sign.
     rec.diagnostics["conductance_nn_form_r2_median"] = (
         float(np.nanmedian(cond_nn_r2)) if np.isfinite(cond_nn_r2).any()
         else float("nan"))
@@ -2749,17 +2733,14 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["_E_nn_full"] = _scatter(E_nn)
     rec.diagnostics["conductance_form_r2_median"] = (
         float(np.nanmedian(cond_r2)) if np.isfinite(cond_r2).any() else float("nan"))
-    # driving-force R2 gain (conductance minus current form, per edge): mean and
-    # SD, not the median, since most edges have a near-silent sender, fit both
-    # forms at R2 ~1, and would hide the signal-carrying minority.
+    # driving-force R2 gain per edge (conductance minus current form), mean and SD
     _gain = cond_r2 - cur_r2
     _gf = _gain[np.isfinite(_gain)]
     rec.diagnostics["driving_force_r2_gain_mean"] = (
         float(np.mean(_gf)) if _gf.size else float("nan"))
     rec.diagnostics["driving_force_r2_gain_sd"] = (
         float(np.std(_gf, ddof=1)) if _gf.size > 1 else float("nan"))
-    # the other family's constants, kept so a rollout can test them; gauged by
-    # the same k_i as the own-family W.
+    # the other family's constants, gauged by the same k_i, for the alternate-form rollout
     if cond:
         _W_alt = k[i_ids] * c1                      # current form: msg = W*u + C
         _E_alt = np.full(n_e, np.nan)
@@ -2768,13 +2749,10 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         _W_alt = k[i_ids] * (-cb2)                  # conductance form: b2 = -W
         _E_alt = E_cond_form
         rec.diagnostics["alt_form_family"] = "conductance"
-    # per-edge arrays for tests and results/form_comparison.npz (underscored keys
-    # stay out of metrics.txt).
+    # per-edge arrays (underscored keys stay out of metrics.txt)
     rec.diagnostics["_form_cond_r2_full"] = _scatter(cond_r2)
     rec.diagnostics["_form_cur_r2_full"] = _scatter(cur_r2)
     rec.diagnostics["_form_t_b2_full"] = _scatter(t_cond)
-    # per edge: the E population is bimodal (in range vs. runaway), which a
-    # median cannot show.
     rec.diagnostics["_form_E_cond_full"] = _scatter(E_cond_form)
     rec.diagnostics["_form_n_used_full"] = _scatter(n_used)
     rec.diagnostics["_W_alt_full"] = _scatter(_W_alt)
@@ -2791,25 +2769,23 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         if np.isfinite(_E_med) and np.isfinite(_vi_scale) and _vi_scale > 0
         else float("nan"))
     rec.diagnostics["tmpl_frames_used"] = int(len(_fidx))
+    # ---- 10. conductance data only: the E_ij pair ----------------------------------------------
     if cond:
         rec.diagnostics["msg_form_r2_median"] = r2_med
-        # Edges whose fitted message RISES with the postsynaptic voltage: no
-        # driving force does that, since E - v_i can only fall as v_i climbs.
+        # share of edges whose message rises with v_i, which no driving force does
         rec.diagnostics["Eij_pct_wrong_slope"] = (
             float(100.0 * np.mean(slope_full[np.isfinite(slope_full)] > 0))
             if np.isfinite(slope_full).any() else float("nan"))
         _E_true = np.asarray(to_numpy(ode_params.reversal_per_edge())).ravel()
         rec.pairs["E_ij"] = _pair(_E_true, E_learned)
         rec.estimator["E_ij"] = "template_fit"
-        # no correction: k_i cancels in E = -b1/b2; a current-form component in
-        # the message still biases E without touching W.
+        # no gauge: k_i cancels in E = -b1/b2
         rec.correction["E_ij"] = (
             f"E_ij = -b1/b2 from the three-column fit [act(v_j), act(v_j)*v_i, 1]; "
             f"the gauge k_i cancels in the ratio so no scale correction applies; "
             f"kept where |b2| clears {t_slope} standard errors")
         rec.valid["E_ij"] = r2_med >= gate
-        # observed E error over se(E): ~1 = noise-limited; far above 1 = a term
-        # in the message the conductance form has no column for.
+        # |E - E_true| over se(E): ~1 noise-limited, >> 1 a term the form lacks
         _se_full = _scatter(se_E)
         rec.diagnostics["_Eij_se_full"] = _se_full
         _fin = np.isfinite(_se_full) & np.isfinite(E_learned) & np.isfinite(_E_true)
@@ -2821,7 +2797,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
             _den = np.median(_se_full[_fin])
             rec.diagnostics["Eij_err_over_se"] = (
                 float(np.median(_obs) / _den) if _den > 0 else float("nan"))
-    # tau and V_rest come from the same update fit as the gauge.
+    # ---- 11. tau, V_rest and msg_i from the update fit -----------------------------------------
+    # tau = -1/a1 (clipped), V_rest = -a0/a1, via the family's derive_tau / derive_vrest
     if ode_params.has_tau():
         rec.pairs["tau"] = _pair(ode_params.gt_tau(n_neurons),
                                  ode_params.derive_tau(slope_f, n_neurons))
@@ -2834,7 +2811,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         rec.estimator["V_rest"] = "update_template"
         rec.correction["V_rest"] = ("ode_params.derive_vrest of (a1, a0); a0 is "
                                     "confounded with a constant inside f(stim)")
-    # msg_i through the same gauge k_i as W, nothing differentiated.
+    # msg_i: the model's aggregate scaled by the same k_i as W
     if x_ts is not None:
         try:
             _mt = compute_msg_i_recovery(model, ode_params, x_ts, edges, device,
@@ -2850,25 +2827,22 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
         except Exception as _exc:
             rec.diagnostics["msg_i_template_error"] = f"{type(_exc).__name__}: {_exc}"
 
+    # ---- 12. update diagnostics, the offset, and V_rest corrected ------------------------------
     rec.diagnostics["update_form_r2_median"] = float(np.nanmedian(update_r2))
     rec.diagnostics["tmpl_G_median"] = float(np.nanmedian(G_fit))
-    # T*G over autograd's df_theta/dmsg: 1 when the update is affine in msg.
+    # T*G over autograd's df_theta/dmsg: 1 when the update is affine in msg
     with np.errstate(divide='ignore', invalid='ignore'):
         _ratio = np.where(autograd_dfdmsg != 0, (T * G_fit) / autograd_dfdmsg, np.nan)
     rec.diagnostics["tmpl_dfdmsg_over_autograd"] = float(np.nanmedian(_ratio))
     rec.diagnostics["tmpl_k_median"] = float(np.nanmedian(k))
-    # per-neuron gauge, used by recovery_figures.write_recovered_pairs.
     rec.diagnostics["_tmpl_k_full"] = np.asarray(k, dtype=np.float64)
     rec.diagnostics["tmpl_dfdmsg_median"] = float(np.nanmedian(dfdmsg))
-    # |median| too: df_theta/dmsg can split by sign across neurons, putting the
-    # signed median near zero.
     rec.diagnostics["tmpl_dfdmsg_absmedian"] = float(np.nanmedian(np.abs(dfdmsg)))
     rec.diagnostics["tmpl_pct_W_from_slope"] = pct_slope
     rec.diagnostics["tmpl_n_used_median"] = float(np.nanmedian(n_used))
     rec.diagnostics["tmpl_pct_unfitted"] = float(100.0 * np.mean(~np.isfinite(W_learned)))
     rec.diagnostics["tmpl_vj_floor"] = floor
-    # the offset C_ij per edge and summed per neuron (what V_rest absorbs), in
-    # generator units via the same gauge k as W, so comparable with V_rest.
+    # the offset k_i*C_ij per edge and summed over each neuron's fitted incoming edges
     _off_scaled = k[i_ids] * b3
     _off_full = _scatter(_off_scaled)
     _per_neuron = np.zeros(n_neurons)
@@ -2880,15 +2854,12 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["tmpl_offset_per_neuron_absmedian"] = float(np.median(np.abs(_per_neuron)))
     rec.diagnostics["_tmpl_offset"] = _off_full
     rec.diagnostics["_tmpl_offset_per_neuron"] = _per_neuron
-    # V_rest with the neuron's incoming offset added back (the update hands a
-    # message constant straight to V_rest). `is not None`, not `in`: the key can
-    # hold None when nothing finite survived.
+    # the reported V_rest = -a0/a1 + the neuron's incoming offset (the update hands a
+    # message constant straight to V_rest); `is not None`: the key can hold None
     if rec.pairs.get("V_rest") is not None:
         _vt, _vl = rec.pairs["V_rest"]
         if _vl.size == n_neurons:
             rec.diagnostics["_V_rest_offset_corrected"] = _vl + _per_neuron
-            # the corrected level is reported, as W is divided by k_i: both halves
-            # of the gauge msg_hat = msg/k_i + beta_i belong to the message scale.
             rec.pairs["V_rest_uncorrected"] = (_vt, _vl)
             rec.pairs["V_rest"] = _pair(_vt, _vl + _per_neuron)
             rec.correction["V_rest"] = (

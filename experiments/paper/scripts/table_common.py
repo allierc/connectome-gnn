@@ -45,6 +45,8 @@ def aggregate(pattern, folds=FOLDS):
         for k in ("one_step_r", "rollout_r", "Wij_R2", "Wij_pct_outliers", "tau_R2", "tau_pct_outliers",
                   "V_rest_R2", "V_rest_pct_outliers", "clustering_accuracy"):
             acc.setdefault(k, []).append(float(m.get(k, np.nan)))
+        # the share of edges the parameter fit could fit; a known-ODE reads every W directly (100 %)
+        acc.setdefault("Wij_pct_fitted", []).append(float(m.get("tmpl_pct_fitted", 100.0)))
     out = {k: (float(np.nanmean(v)), float(np.nanstd(v))) for k, v in acc.items()}
     out["n"] = n
     out["frames"] = sorted(frames)
@@ -94,8 +96,8 @@ def pct(ms, red=False, like=None, sign=False):
 
 def metric_cells(a, red=False, w_outliers=False):
     """The seven metric cells of a GNN / Known-ODE row (split tau / V_rest); with
-    `w_outliers` an eighth, R^2_W's outlier percentage beside it (Table 1)."""
-    w = (f"  & {cell(a['Wij_R2'], red)} & {pct(a['Wij_pct_outliers'], red, a['Wij_R2'][0], sign=True)}\n" if w_outliers
+    `w_outliers` an eighth beside R^2_W: the percentage of edges fitted."""
+    w = (f"  & {cell(a['Wij_R2'], red)} & {pct(a['Wij_pct_fitted'], red, a['Wij_R2'][0], sign=True)}\n" if w_outliers
          else f"  & {cell(a['Wij_R2'], red)}\n")
     return (f"  & {cell(a['one_step_r'], red)} & {cell(a['rollout_r'], red)}\n" + w +
             f"  & {cell(a['tau_R2'], red)} & {pct(a['tau_pct_outliers'], red, a['tau_R2'][0], sign=w_outliers)}\n"

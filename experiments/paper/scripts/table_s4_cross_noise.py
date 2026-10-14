@@ -44,7 +44,7 @@ def table_cross(numbers):
     caption = (r"\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV "
                r"(mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, "
                r"sub-sampled frames, and hidden neurons. Prediction metrics on noise-free held-out stimuli. "
-               r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; "
+               r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges (fitted \%: their share), outlier-corrected}; "
                r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
                r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
                r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.")
@@ -61,7 +61,7 @@ def table_cross(numbers):
 & \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 condition & noise $\gamma$ & \multicolumn{1}{c}{edges}
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{2}{c}{$R^2_{\hat{W}} (\text{out.} \%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{W}} (\text{fitted} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{\tau}} (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}} (\text{out.} \%)$}
   & \multicolumn{1}{c}{cluster.\ acc.} \\

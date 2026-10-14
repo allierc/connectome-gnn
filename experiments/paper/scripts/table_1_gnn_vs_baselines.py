@@ -53,7 +53,7 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
                r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out "
                r"stimuli. "
                r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over "
-               r"{\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges, outlier-corrected}; "
+               r"{\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges (fitted \%: their share), outlier-corrected}; "
                r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
                r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.")
     tex = (r"""% Tab. 1 -- written by scripts/make_tables.py; GNN rows = conductance lasso 25 (experiment 2)
@@ -69,7 +69,7 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
 & & model &  \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 model & condition & noise $\sigma$
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{2}{c}{$R^2_{\hat{W}}  (\text{out.} \%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{W}}  (\text{fitted} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{\tau}}  (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}}  (\text{out.} \%)$}
   & \multicolumn{1}{c}{cluster\ acc.} \\
