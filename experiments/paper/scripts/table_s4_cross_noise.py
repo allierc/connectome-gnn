@@ -24,7 +24,7 @@ def table_cross(numbers):
         else:
             a = pub
         agg[label] = a
-        rows.append(f"{label:<40} & ${gamma}$ & ${edges}$\n" + metric_cells(a, red)
+        rows.append(f"{label:<40} & ${gamma}$ & ${edges}$\n" + metric_cells(a, red, w_outliers=True)
                     + f"  & {cell(a['clustering_accuracy'], red)} \\\\")
 
     add("low model noise", "0", "434\\,112", "flyvis_noise_005_blank50_condl25_{fold}")
@@ -40,44 +40,35 @@ def table_cross(numbers):
     add("$10\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid10_condl251s_{fold}")
     add("$20\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid20_none_condl251s_{fold}")
     numbers["table_cross"] = agg
-    from table_common import FOLDS as _F, LOG_ROOT as _L, read_metrics as _rm
-    per_fold_w100 = ", ".join(f"${round(_rm(os.path.join(_L, f'flyvis_noise_005_null400_condl100_{f}'))['Wij_R2'], 2) + 0.0:.2f}$"
-                              for f in _F)
-    caption = (r"{\color{revised}\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, "
-               r"5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, "
-               r"added/removed edges, sub-sampled frames, and hidden neurons. Every row is the general-form GNN "
-               r"($g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$, group lasso $25$; group lasso $100$ where the "
-               r"row says so): "
-               r"low model noise; measurement noise, trained with the 20-step recurrent rollout "
-               r"since one-step training was not run for this form; unknown stimulus; null edges, group lasso $25$ and $100$ "
-               r"(bf16 matrix products in the two MLPs, fp32 elsewhere); "
-               r"edges removed; $10\%$ hidden; $1/5$ frames, the rollout scored on the observed frames "
-               r"only, horizons 6 and 21; $20\%$ hidden. Prediction metrics on noise-free held-out stimuli "
-               r"(" + frames_tex(*[a for k, a in agg.items() if k != "unknown stimulus"]) + r" frames by fold; the unknown-stimulus row on the first " + frames_tex(agg["unknown stimulus"]) + r" training frames, which the SIREN was fitted on). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the fitted "
-               r"edges; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, "
-               r"outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
-               r"Group lasso $100$, $R^2_{\hat{W}}$ per fold (cv00--cv04): " + per_fold_w100 + r". "
-               r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.}")
+    # the published caption (overleaf/tables/cv_table_gnn_cross_noise.tex); green = the words that changed
+    caption = (r"\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV "
+               r"(mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, "
+               r"sub-sampled frames, and hidden neurons. Prediction metrics on noise-free held-out stimuli. "
+               r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; "
+               r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
+               r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
+               r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.")
     tex = (r"""% Supp. Tab. 4 -- written by scripts/make_tables.py; conductance lasso 25 rows from experiments 2, 3, 4, 5, 9, 11
 \begin{table}[h!]
 \centering
 \caption{""" + caption + r"""}
 \label{tab:cv_cross_noise}
 \tiny
-\setlength{\tabcolsep}{1.5pt}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} @{}llrrrrr@{}rr@{}rr@{}}
+\setlength{\tabcolsep}{3pt}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}llrrrr@{}rr@{}rr@{}rr@{}}
 \toprule
-& \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{4}{c}{parameter recovery} \\
+& \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 condition & noise $\gamma$ & \multicolumn{1}{c}{edges}
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{1}{c}{$R^2_{\hat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\hat{W}} (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{\tau}} (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}} (\text{out.} \%)$}
   & \multicolumn{1}{c}{cluster.\ acc.} \\
 \midrule
 """ + "\n".join(rows) + r"""
 \bottomrule
-\end{tabular*}
+\end{tabular}}
 \end{table}
 """)
     open(os.path.join(TAB_DIR, "cv_table_gnn_cross_noise.tex"), "w").write(tex)

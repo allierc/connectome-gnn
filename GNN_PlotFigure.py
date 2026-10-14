@@ -1459,10 +1459,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     # Prevent propagation to root logger (which might have console handlers)
     logger.propagate = False
 
-    # EVERYTHING THIS PASS REGENERATES, REMOVED FIRST -- not just metrics.txt.
-    # The rollout outputs are spared: `-o test` owns them and clears its own
-    # before writing, and `-o plot` alone is meant to redraw against the rollout
-    # already there. results/extras goes, because every extra is redrawn below.
+    # Clear results/ before redrawing it; the rollout outputs belong to -o test and stay.
     _clear_results(log_dir, spare=('rollout',), keep_extras=False)
     # The rollout mirror below appends into this; it used to be defined by the
     # inline removal this call replaced.
@@ -1485,10 +1482,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         for _k in _keys:
             _m = _re.search(rf'{_re.escape(_k)}:\s*([-\d.eE+]+)', _rtext)
             if _m:
-                # Normalize 'Pearson r' → rollout_pearson, 'RMSE' → rollout_RMSE
-                # rollout_r / rollout_rmse: the names tmp_training/rollout.log
-                # carries, so the trained-on-train and the held-out `-o test`
-                # numbers sit under one spelling.
+                # 'Pearson r' -> rollout_r, 'RMSE' -> rollout_rmse: the names tmp_training/rollout.log uses.
                 _canonical = {
                     'Pearson r': 'rollout_r',
                     'RMSE': 'rollout_rmse',
@@ -1498,10 +1492,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             with open(_metrics_path, 'a') as _mf:
                 _mf.writelines(_mirrored)
 
-    # The same mirror for the ONE-STEP numbers, out of results_test.log. Without
-    # it metrics.txt carries the rollout r and not the one-step r beside it, and
-    # the experiment tables had to be filled by grepping cluster job logs -- a
-    # number in a table nobody could re-derive from the run directory.
+    # The one-step numbers, mirrored from results_test.log into metrics.txt.
     _test_log = os.path.join(log_dir, 'results_test.log')
     if os.path.exists(_test_log):
         import re as _re
@@ -1531,11 +1522,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
         mc = 'k'
 
     time.sleep(0.5)
-    # Says what this stretch does -- load the trajectory and draw the parameter
-    # figures. It used to say "extracting parameters...", one word away from the
-    # line _write_recovery_metrics prints when the readout actually runs, at the
-    # END of this function; two near-identical banners around twenty minutes of
-    # plotting is how a reader concludes the extraction never happened.
     print('\033[93mdrawing parameter figures...\033[0m')
     x_path = graphs_data_path(config.dataset, 'x_list_train')
     if not os.path.exists(x_path):
@@ -1543,18 +1529,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     x_ts = load_simulation_data(x_path,
                                 fields=['index', 'voltage', 'stimulus', 'neuron_type', 'group_type'])
 
-    # NO STRIDE HERE ANY MORE, AND THAT IS THE POINT OF REMOVING time_step.
-    # This block used to decimate the plot trajectory by `tc.time_step` to match
-    # what training had done to the DATASET. Nothing decimates the dataset now:
-    # `rollout_loss_stride` masks which steps of the rollout carry loss and
-    # leaves every frame in place, so striding here would throw away frames the
-    # model was trained on and score the readout against a different
-    # trajectory. MAX_PLOT_FRAMES below is what bounds the memory.
-    #
-    # The dangling `tc.time_step` read cost experiment 3 a full pass: every
-    # recurrent run's `-o test_plot` died with AttributeError after writing only
-    # the rollout lines of metrics.txt, so fourteen runs sat as `trained` with
-    # an empty held-out table and nothing saying why.
+    # No frame stride: training uses every frame (rollout_loss_stride only masks the loss);
+    # MAX_PLOT_FRAMES bounds the memory.
 
     # Cap plot data (e.g. non-recurrent 320K hold-out → 64K)
     MAX_PLOT_FRAMES = 64000
@@ -1577,17 +1553,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
     n_region_types = len(torch.unique(region_list))
     n_neurons = x_ts.n_neurons
 
-    # Load ODE params for model-specific analysis.
-    #
-    # Via load_ode_params_for_run, which takes the FAMILY from the model and the
-    # MEMBER from the file. This site used to call get_ode_params_class alone,
-    # and every flyvis model name — the conductance ones included — is
-    # registered to FlyVisCurrentODEParams, because a name cannot say which data
-    # a model was trained on. So a conductance dataset, whose ode_params.pt
-    # carries E_exc / E_inh / edge_is_inh, was loaded as the current class and
-    # raised `TypeError: got an unexpected keyword argument 'E_exc'`, taking
-    # down test_plot on every conductance run. The refinement reads the
-    # ground_truth_model key the file itself records.
+    # Ground-truth parameters: the class from the model's family, the member (current or
+    # conductance) from the ground_truth_model key of ode_params.pt.
     from connectome_gnn.generators.ode_params import (
         load_ode_params_for_run, get_ode_params_class, FlyVisODEParams,
     )
@@ -1792,13 +1759,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     log_file.write(f"total_params: {total_params}\n")
                 continue  # skip to next epoch in epoch_list
 
-            # Plot 2: Embedding using model.a
-            # A KNOWN-ODE HAS NO EMBEDDING. It carries the generator's
-            # parameters directly -- W, tau, V_rest -- and nothing that plays
-            # the part of a_i, so this figure and everything below that reads
-            # model.a is a GNN-only section. Without the guard the whole plot
-            # pass died on AttributeError at the first scatter, which is how
-            # twenty known-ODE runs finished training and produced no results.
+            # Plot 2: embedding a_i (GNN only -- a known-ODE has no embedding).
             _has_emb = hasattr(model, 'a')
             if _has_emb:
                 fig = plt.figure(figsize=(10, 9))
@@ -1838,11 +1799,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             n_pts = 1000
             type_np = to_numpy(type_list).astype(int).ravel()
 
-            # g_phi over each neuron's activity range, for the curve figures. Reuses
-            # the same flyvis_general_form-aware domain/feature logic as
-            # plot_training_gnn (ai = real average postsynaptic-partner embedding
-            # via `edges` for flyvis_general_form, not a self-pair ai=aj);
-            # `valid_edge` marks the neurons whose range is usable.
+            # g_phi over each neuron's activity range, for the curve figures (a_i = the mean
+            # postsynaptic-partner embedding on flyvis_general_form); `valid_edge` marks usable ranges.
             _, _, valid_edge = evaluate_g_phi_curves(
                 model, config, n_neurons, mu_activity, sigma_activity, device, edges=edges)
 
@@ -2008,10 +1966,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                          verticalalignment='top', fontsize=42)
                 plt.xlabel(r'true $f_\theta(a_i, v_i)$', fontsize=56)
                 plt.ylabel(r'learned $f_\theta(a_i, v_i)$', fontsize=56)
-                # f_theta values widen with noise level: σ=0.5 column needs
-                # ±275; nf and low-noise stay on ±210. Tick values are placed
-                # slightly INSIDE the axis limit so the leftmost / bottommost
-                # labels don't overlap each other at the corner.
+                # f_theta values widen with noise (+-275 at sigma 0.5, +-210 below); ticks inside the limits.
                 if sim.noise_model_level >= 0.5:
                     _ft_lim, _ft_tick = 275, 250
                 else:
@@ -2036,15 +1991,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 r2_f_theta_mean = 0.0
                 r2_f_theta_median = 0.0
 
-            # THE TEMPLATE READOUT, ONCE, before the first figure that shows a
-            # recovered quantity. Every learned tau, V_rest and W below -- the
-            # comparison figures, learned_ode_params.pt, panels_*.npz, the
-            # clustering features, the connectivity matrices -- is its value, and
+            # The template readout, once: every learned tau, V_rest and W below (figures,
+            # learned_ode_params.pt, panels_*.npz, clustering, matrices) is its value, and
             # _write_recovery_metrics scores this same object into metrics.txt.
-            # Until 2026-10-13 these figures and the clustering came from the
-            # gain-correction chain (tau and V_rest from the f_theta slope, W
-            # divided by the gains of g_phi and f_theta) while metrics.txt
-            # reported the template's, so one results/ described two estimators.
             _rec_final = _extract_recovery(model, ode_params, config, edges, x_ts,
                                            device, n_neurons, logger)
 
@@ -2278,16 +2227,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close()
 
 
-            # Plot 4: Weight comparison using model.W and gt_weights
-            # Check Dale's Law for learned weights
-            # dale_results = check_dales_law(
-            #     edges=edges,
-            #     weights=model.W,
-            #     type_list=type_list,
-            #     n_neurons=n_neurons,
-            #     verbose=False,
-            #     logger=None
-            # )
+            # Plot 4: weight comparison, model.W against gt_weights
 
             fig = plt.figure(figsize=(10, 9))
             learned_weights = to_numpy(get_model_W(model).squeeze())
@@ -2303,15 +2243,6 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             plt.text(0.05, 0.95, f'R²: {r_squared:.3f}\nslope: {slope_raw:.2f}',
                      transform=plt.gca().transAxes, verticalalignment='top', fontsize=24)
 
-            # Add Dale's Law statistics
-            # dale_text = (f"excitatory neurons (all W>0): {dale_results['n_excitatory']} "
-            #              f"({100*dale_results['n_excitatory']/n_neurons:.1f}%)\n"
-            #              f"inhibitory neurons (all W<0): {dale_results['n_inhibitory']} "
-            #              f"({100*dale_results['n_inhibitory']/n_neurons:.1f}%)\n"
-            #              f"mixed/zero neurons (violates Dale's Law): {dale_results['n_mixed']} "
-            #              f"({100*dale_results['n_mixed']/n_neurons:.1f}%)")
-            # plt.text(0.05, 0.05, dale_text, transform=plt.gca().transAxes,
-            #          verticalalignment='bottom', fontsize=10)
 
             plt.xlabel(r'true $W_{ij}$', fontsize=48)
             plt.ylabel(r'learned $W_{ij}$', fontsize=48)
@@ -2323,11 +2254,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             raw_W_r2 = r_squared
             logger.info(f"raw W R²: {r_squared:.2f}  slope: {np.round(slope_raw, 4)}")
 
-            # W FROM THE TEMPLATE READOUT, full length: nan on the edges it could
-            # not fit (a sender almost never above the activation floor). The
-            # matrices, eigen-analysis and clustering below read unfitted edges as
-            # zero conductance, as cluster_recovery does; the R2s here are over
-            # the fitted edges, as Wij_R2 in metrics.txt is.
+            # W from the template readout, full length, nan on unfitted edges: read as zero by the
+            # matrices, eigen-analysis and clustering below; R2s over the fitted edges, as Wij_R2.
             learned_weights_full = np.asarray(
                 _rec_final.diagnostics["_W_learned_full"], dtype=np.float64).ravel()
             _fit_e = np.isfinite(learned_weights_full)
@@ -2335,11 +2263,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             corrected_W = torch.tensor(learned_weights, dtype=torch.float32,
                                        device=device).unsqueeze(1)
 
-            # Mirror _plot_synaptic_linear's learned_ode_params.pt schema so
-            # downstream tooling (e.g. fig_clustering_appendix.py) can load
-            # (tau, V_rest, W, a) without re-running data_plot. `a` is the
-            # GNN-only 2-D learned embedding; absent in the linear/known_ode
-            # save schema. W is full length, nan where the readout fitted nothing.
+            # learned_ode_params.pt, the schema _plot_synaptic_linear writes (+ the embedding `a`),
+            # read by fig_clustering_appendix.py and task_pruning.py.
             torch.save({
                 'tau_i':    torch.from_numpy(np.asarray(learned_tau).astype(np.float32)),
                 'V_i_rest': torch.from_numpy(np.asarray(learned_V_rest).astype(np.float32)),
@@ -2377,15 +2302,9 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     r_squared_visible = None
 
 
-            # ── Consolidated panel-data dump (npz) ────────────────────────
-            # Saved arrays let figure scripts re-render the six parameter
-            # panels without re-running the (slow) model evaluation.
-            # `_maybe` defensively skips any entry whose source variable
-            # isn't defined yet at this point of plot_synaptic (some are
-            # set later in the function), so the dump degrades gracefully
-            # rather than crashing on a NameError or None.attribute.
-            # Keeps the dataset in its name: figures/fig_clustering_appendix.py
-            # and fig_ground_truth_distributions.py read it by that name.
+            # panels_<dataset>.npz: the arrays the figure scripts re-render the parameter panels from
+            # (fig_clustering_appendix.py, fig_ground_truth_distributions.py read it by name);
+            # `_maybe` skips an entry whose source is not defined at this point.
             _panel_npz = f'{log_dir}/results/panels_{config_indices}.npz'
             _panel_data = {}
 
@@ -2406,17 +2325,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             # Embedding
             _maybe('a',                lambda: to_numpy(model.a).astype(np.float32))
             _maybe('cluster_accuracy', lambda: np.float32(cluster_acc))
-            # THE SIX f_theta / g_phi CURVE ARRAYS ARE NOT DUMPED. One per
-            # neuron over the sampling domain is 13,741 x 1,000 float32 each, and
-            # the six together were 273 MB of a 277 MB file -- 98% of it -- which
-            # every plotted run wrote and NOTHING read: the only consumers of this
-            # npz are figures/fig_clustering_appendix.py (a, type_ids, tau_*,
-            # V_rest_*, W_*) and figures/fig_ground_truth_distributions.py
-            # (type_ids). The curves themselves are still drawn, into
-            # extras/f_theta_domain.png and extras/g_phi_domain.png; a figure
-            # script that needs the arrays should re-render from the checkpoint
-            # rather than have every run carry a quarter of a gigabyte in case.
-            # tau / V_rest
+            # The f_theta / g_phi curve arrays are not dumped (273 MB per run, read by nothing).
             _maybe('tau_true',         lambda: gt_taus_np.astype(np.float32))
             _maybe('tau_learned',      lambda: learned_tau.astype(np.float32))
             _maybe('tau_r2',           lambda: np.float32(r_squared_tau))
@@ -2467,15 +2376,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 model, ode_params, config, edges, x_ts, device,
                 log_dir, logger, log_file, n_neurons=n_neurons,
                 template_rollout=True, rec=_rec_final)
-            # THE CLUSTERING IS A RECOVERED QUANTITY TOO, and belongs with the
-            # others. It used to print at the far end of the pass, after the
-            # stratified analysis and the connectivity statistics, so the one
-            # number that says whether the embedding found the cell types
-            # arrived a screen and a half below the R2s it belongs beside.
-            # Computed here because every input it needs -- the learned weights,
-            # tau, V_rest and the embedding -- has existed since the scatters
-            # were drawn. The site further down reuses this result; it recomputes
-            # only if this failed.
+            # Clustering accuracy, beside the other recovered quantities; the site further down
+            # reuses this result and recomputes only if it failed.
             _cl = None
             try:
                 n_gmm = min(100, n_neurons - 1)
@@ -2497,10 +2399,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
             except Exception as _e:
                 logger.warning(f"clustering deferred: {type(_e).__name__}: {_e}")
                 _cl = None
-            # the clusterability figure's comparison -- ground truth, learned
-            # parameters alone, embedding alone (metrics.cluster_recovery_variants).
-            # Its own guard: a failure here must not reset _cl, which would make
-            # the site below recompute and write clustering_accuracy a second time.
+            # The clusterability figure's variants (true, learned parameters, embedding alone); its own
+            # guard, so a failure here does not reset _cl.
             if _cl is not None:
                 try:
                     _cv = cluster_recovery_variants(
@@ -2520,19 +2420,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                                            log_dir, log_file=log_file, logger=logger)
                 except Exception as _e:
                     logger.warning(f"clustering variants skipped: {type(_e).__name__}: {_e}")
-            # THE REVERSAL HAD NO FIGURE. W, tau and V_rest each get a scatter
-            # against the truth and E_ij did not, although the template readout
-            # produces the pair -- so the one quantity that is gauge-invariant,
-            # and therefore the one recoverable absolutely, was the only one with
-            # no picture. Drawn here because this is where the pair exists.
-            # THE FOUR SCATTERS, from the same RecoveredParams the metrics come
-            # from. The older comparison figures are still drawn -- they are in
-            # extras/ under their estimator's name -- but they read the f_theta
-            # slope on a synthetic msg = 0 grid and print the UNFILTERED R2,
-            # while metrics.txt reports the template readout filtered at the
-            # outlier band. Two numbers for one quantity in one directory, with
-            # nothing saying which was which; these four cannot drift, because
-            # the figure and the file now read one array.
+            # The scatters of W, tau, V_rest and E_ij, from the same RecoveredParams metrics.txt is
+            # written from.
             for _q in ("W", "E_ij", "tau", "V_rest", "msg_i"):
                 try:
                     _p = _plot_recovered_scatter(_rec_final, _scored_final, _q, log_dir, mc,
@@ -2639,12 +2528,7 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                 plt.close(fig_mat)
                 logger.info("saved connectivity_matrix.png")
 
-                # Scatter of the two matrices' edge values: GT vs corrected.
-                # Left  (raw scale)   = exactly what the NSE "weights R²" measures
-                #                       -> low when W is under-scaled (slope<1).
-                # Right (z-scored)    = what the eye sees in the bottom-right matrix
-                #                       panel (scale removed) -> structure-only R².
-                # The gap between the two panels IS the W<->g_phi scale degeneracy.
+                # Edge values of the two matrices, raw (what Wij_R2 measures) and z-scored (structure only).
                 _gt_e   = np.asarray(true_weights).flatten()
                 _corr_e = to_numpy(corrected_W.squeeze()).flatten()
                 _m = min(_gt_e.size, _corr_e.size)
@@ -2822,13 +2706,8 @@ def plot_synaptic(config, epoch_list, log_dir, logger, cc, style, extended, devi
                     plt.close(fig_zf)
                     logger.info("saved connectivity_matrix_zebrafish_sorted.png")
 
-            # eigenvalue and singular value analysis using sparse matrices.
-            # The SVD-based eigen_comparison plot is unreliable on the
-            # corrected W and is slow, so it is OFF by default. Set
-            # FORCE_EIGEN=1 in the env to enable. Even when forced,
-            # auto-skip on very large connectomes (>EIGEN_MAX_EDGES,
-            # default 5M) where scipy's sparse eigs/svds SIGSEGVs or
-            # runs for hours.
+            # Eigen / singular values: off by default (slow, unreliable on W); FORCE_EIGEN=1 enables it,
+            # still skipped above EIGEN_MAX_EDGES (default 5M) edges.
             _eigen_path = os.path.join(log_dir, 'results', 'eigen_comparison.png')
             _n_edges = int(edges.shape[1]) if hasattr(edges, 'shape') else len(edges[0])
             try:

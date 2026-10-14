@@ -553,19 +553,3 @@ if __name__ == "__main__":
                     f.write(f"  {line}\n")
         with open(os.path.join(run_log_dir, '_complete'), 'w') as f:
             f.write(f"commit={sha}\nargv={sys.argv}\n")
-
-
-
-# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_current_noise_005_current_cv00"
-# Wij=-0.021(0.45%) Vr=0.469(98%) τ=-9.189(93%) msg=-12563.45]
-# Wij=0.913(0.06%) Vr=0.714(20%) τ=0.912(2%) msg=0.96]
-# 57 it/s on a100 (15 it/s l4, 33 it/s a100 compile false 
-# conn=-0.016 Vr=0.756(100%) τ=-7.512(94%) > 
-# conn=0.950 Vr=0.591(18%) τ=0.902(2%)]
-# 
-# python GNN_Main.py -o train_cv flyvis_noise_005_conductance --queue l4
-# python GNN_Main.py -o train_cv flyvis_noise_005_nominal --queue l4
-# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN__Main.py -o train  flyvis_conductance_noise_free_conductance_knownode_cv00"
-#
-# bsub -n 2 -gpu "num=1" -q ${CLUSTER_QUEUE_PREFIX}a100 -W 24:00 -Is "python GNN_Main.py -o train flyvis_flowcond_noise_005_gnn_wsq_cv00"
-# iteration 1: Wij=-0.318(0.10%) Vr=-0.447(86%) τ=-4.698(87%) E=0.602(42%) msg=-12384.353(36%)
