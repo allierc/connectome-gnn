@@ -1,0 +1,128 @@
+# Lines and branch arcs of the BASE implementation that no golden cell reaches.
+#
+# Line numbers refer to src/connectome_gnn/generators/graph_data_generator.py
+# at tests/golden_voltage/BASE_SHA and never move. coverage_report.py fails on
+# any uncovered line or arc that is not listed here, and flags entries that
+# became covered (stale). Each entry says why it is not reached and what would
+# reach it. IDs refer to the branch inventory in the refactor plan.
+#
+# Categories:
+#   env-gated   reachable, but only with resources absent locally
+#   dead        unreachable for every config this function accepts
+
+lines:
+  - lines: "2380-2382,2385"
+    id: B10
+    category: env-gated
+    reason: >
+      The flyvis_conductance dynamics-class check runs after
+      net.load_state_dict(trained_net.state_dict()). That load succeeds only for
+      a task-trained conductance run whose checkpoint carries nodes_E_exc_raw /
+      nodes_E_inh_raw, which needs the flyvis_conductance_optical_flow package.
+      Locally only a stub package exists (cell flyvis_conductance_stub); it
+      reaches 2364-2378 and stops in load_state_dict with "Missing key(s)".
+    reach: >
+      A cell with ground_truth_model=flyvis_conductance and ensemble_id/model_id
+      of a conductance-trained flow run, in the cluster env (neural-graph-linux).
+
+  - lines: "2524,2526,2527"
+    id: B17
+    category: env-gated
+    reason: >
+      FlyVisConductanceODEParams.from_flyvis_network needs the same
+      conductance-trained network as B10; the stub cell never gets this far.
+    reach: Same cluster cell as B10.
+
+  - lines: "3088-3095,3097-3106,3109,3111"
+    id: B46
+    category: dead
+    reason: >
+      The kinograph-label block needs ode_params.neuron_types. Neither
+      FlyVisCurrentODEParams nor FlyVisConductanceODEParams (the only classes
+      this function constructs) has that attribute, so hasattr() is False for
+      every config and act_labels / stim_labels stay None.
+    reach: None without a code change (remove in a follow-up).
+
+  - lines: "3273,3274,3276,3277"
+    id: B51
+    category: dead
+    reason: >
+      svd_results is the constant {} since analyze_data_svd was disabled
+      (2026-09-07), so both svd_results.get(...) guards are always False.
+    reach: None without a code change.
+
+  - lines: "3430"
+    id: B55
+    category: dead
+    reason: >
+      `if not _ids: continue` needs an empty id list. activity_all lists the
+      first neuron of every type present, activity_selected the curated types
+      present; every network this function builds (flyvis extent 8/15, FlyWire
+      hybrids) contains all 65 types, so neither list is empty.
+    reach: A network lacking all ten curated types and all types at once; none exists.
+
+arcs:
+  - {arc: "2379->2380", id: B10, category: env-gated, reason: "see B10 lines", reach: "cluster cell, see B10"}
+  - {arc: "2381->2382", id: B10, category: env-gated, reason: "see B10 lines", reach: "cluster cell registering the wrong class"}
+  - {arc: "2381->2385", id: B10, category: env-gated, reason: "see B10 lines", reach: "cluster cell, see B10"}
+  - {arc: "2520->2524", id: B17, category: env-gated, reason: "see B17 lines", reach: "cluster cell, see B10"}
+
+  - {arc: "3087->3088", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3090->3091", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3090->3108", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3092->3093", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3092->3097", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3094->3092", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3094->3095", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3100->3101", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3100->3105", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3103->3100", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3103->3104", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3105->3106", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3105->3108", id: B46, category: dead, reason: "see B46 lines", reach: none}
+  - {arc: "3108->3109", id: B46, category: dead, reason: "act_labels is always None (B46)", reach: none}
+  - {arc: "3110->3111", id: B46, category: dead, reason: "stim_labels is always None (B46)", reach: none}
+
+  - arc: "3152->3226"
+    id: B49
+    category: dead
+    reason: >
+      x_ts.noise is never None: ZarrSimulationWriterV3 always writes noise.zarr
+      (zeros when measurement noise is off) and load_simulation_data loads it.
+    reach: none
+
+  - {arc: "3272->3273", id: B51, category: dead, reason: "svd_results is {} (B51)", reach: none}
+  - {arc: "3275->3276", id: B51, category: dead, reason: "svd_results is {} (B51)", reach: none}
+  - {arc: "3429->3430", id: B55, category: dead, reason: "see B55 lines", reach: none}
+
+  - arc: "3595->3603"
+    id: R10
+    category: dead
+    reason: >
+      Mixed mode, sintel phase, "keep the current clip". Every sintel iteration
+      runs sequence_length = the clip's own length and advances
+      sintel_frame_idx once per frame, so at the start of any later iteration
+      the index is >= the clip length and the clip is refetched. The only exit
+      in mid-clip is target_reached, which ends the call; the test split starts
+      from fresh state.
+    reach: none
+  - arc: "3606->3614"
+    id: R10
+    category: dead
+    reason: Same argument as 3595->3603, for davis_frame_idx.
+    reach: none
+  - arc: "3649->3651"
+    id: R13
+    category: dead
+    reason: >
+      The video arm of the mixed per-frame chain runs only when current_type
+      is "sintel" or "davis" (blank and noise are handled above it), so the
+      final `elif current_type == "davis"` is never False there.
+    reach: none
+  - arc: "3798->3801"
+    id: R25
+    category: dead
+    reason: >
+      calcium_activation is a CalciumActivation StrEnum with exactly the four
+      handled values (softplus, relu, tanh, identity); pydantic rejects others.
+    reach: none (only by bypassing config validation)

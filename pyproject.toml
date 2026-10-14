@@ -30,7 +30,12 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0"]
+test = [
+    "pytest>=7.0",
+    "coverage[toml]>=7.4",
+    "opencv-python-headless>=4.10",
+    "torchdiffeq>=0.2.5",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -38,8 +43,9 @@ markers = [
     "tier1: Pure math functions (numpy/torch only, fast)",
     "tier2: Pure logic with minor package dependencies",
     "tier3: nn.Module forward pass shape tests",
+    "golden: byte-identity of data_generate_voltage against BASE_SHA (needs flyvis; run with -m golden)",
 ]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not golden'"
 
 [tool.ruff]
 target-version = "py311"

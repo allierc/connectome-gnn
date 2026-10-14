@@ -60,7 +60,9 @@ build/
 # IDE
 .devcontainer/
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 *.swp
 *.swo
 .env
