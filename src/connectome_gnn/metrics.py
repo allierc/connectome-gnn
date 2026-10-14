@@ -2385,168 +2385,20 @@ def _extract_direct(rec, model, ode_params, edges, n_neurons):
 def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=None,
                              device=None, n_neurons=None,
                              need=RECOVERED_QUANTITIES) -> RecoveredParams:
-    """Every learned circuit parameter of a trained model, paired with its truth.
+    """Dispatcher: read the learned circuit parameters out of a trained model, paired
+    with their ground truth, by the route resolve_W_estimator picks from the model.
 
-    Returns arrays, not metrics -- see the block comment above for the estimators
-    and the equation each one inverts. Pass `need` to skip work: the f_theta slope
-    fit runs over every neuron and msg_i costs ten forward passes, so a caller that
-    wants only W should say so.
+      "template"   a GNN with a g_phi -> extract_template_params (edges and x_ts
+                   required). The generator's family and activation come from
+                   `ode_params`, not from an argument.
+      "direct"     a known-ODE: W, tau, V_rest (and E_ij) are its named parameters.
+      "jacobian"   the MLP baseline: only labelled here; its dense effective
+                   connectivity is computed by its own caller.
 
-    Every quantity is best-effort. One that cannot be computed is absent from
-    `pairs`, never a zero-filled array standing in for a measurement.
-
-    ----------------------------------------------------------------------------
-    EVERY METRIC THIS PRODUCES, AND WHAT EACH ONE MEANS
-    ----------------------------------------------------------------------------
-    This function returns ARRAYS; :func:`score_recovery` turns them into the
-    key-value metrics that reach `results/metrics.txt`, the per-slot analysis log
-    and the LLM exploration instructions. The catalogue is written here because
-    this is where a reader arrives asking "what can I measure", and because the
-    names are a contract: the instruction files rank slots on these spellings, so
-    renaming one silently breaks an agentic loop that has no way to notice.
-
-    FIVE QUANTITIES, and the key each is emitted under (`_KEY`):
-
-        quantity   key       what it is
-        W          Wij       per-edge synaptic weight. On conductance data this is
-                             the CONDUCTANCE (non-negative); on current data it is
-                             the signed current weight.
-        tau        tau       per-neuron membrane time constant.
-        V_rest     V_rest    per-neuron resting potential.
-        E_ij       Eij       per-edge reversal potential, i.e. the voltage each
-                             edge's driving force (E_ij - v_i) points toward.
-                             CONDUCTANCE-GENERATED DATA ONLY -- absent elsewhere,
-                             which is information, not a failure.
-        msg_i      msg_i     the aggregated per-neuron message, sum over incoming
-                             edges of W_ij * act(v_j) * (E_ij - v_i). The one
-                             quantity the W/E degeneracy does not touch.
-        gain       gain      per-neuron output gain, where the model has one.
-        bias       bias      per-neuron output bias, where the model has one.
-
-    FOR EACH of the above, `score_recovery` emits:
-
-        <key>_R2          coefficient of determination of learned against true, on
-                          the IDENTITY line (not a free-slope fit), so a scale
-                          error costs R2 rather than being absorbed. Outlier-
-                          filtered for W, tau and V_rest; unfiltered for Eij and
-                          msg_i, which have no published tolerance band.
-        <key>_slope       identity-line slope of the same scatter. 1.0 is perfect.
-                          FOR W THIS IS THE GAIN: 2.4 means the learned conductance
-                          is 2.4x the true one. It is the third ranking key of the
-                          known-ODE exploration.
-        <key>_rmse        root-mean-square error, in that quantity's own units.
-                          Read it against the SPREAD OF THE TRUTH, not a fixed bar:
-                          the reversals of one twin span 8 voltage units and those
-                          of another span 40.
-        <key>_n           how many elements entered the comparison. Context, but a
-                          drop in it means pairs were trimmed or non-finite.
-
-    AND ONLY WHERE AN OUTLIER THRESHOLD APPLIES (W, tau, V_rest -- see
-    :func:`_thresh_for`; None for Eij and msg_i):
-
-        <key>_R2_all       the same R2 WITHOUT outlier filtering. The gap between
-                           it and <key>_R2 says how much of the recovery rests on
-                           a tail. Rank on the filtered one, report both.
-        <key>_n_outliers   how many elements the threshold removed.
-        <key>_pct_outliers the same as a percentage of <key>_n.
-
-    PROVENANCE, emitted whenever the extractor recorded it. These are STRINGS, not
-    numbers, and they exist because the same key can be produced by different
-    estimators on different runs -- a comparison across runs that does not check
-    them may be comparing two different measurements:
-
-        <key>_estimator   which path produced the number:
-                            direct         a named parameter, read straight off.
-                            edge_line_fit  per-edge line fit of msg_ij/v_j against
-                                           v_i; W is -slope and E is -intercept/
-                                           slope, so the two cannot disagree.
-                            gain_corrected the GNN's W after dividing out the
-                                           g_phi and f_theta gains.
-                            jacobian       the MLP baseline's effective
-                                           connectivity, a dense n x n matrix.
-                            f_theta_slope  tau and V_rest read out of f_theta's
-                                           local linearisation.
-                            forward        msg_i, a known-ODE's own message.
-                            through_f_theta  msg_i of a GNN, read through its update:
-                                           tau_i * [f_theta(v_i, msg_i) -
-                                           f_theta(v_i, 0)], gauge-free.
-        <key>_correction  the exact algebra that was applied, e.g.
-                          `W**2 (stored value is sqrt of the conductance)` or
-                          `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
-
-    ALWAYS, per quantity:
-
-        <key>_rel_err_median  median of |learned - true| / max(|true|, 1e-6) over
-                              the full sample, and
-        <key>_rel_err_iqr     its interquartile range. Median and IQR, never mean
-                              and SD, which the heavy tails inflate.
-
-    ONLY FOR W AND msg_i, the two a GNN pins down up to a gain:
-
-        <key>_gain        learned ~= gain * true, the least-squares factor through
-                          the origin with the truth as regressor (see
-                          :func:`r2_up_to_scale`). 1.0 is perfect; 2.0 means twice
-                          too large. THE ONE CONVENTION -- the reciprocal
-                          <true,learned>/<learned,learned> is not used anywhere.
-        <key>_R2_scaled   the identity-line R2 once that gain is divided out. The
-                          number to steer by while <key>_R2 is deeply negative.
-
-    ONLY FOR W, scale ignored altogether (over edges whose true weight is non-zero):
-
-        Wij_pearson       Pearson r of learned against true. High with a low
-                          Wij_R2 reads "wiring recovered, scale not".
-        Wij_zscored_R2    identity-line R2 of the two z-scored vectors.
-
-    THREE KEYS THAT ARE NOT PER-QUANTITY:
-
-        Wij_R2_uncorrected  W scored BEFORE the gain correction. Says how much of
-                            the recovery the correction is responsible for. Only
-                            on the `gain_corrected` path -- note "uncorrected"
-                            means before the CORRECTION, not before outlier
-                            filtering, two senses the old `raw_W_R2` conflated.
-        msg_form_r2_median  median per-edge R2 of the straight line the
-                            `edge_line_fit` extraction assumes. THIS IS A
-                            PRECONDITION, not a detail: below roughly 0.9 the
-                            message is not affine in v_i, the model has not found
-                            the conductance form, and the W and E beside it
-                            describe nothing. GNN paths only.
-        Eij_pct_wrong_slope percentage of edges whose per-edge line RISES with
-                            v_i, which no conductance does. Zero on a run in the
-                            conductance form; on a gated run it separates a noisy
-                            fit from a systematically wrong sign. GNN paths only.
-        extraction_error    present only when this function caught an exception,
-                            carrying `TypeName: message`. Its presence means every
-                            quantity below it is missing because the extractor
-                            broke, NOT because the model lacks them.
-
-    A QUANTITY GATED OUT EMITS NOTHING AT ALL. `rec.valid[q]` False makes
-    `rec.get(q)` return None, so `score_recovery` skips the whole family rather
-    than reporting a number nothing stands behind. Absence is the signal.
-
-    WHERE THE NUMBERS LAND, spelled identically in all three places:
-
-        tmp_training/<key>.log   one CSV per quantity (Wij.log, tau.log, V_rest.log,
-                                 Eij.log, msg_i.log), header `iteration,<key>_R2,
-                                 <key>_R2_all,...` in :func:`recovery_log_columns`
-                                 order; one row per training checkpoint. Read by
-                                 name with :func:`training_log_read`. cluster.log
-                                 and rollout.log follow the same layout for the
-                                 two numbers that are not recovered parameters.
-        results/metrics.txt      `key: value`, written once by `-o test_plot`
-                                 through :func:`write_recovery_metrics`.
-        the per-slot analysis log the LLM exploration reads: the same lines.
-
-    RENAMED ON 2026-09-11 (tools/extraction_gate.py carries the map for logs
-    written before): `connectivity_R2` / `W_corrected_no_outliers_R2` -> `Wij_R2`;
-    `W_corrected_R2` -> `Wij_R2_all`; `connectivity_R2_scaled` -> `Wij_R2_scaled`;
-    `w_scale` -> `Wij_gain`; `connectivity_pearson_r` / `W_structure_r` ->
-    `Wij_pearson`; `W_zscored_R2` -> `Wij_zscored_R2`; `raw_W_R2` ->
-    `Wij_R2_uncorrected`; test_plot's old `tau_R2` (unfiltered) -> `tau_R2_all`
-    and `tau_no_outliers_R2` -> `tau_R2`, likewise V_rest; `Eij_n_edges` ->
-    `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
-    columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
-    `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
-    `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
+    Returns a RecoveredParams of (gt, learned) arrays, not metrics; score_recovery
+    turns them into the `<key>_<stat>` lines (its docstring lists them). A quantity
+    that cannot be computed is absent, never zero-filled. `need` restricts the direct
+    route's msg_i pass; the template readout computes everything.
     """
     if ode_params is None:
         return RecoveredParams()
@@ -2554,12 +2406,8 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
         n_neurons = int(getattr(model, "a", np.zeros((0, 0))).shape[0]) or None
 
     estimator = resolve_W_estimator(model, ode_params, config)
-    # A GNN IS READ BY THE TEMPLATE READOUT AND NOTHING ELSE. It needs the edges
-    # and real frames -- the per-edge fit evaluates g_phi on recorded voltages and
-    # the update fit runs the model's own forward pass -- so a caller without them
-    # gets an error, not a quieter estimator. A failure is NOT caught here: there
-    # is no second estimator left to fall back to, and the callers' handlers turn
-    # it into a ReadoutError.
+    # GNN: the template readout, uncaught -- there is no other estimator to fall
+    # back to; the callers turn a failure into a ReadoutError.
     if estimator == "template":
         if edges is None or x_ts is None:
             raise ValueError("extract_recovered_params: a GNN is read by the template "
@@ -2568,39 +2416,25 @@ def extract_recovered_params(model, ode_params, config=None, edges=None, x_ts=No
                                        x_ts=x_ts, device=device, n_neurons=n_neurons)
 
     rec = RecoveredParams()
-    # THE RUN-LEVEL DESCRIPTOR beside the per-quantity `<key>_estimator` strings:
-    # those name the fit, this names the route. It reaches metrics.txt and the `#`
-    # header of every tmp_training/<key>.log. "template" is set by
-    # extract_template_params; the direct and Jacobian routes are named here.
+    # the route, written to metrics.txt as `readout:` (the template sets its own)
     rec.diagnostics["readout"] = estimator
     try:
         if estimator == "direct":
             _extract_direct(rec, model, ode_params, edges, n_neurons)
         else:
-            # jacobian: the MLP baseline's effective connectivity. Left to its
-            # existing caller rather than moved, because it compares a dense
-            # n x n matrix and not a per-edge vector like every other estimator.
+            # jacobian: computed by the MLP baseline's own caller (a dense n x n matrix)
             rec.estimator["W"] = estimator
     except Exception as exc:
-        # Caught rather than raised because this runs inside the training loop and
-        # a failed diagnostic must not kill a run -- but NOT silently: an aborted
-        # extraction drops every quantity at once, which reads downstream as "this
-        # model has no tau" rather than "the extractor broke".
+        # caught (this runs in the training loop) but recorded and printed
         rec.diagnostics["extraction_error"] = f"{type(exc).__name__}: {exc}"
         print(f"\033[91mextract_recovered_params({estimator}) failed: "
               f"{type(exc).__name__}: {exc}\033[0m")
 
-    # msg_i ON BOTH DATA FAMILIES: the true message on current data is simply
-    # W_ij * act(v_j) with no driving-force factor, and compute_msg_i_recovery
-    # builds that itself (None only when there is no ground-truth W). It is the
-    # one recovery number that needs no estimator choice, so a current run wants
-    # it beside Wij_R2 exactly as a conductance run does.
+    # msg_i: the model's per-neuron message against the generator's, on either family
     if "msg_i" in need and x_ts is not None:
         try:
             out = compute_msg_i_recovery(model, ode_params, x_ts, edges, device)
         except Exception as exc:
-            # Loud, like the family extractors above: a silent None here read
-            # downstream as "this model has no msg_i".
             rec.diagnostics["msg_i_error"] = f"{type(exc).__name__}: {exc}"
             print(f"\033[91mmsg_i extraction failed: {type(exc).__name__}: {exc}\033[0m")
             out = None
@@ -3542,6 +3376,159 @@ def score_recovery(rec: RecoveredParams, config=None) -> dict:
     `<q>_R2` is outlier-free and `<q>_R2_all` is not, decided here rather than at
     each call site. Previously the trainer reported the filtered number and
     test_plot the unfiltered one under similar names.
+
+    ----------------------------------------------------------------------------
+    EVERY METRIC THIS PRODUCES, AND WHAT EACH ONE MEANS (the pairs come from extract_recovered_params)
+    ----------------------------------------------------------------------------
+    This function returns ARRAYS; :func:`score_recovery` turns them into the
+    key-value metrics that reach `results/metrics.txt`, the per-slot analysis log
+    and the LLM exploration instructions. The catalogue is written here because
+    this is where a reader arrives asking "what can I measure", and because the
+    names are a contract: the instruction files rank slots on these spellings, so
+    renaming one silently breaks an agentic loop that has no way to notice.
+
+    FIVE QUANTITIES, and the key each is emitted under (`_KEY`):
+
+        quantity   key       what it is
+        W          Wij       per-edge synaptic weight. On conductance data this is
+                             the CONDUCTANCE (non-negative); on current data it is
+                             the signed current weight.
+        tau        tau       per-neuron membrane time constant.
+        V_rest     V_rest    per-neuron resting potential.
+        E_ij       Eij       per-edge reversal potential, i.e. the voltage each
+                             edge's driving force (E_ij - v_i) points toward.
+                             CONDUCTANCE-GENERATED DATA ONLY -- absent elsewhere,
+                             which is information, not a failure.
+        msg_i      msg_i     the aggregated per-neuron message, sum over incoming
+                             edges of W_ij * act(v_j) * (E_ij - v_i). The one
+                             quantity the W/E degeneracy does not touch.
+        gain       gain      per-neuron output gain, where the model has one.
+        bias       bias      per-neuron output bias, where the model has one.
+
+    FOR EACH of the above, `score_recovery` emits:
+
+        <key>_R2          coefficient of determination of learned against true, on
+                          the IDENTITY line (not a free-slope fit), so a scale
+                          error costs R2 rather than being absorbed. Outlier-
+                          filtered for W, tau and V_rest; unfiltered for Eij and
+                          msg_i, which have no published tolerance band.
+        <key>_slope       identity-line slope of the same scatter. 1.0 is perfect.
+                          FOR W THIS IS THE GAIN: 2.4 means the learned conductance
+                          is 2.4x the true one. It is the third ranking key of the
+                          known-ODE exploration.
+        <key>_rmse        root-mean-square error, in that quantity's own units.
+                          Read it against the SPREAD OF THE TRUTH, not a fixed bar:
+                          the reversals of one twin span 8 voltage units and those
+                          of another span 40.
+        <key>_n           how many elements entered the comparison. Context, but a
+                          drop in it means pairs were trimmed or non-finite.
+
+    AND ONLY WHERE AN OUTLIER THRESHOLD APPLIES (W, tau, V_rest -- see
+    :func:`_thresh_for`; None for Eij and msg_i):
+
+        <key>_R2_all       the same R2 WITHOUT outlier filtering. The gap between
+                           it and <key>_R2 says how much of the recovery rests on
+                           a tail. Rank on the filtered one, report both.
+        <key>_n_outliers   how many elements the threshold removed.
+        <key>_pct_outliers the same as a percentage of <key>_n.
+
+    PROVENANCE, emitted whenever the extractor recorded it. These are STRINGS, not
+    numbers, and they exist because the same key can be produced by different
+    estimators on different runs -- a comparison across runs that does not check
+    them may be comparing two different measurements:
+
+        <key>_estimator   which path produced the number:
+                            direct         a named parameter, read straight off.
+                            edge_line_fit  per-edge line fit of msg_ij/v_j against
+                                           v_i; W is -slope and E is -intercept/
+                                           slope, so the two cannot disagree.
+                            gain_corrected the GNN's W after dividing out the
+                                           g_phi and f_theta gains.
+                            jacobian       the MLP baseline's effective
+                                           connectivity, a dense n x n matrix.
+                            f_theta_slope  tau and V_rest read out of f_theta's
+                                           local linearisation.
+                            forward        msg_i, a known-ODE's own message.
+                            through_f_theta  msg_i of a GNN, read through its update:
+                                           tau_i * [f_theta(v_i, msg_i) -
+                                           f_theta(v_i, 0)], gauge-free.
+        <key>_correction  the exact algebra that was applied, e.g.
+                          `W**2 (stored value is sqrt of the conductance)` or
+                          `where(edge_is_inh, E_inh[dst], E_exc[dst])`.
+
+    ALWAYS, per quantity:
+
+        <key>_rel_err_median  median of |learned - true| / max(|true|, 1e-6) over
+                              the full sample, and
+        <key>_rel_err_iqr     its interquartile range. Median and IQR, never mean
+                              and SD, which the heavy tails inflate.
+
+    ONLY FOR W AND msg_i, the two a GNN pins down up to a gain:
+
+        <key>_gain        learned ~= gain * true, the least-squares factor through
+                          the origin with the truth as regressor (see
+                          :func:`r2_up_to_scale`). 1.0 is perfect; 2.0 means twice
+                          too large. THE ONE CONVENTION -- the reciprocal
+                          <true,learned>/<learned,learned> is not used anywhere.
+        <key>_R2_scaled   the identity-line R2 once that gain is divided out. The
+                          number to steer by while <key>_R2 is deeply negative.
+
+    ONLY FOR W, scale ignored altogether (over edges whose true weight is non-zero):
+
+        Wij_pearson       Pearson r of learned against true. High with a low
+                          Wij_R2 reads "wiring recovered, scale not".
+        Wij_zscored_R2    identity-line R2 of the two z-scored vectors.
+
+    THREE KEYS THAT ARE NOT PER-QUANTITY:
+
+        Wij_R2_uncorrected  W scored BEFORE the gain correction. Says how much of
+                            the recovery the correction is responsible for. Only
+                            on the `gain_corrected` path -- note "uncorrected"
+                            means before the CORRECTION, not before outlier
+                            filtering, two senses the old `raw_W_R2` conflated.
+        msg_form_r2_median  median per-edge R2 of the straight line the
+                            `edge_line_fit` extraction assumes. THIS IS A
+                            PRECONDITION, not a detail: below roughly 0.9 the
+                            message is not affine in v_i, the model has not found
+                            the conductance form, and the W and E beside it
+                            describe nothing. GNN paths only.
+        Eij_pct_wrong_slope percentage of edges whose per-edge line RISES with
+                            v_i, which no conductance does. Zero on a run in the
+                            conductance form; on a gated run it separates a noisy
+                            fit from a systematically wrong sign. GNN paths only.
+        extraction_error    present only when this function caught an exception,
+                            carrying `TypeName: message`. Its presence means every
+                            quantity below it is missing because the extractor
+                            broke, NOT because the model lacks them.
+
+    A QUANTITY GATED OUT EMITS NOTHING AT ALL. `rec.valid[q]` False makes
+    `rec.get(q)` return None, so `score_recovery` skips the whole family rather
+    than reporting a number nothing stands behind. Absence is the signal.
+
+    WHERE THE NUMBERS LAND, spelled identically in all three places:
+
+        tmp_training/<key>.log   one CSV per quantity (Wij.log, tau.log, V_rest.log,
+                                 Eij.log, msg_i.log), header `iteration,<key>_R2,
+                                 <key>_R2_all,...` in :func:`recovery_log_columns`
+                                 order; one row per training checkpoint. Read by
+                                 name with :func:`training_log_read`. cluster.log
+                                 and rollout.log follow the same layout for the
+                                 two numbers that are not recovered parameters.
+        results/metrics.txt      `key: value`, written once by `-o test_plot`
+                                 through :func:`write_recovery_metrics`.
+        the per-slot analysis log the LLM exploration reads: the same lines.
+
+    RENAMED ON 2026-09-11 (tools/extraction_gate.py carries the map for logs
+    written before): `connectivity_R2` / `W_corrected_no_outliers_R2` -> `Wij_R2`;
+    `W_corrected_R2` -> `Wij_R2_all`; `connectivity_R2_scaled` -> `Wij_R2_scaled`;
+    `w_scale` -> `Wij_gain`; `connectivity_pearson_r` / `W_structure_r` ->
+    `Wij_pearson`; `W_zscored_R2` -> `Wij_zscored_R2`; `raw_W_R2` ->
+    `Wij_R2_uncorrected`; test_plot's old `tau_R2` (unfiltered) -> `tau_R2_all`
+    and `tau_no_outliers_R2` -> `tau_R2`, likewise V_rest; `Eij_n_edges` ->
+    `Eij_n`; the trainer's `connectivity_r2` / `vrest_r2_clean` / `tau_r2_clean`
+    columns -> `Wij_R2` / `V_rest_R2` / `tau_R2` in their own files;
+    `msgi_r2.log`'s `r2_scaled` / `scale` -> `msg_i_R2_scaled` / `msg_i_gain`;
+    `gnn_conductance_fit.log`'s `fit_r2_median` -> `msg_form_r2_median`.
     """
     out = {}
     for quantity, key in _KEY.items():
