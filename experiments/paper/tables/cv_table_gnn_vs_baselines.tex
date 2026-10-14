@@ -1,7 +1,7 @@
 % Tab. 1 -- written by scripts/make_tables.py; GNN rows = conductance lasso 25 (experiment 2)
 \begin{table}[t]
 \centering
-\caption{\textbf{GNN and baselines on Flyvis-217} across three training-noise levels ($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out stimuli. Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over {\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges, outlier-corrected}; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.}
+\caption{\textbf{GNN and baselines on Flyvis-217} across three {\color{revised}model-noise} levels ($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out stimuli. Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over {\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges, outlier-corrected}; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.}
 \label{tab:cv_gnn_vs_baselines}
 \tiny
 \setlength{\tabcolsep}{4pt}
@@ -40,19 +40,19 @@ GNN (ours) & noise-free  & $0$
   & \good{$0.93{\pm}0.01$} & \good{$\,(0\%)$}
   & \good{$0.90{\pm}0.04$} & \good{$\,(4\%)$}
   & $0.82{\pm}0.02$ & $\,(19\%)$
-  & $0.77{\pm}0.04$ \\
+  & $0.87{\pm}0.01$ \\
            & low noise   & $0.05$
   & \good{$1.00{\pm}0$} & \good{$1.00{\pm}4\mathrm{E}{-4}$}
   & \good{$0.99{\pm}4\mathrm{E}{-3}$} & \good{$\,(0\%)$}
   & \good{$0.98{\pm}4\mathrm{E}{-3}$} & \good{$\,(0\%)$}
   & \good{$0.90{\pm}0.02$} & \good{$\,(3\%)$}
-  & $0.89{\pm}0.01$ \\
+  & $0.88{\pm}0.01$ \\
            & high noise  & $0.5$
   & \good{$0.99{\pm}5\mathrm{E}{-4}$} & $0.88{\pm}0.23$
   & \good{$0.99{\pm}7\mathrm{E}{-4}$} & \good{$\,(0\%)$}
   & \good{$1.00{\pm}8\mathrm{E}{-4}$} & \good{$\,(0\%)$}
   & $0.89{\pm}0.02$ & $\,(2\%)$
-  & $0.89{\pm}4\mathrm{E}{-3}$ \\
+  & $0.88{\pm}0.01$ \\
 \midrule
 Recurrent MLP & noise-free & $0$  &\good{$0.95{\pm}0.04$} & \good{$0.96{\pm}0.05$} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
  & low-noise & $0.05$ & \good{$0.92{\pm}0.07$} & \good{$0.93{\pm}0.11$} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\

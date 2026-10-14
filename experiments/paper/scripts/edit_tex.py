@@ -283,7 +283,7 @@ tex = tex.replace(_kp_old, _kp_new)          # the published figure, shown after
 
 # ----------------------------------------------------------------------------- figures kept, red note
 # Fig. 2: the published panels a-d with e, f redrawn from experiment 7 (scripts/fig_flywire_hybrid.py);
-# the published figure follows it for comparison until Cedric drops it.
+# (the published figure, shown after it for comparison, was dropped on 2026-10-13)
 once(tex, r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}")
 tex = tex.replace(r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}",
                   r"\includegraphics[width=\textwidth]{figures/fig_flywire_hybrid_new.png}")
@@ -295,16 +295,6 @@ tex = tex.replace(r"\textbf{(d-f)} Rollout comparisons to 20{,}000~ms unseen DAV
                   r"black) vs. FlyWire eye simulations (green), fold cv00, with the Fisher-$z$ pooled "
                   r"Pearson $r$ over all $50{,}412$ neurons and $@@FIG2_FRAMES@@$ frames. \textbf{(f)} The same GNN trained "
                   r"with $661\%$ false-positive edges (FlyWire eye~+~n.e.) vs. FlyWire eye simulations.}")
-once(tex, r"\label{fig:flywire}" + "\n\\end{figure}")
-tex = tex.replace(r"\label{fig:flywire}" + "\n\\end{figure}", r"\label{fig:flywire}" + "\n\\end{figure}" + r"""
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}
-  \caption{\textcolor{orange}{[For comparison only, to be removed] The published Fig.~2, panels e--f with the
-    current-form GNN.}}
-  \label{fig:flywire_published}
-\end{figure}
-""")
 if os.path.exists(os.path.join(HERE, "figures", "fig_rollout_3col_noise_comparison_ablation50.pdf")):
     replace_figure("fig:rollout_3col_noise_comparison_ablation50", r"""
 \begin{figure}[ht!]
@@ -447,6 +437,10 @@ def green_replace(old, new):
     global tex
     once(tex, old)
     tex = tex.replace(old, r"{\color{revised}" + new + "}")
+
+
+# sigma is the noise of the simulated MODEL (the generator), not something added in training
+green_replace("three training-noise regimes", "three model-noise regimes")
 
 
 # THE LOSS AS TRAINED (eq:loss_full): the general-form GNN runs of Tab. 1 / Fig. 1 have

@@ -31,9 +31,9 @@ def table2(numbers):
             a = aggregate(pattern.format(variant=v, fold="{fold}"))
             agg[v] = a
             first = model_label if i == 0 else side
-            lines.append(f"{first:<24} & {cond:<10} & ${n}$ & ${e}$ & {name}\n" + metric_cells(a).rstrip("\n") + " \\\\")
+            lines.append(f"{first:<24} & {cond:<10} & ${n}$ & ${e}$ & {name}\n" + metric_cells(a, w_outliers=True).rstrip("\n") + " \\\\")
             if i == 1:
-                lines.append("  \\cmidrule(l{0pt}r{0pt}){2-12}")
+                lines.append("  \\cmidrule(l{0pt}r{0pt}){2-13}")
         return lines, agg
     ko_lines, ko = block("Known ODE", "{variant}_blank50_kode_{fold}")
     gnn_lines, gnn = block("GNN", "{variant}_blank50_condl25_{fold}")
@@ -41,26 +41,26 @@ def table2(numbers):
     numbers["table2_gnn"] = gnn
     baselines = r"""
 MLP & het.\ RF   & $13\,741$ & $327\,358$ & e8 hybrid & \good{$0.90{\pm}0.09$} & \good{$0.97{\pm}0.05$}
-& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
-\cmidrule(l{0pt}r{0pt}){2-12}
+& \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\cmidrule(l{0pt}r{0pt}){2-13}
 MLP \textit{l.v.f.} & het.\ RF   & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.86{\pm}0.10$ & \good{$0.96{\pm}0.06$}
-& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+& \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
 \midrule
 EED  & het.\ RF   &  $13\,741$ & $327\,358$ & e8 hybrid & $0.88{\pm}0.12$ & \good{$0.97{\pm}0.05$}
-& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
-\cmidrule(l{0pt}r{0pt}){2-12}
+& \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+\cmidrule(l{0pt}r{0pt}){2-13}
 EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.83{\pm}0.14$ & \good{$0.95{\pm}0.06$}
-& \multicolumn{1}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
+& \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} \\
 """
     caption = (r"{\color{revised}\textbf{GNN recovery on hybrid connectome variants} under connectivity uncertainty "
                r"(null-edge augmentation); low model noise $\sigma = 0.05$, 5-fold CV (mean $\pm$ SD). Variant is "
                r"either e8 hybrid ($13{,}741$ neurons) or FlyWire eye ($50{,}412$ neurons). Known-ODE and GNN rows "
                r"are re-runs: the GNN is the general-form GNN, "
                r"$g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$; ML baselines "
-               r"are the published controls. Prediction metrics on noise-free held-out stimuli (" + frames_tex(*ko.values(), *gnn.values()) + r" frames by fold for the GNN and Known-ODE rows). "
-               r"Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over the fitted non-zero edges; "
+               r"are the published controls. Prediction metrics on noise-free held-out stimuli. "
+               r"Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over the fitted non-zero edges, outlier-corrected; "
                r"$R^2_{\widehat{\tau}}$ and $R^2_{\widehat{V}^{\mathrm{rest}}}$ over all neurons, outlier-corrected "
-               r"(Appendix~\ref{app:metrics}). \textcolor{green!50!black}{Green}: $>0.9$.}")
+               r"(Appendix~\ref{app:metrics}); (out.\ \%): the percentage of outliers. \textcolor{green!50!black}{Green}: $>0.9$.}")
     tex = (r"""% Tab. 2 -- written by scripts/make_tables.py; Known ODE + GNN rows = experiment 7 (kode, condl25)
 \begin{table}[t]
 \centering
@@ -68,17 +68,18 @@ EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.8
 \label{tab:zero_edge_inliers}
 \tiny
 \setlength{\tabcolsep}{3pt}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} lrrrrrrrr@{}rr@{}r@{}}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr@{}rr@{}rr@{}r@{}}
 \toprule
-& & & & & \multicolumn{2}{c}{prediction} & \multicolumn{3}{c}{parameter recovery} \\
+& & & & & \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 model & \multicolumn{1}{c}{condition} & \multicolumn{1}{c}{neurons} & \multicolumn{1}{c}{edges} & \multicolumn{1}{c}{variant}
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{1}{c}{$R^2_{\widehat{W}}$}
+  & \multicolumn{2}{c}{$R^2_{\widehat{W}}$\,(out.\ \%)}
   & \multicolumn{2}{c}{$R^2_{\widehat{\tau}}$\,(out.\ \%)}
   & \multicolumn{2}{c}{$R^2_{\widehat{V}^{\mathrm{rest}}}$\,(out.\ \%)} \\
 \midrule
 """ + "\n".join(ko_lines) + "\n\\midrule\n" + "\n".join(gnn_lines) + "\n  \\midrule" + baselines + r"""\bottomrule
-\end{tabular*}
+\end{tabular}}
 \end{table}
 """)
     open(os.path.join(TAB_DIR, "flybrid_inliers.tex"), "w").write(tex)

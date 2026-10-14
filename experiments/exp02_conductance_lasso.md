@@ -176,6 +176,15 @@ analyse_job_ids:
   flyvis_noise_05_blank50_condl25_cv02: '154565235'
   flyvis_noise_05_blank50_condl25_cv03: '154565236'
   flyvis_noise_05_blank50_condl25_cv04: '154565237'
+  flyvis_noise_005_blank50_condl25_emb3_cv00: '154741814'
+  flyvis_noise_005_blank50_condl25_emb3_cv01: '154741815'
+  flyvis_noise_005_blank50_condl25_emb3_cv02: '154741816'
+  flyvis_noise_005_blank50_condl25_emb4_cv00: '154742219'
+  flyvis_noise_005_blank50_condl25_emb4_cv01: '154742220'
+  flyvis_noise_005_blank50_condl25_emb4_cv02: '154742221'
+  flyvis_noise_005_blank50_condl25_emb5_cv00: '154742222'
+  flyvis_noise_005_blank50_condl25_emb5_cv01: '154742223'
+  flyvis_noise_005_blank50_condl25_emb5_cv02: '154742224'
 report:
   slide_title: GNN MLP(ai,aj,vi,vj), group lasso, model noise
   arm_order:
@@ -429,7 +438,7 @@ while running on 2026-10-13, three folds being enough for this question.
 
 ## Status
 
-**45/54 landed**, 0 trained (awaiting `-o test_plot`), 9 running, 0 pending
+**54/54 landed**, 0 trained (awaiting `-o test_plot`), 0 running, 0 pending
 
 ### Landed --- held-out, `results/metrics.txt`
 
@@ -441,20 +450,18 @@ while running on 2026-10-13, three folds being enough for this question.
 | conductance | noise_free | 5 | 0.847 ± 0.186 | 0.794 ± 0.250 | 0.760 ± 0.213 (15.2) | 0.602 ± 0.085 (16.6) | 0.535 ± 0.437 (0.2) | -5.304 ± 12.026 (23.6) | 0.634 ± 0.071 (53.6) | 0.623 ± 0.083 | 0.459 ± 0.374 (25.4) | 11.717 ± 21.403 | 0.250 ± 0.206 | 0.530 ± 0.102 |
 | conductance | noise_005 | 5 | 0.998 ± 0.000 | 0.935 ± 0.127 | 0.976 ± 0.003 (0.0) | 0.698 ± 0.030 (4.0) | 0.976 ± 0.024 (0.0) | 0.964 ± 0.015 (0.4) | 0.849 ± 0.041 (4.2) | 0.843 ± 0.066 | 0.984 ± 0.009 (0.0) | 0.014 ± 0.009 | 0.346 ± 0.008 | 0.887 ± 0.016 |
 | conductance | noise_05 | 5 | 0.994 ± 0.001 | 0.902 ± 0.179 | 0.993 ± 0.001 (0.0) | 0.745 ± 0.014 (1.1) | 0.990 ± 0.001 (0.0) | 0.995 ± 0.001 (0.0) | 0.875 ± 0.034 (2.2) | 0.909 ± 0.013 | 0.994 ± 0.002 (0.0) | 0.010 ± 0.006 | 0.167 ± 0.251 | 0.870 ± 0.021 |
-| cond_l25 | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.971 ± 0.002 (0.2) | 0.707 ± 0.052 (2.1) | 0.934 ± 0.010 (0.0) | 0.902 ± 0.044 (4.1) | 0.825 ± 0.018 (19.3) | 0.774 ± 0.027 | 0.940 ± 0.012 (0.2) | 0.029 ± 0.006 | 0.387 ± 0.010 | 0.771 ± 0.039 |
-| cond_l25 | noise_005 | 5 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.654 ± 0.055 (2.0) | 0.989 ± 0.004 (0.0) | 0.980 ± 0.004 (0.0) | 0.903 ± 0.017 (3.1) | 0.903 ± 0.017 | 0.990 ± 0.002 (0.0) | 0.006 ± 0.001 | 0.340 ± 0.003 | 0.895 ± 0.013 |
-| cond_l25 | noise_05 | 5 | 0.995 ± 0.000 | 0.878 ± 0.229 | 0.995 ± 0.001 (0.0) | 0.748 ± 0.014 (1.1) | 0.991 ± 0.001 (0.0) | 0.997 ± 0.001 (0.0) | 0.887 ± 0.022 (2.1) | 0.924 ± 0.016 | 0.995 ± 0.001 (0.0) | 0.011 ± 0.006 | 0.173 ± 0.226 | 0.886 ± 0.004 |
-| cond_l25_emb3 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
-| cond_l25_emb4 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
-| cond_l25_emb5 | noise_005 | 0 |  |  |  |  |  |  |  |  |  |  |  |  |
+| cond_l25 | noise_free | 5 | 1.000 ± 0.000 | 0.999 ± 0.000 | 0.971 ± 0.002 (0.2) | 0.707 ± 0.052 (2.1) | 0.934 ± 0.010 (0.0) | 0.902 ± 0.044 (4.1) | 0.825 ± 0.018 (19.3) | 0.774 ± 0.027 | 0.940 ± 0.012 (0.2) | 0.029 ± 0.006 | 0.387 ± 0.010 | 0.867 ± 0.011 |
+| cond_l25 | noise_005 | 5 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.654 ± 0.055 (2.0) | 0.989 ± 0.004 (0.0) | 0.980 ± 0.004 (0.0) | 0.903 ± 0.017 (3.1) | 0.903 ± 0.017 | 0.990 ± 0.002 (0.0) | 0.006 ± 0.001 | 0.340 ± 0.003 | 0.881 ± 0.009 |
+| cond_l25 | noise_05 | 5 | 0.995 ± 0.000 | 0.878 ± 0.229 | 0.995 ± 0.001 (0.0) | 0.748 ± 0.014 (1.1) | 0.991 ± 0.001 (0.0) | 0.997 ± 0.001 (0.0) | 0.887 ± 0.022 (2.1) | 0.924 ± 0.016 | 0.995 ± 0.001 (0.0) | 0.011 ± 0.006 | 0.173 ± 0.226 | 0.880 ± 0.014 |
+| cond_l25_emb3 | noise_005 | 3 | 0.999 ± 0.000 | 0.999 ± 0.000 | 0.979 ± 0.000 (0.0) | 0.526 ± 0.093 (1.9) | 0.986 ± 0.011 (0.0) | 0.980 ± 0.010 (0.2) | 0.925 ± 0.018 (3.1) | 0.922 ± 0.024 | 0.990 ± 0.003 (0.0) | 0.007 ± 0.004 | -0.117 ± 0.316 | 0.895 ± 0.007 |
+| cond_l25_emb4 | noise_005 | 3 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.979 ± 0.001 (0.0) | 0.613 ± 0.085 (2.9) | 0.979 ± 0.005 (0.0) | 0.979 ± 0.004 (0.1) | 0.876 ± 0.038 (4.5) | 0.817 ± 0.065 | 0.979 ± 0.009 (0.0) | 0.021 ± 0.012 | -0.118 ± 0.326 | 0.887 ± 0.003 |
+| cond_l25_emb5 | noise_005 | 3 | 0.999 ± 0.000 | 0.998 ± 0.000 | 0.977 ± 0.000 (0.0) | 0.690 ± 0.043 (1.3) | 0.979 ± 0.009 (0.0) | 0.971 ± 0.007 (0.0) | 0.886 ± 0.006 (4.8) | 0.722 ± 0.020 | 0.976 ± 0.001 (0.0) | 0.030 ± 0.004 | -0.338 ± 0.006 | 0.846 ± 0.051 |
 
 ### Running --- train split, `tmp_training/`, blank where not written per checkpoint
 
 | arm | noise | iter | one-step r | rollout r | fit roll r current form | fit roll r conductance form | R2_W | R2_tau | R2_Vrest | R2_Vrest noC | R2_msg | C_i | k_i | cluster |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| cond_l25_emb3 | noise_005 | 32,001 |  | 0.997 ± 0.001 |  |  | 0.971 ± 0.021 | 0.937 ± 0.036 | 0.808 ± 0.031 | 0.712 ± 0.018 | 0.970 ± 0.008 |  |  |  |
-| cond_l25_emb4 | noise_005 | 16,001 |  | 0.996 ± 0.000 |  |  | 0.968 ± 0.006 | 0.944 ± 0.024 | 0.795 ± 0.016 | 0.669 ± 0.022 | 0.948 ± 0.018 |  |  |  |
-| cond_l25_emb5 | noise_005 | 16,001 |  | 0.996 ± 0.001 |  |  | 0.970 ± 0.009 | 0.936 ± 0.007 | 0.798 ± 0.031 | 0.588 ± 0.017 | 0.945 ± 0.005 |  |  |  |
+| — | | | | | | | | | | | | | | |
 
 ### Per run
 
@@ -505,15 +512,15 @@ while running on 2026-10-13, three folds being enough for this question.
 | `flyvis_noise_05_blank50_condl25_cv02` | landed | 1,520,001 | `7278aa10679f` |  |
 | `flyvis_noise_05_blank50_condl25_cv03` | landed | 1,520,001 | `7278aa10679f` |  |
 | `flyvis_noise_05_blank50_condl25_cv04` | landed | 1,520,001 | `7278aa10679f` |  |
-| `flyvis_noise_005_blank50_condl25_emb3_cv00` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb3_cv01` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb3_cv02` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb4_cv00` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb4_cv01` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb4_cv02` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb5_cv00` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb5_cv01` | running | 32,001 | `` |  |
-| `flyvis_noise_005_blank50_condl25_emb5_cv02` | running | 16,001 | `` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv00` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv01` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb3_cv02` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv00` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv01` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb4_cv02` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv00` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv01` | landed | 1,520,001 | `aba6089ee5cd` |  |
+| `flyvis_noise_005_blank50_condl25_emb5_cv02` | landed | 1,520,001 | `aba6089ee5cd` |  |
 
 <!-- STATUS:END -->
 

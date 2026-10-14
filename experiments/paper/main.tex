@@ -376,18 +376,10 @@ procedure applied to ground-truth parameters
 }
 \label{fig:flywire}
 \end{figure}
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\textwidth]{figures/fig_flywire_hybrid.png}
-  \caption{\textcolor{orange}{[For comparison only, to be removed] The published Fig.~2, panels e--f with the
-    current-form GNN.}}
-  \label{fig:flywire_published}
-\end{figure}
-
 
 \textbf{Edge ablation as a mechanistic test.}
 We propose an edge-ablation test to certify that a learned model is
-mechanistic, beyond merely predicting activity. For each of the three training-noise regimes ($\sigma \in \{0,\,0.05,\,0.5\}$), we randomly zero $50\%$ of the
+mechanistic, beyond merely predicting activity. For each of the {\color{revised}three model-noise regimes} ($\sigma \in \{0,\,0.05,\,0.5\}$), we randomly zero $50\%$ of the
 $434{,}112$ edges, regenerate $8{,}000$ frames of held-out test
 activity with the perturbed connectome, and apply the same edge mask
 to the trained GNN's learned weights $\hat{\mathbf{W}}$ before

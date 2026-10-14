@@ -49,7 +49,7 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
  & high-noise & $0.5$ & $0.60{\pm}0.20$ & $0.77{\pm}0.25$ & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{2}{c}{---} & \multicolumn{1}{c}{---} \\
 """
     # the published caption (overleaf/tables/cv_table_gnn_vs_baselines.tex); green = the words that changed
-    caption = (r"\textbf{GNN and baselines on Flyvis-217} across three training-noise levels "
+    caption = (r"\textbf{GNN and baselines on Flyvis-217} across three {\color{revised}model-noise} levels "
                r"($\sigma\in\{0,0.05,0.5\}$); 5-fold CV (mean~$\pm$~SD). Prediction metrics on noise-free held-out "
                r"stimuli. "
                r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over "
