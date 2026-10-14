@@ -63,8 +63,8 @@ def runs():
 def queue(run):
     """(queue suffix, n_cpus): the experiments' own -- 12 slots (240 GB) for the FlyWire
     variants and the five-fold null-edge graphs, the H100 for the SIREN-stimulus runs."""
-    if "_INR_" in run:
-        return "h100", 8
+    # the SIREN-stimulus runs trained on the H100; their plot pass fits an RTX 6000, and the
+    # H100 queue held four of them for two hours on 2026-10-13
     if run.startswith(VARIANTS) or "null400" in run:
         return "rtx6000", 12
     return "rtx6000", 8
