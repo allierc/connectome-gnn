@@ -39,8 +39,8 @@ def table_known_ode(numbers):
                r"data: model and measurement noise, added/removed connectivity edges. The published Known-ODE "
                r"runs, re-analysed with the paper's current analysis code. Five-fold "
                r"cross-validation (mean~$\pm$~SD). Prediction: metrics computed on noise-free data with "
-               r"held-out stimuli (" + frames_tex(*agg.values()) + r" frames by fold). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over the "
-               r"fitted edges, as for the GNN rows; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over "
+               r"held-out stimuli (" + frames_tex(*agg.values()) + r" frames by fold). Parameter recovery: $R^2_{\hat{W}}$ by the template readout over "
+               r"all edges, as for the GNN rows; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over "
                r"all neurons, outlier-corrected (outlier fraction in parentheses, Appendix~\ref{app:metrics}); "
                r"GMM clustering accuracy over $65$ cell types. "
                r"\good{Green}: value $> 0.9$. \bad{Orange}: value $< 0.3$.}")

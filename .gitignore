@@ -216,6 +216,11 @@ experiments/paper/main.blg
 experiments/paper/appendix.bbl
 experiments/paper/appendix.blg
 experiments/paper/appendix.out
+experiments/paper/appendix.fdb_latexmk
+experiments/paper/appendix.fls
+experiments/paper/linear_algebra/linalg_note.fdb_latexmk
+experiments/paper/linear_algebra/linalg_note.fls
+experiments/paper/linear_algebra/linalg_note.synctex.gz
 experiments/paper/scripts/__pycache__/
 !experiments/paper/scripts/
 !experiments/paper/linear_algebra/linalg_note.pdf

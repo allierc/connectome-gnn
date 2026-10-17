@@ -1,0 +1,18 @@
+\begin{table}[h!]
+\centering
+\caption{\textbf{Training parameters of the Known-ODE.} bs: batch size; $\text{lr}_W$, lr: learning rates of
+$\hat{\mathbf{W}}$ and of $\tilde{\boldsymbol\tau}$, $\hat{\mathbf{V}}^{\mathrm{rest}}$;
+$\gamma_0$, $\eta_1$, $\eta_3$: coefficients of \cref{eq:known_ode_loss}.}
+\label{tab:known_ode_hp}
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{rrrrrr}
+\toprule
+ & \multicolumn{2}{c}{learning rates} & \multicolumn{3}{c}{coefficients} \\
+bs & $\text{lr}_W$ & lr & $\gamma_0$ & $\eta_1$ & $\eta_3$ \\
+\midrule
+{\color{revised}$4$} & {\color{revised}$6.0{\cdot}10^{-4}$} & {\color{revised}$6.0{\cdot}10^{-3}$}
+  & $1.0{\cdot}10^{-5}$ & $3.0{\cdot}10^{-3}$ & $1.0{\cdot}10^{-3}$ \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -55,10 +55,10 @@ EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.8
     caption = (r"{\color{revised}\textbf{GNN recovery on hybrid connectome variants} under connectivity uncertainty "
                r"(null-edge augmentation); low model noise $\sigma = 0.05$, 5-fold CV (mean $\pm$ SD). Variant is "
                r"either e8 hybrid ($13{,}741$ neurons) or FlyWire eye ($50{,}412$ neurons). Known-ODE and GNN rows "
-               r"are re-runs: the GNN is the general-form GNN, "
+               r"are re-runs: the GNN has "
                r"$g_\phi=\mathrm{MLP}(\mathbf{a}_i,\mathbf{a}_j,v_i,v_j)$ under a group lasso of $25$; ML baselines "
                r"are the published controls. Prediction metrics on noise-free held-out stimuli. "
-               r"Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over the fitted non-zero edges, outlier-corrected; "
+               r"Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over {\color{revised}all} non-zero edges, outlier-corrected; "
                r"$R^2_{\widehat{\tau}}$ and $R^2_{\widehat{V}^{\mathrm{rest}}}$ over all neurons, outlier-corrected "
                r"(Appendix~\ref{app:metrics}); (out.\ \%): the percentage of outliers. \textcolor{green!50!black}{Green}: $>0.9$.}")
     tex = (r"""% Tab. 2 -- written by scripts/make_tables.py; Known ODE + GNN rows = experiment 7 (kode, condl25)

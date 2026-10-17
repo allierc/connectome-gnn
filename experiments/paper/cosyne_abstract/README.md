@@ -50,8 +50,8 @@ Every number in Tables 1, 2 and Supp. Tables 4 and 7 is in `tables/table_numbers
 | Supp. Fig. 20: rollout, EED baseline | `figures/fig_rollout_3col_noise_comparison_eed.pdf` |
 | Supp. Tab. 3: coregistration of Flyvis and FlyWire (FAFB v783) | `tables/flyrewire_stats.tex` |
 | Supp. Tab. 4: GNN across degraded data, model noise 0.05 | `tables/cv_table_gnn_cross_noise.tex` |
-| Supp. Tab. 5: single-type degenerate variants of the weight matrix | `tables/table_variants_degenerate.tex` |
-| Supp. Tab. 6: GNN hyperparameters tuned by the agentic loop | `tables/agent_GNN_HPO.tex` |
+| Supp. Tab. 5: training parameters of the general-form GNN | `tables/agent_GNN_HPO.tex` |
+| Supp. Tab. 6: training parameters of the Known-ODE | `tables/known_ode_training.tex` |
 | Supp. Tab. 7: Known-ODE across degraded data | `tables/cv_table_known_ode_conditions.tex` |
 | Supp. Tab. 8: baseline models, three model-noise levels | `tables/blank50_baselines_table.tex` |
 | Supp. Tab. 9: compute resources | `tables/table_compute_resources.tex` |
