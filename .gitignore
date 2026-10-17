@@ -217,6 +217,8 @@ experiments/paper/appendix.bbl
 experiments/paper/appendix.blg
 experiments/paper/appendix.out
 experiments/paper/scripts/__pycache__/
+!experiments/paper/scripts/
+!experiments/paper/linear_algebra/linalg_note.pdf
 # every figure is tracked (for the Cosyne abstract, 2026-10-16) except the one over 5 MB:
 # the 6.5 MB png of the Jacobian L1 comparison, whose 2.3 MB pdf twin is tracked
 !experiments/paper/figures/*
