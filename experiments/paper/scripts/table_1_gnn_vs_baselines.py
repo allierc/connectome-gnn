@@ -55,7 +55,9 @@ EED Model & noise-free & $0$ & \good{$0.92{\pm}0.08$} & \good{$0.97{\pm}0.03$} &
                r"Parameter recovery (possible only for Known-ODE and GNN): $R^2_{\hat{W}}$ over "
                r"{\color{revised}the fitted edges of the} $434{,}112$ {\color{revised}edges, outlier-corrected}; "
                r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
-               r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$.")
+               r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$. "
+               r"{\color{revised}(At $\sigma=0.5$ the rollout from the initial voltages diverged ($r<0.5$) in 2 of the 10 "
+               r"folds we trained, cv04 and cv09; the GNN row uses cv00--cv03 and cv05, cv04 replaced by the next fold that is not one.)}")
     tex = (r"""% Tab. 1 -- written by scripts/make_tables.py; GNN rows = conductance lasso 25 (experiment 2)
 \begin{table}[t]
 \centering

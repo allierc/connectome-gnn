@@ -120,6 +120,8 @@ analyse_job_ids:
   flyvis_noise_005_null400_condl25_cv05: '154803769'
   flyvis_noise_005_null400_condl25_cv07: '154803770'
   flyvis_noise_005_null400_condl25_cv08: '154803772'
+  flyvis_noise_005_null400_condl25_cv06: '154816527'
+  flyvis_noise_005_null400_condl25_cv09: '154816528'
 ---
 # Experiment 4 — null_edges_400
 

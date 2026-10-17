@@ -350,7 +350,7 @@ makes it tractable.
 In contrast to Know-ODE, the GNN ($0.48$M parameters) does not have access to the update equation. It learns jointly the connectivity, a per-neuron embedding, and two
 signalling functions $f_\theta, g_\phi$ that together express a wide
 family of update rules (\cref{eq:gnn_ct}). The training scheme involves a large hyperparameter set (architecture, learning rates, regularisation coefficients) too large
-for grid search, so we tuned it with an agentic loop (\cref{app:agent,app:gnn-training}). \textcolor{red}{At low and high model noise ($\sigma \in \{0.05,\,0.5\}$), the GNN results closely matches the Known-ODE upper bound.} \textcolor{red}{The deterministic
+for grid search, so we tuned it with an agentic loop (\cref{app:agent,app:gnn-training}). {\color{revised}(Across ten trained folds the rollout from the initial voltages diverged ($r<0.5$) in 2 folds at $\sigma=0.5$, in 2 with $+400\%$ null edges and in 3 with the unknown stimulus, whereas the one-step prediction of those folds is normal ($r\geq0.99$) and so is their parameter recovery, except in one unknown-stimulus fold; the tables report five folds, each outlier fold replaced by the next fold that is not one.)} \textcolor{red}{At low and high model noise ($\sigma \in \{0.05,\,0.5\}$), the GNN results closely matches the Known-ODE upper bound.} \textcolor{red}{The deterministic
 $\sigma=0$ regime is the harder case ($r=0.90\pm 0.21$,
 $R^2_{\hat{\mathbf{W}}}=0.89\pm 0.04$, $R^2_{\hat{V}^{\mathrm{rest}}}=0.76\pm 0.09$ (outliers $14\%$)).} This is consistent with our identifiability analysis. \textcolor{red}{Per-neuron
 noise breaks the degenerate directions of $\mathbf{A}_i$, and is

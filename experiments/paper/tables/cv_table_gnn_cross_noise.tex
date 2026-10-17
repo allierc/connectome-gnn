@@ -1,7 +1,7 @@
 % Supp. Tab. 4 -- written by scripts/make_tables.py; conductance lasso 25 rows from experiments 2, 3, 4, 5, 9, 11
 \begin{table}[h!]
 \centering
-\caption{\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, sub-sampled frames, and hidden neurons. Prediction metrics on noise-free held-out stimuli. Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$. \bad{Orange}: $<0.3$.}
+\caption{\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV (mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, sub-sampled frames, and hidden neurons. Prediction metrics on noise-free held-out stimuli. Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; $R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected (Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. \good{Green}: $>0.9$. \bad{Orange}: $<0.3$. {\color{revised}(Among 10 trained folds the rollout from the initial voltages diverged ($r<0.5$) in 3 for the unknown stimulus (cv03, cv04, cv06) and in 2 for $+400\%$ null edges (cv02, cv08); in these two rows each outlier fold of cv00--cv04 is replaced by the next fold that is not one.)}}
 \label{tab:cv_cross_noise}
 \tiny
 \setlength{\tabcolsep}{3pt}
@@ -35,17 +35,17 @@ mid meas.\ noise, 20-step recurrent      & $0.2$ & $434\,112$
   & $0.58{\pm}0.02$ & $\,(37\%)$
   & $0.81{\pm}0.01$ \\
 unknown stimulus                         & $0$ & $434\,112$
-  & \good{$0.99{\pm}2\mathrm{E}{-3}$} & $0.52{\pm}0.29$
-  & $0.71{\pm}0.39$ & $\,(0\%)$
-  & $0.79{\pm}0.15$ & $\,(4\%)$
-  & $0.71{\pm}0.10$ & $\,(36\%)$
-  & $0.81{\pm}0.09$ \\
+  & \good{$1.00{\pm}5\mathrm{E}{-4}$} & $0.71{\pm}0.06$
+  & \good{$0.91{\pm}0.03$} & \good{$\,(0\%)$}
+  & $0.85{\pm}0.08$ & $\,(2\%)$
+  & $0.77{\pm}0.06$ & $\,(24\%)$
+  & $0.87{\pm}0.03$ \\
 $+400\%$ null edges                      & $0$ & $2\,170\,560$
-  & \good{$1.00{\pm}4\mathrm{E}{-4}$} & $0.80{\pm}0.40$
+  & \good{$1.00{\pm}5\mathrm{E}{-4}$} & \good{$1.00{\pm}7\mathrm{E}{-4}$}
   & \good{$0.96{\pm}0.02$} & \good{$\,(0\%)$}
   & \good{$0.96{\pm}0.01$} & \good{$\,(1\%)$}
-  & $0.48{\pm}0.06$ & $\,(15\%)$
-  & $0.84{\pm}0.02$ \\
+  & $0.47{\pm}0.05$ & $\,(16\%)$
+  & $0.85{\pm}0.02$ \\
 $-20\%$ edges removed                    & $0$ & $347\,000$
   & \good{$0.99{\pm}5\mathrm{E}{-4}$} & \good{$0.99{\pm}10\mathrm{E}{-4}$}
   & $0.87{\pm}0.01$ & $\,(0\%)$

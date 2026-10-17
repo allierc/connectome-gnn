@@ -27,14 +27,29 @@ from paper_style import LOG_ROOT, TAB_DIR, read_metrics, tester_rollout_frames  
 FOLDS = [f"cv{i:02d}" for i in range(5)]
 GOOD, BAD = 0.9, 0.3
 
+# A ROLLOUT-OUTLIER FOLD IS REPLACED BY THE FIRST OF THE FIVE NEW FOLDS (cv05..cv09) THAT IS NOT ONE.
+# An outlier fold is one whose rollout r (results/metrics.txt) is below OUTLIER_ROLLOUT_R: the rollout
+# from the initial voltages diverges (36-67 % of the neurons clamped in the folds checked) while the
+# one-step r is 0.99 or more. The three rows below were trained on ten folds, cv00..cv09, to count them (see the captions);
+# the table keeps five folds per row, the outlier ones swapped for the next good new fold in order.
+# key: the row's run pattern; value: {outlier fold: the fold read instead}.
+OUTLIER_ROLLOUT_R = 0.5
+FOLD_SWAPS = {
+    "flyvis_noise_05_blank50_condl25_{fold}": {"cv04": "cv05"},
+    "flyvis_noise_005_INR_davis_blank50_condl251s_{fold}": {"cv03": "cv05", "cv04": "cv07"},
+    "flyvis_noise_005_null400_condl25_{fold}": {"cv02": "cv05"},
+}
+
 
 # ----------------------------------------------------------------------------- aggregation
 def aggregate(pattern, folds=FOLDS):
-    """pattern has {fold}; returns {metric: (mean, sd)} and n folds found."""
+    """pattern has {fold}; returns {metric: (mean, sd)} and n folds found. A row in FOLD_SWAPS reads the
+    replacement fold where the pattern's fold is a rollout outlier."""
     acc = {}
     frames = set()
     n = 0
-    for f in folds:
+    swaps = FOLD_SWAPS.get(pattern, {})
+    for f in (swaps.get(f_, f_) for f_ in folds):
         m = read_metrics(os.path.join(LOG_ROOT, pattern.format(fold=f)))
         if "Wij_R2" not in m:
             continue

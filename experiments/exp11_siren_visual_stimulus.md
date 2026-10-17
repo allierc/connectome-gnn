@@ -121,9 +121,9 @@ analyse_job_ids:
   flyvis_noise_005_INR_davis_blank50_condl251s_cv04: '154490806'
   flyvis_noise_005_INR_davis_blank50_cur1sylist_cv00: '154492646'
   flyvis_noise_005_INR_davis_blank50_cur1sseed2_cv00: '154493744'
-  flyvis_noise_005_INR_davis_blank50_condl251s_cv05: '154801444'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv05: '154816529'
   flyvis_noise_005_INR_davis_blank50_condl251s_cv06: '154801445'
-  flyvis_noise_005_INR_davis_blank50_condl251s_cv07: '154801446'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv07: '154816530'
   flyvis_noise_005_INR_davis_blank50_condl251s_cv08: '154801447'
   flyvis_noise_005_INR_davis_blank50_condl251s_cv09: '154801448'
 ---

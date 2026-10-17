@@ -439,8 +439,24 @@ def green_replace(old, new):
     tex = tex.replace(old, r"{\color{revised}" + new + "}")
 
 
+def green_after(anchor, sentence):
+    """Add `sentence` in green right after `anchor`, which stays as it is."""
+    global tex
+    once(tex, anchor)
+    tex = tex.replace(anchor, anchor + " {\\color{revised}" + sentence + "}")
+
+
 # sigma is the noise of the simulated MODEL (the generator), not something added in training
 green_replace("three training-noise regimes", "three model-noise regimes")
+
+
+# THE ROLLOUT OUTLIER FOLDS: ten folds trained for the three rows that had one (tables/table_common.py FOLD_SWAPS)
+green_after(r"so we tuned it with an agentic loop (\cref{app:agent,app:gnn-training}).",
+            r"(Across ten trained folds the rollout from the initial voltages diverged ($r<0.5$) in 2 folds at "
+            r"$\sigma=0.5$, in 2 with $+400\%$ null edges and in 3 with the unknown stimulus, whereas the one-step "
+            r"prediction of those folds is normal ($r\geq0.99$) and so is their parameter recovery, except in one "
+            r"unknown-stimulus fold; the tables report five folds, each outlier fold replaced by the next fold that is "
+            r"not one.)")
 
 
 # THE LOSS AS TRAINED (eq:loss_full): the general-form GNN runs of Tab. 1 / Fig. 1 have

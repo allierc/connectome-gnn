@@ -65,12 +65,15 @@ The scripts read the trained runs under `/groups/saalfeld/home/allierc/GraphData
 data is on the Janelia cluster file system and not in git, so the scripts run only where
 `/groups` is mounted. `scripts/build.sh` rebuilds the tables and compiles `main.pdf`.
 
-## Status of the numbers (2026-10-16)
+## Status of the numbers (2026-10-17)
 
-- R2 of W is computed over the fitted edges only; the "fitted %" beside it is their share of
-  all edges.
-- Three rows have one cross-validation fold with a low rollout Pearson r. Five more folds
-  (10 in total) are being trained for each, and their numbers may change:
-  - Table 1, GNN at model noise 0.5 (fold 4, r 0.42);
-  - Supp. Tab. 4, unknown stimulus (fold 3, r 0.04);
-  - Supp. Tab. 4, +400% null edges (fold 2, r 0.006).
+- The parameter fit reads every sampled frame (no activity filter). R2 of W is computed over the
+  edges the fit could fit (97-100% of the edges); its parenthesis in the tables is the percentage of
+  outliers.
+- Three rows were trained on ten folds (cv00-cv09) because some folds have a rollout outlier: the
+  rollout from the initial voltages diverges (rollout r below 0.5) while the one-step r stays at 0.99
+  or more. Outlier folds among the ten: Table 1 GNN at model noise 0.5, 2 (cv04, cv09); Supp. Tab. 4
+  unknown stimulus, 3 (cv03, cv04, cv06); Supp. Tab. 4 +400% null edges, 2 (cv02, cv08).
+- The tables keep five folds per row: each outlier fold of cv00-cv04 is replaced by the next of
+  cv05-cv09 that is not one (`FOLD_SWAPS` in `scripts/table_common.py`), and the captions and the
+  Results text say so.

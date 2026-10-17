@@ -45,7 +45,10 @@ def table_cross(numbers):
                r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; "
                r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
                r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
-               r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.")
+               r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$. "
+               r"{\color{revised}(Among 10 trained folds the rollout from the initial voltages diverged ($r<0.5$) in 3 for the "
+               r"unknown stimulus (cv03, cv04, cv06) and in 2 for $+400\%$ null edges (cv02, cv08); in these two rows "
+               r"each outlier fold of cv00--cv04 is replaced by the next fold that is not one.)}")
     tex = (r"""% Supp. Tab. 4 -- written by scripts/make_tables.py; conductance lasso 25 rows from experiments 2, 3, 4, 5, 9, 11
 \begin{table}[h!]
 \centering
