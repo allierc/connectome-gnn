@@ -359,17 +359,17 @@ red_sentence(r"At low and high model noise ($\sigma \in \{0.05,\,0.5\}$), the GN
              r"Known-ODE upper bound.")
 red_sentence("Per-neuron\nnoise breaks the degenerate directions of $\\mathbf{A}_i$, and is\nwhat enables the GNN to "
              "match the Known-ODE upper bound at\n$\\sigma > 0$.")
-# sigma 0: rollout r 1.00 +- 0.00, R2_W 0.93 +- 0.01, R2_V_rest 0.82 +- 0.02 (19.3% outliers)
+# sigma 0 (no activity filter): rollout r 1.00 +- 0.00, R2_W 0.92 +- 0.01, R2_V_rest 0.87 +- 0.02 (20% outliers)
 red_sentence("The deterministic\n$\\sigma=0$ regime is the harder case ($r=0.90\\pm 0.21$,\n"
              "$R^2_{\\hat{\\mathbf{W}}}=0.89\\pm 0.04$, $R^2_{\\hat{V}^{\\mathrm{rest}}}=0.76\\pm 0.09$ (outliers $14\\%$)).")
-# clustering accuracy at sigma 0.05: 0.89, not 0.92
+# clustering accuracy at sigma 0.05 (no activity filter): GNN 0.90 against 0.93 for the ground-truth parameters
 red_sentence("The learned latent embedding $\\mathbf{a}_i$ alone separates the $65$\ncell types, and combining it "
              "with $(\\hat{\\boldsymbol{\\tau}},\n\\hat{\\mathbf{V}}^{\\mathrm{rest}})$ and summary statistics of\n"
              "$\\hat{\\mathbf{W}}$ matches the clustering accuracy of the same\nprocedure applied to ground-truth "
              "parameters\n($0.92$ vs.\\ $0.93$ at $\\sigma = 0.05$;\n\\cref{fig:clustering_appendix,tab:cv_gnn_vs_baselines}).")
-# Data degradation (Supp. Tab. 4): one-step >= 0.95 everywhere, 1/5 frames 1.00; R2_W -20% 0.83 / -50% 0.25
-# (rollout 0.93); gamma 0.1 / 0.2 -> R2_W 0.89 / 0.75; 1/5 frames keeps W (0.97-0.98) and is now more resilient
-# than +400% null edges (0.96); unknown stimulus rollout 0.52 +- 0.29, tau 0.79 +- 0.15, W 0.65 +- 0.46
+# Data degradation (Supp. Tab. 4, no activity filter): one-step >= 0.95 everywhere, 1/5 frames 1.00; R2_W -20% 0.87 / -50% 0.43
+# (rollout 0.99 / 0.93); gamma 0.1 / 0.2 -> R2_W 0.77 / 0.61; 1/5 frames keeps W (0.95) and is not more resilient
+# than +400% null edges (0.96); unknown stimulus rollout 0.52, tau 0.79, W 0.71
 red_sentence(r"Activity prediction is robust across all conditions (one-step $r\geq0.95$ except $1/5$ frames at $0.86$).")
 red_sentence(r"Parameter recovery is most resilient to false-positive edges.")
 red_sentence(r"It degrades under $-20\%$ edge removal ($R^2_{\hat{W}}=0.78$, rollout $r=0.99$), but breaks down at "

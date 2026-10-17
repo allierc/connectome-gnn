@@ -39,6 +39,18 @@ arms:
 - id: condl251s
   label: cond. lasso 25, one-step
   spec_pattern: flyvis_noise_005_INR_davis_blank50_condl251s_{fold}
+  axes_only:
+    fold:
+    - cv00
+    - cv01
+    - cv02
+    - cv03
+    - cv04
+    - cv05
+    - cv06
+    - cv07
+    - cv08
+    - cv09
   differs_by:
     graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
@@ -71,7 +83,7 @@ arms:
   differs_by:
     training.seed: 2042
 report:
-  slide_title: 'Unknown visual stimulus (SIREN)'
+  slide_title: Unknown visual stimulus (SIREN)
   metric_columns:
     stimuli_r: stimulus r
     stimuli_R2: stimulus R2
@@ -93,6 +105,11 @@ job_ids:
   flyvis_noise_005_INR_davis_blank50_condl251s_cv04: '154488002'
   flyvis_noise_005_INR_davis_blank50_cur1sylist_cv00: '154489406'
   flyvis_noise_005_INR_davis_blank50_cur1sseed2_cv00: '154489407'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv05: '154800392'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv06: '154800393'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv07: '154800394'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv08: '154800396'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv09: '154800397'
 analyse_job_ids:
   flyvis_noise_005_INR_davis_blank50_cur1s_cv00: '154482384'
   flyvis_noise_005_INR_davis_blank50_condl251s_cv00: '154594758'
@@ -104,6 +121,11 @@ analyse_job_ids:
   flyvis_noise_005_INR_davis_blank50_condl251s_cv04: '154490806'
   flyvis_noise_005_INR_davis_blank50_cur1sylist_cv00: '154492646'
   flyvis_noise_005_INR_davis_blank50_cur1sseed2_cv00: '154493744'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv05: '154801444'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv06: '154801445'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv07: '154801446'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv08: '154801447'
+  flyvis_noise_005_INR_davis_blank50_condl251s_cv09: '154801448'
 ---
 
 # Experiment 11 — siren_visual_stimulus

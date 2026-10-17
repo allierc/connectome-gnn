@@ -414,13 +414,17 @@ class SimulationConfig(BaseModel):
     # here has 65, and the one worth generating from is the argmin-EPE checkpoint
     # that analysis/checkpoints.csv reports.
     conductance_checkpoint_index: int = 0
-    # WHICH TIME STEP THE CONDUCTANCE GENERATOR TAKES. True (default) solves the
-    # step exactly at frozen coefficients; False is flyvis's plain forward Euler,
-    # which contracts only while (dt/tau_i)(1 + G_i) < 2 and at the measured
+    # WHICH TIME STEP THE CONDUCTANCE GENERATOR TAKES, and ONLY the conductance
+    # generator: the current-based generator always takes flyvis's plain forward
+    # Euler step, whatever this says, so a current dataset is the same data before
+    # and after the conductance work. For a conductance dataset, True solves the
+    # step exactly at frozen coefficients; False (default) is the plain forward
+    # Euler, which contracts only while (dt/tau_i)(1 + G_i) < 2 and at the measured
     # G_i of 3.2 with tau_i = 19 ms and dt = 20 ms sits at 4.4 -- more than double
-    # the limit. False therefore EXPECTS to diverge on some neurons; it exists to
-    # measure where and when, against an otherwise identical run.
-    conductance_exponential_euler: bool = True
+    # the limit. A conductance spec therefore has to say `true` to be stable; False
+    # EXPECTS to diverge on some neurons and is how to measure where and when,
+    # against an otherwise identical run.
+    conductance_exponential_euler: bool = False
     # WHETHER A DRIVING FORCE THAT CHANGES SIGN MID-RUN ABORTS GENERATION.
     #
     # True is right for a twin whose reversals were BRACKETED outside the teacher's
@@ -2609,6 +2613,13 @@ class RecoveryConfig(BaseModel):
     # THE TEMPLATE FIT'S FRAMES: one uniform random draw, one pass (experiment 8).
     # The "active" frame choice and the second pass were removed on 2026-09-30.
     template_n_frames: Optional[int] = None
+    # THE ACTIVITY FILTER OF THE PER-EDGE FIT. False (default, the paper's tables from 2026-10-17):
+    # every sampled frame enters every edge's fit, silent senders included; an edge still needs
+    # min_points frames and a non-singular normal matrix, so an edge whose sender never fires in
+    # the sample stays unfitted (W = nan, left out of R2_W). True: an edge's fit keeps only the
+    # frames where its sender's relu(v_j) clears a floor (the out-degree-weighted median of the
+    # positive activations, about 0.52 at sigma 0.05), the paper's tables before that date.
+    template_frame_filter: bool = False
     report_scaled: bool = True
 
     # SCORE ON A SUBSET OF THE CIRCUIT. Filename of an .npz holding bool masks,

@@ -35,6 +35,18 @@ arms:
 - id: cond_l25
   label: conductance, group lasso 25
   spec_pattern: flyvis_noise_005_null400_condl25_{fold}
+  axes_only:
+    fold:
+    - cv00
+    - cv01
+    - cv02
+    - cv03
+    - cv04
+    - cv05
+    - cv06
+    - cv07
+    - cv08
+    - cv09
   differs_by:
     graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
@@ -67,6 +79,11 @@ job_ids:
   flyvis_noise_005_null400_condl100_cv02: '154623583'
   flyvis_noise_005_null400_condl100_cv03: '154623584'
   flyvis_noise_005_null400_condl100_cv04: '154623585'
+  flyvis_noise_005_null400_condl25_cv05: '154800384'
+  flyvis_noise_005_null400_condl25_cv06: '154800385'
+  flyvis_noise_005_null400_condl25_cv07: '154800386'
+  flyvis_noise_005_null400_condl25_cv08: '154800387'
+  flyvis_noise_005_null400_condl25_cv09: '154800388'
 report:
   slide_title: +400% null edges
   arm_order:
@@ -100,6 +117,9 @@ analyse_job_ids:
   flyvis_noise_005_null400_condl100_cv02: '154668918'
   flyvis_noise_005_null400_condl100_cv03: '154668919'
   flyvis_noise_005_null400_condl100_cv04: '154668920'
+  flyvis_noise_005_null400_condl25_cv05: '154803769'
+  flyvis_noise_005_null400_condl25_cv07: '154803770'
+  flyvis_noise_005_null400_condl25_cv08: '154803772'
 ---
 # Experiment 4 — null_edges_400
 

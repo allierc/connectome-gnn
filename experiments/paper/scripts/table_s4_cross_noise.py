@@ -32,10 +32,8 @@ def table_cross(numbers):
     add("mid meas.\\ noise, 20-step recurrent", "0.2", "434\\,112", "flyvis_noise_005_020_condl25rc20_{fold}")
     add("unknown stimulus", "0", "434\\,112", "flyvis_noise_005_INR_davis_blank50_condl251s_{fold}")
     add("$+400\\%$ null edges", "0", "2\\,170\\,560", "flyvis_noise_005_null400_condl25_{fold}")
-    add("$+400\\%$ null edges, group lasso $100$", "0", "2\\,170\\,560", "flyvis_noise_005_null400_condl100_{fold}")
     add("$-20\\%$ edges removed", "0", "347\\,000", "flyvis_noise_005_rm20_condl251s_{fold}")
     add("$-50\\%$ edges removed", "0", "217\\,056", "flyvis_noise_005_rm50_condl251s_{fold}")
-    add("$1/5$ frames, rollout horizon 6", "0", "434\\,112", "flyvis_noise_005_s5h06_condl25_{fold}")
     add("$1/5$ frames, rollout horizon 21", "0", "434\\,112", "flyvis_noise_005_s5h21_condl25_{fold}")
     add("$10\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid10_condl251s_{fold}")
     add("$20\\%$ hidden", "0", "434\\,112", "flyvis_noise_005_hid20_none_condl251s_{fold}")
@@ -44,7 +42,7 @@ def table_cross(numbers):
     caption = (r"\textbf{GNN evaluation across degraded Flyvis-217}; model noise $\sigma = 0.05$, 5-fold CV "
                r"(mean~$\pm$~SD) with variable measurement noise ($\gamma$), unknown stimulus, added/removed edges, "
                r"sub-sampled frames, and hidden neurons. Prediction metrics on noise-free held-out stimuli. "
-               r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges (fitted \%: their share), outlier-corrected}; "
+               r"Parameter recovery: $R^2_{\hat{W}}$ over {\color{revised}the fitted edges, outlier-corrected}; "
                r"$R^2_{\hat{\tau}}$ and $R^2_{\hat{V}^{\mathrm{rest}}}$ over all $13{,}741$ neurons, outlier-corrected "
                r"(Appendix~\ref{app:metrics}); GMM clustering accuracy over $65$ cell types. "
                r"\good{Green}: $>0.9$. \bad{Orange}: $<0.3$.")
@@ -61,7 +59,7 @@ def table_cross(numbers):
 & \makebox[0pt][l]{measurement} & & \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 condition & noise $\gamma$ & \multicolumn{1}{c}{edges}
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{2}{c}{$R^2_{\hat{W}} (\text{fitted} \%)$}
+  & \multicolumn{2}{c}{$R^2_{\hat{W}} (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{\tau}} (\text{out.} \%)$}
   & \multicolumn{2}{c}{$R^2_{\hat{V}^{\mathrm{rest}}} (\text{out.} \%)$}
   & \multicolumn{1}{c}{cluster.\ acc.} \\

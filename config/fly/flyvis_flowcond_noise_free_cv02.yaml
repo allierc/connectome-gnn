@@ -21,6 +21,7 @@ simulation:
   noise_model_level: 0.0
   seed: 44
   ground_truth_model: flyvis_conductance
+  conductance_exponential_euler: true
   conductance_bracket_strict: false
   datavis_roots:
   - $WEB_DATASETS_ROOT/DAVIS2017-partial-test

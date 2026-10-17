@@ -3783,7 +3783,7 @@ def _run_ode_generation(
                     # exactly at frozen coefficients instead, a contraction for any
                     # G_i >= 0. `dv_step` is still the true derivative and is what gets
                     # STORED as the training target; only the state update changes.
-                    if getattr(sim, "conductance_exponential_euler", True):
+                    if getattr(pde, "is_conductance", False) and sim.conductance_exponential_euler:
                         x.voltage = pde.step(x, edge_index, sim.delta_t)
                     else:
                         x.voltage = x.voltage + sim.delta_t * dv_step

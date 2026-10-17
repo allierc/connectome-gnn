@@ -2471,6 +2471,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     _rc = getattr(config, "recovery", None)                      # the config's recovery: section
     _nf = getattr(_rc, "template_n_frames", None)                # recovery.template_n_frames, if set
     n_frames = int(_nf) if _nf else n_frames                     # real frames drawn for the per-edge fit
+    frame_filter = bool(getattr(_rc, "template_frame_filter", True))   # recovery.template_frame_filter
     E_all = int(edges.shape[1])                                  # number of edges
     n_total = int(x_ts.n_frames)                                 # frames in the training trajectory
     _ends = to_numpy(edges).reshape(2, -1).astype(np.int64)      # edge list, (2, E)
@@ -2486,7 +2487,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     def _sums(u_, vi_, msg_, floor_):
         """The ten per-edge sums (over frames) the normal equations are built from;
         sums add across samples, so frames and edges can be streamed."""
-        keep_ = u_ > max(floor_, 1e-6)
+        keep_ = np.ones(u_.shape, dtype=bool) if floor_ is None else u_ > max(floor_, 1e-6)
         y_ = np.where(keep_, msg_, 0.0)
         a1 = np.where(keep_, u_, 0.0)
         a2 = np.where(keep_, u_ * vi_, 0.0)
@@ -2539,7 +2540,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     _vi_scale = _pooled_quantile(np.abs(_vf_np), in_deg, 99, percentile=True)
     _vi_scale = float("nan") if _vi_scale is None else _vi_scale
 
-    acc = _block_sums(eid, _vf, floor)                           # the slow step: g_phi on every edge
+    acc = _block_sums(eid, _vf, floor if frame_filter else None)   # the slow step: g_phi on every edge
     n_used = acc["n"]
     S11, S12, S22 = acc["S11"], acc["S12"], acc["S22"]
     S13, S23, S33 = acc["S13"], acc["S23"], acc["n"]
@@ -2712,7 +2713,7 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.valid["W"] = r2_med >= gate
     # ---- 9. fit diagnostics (metrics.txt) ------------------------------------------------------
     rec.diagnostics["msg_form_r2_median"] = r2_med
-    # fitted edges: at least min_points frames kept by the filter
+    # fitted edges: at least min_points frames kept by the filter (every sampled frame when the filter is off)
     _n_fitted = int((n_used >= min_points).sum())
     rec.diagnostics["tmpl_n_edges"] = int(n_e)
     rec.diagnostics["tmpl_n_edges_fitted"] = _n_fitted
@@ -2841,7 +2842,8 @@ def extract_template_params(model, ode_params, config=None, edges=None, x_ts=Non
     rec.diagnostics["tmpl_pct_W_from_slope"] = pct_slope
     rec.diagnostics["tmpl_n_used_median"] = float(np.nanmedian(n_used))
     rec.diagnostics["tmpl_pct_unfitted"] = float(100.0 * np.mean(~np.isfinite(W_learned)))
-    rec.diagnostics["tmpl_vj_floor"] = floor
+    rec.diagnostics["tmpl_vj_floor"] = floor if frame_filter else 0.0
+    rec.diagnostics["tmpl_frame_filter"] = float(frame_filter)
     # the offset k_i*C_ij per edge and summed over each neuron's fitted incoming edges
     _off_scaled = k[i_ids] * b3
     _off_full = _scatter(_off_scaled)

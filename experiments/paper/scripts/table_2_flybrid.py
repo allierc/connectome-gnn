@@ -60,7 +60,7 @@ EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.8
                r"are the published controls. Prediction metrics on noise-free held-out stimuli. "
                r"Parameter recovery: $R^2_{\widehat{W}}$ by the template readout over the fitted non-zero edges, outlier-corrected; "
                r"$R^2_{\widehat{\tau}}$ and $R^2_{\widehat{V}^{\mathrm{rest}}}$ over all neurons, outlier-corrected "
-               r"(Appendix~\ref{app:metrics}); (fitted \%): the percentage of edges fitted; (out.\ \%): the percentage of outliers. \textcolor{green!50!black}{Green}: $>0.9$.}")
+               r"(Appendix~\ref{app:metrics}); (out.\ \%): the percentage of outliers. \textcolor{green!50!black}{Green}: $>0.9$.}")
     tex = (r"""% Tab. 2 -- written by scripts/make_tables.py; Known ODE + GNN rows = experiment 7 (kode, condl25)
 \begin{table}[t]
 \centering
@@ -74,7 +74,7 @@ EED \textit{l.v.f.} & het.\ RF  & $50\,412$ & $1\,266\,378$ & FlyWire eye & $0.8
 & & & & & \multicolumn{2}{c}{prediction} & \multicolumn{6}{c}{parameter recovery} \\
 model & \multicolumn{1}{c}{condition} & \multicolumn{1}{c}{neurons} & \multicolumn{1}{c}{edges} & \multicolumn{1}{c}{variant}
   & \multicolumn{1}{c}{one-step $r$} & \multicolumn{1}{c}{rollout $r$}
-  & \multicolumn{2}{c}{$R^2_{\widehat{W}}$\,(fitted \%)}
+  & \multicolumn{2}{c}{$R^2_{\widehat{W}}$\,(out.\ \%)}
   & \multicolumn{2}{c}{$R^2_{\widehat{\tau}}$\,(out.\ \%)}
   & \multicolumn{2}{c}{$R^2_{\widehat{V}^{\mathrm{rest}}}$\,(out.\ \%)} \\
 \midrule

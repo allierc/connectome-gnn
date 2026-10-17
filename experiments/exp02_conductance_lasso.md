@@ -42,6 +42,22 @@ arms:
     graph_model.signal_model_name: flyvis_general_form
     graph_model.input_size: 6
     training.coeff_g_phi_input_group_L1: 25.0
+- id: cond_l25_more_folds
+  label: conductance, group lasso 25, five more folds
+  spec_pattern: flyvis_{noise}_blank50_condl25_{fold}
+  axes_only:
+    noise:
+    - noise_05
+    fold:
+    - cv05
+    - cv06
+    - cv07
+    - cv08
+    - cv09
+  differs_by:
+    graph_model.signal_model_name: flyvis_general_form
+    graph_model.input_size: 6
+    training.coeff_g_phi_input_group_L1: 25.0
 - id: cond_l25_emb3
   label: general form, group lasso 25, embedding dimension 3
   spec_pattern: flyvis_{noise}_blank50_condl25_emb3_{fold}
@@ -130,6 +146,11 @@ job_ids:
   flyvis_noise_005_blank50_condl25_emb5_cv00: '154728925'
   flyvis_noise_005_blank50_condl25_emb5_cv01: '154728926'
   flyvis_noise_005_blank50_condl25_emb5_cv02: '154728927'
+  flyvis_noise_05_blank50_condl25_cv05: '154799907'
+  flyvis_noise_05_blank50_condl25_cv06: '154799908'
+  flyvis_noise_05_blank50_condl25_cv07: '154799909'
+  flyvis_noise_05_blank50_condl25_cv08: '154799910'
+  flyvis_noise_05_blank50_condl25_cv09: '154799911'
 analyse_job_ids:
   flyvis_noise_free_blank50_dtfd_cv00: '154399734'
   flyvis_noise_free_blank50_dtfd_cv01: '154399735'
@@ -185,6 +206,11 @@ analyse_job_ids:
   flyvis_noise_005_blank50_condl25_emb5_cv00: '154757583'
   flyvis_noise_005_blank50_condl25_emb5_cv01: '154757584'
   flyvis_noise_005_blank50_condl25_emb5_cv02: '154757585'
+  flyvis_noise_05_blank50_condl25_cv05: '154803220'
+  flyvis_noise_05_blank50_condl25_cv06: '154803222'
+  flyvis_noise_05_blank50_condl25_cv07: '154803223'
+  flyvis_noise_05_blank50_condl25_cv08: '154803225'
+  flyvis_noise_05_blank50_condl25_cv09: '154803226'
 report:
   slide_title: GNN MLP(ai,aj,vi,vj), group lasso, model noise
   arm_order:
