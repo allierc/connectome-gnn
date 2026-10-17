@@ -213,6 +213,9 @@ experiments/paper/main.log
 experiments/paper/main.out
 experiments/paper/main.bbl
 experiments/paper/main.blg
+experiments/paper/appendix.bbl
+experiments/paper/appendix.blg
+experiments/paper/appendix.out
 experiments/paper/scripts/__pycache__/
 # every figure is tracked (for the Cosyne abstract, 2026-10-16) except the one over 5 MB:
 # the 6.5 MB png of the Jacobian L1 comparison, whose 2.3 MB pdf twin is tracked
