@@ -328,7 +328,9 @@ mapping from the model's parameters to Flyvis-217 model quantities (\cref{app:be
     {\color{revised}\textbf{(b)}}~Time constants $\tau_i$.
     {\color{revised}\textbf{(c)}}~Resting potentials $V_i^{\mathrm{rest}}$.
     {\color{revised}\textbf{(d)}}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons.
-    Each scatter is annotated with $R^2$ and slope of learned vs.\ true; colours indicate ground-truth cell types.
+    {\color{revised}\textbf{(e, f)}~The embedding of (d) again, coloured by the ground-truth time constant
+    $\tau_i$ (e, log scale) and resting potential $V_i^{\mathrm{rest}}$ (f).}
+    Each scatter is annotated with $R^2$ and slope of learned vs.\ true; colours in (d) indicate ground-truth cell types.
   }
   \label{fig:gnn_params_3col_noise_comparison}
 \end{figure}
@@ -739,14 +741,15 @@ Measurement noise on voltage traces is the principal open bottleneck: $\gamma = 
     \textbf{on the four FlyWire connectome variants} with low model noise ($\sigma = 0.05$; fold cv00):
     e8 hybrid, e8 hybrid with proximal null edges (n.e.), FlyWire eye, and FlyWire eye
     with proximal null edges, one row each.
-    \textbf{(a, e, i, m)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
+    \textbf{(a, g, m, s)}~Learned against true synaptic weight $\hat{W}_{ij}$ over the edges fitted by the
     template readout ($95\%$, $95\%$, $95\%$ and $94\%$ of the edges).
-    \textbf{(b, f, j, n)}~Time constants $\tau_i$ and \textbf{(c, g, k, o)}~resting potentials
+    \textbf{(b, h, n, t)}~Time constants $\tau_i$ and \textbf{(c, i, o, u)}~resting potentials
     $V_i^{\mathrm{rest}}$ of the template readout, outliers beyond the dotted $\pm 0.1$~s / $\pm 0.2$
     bands in red; $R^2$ (inlier, all-neuron in parentheses), slope and outlier fraction as in
     \cref{tab:zero_edge_inliers}.
-    \textbf{(d, h, l, p)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
-    ground-truth cell type.}
+    \textbf{(d, j, p, v)}~Learned latent embeddings $\mathbf{a}_i \in \mathbb{R}^2$ of all neurons, coloured by
+    ground-truth cell type; \textbf{(e, k, q, w)} and \textbf{(f, l, r, x)} the same embeddings coloured by the
+    ground-truth $\tau_i$ (log scale) and $V_i^{\mathrm{rest}}$.}
   }
   \label{fig:gnn_params_4col_flywire_comparison}
 \end{figure}
@@ -1897,7 +1900,8 @@ FlyWireRF runs.
     clustering accuracy is computed on (learned $\tau$ and $V^{\mathrm{rest}}$, with the mean, SD, minimum
     and maximum of the incoming and of the outgoing learned weights, standardised), coloured by
     ground-truth cell type. \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(h, j, l)}~Time constants $\tau_i$. Each scatter is annotated with the $R^2$ and slope of learned
+    \textbf{(h, j, l)}~Time constants $\tau_i$. \textbf{(m, o, q)} and \textbf{(n, p, r)}~The UMAP of
+    (b, d, f) coloured by the ground-truth $\tau_i$ (log scale) and $V_i^{\mathrm{rest}}$. Each scatter is annotated with the $R^2$ and slope of learned
     against true quoted in \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and
     $V^{\mathrm{rest}}$ the inlier $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted
     $\pm 0.1$~s / $\pm 0.2$ bands in red, drawn on the axis edge when beyond it, and their fraction printed).}}

@@ -13,8 +13,8 @@ other rows, 45 runs), all (default). The Known-ODE runs read W directly, so the 
 recovery.template_frame_filter: false makes every sampled frame enter every edge's fit
 (metrics.extract_template_params). Only the plot pass re-runs, so the model, the sampled frames and
 the rollout columns (results_rollout.log, kept by the copy) are those of the real run. SANDBOX/log/fly/<run>
-is the run without its results/; its checkpoints are symlinks to the real ones (a plot pass writes
-template_fit.pt into models/, the checkpoint files it only reads), SANDBOX/graphs_data a symlink to the
+is the run without its results/; its checkpoints (best_model*.pt) are symlinks to the real ones; the other files of models/ are
+copies, because a plot pass writes template_fit*.pt there, SANDBOX/graphs_data a symlink to the
 real data. The filtered numbers of `compare` are the real runs' results/metrics.txt before `promote`.
 """
 import argparse
@@ -74,9 +74,9 @@ def stage(group="all"):
         if os.path.exists(os.path.join(SANDBOX, "config", "fly", r + ".yaml")):   # written last: the run is staged
             continue
         subprocess.run(["rsync", "-a", "--exclude", "/results", "--exclude", "/ablation50",
-                        "--exclude", "/superseded", "--exclude", "/tmp_recons", "--exclude", "/models/*.pt",
+                        "--exclude", "/superseded", "--exclude", "/tmp_recons", "--exclude", "/models/best_model*.pt",
                         src + "/", dst + "/"], check=True)
-        for ck in glob.glob(os.path.join(src, "models", "*.pt")):
+        for ck in glob.glob(os.path.join(src, "models", "best_model*.pt")):      # only the checkpoints; template_fit*.pt are written by the plot pass
             os.symlink(ck, os.path.join(dst, "models", os.path.basename(ck)))
         os.makedirs(os.path.join(dst, "results"), exist_ok=True)
         if os.path.exists(os.path.join(src, "results", "test_metrics.npz")):

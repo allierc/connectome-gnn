@@ -4,7 +4,7 @@ figure's conventions, from the template readout that the tables score:
     W      learned vs true synaptic weight, one black point per fitted edge (the
            template readout's per-edge fit, models/template_fit_alt.pt, i.e.
            W * ReLU(v_j) + C fitted on 1,024 frames; an edge whose presynaptic
-           neuron never rises above the activity floor is unfitted, stored as 0,
+           neuron never rises in the sampled frames is unfitted, stored as 0,
            and left out as in metrics Wij_n / Wij_R2); fixed range [-1, 2]
     a      the learned 2-D embedding a_i, one point per neuron, by cell type
     V_rest learned vs true resting potential: the template readout's per-neuron
@@ -32,7 +32,7 @@ import os
 import numpy as np
 import torch
 
-from paper_style import (COLOR_OUTLIER, LOG_ROOT, annotate, count_label, identity, read_metrics, ticks3,
+from paper_style import (COLOR_OUTLIER, FS_ANNOT, LOG_ROOT, annotate, count_label, identity, read_metrics, ticks3,
                          type_cmap)
 
 W_RANGE, V_RANGE, TAU_RANGE = (-1.0, 2.0), (0.0, 1.0), (0.0, 0.5)
@@ -169,6 +169,39 @@ def draw_block(axes, run_data, cmap=None, show_ylabels=True, n_edges_max=150_000
         ax.set_xlabel(xl)
         if show_ylabels:
             ax.set_ylabel(yl)
+
+
+def draw_colored_embedding(fig, axes, run_data, ref_ax):
+    """axes = (ax_tau, ax_V): every neuron of the embedding panel `ref_ax` again, on its axes, limits and
+    ticks, coloured by its TRUE tau (log scale) and by its TRUE V_rest, each with a thin horizontal colour
+    bar above the panel's right half. Fig. 1 e, f; the same two panels under Figs. 10 and 15's maps."""
+    from matplotlib.colors import LogNorm
+    import matplotlib.ticker as mtick
+    p = run_data["panels"]
+    a = np.asarray(p["a"]); tau = np.asarray(run_data["tau_true"]); V = np.asarray(run_data["V_true"])
+    for ax, c, norm, label in ((axes[0], tau, LogNorm(tau.min(), tau.max()), "true $\\tau$"),
+                               (axes[1], V, None, "true $V_{rest}$")):
+        sc = ax.scatter(a[:, 0], a[:, 1], c=c, cmap="viridis", norm=norm, s=0.5, alpha=0.5, lw=0,
+                        rasterized=True)
+        # the reference panel's axes, limits and ticks, so the embedding panels compare point for point
+        ax.set_xlim(ref_ax.get_xlim()); ax.set_ylim(ref_ax.get_ylim())
+        ax.set_xticks(ref_ax.get_xticks()); ax.set_xticklabels([t.get_text() for t in ref_ax.get_xticklabels()])
+        ax.set_yticks(ref_ax.get_yticks()); ax.set_yticklabels([t.get_text() for t in ref_ax.get_yticklabels()])
+        ax.set_xlabel(ref_ax.get_xlabel()); ax.set_ylabel(ref_ax.get_ylabel())
+        cax = ax.inset_axes([0.45, 1.05, 0.55, 0.05])
+        cb = fig.colorbar(sc, cax=cax, orientation="horizontal")
+        cb.ax.tick_params(labelsize=FS_ANNOT - 1, length=1.5, pad=1)
+        cb.outline.set_linewidth(0.4)
+        cax.xaxis.set_ticks_position("top")
+        cax.text(-0.04, 0.5, label, transform=cax.transAxes, ha="right", va="center", fontsize=FS_ANNOT)
+        if norm is not None:
+            cax.xaxis.set_major_locator(mtick.FixedLocator([0.02, 0.1, 0.3]))
+            cax.xaxis.set_major_formatter(mtick.FixedFormatter(["0.02", "0.1", "0.3"]))
+            cax.xaxis.set_minor_locator(mtick.NullLocator())
+        else:
+            cax.xaxis.set_major_locator(mtick.FixedLocator([0.2, 0.5, 0.8]))
+        for sp in ("top", "right"):
+            ax.spines[sp].set_visible(False)
 
 
 def _range(v, pad=0.05):
