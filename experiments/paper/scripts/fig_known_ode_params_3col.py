@@ -4,9 +4,8 @@ published May 2026 checkpoints scored with the current -o test_plot).
 
     python scripts/fig_known_ode_params_3col.py
 
-Three blocks (noise-free, sigma 0.05, sigma 0.5), each 3 x 2: W | cell-type map, then
-V_rest | tau, then the map again coloured by its true tau and by its true V_rest
-(params_panels.draw_colored_embedding, as Fig. 1 e, f); letters row-major (a-f, g-l, m-r).
+Three blocks (noise-free, sigma 0.05, sigma 0.5), each 2 x 2 as the published
+figure: W | cell-type map, then V_rest | tau; letters row-major (a-f, g-l).
 
     W         learned vs true synaptic weight, all 434,112 edges (the Known-ODE
               learns W directly, so every edge is scored: metrics Wij_n)
@@ -43,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # this repository's connectome_gnn, not whichever worktree the env has installed (cluster_recovery lives here)
 sys.path.insert(1, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "src"))
 from paper_style import CM, FIG_DIR, LOG_ROOT, column_titles, panel_labels, read_metrics, save, ticks3, type_cmap  # noqa: E402
-from params_panels import THR, draw_block, draw_colored_embedding  # noqa: E402
+from params_panels import THR, draw_block  # noqa: E402
 
 BLOCKS = [
     ("noise-free ($\\sigma = 0$)", "flyvis_noise_free_blank50_kode217_cv00"),
@@ -95,38 +94,37 @@ def load_kode(run):
 def main():
     n_blocks = len(BLOCKS)
     width = MARGIN_L_CM + n_blocks * (2 * PANEL_CM + GAP_IN_CM) + (n_blocks - 1) * GAP_BLOCK_CM + 0.3
-    height = MARGIN_B_CM + 3 * PANEL_CM + 2 * GAP_ROW_CM + 1.0
+    height = MARGIN_B_CM + 2 * PANEL_CM + GAP_ROW_CM + 1.0
     fig = plt.figure(figsize=(width * CM, height * CM))
     cmap = type_cmap()
-    rows = [[], [], []]
+    rows = [[], []]
     blocks_axes = []
     n_outside = []
     for k, (title, run) in enumerate(BLOCKS):
         x0 = (MARGIN_L_CM + k * (2 * PANEL_CM + GAP_IN_CM + GAP_BLOCK_CM)) / width
         y0 = MARGIN_B_CM / height
-        gs = mgs.GridSpec(3, 2, figure=fig, left=x0, right=x0 + (2 * PANEL_CM + GAP_IN_CM) / width,
-                          bottom=y0, top=y0 + (3 * PANEL_CM + 2 * GAP_ROW_CM) / height,
+        gs = mgs.GridSpec(2, 2, figure=fig, left=x0, right=x0 + (2 * PANEL_CM + GAP_IN_CM) / width,
+                          bottom=y0, top=y0 + (2 * PANEL_CM + GAP_ROW_CM) / height,
                           wspace=GAP_IN_CM / PANEL_CM, hspace=GAP_ROW_CM / PANEL_CM)
-        axes = [fig.add_subplot(gs[r, c]) for r in range(3) for c in range(2)]
+        axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(2)]
         data = load_kode(run)
         n_outside.append(data["n_outside"]); n_edges = len(data["W_true"])
-        draw_block(axes[:4], data, cmap=cmap)
+        draw_block(axes, data, cmap=cmap)
         # the map's axes: symmetric about 0 in whole UMAP units, ticks -L, 0, L
         a = data["panels"]["a"]
         L = float(np.ceil(np.abs(a).max() + 1))
         ticks3(axes[1], -L, L)
         axes[1].set_xlabel("UMAP$_1$"); axes[1].set_ylabel("UMAP$_2$")
-        draw_colored_embedding(fig, axes[4:6], data, axes[1])
         # V_rest / tau: the R2 box stays top-left as in Fig. 1, drawn over the points with a thin white halo --
         # at sigma 0 and 0.05 the cluster at true V_rest 0.5-0.8 reaches under it (the lower-right corner,
         # tried, crosses the identity and the dotted outlier line instead)
-        for ax in axes[2:4]:
+        for ax in axes[2:]:
             for t in ax.texts:
                 t.set_zorder(5); t.set_path_effects([pe.withStroke(linewidth=1.6, foreground="white")])
-        rows[0] += axes[:2]; rows[1] += axes[2:4]; rows[2] += axes[4:6]
+        rows[0] += axes[:2]; rows[1] += axes[2:]
         blocks_axes.append(axes)
     column_titles(fig, [b[:2] for b in blocks_axes], [t for t, _ in BLOCKS], dy_pt=16, fontsize=9)
-    panel_labels(fig, rows[0] + rows[1] + rows[2], dy_pt=4)
+    panel_labels(fig, rows[0] + rows[1], dy_pt=4)
     save(fig, os.path.join(FIG_DIR, "fig_known_ode_params_3col_noise_comparison_new"))
     # the caption's clipping count (edit_tex.py reads it): the most edges any column puts off the W axes
     json.dump({"n_outside": max(n_outside), "n_edges": int(n_edges)},

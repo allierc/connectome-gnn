@@ -274,8 +274,7 @@ _kp_new = r"""\begin{figure}[ht!]
     clustering accuracy is computed on (learned $\tau$ and $V^{\mathrm{rest}}$, with the mean, SD, minimum
     and maximum of the incoming and of the outgoing learned weights, standardised), coloured by
     ground-truth cell type. \textbf{(g, i, k)}~Resting potentials $V_i^{\mathrm{rest}}$.
-    \textbf{(h, j, l)}~Time constants $\tau_i$. \textbf{(m, o, q)} and \textbf{(n, p, r)}~The UMAP of
-    (b, d, f) coloured by the ground-truth $\tau_i$ (log scale) and $V_i^{\mathrm{rest}}$. Each scatter is annotated with the $R^2$ and slope of learned
+    \textbf{(h, j, l)}~Time constants $\tau_i$. Each scatter is annotated with the $R^2$ and slope of learned
     against true quoted in \cref{tab:cv_gnn_vs_baselines} (identity-line $R^2$; for $\tau$ and
     $V^{\mathrm{rest}}$ the inlier $R^2$ with the all-neuron $R^2$ in parentheses, outliers beyond the dotted
     $\pm 0.1$~s / $\pm 0.2$ bands in red, drawn on the axis edge when beyond it, and their fraction printed).}}
